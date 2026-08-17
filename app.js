@@ -277,6 +277,7 @@ function resetForm(){
   document.getElementById('f_data').value = new Date().toISOString().slice(0,10);
   popularSelects();
   document.getElementById('f_detalhe').value = '';
+  document.getElementById('f_solucao').value = '';
   const conta = contaAtual();
   const isUsuario = conta && conta.perfil === 'USUARIO';
   document.getElementById('f_hi').value = isUsuario ? '00:00' : '08:00';
@@ -291,6 +292,9 @@ function resetForm(){
   // o seletor de status quando editando um atendimento já existente
   document.getElementById('campoStatusSelect').style.display = 'none';
   document.getElementById('campoStatusFixo').style.display = '';
+  // "Solução" só faz sentido pra quem está atendendo o chamado — some
+  // na criação (ninguém resolveu nada ainda) e aparece ao editar
+  document.getElementById('campoSolucao').style.display = 'none';
 
   if(conta && conta.perfil === 'ATENDENTE'){
     const btn = document.querySelector(`#f_atendente button[data-val="${conta.nome}"]`);
@@ -313,6 +317,7 @@ async function salvarRegistro(){
   const atendente = isUsuario ? '' : getSegSel('f_atendente');
   if(!tipo || (!isUsuario && !atendente)){ toast('Cadastre ao menos um tipo e um atendente'); return; }
   const detalhe = document.getElementById('f_detalhe').value.trim();
+  const solucao = document.getElementById('f_solucao').value.trim();
   const hi = document.getElementById('f_hi').value;
   const inter = document.getElementById('f_inter').value;
   const hf = document.getElementById('f_hf').value;
@@ -322,7 +327,7 @@ async function salvarRegistro(){
   btn.disabled = true;
   btn.textContent = 'Salvando…';
   try{
-    const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, hi, inter, hf, status,
+    const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
       anexoUrlExistente: anexoAtual.url, anexoNomeExistente: anexoAtual.nome };
 
     const arquivo = document.getElementById('f_anexo').files[0];
@@ -354,6 +359,7 @@ function editar(id){
   document.getElementById('campoStatusSelect').style.display = '';
   document.getElementById('campoStatusFixo').style.display = 'none';
   document.getElementById('campoHorarios').style.display = ''; // quem edita é atendente/admin, sempre vê horários
+  document.getElementById('campoSolucao').style.display = '';
   const cliente = clientes.find(c=>c.nome===r.cliente);
   if(cliente) document.getElementById('f_cliente').value = cliente.id;
   popularUsuariosSolicitantes();
@@ -365,6 +371,7 @@ function editar(id){
   const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
   if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
   document.getElementById('f_detalhe').value = r.detalhe || '';
+  document.getElementById('f_solucao').value = r.solucao || '';
   document.getElementById('f_hi').value = r.hi;
   document.getElementById('f_inter').value = r.inter;
   document.getElementById('f_hf').value = r.hf;
@@ -445,6 +452,7 @@ function renderLista(){
         <span class="tag">${labelTipo(r.tipo)}</span>
         <span class="tag">${r.atendente || 'A definir'}</span>
         <span class="tag">${qtdNum.toFixed(2).replace('.',',')}h</span>
+        ${r.solucao ? `<span class="tag" style="color:var(--ok);">✓ Solucionado</span>` : ''}
         ${r.anexoUrl ? `<a class="tag" style="color:var(--accent);" href="${r.anexoUrl}" target="_blank" onclick="event.stopPropagation();">📎 ${r.anexoNome||'anexo'}</a>` : ''}
       </div>
       ${contatoAtendente ? `<div style="margin-top:8px;font-size:12px;" onclick="event.stopPropagation();">Contato do atendente: ${contatoAtendente}</div>` : ''}
@@ -567,10 +575,10 @@ function exportarCsv(){
   const mes = document.getElementById('r_mes').value;
   const itens = atendimentos.filter(r=>r.mes===mes).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data)));
   if(itens.length===0){ toast('Nada para exportar neste mês'); return; }
-  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','HI','INTER','HF','QTD','VHA','TOTAL ANANDA','STATUS','VHR','TOTAL REAL','ANEXO'];
+  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VHA','TOTAL ANANDA','STATUS','VHR','TOTAL REAL','ANEXO'];
   const rows = itens.map(r=>{
     const [y,m,d]=String(r.data).split('-');
-    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, (r.detalhe||'').replace(/;/g,','), r.hi, r.inter, r.hf,
+    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, (r.detalhe||'').replace(/;/g,','), (r.solucao||'').replace(/;/g,','), r.hi, r.inter, r.hf,
       Number(r.qtd).toFixed(2), r.vha, Number(r.totalAnanda).toFixed(2), r.status, r.vhr, Number(r.totalReal).toFixed(2), r.anexoUrl||''];
   });
   const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
@@ -834,6 +842,7 @@ async function abrirDetalhe(atendimentoId){
   document.getElementById('chatResumo').innerHTML = `
     ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;">${modSub}</div>` : ''}
     ${r.detalhe ? `<div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${escaparHtml(r.detalhe)}</div>` : ''}
+    ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);">Solução:</b> ${escaparHtml(r.solucao)}</div>` : ''}
     ${r.anexoUrl ? `<a href="${r.anexoUrl}" target="_blank" style="font-size:12px;color:var(--accent);">📎 ${r.anexoNome||'anexo'}</a>` : ''}
   `;
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
