@@ -294,6 +294,19 @@
   <!-- LISTA -->
   <section class="view" id="view-lista">
     <div class="filters" id="filtros"></div>
+    <div class="filters" id="filtrosStatus" style="margin-bottom:10px;"></div>
+    <label id="linhaSelecionarTodos" style="display:none;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer;margin-bottom:10px;">
+      <input type="checkbox" id="chkSelecionarTodos"> Selecionar todos visíveis
+    </label>
+    <div class="card" id="barraSelecao" style="display:none;padding:12px 14px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span id="contadorSelecionados" style="font-size:13px;font-weight:600;"></span>
+        <div style="display:flex;gap:8px;">
+          <button class="ghost" id="btnLimparSelecao">Limpar</button>
+          <button class="primary" id="btnAlterarStatusMassa" style="margin:0;padding:9px 14px;">Alterar status</button>
+        </div>
+      </div>
+    </div>
     <div id="listaItens"></div>
   </section>
 
@@ -488,6 +501,18 @@
       <button id="btnEnviarMensagem">Enviar</button>
     </div>
     <button class="ghost" id="btnFecharChat" style="margin-top:10px;">Fechar</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="statusMassaModal">
+  <div class="modal">
+    <h3>Alterar status em massa</h3>
+    <p id="statusMassaTexto" style="color:var(--muted);font-size:13px;margin:4px 0 16px;"></p>
+    <div class="field"><label>Novo status</label><select id="statusMassaSelect"></select></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="statusMassaCancelar">Cancelar</button>
+      <button class="confirm neutro" id="statusMassaConfirmar">Aplicar</button>
+    </div>
   </div>
 </div>
 

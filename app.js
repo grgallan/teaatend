@@ -26,6 +26,8 @@ let editandoAtendenteId = null;
 let editandoUsuarioId = null;
 let excluindoAcao = null;
 let filtroCliente = 'TODOS';
+let filtroStatus = 'TODOS';
+let selecionados = new Set();
 let cadAba = 'atendentes';
 
 /* ---------- utilidades ---------- */
@@ -36,6 +38,57 @@ function mesFromData(dataStr){ if(!dataStr) return ''; const [y,m]=dataStr.split
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
 function labelTipo(nome){ if(nome==='ATENDIMENTO ONLINE') return 'Online'; if(nome==='VISITA TECNICA') return 'Visita técnica'; return nome; }
 function podeVerValores(){ const c = contaAtual(); return c && c.perfil === 'ADMIN'; }
+/* ---------- seleção múltipla / alteração de status em massa ---------- */
+function toggleSelecao(id, marcado){
+  if(marcado) selecionados.add(id); else selecionados.delete(id);
+  atualizarBarraSelecao();
+}
+function atualizarBarraSelecao(){
+  const barra = document.getElementById('barraSelecao');
+  const n = selecionados.size;
+  if(n === 0){ barra.style.display = 'none'; return; }
+  barra.style.display = '';
+  document.getElementById('contadorSelecionados').textContent = `${n} selecionado${n>1?'s':''}`;
+}
+function limparSelecao(){
+  selecionados.clear();
+  document.querySelectorAll('.chk-item').forEach(c=>c.checked=false);
+  const chkTodos = document.getElementById('chkSelecionarTodos');
+  if(chkTodos) chkTodos.checked = false;
+  atualizarBarraSelecao();
+}
+
+function abrirModalStatusMassa(){
+  if(selecionados.size === 0) return;
+  document.getElementById('statusMassaTexto').textContent = `Isso vai alterar o status de ${selecionados.size} atendimento${selecionados.size>1?'s':''} selecionado${selecionados.size>1?'s':''}.`;
+  document.getElementById('statusMassaSelect').innerHTML = statusList.map(s=>`<option value="${s.nome}">${s.nome}</option>`).join('');
+  document.getElementById('statusMassaModal').classList.add('show');
+}
+function fecharModalStatusMassa(){
+  document.getElementById('statusMassaModal').classList.remove('show');
+}
+async function aplicarStatusMassa(){
+  const novoStatus = document.getElementById('statusMassaSelect').value;
+  const conta = contaAtual();
+  const btn = document.getElementById('statusMassaConfirmar');
+  btn.disabled = true;
+  btn.textContent = 'Aplicando…';
+  try{
+    const r = await api('alterarStatusEmMassa', { ids: [...selecionados], novoStatus, contaId: conta.id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível alterar o status.'); return; }
+    fecharModalStatusMassa();
+    limparSelecao();
+    await carregarTudo();
+    renderLista(); renderResumo();
+    toast(`${r.atualizados} de ${r.total} atendimentos atualizados`);
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível alterar o status.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Aplicar';
+  }
+}
+
 function contatoDoAtendente(nomeAtendente){
   const a = contas.find(c=>c.perfil==='ATENDENTE' && c.nome===nomeAtendente);
   if(!a) return '';
@@ -462,6 +515,22 @@ function renderFiltros(){
     filtroCliente = chip.dataset.cliente;
     renderLista();
   });
+  renderFiltrosStatus();
+}
+
+function renderFiltrosStatus(){
+  const el = document.getElementById('filtrosStatus');
+  const conta = contaAtual();
+  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="chip on" data-status="TODOS">Todos status</div>` +
+    statusList.map(s=>`<div class="chip" data-status="${s.nome}">${s.nome}</div>`).join('');
+  el.addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    el.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+    chip.classList.add('on');
+    filtroStatus = chip.dataset.status;
+    renderLista();
+  });
 }
 
 function renderLista(){
@@ -470,17 +539,22 @@ function renderLista(){
   let itens = atendimentos.slice();
   if(conta && conta.perfil === 'USUARIO'){
     itens = itens.filter(r=>r.usuario === conta.nome);
-  }else if(filtroCliente !== 'TODOS'){
-    itens = itens.filter(r=>r.cliente===filtroCliente);
+  }else{
+    if(filtroCliente !== 'TODOS') itens = itens.filter(r=>r.cliente===filtroCliente);
+    if(filtroStatus !== 'TODOS') itens = itens.filter(r=>r.status===filtroStatus);
   }
   itens.sort((a,b)=> String(b.data).localeCompare(String(a.data)));
-
-  if(itens.length===0){ cont.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum atendimento encontrado.</div>`; return; }
 
   const podeEditar = conta && conta.perfil !== 'USUARIO';
   const verValores = podeVerValores();
   const isUsuario = conta && conta.perfil === 'USUARIO';
   const isAdmin = conta && conta.perfil === 'ADMIN';
+
+  document.getElementById('linhaSelecionarTodos').style.display = podeEditar ? 'flex' : 'none';
+  if(!podeEditar){ selecionados.clear(); }
+  atualizarBarraSelecao();
+
+  if(itens.length===0){ cont.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum atendimento encontrado.</div>`; return; }
 
   cont.innerHTML = itens.map(r=>{
     const [y,m,d] = String(r.data).split('-');
@@ -489,11 +563,14 @@ function renderLista(){
     const modSub = [r.modulo, r.submodulo].filter(Boolean).join(' · ');
     const contatoAtendente = isUsuario ? contatoDoAtendente(r.atendente) : '';
     const clicavel = podeUsarChat(r);
+    const checkbox = podeEditar ? `<input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="event.stopPropagation();toggleSelecao('${r.id}', this.checked)" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">` : '';
     return `
     <div class="item" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''}>
       <div class="top">
+        ${checkbox ? `<div style="display:flex;gap:10px;">${checkbox}<div>` : '<div>'}
         <div><div class="cliente">${r.cliente} · ${r.usuario}</div>
         <div class="data">${dataFmt} · ${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (int. '+r.inter+')' : ''}</div></div>
+        ${checkbox ? `</div></div>` : '</div>'}
         <span class="tag status-${r.status}">${r.status}</span>
       </div>
       ${modSub ? `<div class="detalhe" style="color:var(--accent);font-weight:600;">${modSub}</div>` : ''}
@@ -1068,6 +1145,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
 
   document.getElementById('btnFecharChat').addEventListener('click', fecharChat);
+
+  document.getElementById('chkSelecionarTodos').addEventListener('change', e=>{
+    const idsVisiveis = [...document.querySelectorAll('.chk-item')].map(c=>c.dataset.id);
+    if(e.target.checked){ idsVisiveis.forEach(id=>selecionados.add(id)); }
+    else{ idsVisiveis.forEach(id=>selecionados.delete(id)); }
+    renderLista();
+  });
+  document.getElementById('btnLimparSelecao').addEventListener('click', limparSelecao);
+  document.getElementById('btnAlterarStatusMassa').addEventListener('click', abrirModalStatusMassa);
+  document.getElementById('statusMassaCancelar').addEventListener('click', fecharModalStatusMassa);
+  document.getElementById('statusMassaConfirmar').addEventListener('click', aplicarStatusMassa);
   document.getElementById('btnEnviarMensagem').addEventListener('click', enviarMensagem);
   document.getElementById('chatTexto').addEventListener('keydown', e=>{
     if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviarMensagem(); }
