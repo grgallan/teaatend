@@ -64,7 +64,7 @@ function lerArquivoBase64(file){
 
 /* ---------- comunicação com o backend (Edge Function do Supabase) ---------- */
 async function api(action, payload={}){
-  if(!CONFIG.API_URL || CONFIG.API_URL.includes('COLE_AQUI') || !CONFIG.ANON_KEY || CONFIG.ANON_KEY.includes('COLE_AQUI')){
+  if(!CONFIG.API_URL || CONFIG.API_URL.includes('https://prchmojpfgeqbnoiisyf.supabase.co/functions/v1/super-function') || !CONFIG.ANON_KEY || CONFIG.ANON_KEY.includes('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80')){
     const msg = 'Configure a URL e a chave da API em app.js (CONFIG.API_URL / CONFIG.ANON_KEY)';
     toast(msg);
     throw new Error(msg);
@@ -220,6 +220,10 @@ function popularSelects(){
 
   // usuário não preenche horário trabalhado — isso é registrado por quem atende
   document.getElementById('campoHorarios').style.display = isUsuario ? 'none' : '';
+
+  // ajuste manual de horas — só o admin tem esse campo
+  const isAdmin = conta && conta.perfil === 'ADMIN';
+  document.getElementById('campoQtdManual').style.display = isAdmin ? '' : 'none';
 }
 function popularUsuariosSolicitantes(){
   const conta = contaAtual();
@@ -249,12 +253,13 @@ function segmentedSetup(containerId, onChange){
   });
 }
 
-/* ---------- valores por cliente+tipo (para o preview local) ---------- */
-function valoresPara(clienteNome, tipoNome){
+/* ---------- valores por atendente+cliente+tipo (para o preview local) ---------- */
+function valoresPara(clienteNome, tipoNome, atendenteNome){
   const cliente = clientes.find(c=>c.nome===clienteNome);
   const tipo = tipos.find(t=>t.nome===tipoNome);
-  if(!cliente || !tipo) return {real:0, ananda:0};
-  const v = valores.find(v=>String(v.clienteId)===String(cliente.id) && String(v.tipoId)===String(tipo.id));
+  const atendenteConta = atendenteNome ? contas.find(c=>c.perfil==='ATENDENTE' && c.nome===atendenteNome) : null;
+  if(!cliente || !tipo || !atendenteConta) return {real:0, ananda:0};
+  const v = valores.find(v=>String(v.atendenteId)===String(atendenteConta.id) && String(v.clienteId)===String(cliente.id) && String(v.tipoId)===String(tipo.id));
   return v ? {real:Number(v.real), ananda:Number(v.ananda)} : {real:0, ananda:0};
 }
 
@@ -262,10 +267,12 @@ function atualizarPreview(){
   const clienteId = document.getElementById('f_cliente').value;
   const clienteNome = clientes.find(c=>String(c.id)===String(clienteId))?.nome;
   const tipoNome = getSegSel('f_tipo');
+  const atendenteNome = getSegSel('f_atendente');
   const hi = document.getElementById('f_hi').value;
   const hf = document.getElementById('f_hf').value;
-  const qtd = calcQtd(hi, hf);
-  const vals = valoresPara(clienteNome, tipoNome);
+  const qtdManualStr = document.getElementById('f_qtd_manual').value;
+  const qtd = qtdManualStr !== '' ? Number(qtdManualStr) : calcQtd(hi, hf);
+  const vals = valoresPara(clienteNome, tipoNome, atendenteNome);
   document.getElementById('p_qtd').textContent = qtd.toFixed(2).replace('.',',') + 'h';
   document.getElementById('p_ananda').textContent = fmtMoeda(qtd * vals.ananda);
   document.getElementById('p_real').textContent = fmtMoeda(qtd * vals.real);
@@ -284,6 +291,7 @@ function resetForm(){
   document.getElementById('f_inter').value = '00:00';
   document.getElementById('f_hf').value = isUsuario ? '00:00' : '09:00';
   document.getElementById('f_status').value = 'PENDENTE';
+  document.getElementById('f_qtd_manual').value = '';
   document.getElementById('f_anexo').value = '';
   document.getElementById('anexoAtualInfo').style.display = 'none';
   anexoAtual = { url: '', nome: '' };
@@ -322,12 +330,15 @@ async function salvarRegistro(){
   const inter = document.getElementById('f_inter').value;
   const hf = document.getElementById('f_hf').value;
   const status = document.getElementById('f_status').value;
+  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const qtdManualStr = isAdmin ? document.getElementById('f_qtd_manual').value : '';
 
   const btn = document.getElementById('btnSalvar');
   btn.disabled = true;
   btn.textContent = 'Salvando…';
   try{
     const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
+      qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined,
       anexoUrlExistente: anexoAtual.url, anexoNomeExistente: anexoAtual.nome };
 
     const arquivo = document.getElementById('f_anexo').files[0];
@@ -376,6 +387,8 @@ function editar(id){
   document.getElementById('f_inter').value = r.inter;
   document.getElementById('f_hf').value = r.hf;
   document.getElementById('f_status').value = r.status;
+  document.getElementById('f_qtd_manual').value = '';
+  document.getElementById('f_qtd_manual').placeholder = `Atual: ${Number(r.qtd).toFixed(2).replace('.',',')}h — deixe em branco pra manter`;
   document.getElementById('f_anexo').value = '';
   anexoAtual = { url: r.anexoUrl || '', nome: r.anexoNome || '' };
   const infoEl = document.getElementById('anexoAtualInfo');
@@ -388,6 +401,42 @@ function editar(id){
   }
   atualizarPreview();
   goView('novo');
+}
+
+function copiarAtendimento(id){
+  const r = atendimentos.find(x=>String(x.id)===String(id));
+  if(!r) return;
+  editandoId = null; // fica como um lançamento NOVO — salvar cria outro registro, não sobrescreve o original
+  document.getElementById('btnSalvar').textContent = 'Salvar atendimento';
+  document.getElementById('f_data').value = new Date().toISOString().slice(0,10);
+  popularSelects();
+  document.getElementById('campoStatusSelect').style.display = 'none';
+  document.getElementById('campoStatusFixo').style.display = '';
+  document.getElementById('campoSolucao').style.display = 'none';
+  const cliente = clientes.find(c=>c.nome===r.cliente);
+  if(cliente) document.getElementById('f_cliente').value = cliente.id;
+  popularUsuariosSolicitantes();
+  document.getElementById('f_usuario').value = r.usuario;
+  document.getElementById('f_modulo').value = r.modulo || '';
+  document.getElementById('f_submodulo').value = r.submodulo || '';
+  const tipoBtn = document.querySelector(`#f_tipo button[data-val="${r.tipo}"]`);
+  if(tipoBtn){ document.querySelectorAll('#f_tipo button').forEach(b=>b.classList.remove('sel')); tipoBtn.classList.add('sel'); }
+  const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
+  if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
+  document.getElementById('f_detalhe').value = r.detalhe || '';
+  document.getElementById('f_solucao').value = '';
+  document.getElementById('f_hi').value = r.hi;
+  document.getElementById('f_inter').value = r.inter;
+  document.getElementById('f_hf').value = r.hf;
+  document.getElementById('f_qtd_manual').value = '';
+  document.getElementById('f_qtd_manual').placeholder = 'Deixe em branco pra calcular pelo horário acima';
+  // anexo não é copiado — cada atendimento tem o seu
+  document.getElementById('f_anexo').value = '';
+  anexoAtual = { url: '', nome: '' };
+  document.getElementById('anexoAtualInfo').style.display = 'none';
+  atualizarPreview();
+  goView('novo');
+  toast('Copiado — ajuste o que precisar e salve como um novo atendimento');
 }
 
 function pedirConfirmacao(titulo, texto, acao, labelBotao){
@@ -431,6 +480,7 @@ function renderLista(){
   const podeEditar = conta && conta.perfil !== 'USUARIO';
   const verValores = podeVerValores();
   const isUsuario = conta && conta.perfil === 'USUARIO';
+  const isAdmin = conta && conta.perfil === 'ADMIN';
 
   cont.innerHTML = itens.map(r=>{
     const [y,m,d] = String(r.data).split('-');
@@ -458,13 +508,14 @@ function renderLista(){
       ${contatoAtendente ? `<div style="margin-top:8px;font-size:12px;" onclick="event.stopPropagation();">Contato do atendente: ${contatoAtendente}</div>` : ''}
       ${verValores ? `
       <div class="valores">
-        <span class="v1">Ananda: ${fmtMoeda(Number(r.totalAnanda))}</span>
+        <span class="v1">Atendente: ${fmtMoeda(Number(r.totalAnanda))}</span>
         <span class="v2">${fmtMoeda(Number(r.totalReal))}</span>
       </div>` : ''}
       ${podeEditar ? `
       <div class="item-actions">
         <button class="ghost" onclick="event.stopPropagation();editar('${r.id}')">Editar</button>
         <button class="ghost" onclick="event.stopPropagation();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">Excluir</button>
+        ${isAdmin ? `<button class="ghost" onclick="event.stopPropagation();copiarAtendimento('${r.id}')">Copiar</button>` : ''}
         ${clicavel ? `<button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button>` : ''}
       </div>` : (clicavel ? `
       <div class="item-actions">
@@ -503,7 +554,6 @@ function renderResumo(){
   const conta = contaAtual();
   const isAdmin = conta && conta.perfil === 'ADMIN';
   let itens = atendimentos.filter(r=>r.mes===mes);
-  const verValores = podeVerValores();
 
   // admin pode filtrar o resumo por um atendente específico; atendente só vê o próprio
   const campoFiltro = document.getElementById('campoFiltroAtendenteResumo');
@@ -522,13 +572,17 @@ function renderResumo(){
   }
 
   const totalHoras = itens.reduce((s,r)=>s+Number(r.qtd),0);
+  const verValoresReal = podeVerValores();               // Valor Real — só admin
+  const verValorAtendente = isAdmin || (conta && conta.perfil === 'ATENDENTE'); // Valor Atendente — admin e o próprio atendente
 
-  if(verValores){
-    const totalReal = itens.reduce((s,r)=>s+Number(r.totalReal),0);
-    const totalAnanda = itens.reduce((s,r)=>s+Number(r.totalAnanda),0);
+  if(verValoresReal || verValorAtendente){
+    const totalAnanda = itens.reduce((s,r)=>s+Number(r.totalAnanda||0),0);
+    const boxesExtra = [
+      verValoresReal ? `<div class="box"><div class="k">Total real</div><div class="v" style="color:var(--accent)">${fmtMoeda(itens.reduce((s,r)=>s+Number(r.totalReal||0),0))}</div></div>` : '',
+      verValorAtendente ? `<div class="box"><div class="k">Total Atendente</div><div class="v"${verValoresReal?'':' style="color:var(--accent)"'}>${fmtMoeda(totalAnanda)}</div></div>` : '',
+    ].join('');
     document.getElementById('resumoBoxes').innerHTML = `
-      <div class="box"><div class="k">Total real</div><div class="v" style="color:var(--accent)">${fmtMoeda(totalReal)}</div></div>
-      <div class="box"><div class="k">Total Ananda</div><div class="v">${fmtMoeda(totalAnanda)}</div></div>
+      ${boxesExtra}
       <div class="box"><div class="k">Horas no mês</div><div class="v">${totalHoras.toFixed(1).replace('.',',')}h</div></div>
       <div class="box"><div class="k">Atendimentos</div><div class="v">${itens.length}</div></div>`;
   }else{
@@ -537,7 +591,7 @@ function renderResumo(){
       <div class="box"><div class="k">Atendimentos</div><div class="v">${itens.length}</div></div>`;
   }
 
-  // quebra por cliente — mostra horas sempre; valores em R$ só se puder ver
+  // quebra por cliente — mostra horas sempre; valores em R$ conforme o que a conta pode ver
   const cardCliente = document.getElementById('cardResumoCliente');
   if(itens.length > 0){
     cardCliente.style.display = '';
@@ -549,13 +603,16 @@ function renderResumo(){
       porCliente[r.cliente].ananda += Number(r.totalAnanda)||0;
       porCliente[r.cliente].qtd += 1;
     });
+    const colunasExtra = (v) => [
+      verValoresReal ? `<td>${fmtMoeda(v.real)}</td>` : '',
+      verValorAtendente ? `<td>${fmtMoeda(v.ananda)}</td>` : '',
+    ].join('');
     const linhasCliente = Object.entries(porCliente)
       .sort((a,b)=>b[1].horas-a[1].horas)
-      .map(([nome,v])=>{
-        return `<tr><td>${nome}</td><td>${v.horas.toFixed(2).replace('.',',')}h</td><td>${v.qtd}</td>${verValores ? `<td>${fmtMoeda(v.real)}</td><td>${fmtMoeda(v.ananda)}</td>` : ''}</tr>`;
-      }).join('');
+      .map(([nome,v])=>`<tr><td>${nome}</td><td>${v.horas.toFixed(2).replace('.',',')}h</td><td>${v.qtd}</td>${colunasExtra(v)}</tr>`)
+      .join('');
     document.getElementById('resumoPorCliente').innerHTML =
-      `<tr><th>Cliente</th><th>Horas</th><th>Atend.</th>${verValores ? '<th>Real</th><th>Ananda</th>' : ''}</tr>${linhasCliente}`;
+      `<tr><th>Cliente</th><th>Horas</th><th>Atend.</th>${verValoresReal?'<th>Real</th>':''}${verValorAtendente?'<th>Atendente</th>':''}</tr>${linhasCliente}`;
   }else{
     cardCliente.style.display = 'none';
   }
@@ -575,7 +632,7 @@ function exportarCsv(){
   const mes = document.getElementById('r_mes').value;
   const itens = atendimentos.filter(r=>r.mes===mes).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data)));
   if(itens.length===0){ toast('Nada para exportar neste mês'); return; }
-  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VHA','TOTAL ANANDA','STATUS','VHR','TOTAL REAL','ANEXO'];
+  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
   const rows = itens.map(r=>{
     const [y,m,d]=String(r.data).split('-');
     return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, (r.detalhe||'').replace(/;/g,','), (r.solucao||'').replace(/;/g,','), r.hi, r.inter, r.hf,
@@ -748,7 +805,7 @@ function renderTabelaValores(){
     return `<tr><td>${atendente}</td><td>${cliente}</td><td>${labelTipo(tipo)}</td><td>${fmtMoeda(Number(v.real))}</td><td>${fmtMoeda(Number(v.ananda))}</td>
       <td><button class="danger" onclick="pedirConfirmacao('Remover valor?','', ()=>removerValor('${v.id}'))">✕</button></td></tr>`;
   }).join('');
-  el.innerHTML = `<tr><th>Atendente</th><th>Cliente</th><th>Tipo</th><th>Real/h</th><th>Ananda/h</th><th></th></tr>${linhas}`;
+  el.innerHTML = `<tr><th>Atendente</th><th>Cliente</th><th>Tipo</th><th>Real/h</th><th>Valor Atendente/h</th><th></th></tr>${linhas}`;
 }
 async function removerValor(id){
   const r = await api('removerValor', { id });
@@ -968,6 +1025,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('f_hi').addEventListener('change', atualizarPreview);
   document.getElementById('f_hf').addEventListener('change', atualizarPreview);
   document.getElementById('f_inter').addEventListener('change', atualizarPreview);
+  document.getElementById('f_qtd_manual').addEventListener('input', atualizarPreview);
   document.getElementById('btnSalvar').addEventListener('click', salvarRegistro);
   document.getElementById('btnExportar').addEventListener('click', exportarCsv);
   document.getElementById('r_mes').addEventListener('change', renderResumo);

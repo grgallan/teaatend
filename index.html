@@ -258,6 +258,10 @@
         <div class="field"><label>Intervalo</label><input type="time" id="f_inter" value="00:00"></div>
         <div class="field"><label>Hora final</label><input type="time" id="f_hf" value="09:00"></div>
       </div>
+      <div class="field" id="campoQtdManual" style="display:none;">
+        <label>Qtd Horas (ajuste manual, opcional)</label>
+        <input type="number" step="0.01" id="f_qtd_manual" placeholder="Deixe em branco pra calcular pelo horário acima">
+      </div>
       <div class="field" id="campoStatusSelect"><label>Status</label>
         <select id="f_status"></select>
       </div>
@@ -280,7 +284,7 @@
       </div>
       <div class="preview" id="previewBox">
         <div class="stat"><div class="k">Qtd horas</div><div class="v" id="p_qtd">–</div></div>
-        <div class="stat" id="stat_ananda"><div class="k">Total Ananda</div><div class="v" id="p_ananda">–</div></div>
+        <div class="stat" id="stat_ananda"><div class="k">Total Atendente</div><div class="v" id="p_ananda">–</div></div>
         <div class="stat real" id="stat_real"><div class="k">Total real</div><div class="v" id="p_real">–</div></div>
       </div>
       <button class="primary" id="btnSalvar">Salvar atendimento</button>
@@ -398,7 +402,7 @@
         </div>
         <div class="row">
           <div class="field"><label>Valor real (R$/h)</label><input type="number" step="0.01" id="vl_real"></div>
-          <div class="field"><label>Valor Ananda (R$/h)</label><input type="number" step="0.01" id="vl_ananda"></div>
+          <div class="field"><label>Valor Atendente (R$/h)</label><input type="number" step="0.01" id="vl_ananda"></div>
         </div>
         <button class="primary" id="btnAddValor">Salvar valores</button>
       </div>
