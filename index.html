@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#151A1F">
+<title>Controle de Atendimentos</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root{
+    --bg:#12161B; --panel:#1B222A; --panel-2:#232C35; --line:#2C3742;
+    --text:#E9EDF1; --muted:#8B99A6; --accent:#E8A33D; --accent-dim:#4A3A20;
+    --ok:#4FAE7D; --warn:#E8A33D; --bad:#E1615A; --radius:14px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  body{padding-bottom:90px;}
+  header.top{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#12161B 80%,rgba(18,22,27,0));padding:calc(env(safe-area-inset-top) + 18px) 18px 14px;}
+  .brand{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .brand h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px;}
+  .brand-right{display:flex;align-items:center;gap:10px;}
+  .brand .clock{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .brand-sub{color:var(--muted);font-size:12.5px;margin-top:2px;display:flex;justify-content:space-between;align-items:center;}
+  .who{display:flex;align-items:center;gap:8px;}
+  .avatar{width:24px;height:24px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;}
+  .logout{background:none;border:1px solid var(--line);color:var(--muted);font-size:11px;padding:5px 10px;border-radius:8px;font-family:inherit;}
+
+  main{padding:0 14px;max-width:640px;margin:0 auto;}
+
+  .tabs{display:flex;gap:6px;margin:14px 0 16px;background:var(--panel);padding:4px;border-radius:12px;border:1px solid var(--line);overflow-x:auto;}
+  .tab{flex:1;text-align:center;padding:9px 6px;border-radius:9px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap;}
+  .tab.active{background:var(--panel-2);color:var(--accent);}
+
+  .view{display:none;}
+  .view.active{display:block;animation:fade .18s ease;}
+  @keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 14px;font-weight:700;}
+
+  label{display:block;font-size:12.5px;color:var(--muted);margin:0 0 5px;font-weight:600;}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .field{margin-bottom:12px;}
+
+  select,input[type=date],input[type=time],input[type=text],input[type=password],input[type=number],textarea{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    padding:11px 10px;border-radius:10px;font-size:15px;font-family:inherit;appearance:none;-webkit-appearance:none;
+  }
+  select:focus,input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent);}
+  select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='9'><path d='M1 1l6 6 6-6' stroke='%238B99A6' stroke-width='2' fill='none' fill-rule='evenodd'/></svg>");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;}
+  textarea{resize:vertical;min-height:52px;}
+
+  .segmented{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+  .segmented button{flex:1;min-width:70px;padding:10px 4px;background:var(--panel-2);color:var(--muted);border:none;font-size:13px;font-weight:600;font-family:inherit;}
+  .segmented button.sel{background:var(--accent);color:#1A1305;}
+  .segmented button+button{border-left:1px solid var(--line);}
+
+  .preview{display:flex;gap:10px;margin:14px 0 4px;}
+  .preview .stat{flex:1;background:var(--panel-2);border-radius:10px;padding:10px 12px;border:1px solid var(--line);}
+  .preview .stat .k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .preview .stat .v{font-size:17px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums;}
+  .preview .stat.real .v{color:var(--accent);}
+
+  button.primary{width:100%;background:var(--accent);color:#1A1305;border:none;padding:14px;border-radius:12px;font-size:15px;font-weight:700;margin-top:6px;font-family:inherit;}
+  button.primary:active{transform:scale(.98);}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 12px;border-radius:9px;font-size:12.5px;font-family:inherit;}
+  button.small{background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:7px 11px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600;}
+  button.danger{background:transparent;border:1px solid #4a2624;color:var(--bad);padding:7px 11px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600;}
+
+  .filters{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px;}
+  .chip{white-space:nowrap;padding:7px 13px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-size:12.5px;color:var(--muted);font-weight:600;}
+  .chip.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
+
+  .summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+  .summary .box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;}
+  .summary .box .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .summary .box .v{font-size:20px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;}
+
+  .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px;}
+  .item .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .item .cliente{font-weight:700;font-size:14.5px;}
+  .item .data{font-size:12px;color:var(--muted);margin-top:1px;}
+  .item .detalhe{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.4;}
+  .item .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;}
+  .tag{font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--muted);font-weight:600;}
+  .tag.status-VALIDADO{background:#173425;color:var(--ok);}
+  .tag.status-PENDENTE{background:#3A2E12;color:var(--warn);}
+  .tag.status-NÃO\ VALIDADO{background:#3A1918;color:var(--bad);}
+  .item .valores{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
+  .item .valores .v1{font-size:12px;color:var(--muted);}
+  .item .valores .v2{font-size:14px;font-weight:700;color:var(--accent);}
+  .item-actions{display:flex;gap:8px;margin-top:10px;}
+  .item-actions button{flex:1;}
+
+  .empty{text-align:center;padding:50px 20px;color:var(--muted);}
+  .empty .big{font-size:34px;margin-bottom:8px;}
+
+  nav.bottom{position:fixed;bottom:0;left:0;right:0;z-index:30;background:rgba(18,22,27,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);display:flex;gap:6px;max-width:640px;margin:0 auto;overflow-x:auto;}
+  nav.bottom .navbtn{flex:1;min-width:64px;text-align:center;padding:8px 4px;border-radius:11px;color:var(--muted);font-size:11px;font-weight:600;}
+  nav.bottom .navbtn.active{color:var(--accent);background:var(--panel-2);}
+  nav.bottom .navbtn .ic{display:block;font-size:19px;margin-bottom:2px;}
+
+  .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--accent);color:var(--text);padding:10px 18px;border-radius:10px;font-size:13px;z-index:50;opacity:0;pointer-events:none;transition:opacity .25s, transform .25s;font-weight:600;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:none;align-items:flex-end;}
+  .modal-bg.show{display:flex;}
+  .modal{background:var(--panel);border-radius:18px 18px 0 0;padding:20px 18px calc(env(safe-area-inset-bottom) + 20px);width:100%;max-width:640px;margin:0 auto;border:1px solid var(--line);border-bottom:none;}
+  .modal h3{margin:0 0 4px;font-size:16px;}
+  .modal p{color:var(--muted);font-size:13px;margin:0 0 16px;}
+  .modal-actions{display:flex;gap:10px;}
+  .modal-actions button{flex:1;padding:12px;border-radius:10px;font-weight:700;font-size:14px;border:none;font-family:inherit;}
+  .modal-actions .cancel{background:var(--panel-2);color:var(--text);}
+  .modal-actions .confirm{background:var(--bad);color:#fff;}
+  .modal-actions .confirm.neutro{background:var(--accent);color:#1A1305;}
+
+  /* chat */
+  #chatModal .modal{max-height:82vh;display:flex;flex-direction:column;padding-bottom:calc(env(safe-area-inset-bottom) + 14px);}
+  #chatModal h3{margin-bottom:2px;}
+  #chatModal .chat-sub{color:var(--muted);font-size:12px;margin-bottom:12px;}
+  #chatMensagens{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 2px 10px;min-height:120px;max-height:44vh;}
+  .msg{max-width:80%;padding:8px 12px;border-radius:14px;font-size:13.5px;line-height:1.4;}
+  .msg .autor{font-size:10.5px;font-weight:700;opacity:.75;margin-bottom:2px;}
+  .msg .hora{font-size:9.5px;opacity:.55;margin-top:3px;text-align:right;}
+  .msg.mine{align-self:flex-end;background:var(--accent);color:#1A1305;border-bottom-right-radius:4px;}
+  .msg.theirs{align-self:flex-start;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-bottom-left-radius:4px;}
+  .chat-empty{text-align:center;color:var(--muted);font-size:12.5px;padding:20px 0;}
+  .chat-input-row{display:flex;gap:8px;margin-top:8px;}
+  .chat-input-row textarea{flex:1;min-height:42px;max-height:100px;}
+  .chat-input-row button{background:var(--accent);color:#1A1305;border:none;padding:0 16px;border-radius:10px;font-weight:700;font-family:inherit;}
+  .item-actions .chatbtn{flex:1;}
+
+  select#f_status{width:auto;}
+  .install-banner{background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:none;align-items:center;gap:10px;justify-content:space-between;}
+  .install-banner.show{display:flex;}
+  .install-banner span{font-size:12.5px;color:var(--text);}
+  .install-banner button{background:var(--accent);color:#1A1305;border:none;padding:8px 14px;border-radius:8px;font-weight:700;font-size:12.5px;white-space:nowrap;font-family:inherit;}
+
+  #loadingOverlay{position:fixed;inset:0;background:rgba(18,22,27,.88);z-index:200;display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;}
+  .spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  #loadingOverlay span{color:var(--muted);font-size:13px;}
+
+  /* login */
+  #screen-login{position:fixed;inset:0;background:var(--bg);z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;}
+  .login-box{width:100%;max-width:360px;}
+  .login-brand{text-align:center;margin-bottom:22px;}
+  .login-brand .empresa{font-size:15px;font-weight:800;letter-spacing:.04em;color:var(--accent);text-transform:uppercase;}
+  .login-brand .sistema{font-size:12px;color:var(--muted);margin-top:2px;}
+  .login-logo{width:56px;height:56px;border-radius:16px;background:var(--panel-2);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:26px;}
+  .login-box h1{text-align:center;font-size:20px;margin:0 0 4px;}
+  .login-box p.sub{text-align:center;color:var(--muted);font-size:13px;margin:0 0 26px;}
+  .login-error{background:#3A1918;border:1px solid var(--bad);color:#f3b7b4;font-size:12.5px;padding:9px 12px;border-radius:9px;margin-bottom:12px;display:none;}
+  .login-error.show{display:block;}
+  .login-hint{margin-top:18px;text-align:center;font-size:11.5px;color:var(--muted);}
+
+  /* cadastros */
+  .subtabs{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;}
+  .subtab{white-space:nowrap;padding:7px 12px;border-radius:9px;background:var(--panel);border:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600;}
+  .subtab.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
+  .cad-item{display:flex;justify-content:space-between;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-bottom:8px;}
+  .cad-item .info b{font-size:13.5px;display:block;}
+  .cad-item .info span{font-size:11.5px;color:var(--muted);}
+  .cad-item .acts{display:flex;gap:6px;}
+  .valores-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .valores-table th{text-align:left;color:var(--muted);font-weight:600;padding:6px 4px;border-bottom:1px solid var(--line);font-size:10.5px;text-transform:uppercase;}
+  .valores-table td{padding:8px 4px;border-bottom:1px solid var(--line);}
+  .perfil-badge{font-size:10px;padding:2px 7px;border-radius:6px;font-weight:700;}
+  .perfil-badge.ADMIN{background:#3A1918;color:#f3b7b4;}
+  .perfil-badge.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
+  .perfil-badge.USUARIO{background:#173425;color:var(--ok);}
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay"><div class="spinner"></div><span>Carregando dados da planilha…</span></div>
+
+<div id="screen-login">
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="empresa">T&amp;A Tecnologia</div>
+      <div class="sistema">Sistema de Atendimento</div>
+    </div>
+    <div class="login-logo">🔐</div>
+    <h1>Controle de Atendimentos</h1>
+    <p class="sub">Entre com seu usuário e senha</p>
+    <div class="login-error" id="loginError">Usuário ou senha inválidos.</div>
+    <div class="field">
+      <label>Usuário</label>
+      <input type="text" id="loginUser" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="ex: admin">
+    </div>
+    <div class="field">
+      <label>Senha</label>
+      <div style="position:relative;">
+        <input type="password" id="loginPass" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="••••••••" style="padding-right:60px;">
+        <button type="button" id="toggleSenha" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);font-size:11px;font-weight:700;padding:6px 8px;">MOSTRAR</button>
+      </div>
+    </div>
+    <button class="primary" id="btnLogin">Entrar</button>
+    <div class="login-hint">Contas são criadas pelo administrador na tela de Cadastros.</div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+<header class="top">
+  <div class="brand">
+    <h1>Atendimentos</h1>
+    <span class="clock" id="clock"></span>
+  </div>
+  <div class="brand-sub">
+    <div class="who">
+      <div class="avatar" id="avatarIni">–</div>
+      <span id="whoName">–</span>
+    </div>
+    <button class="logout" id="btnLogout">Sair</button>
+  </div>
+</header>
+
+<main>
+  <div class="install-banner" id="installBanner">
+    <span>Instale este app na tela inicial para usar offline.</span>
+    <button id="installBtn">Instalar</button>
+  </div>
+
+  <div class="tabs" id="mainTabs">
+    <div class="tab active" data-view="novo">Novo</div>
+    <div class="tab" data-view="lista">Atendimentos</div>
+    <div class="tab" data-view="resumo">Resumo</div>
+    <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
+  </div>
+
+  <!-- NOVO -->
+  <section class="view active" id="view-novo">
+    <div class="card">
+      <h2>Dados do atendimento</h2>
+      <div class="row">
+        <div class="field"><label>Data</label><input type="date" id="f_data"></div>
+        <div class="field"><label>Cliente</label><select id="f_cliente"></select></div>
+      </div>
+      <div class="field"><label>Usuário solicitante</label><select id="f_usuario"></select></div>
+      <div class="row">
+        <div class="field"><label>Módulo</label><select id="f_modulo"></select></div>
+        <div class="field"><label>Sub Módulo</label><select id="f_submodulo"></select></div>
+      </div>
+      <div class="field"><label>Tipo de atendimento</label><div class="segmented" id="f_tipo"></div></div>
+      <div class="field" id="campoAtendente"><label>Atendente</label><div class="segmented" id="f_atendente"></div></div>
+      <div class="field" id="campoAtendenteInfo" style="display:none;"><p style="color:var(--muted);font-size:12.5px;margin:0;">Um atendente vai assumir seu chamado — todos serão avisados por e-mail.</p></div>
+      <div class="field"><label>Detalhe</label><textarea id="f_detalhe" placeholder="Ex: XML notas importação"></textarea></div>
+      <div class="row3" id="campoHorarios">
+        <div class="field"><label>Hora inicial</label><input type="time" id="f_hi" value="08:00"></div>
+        <div class="field"><label>Intervalo</label><input type="time" id="f_inter" value="00:00"></div>
+        <div class="field"><label>Hora final</label><input type="time" id="f_hf" value="09:00"></div>
+      </div>
+      <div class="field" id="campoStatusSelect"><label>Status</label>
+        <select id="f_status"></select>
+      </div>
+      <div class="field" id="campoStatusFixo" style="display:none;">
+        <label>Status</label>
+        <span class="tag status-PENDENTE" style="display:inline-block;padding:6px 12px;font-size:12.5px;">PENDENTE</span>
+        <p style="color:var(--muted);font-size:12px;margin:6px 0 0;">Todo chamado novo abre como pendente.</p>
+      </div>
+      <div class="field">
+        <label>Anexo (opcional)</label>
+        <input type="file" id="f_anexo">
+        <div id="anexoAtualInfo" style="display:none;margin-top:6px;font-size:12px;color:var(--muted);">
+          Anexo atual: <a id="anexoAtualLink" href="#" target="_blank" style="color:var(--accent);">ver</a>
+          <button type="button" class="ghost" id="btnRemoverAnexoAtual" style="margin-left:8px;padding:2px 8px;">remover</button>
+        </div>
+      </div>
+      <div class="preview" id="previewBox">
+        <div class="stat"><div class="k">Qtd horas</div><div class="v" id="p_qtd">–</div></div>
+        <div class="stat" id="stat_ananda"><div class="k">Total Ananda</div><div class="v" id="p_ananda">–</div></div>
+        <div class="stat real" id="stat_real"><div class="k">Total real</div><div class="v" id="p_real">–</div></div>
+      </div>
+      <button class="primary" id="btnSalvar">Salvar atendimento</button>
+    </div>
+  </section>
+
+  <!-- LISTA -->
+  <section class="view" id="view-lista">
+    <div class="filters" id="filtros"></div>
+    <div id="listaItens"></div>
+  </section>
+
+  <!-- RESUMO -->
+  <section class="view" id="view-resumo">
+    <div class="card">
+      <h2>Mês de referência</h2>
+      <select id="r_mes"></select>
+      <div class="field" id="campoFiltroAtendenteResumo" style="margin-top:10px;display:none;">
+        <label>Atendente</label>
+        <select id="r_atendente"></select>
+      </div>
+    </div>
+    <div class="summary" id="resumoBoxes"></div>
+    <div class="card" id="cardResumoCliente" style="display:none;">
+      <h2>Por cliente</h2>
+      <table class="valores-table" id="resumoPorCliente"></table>
+    </div>
+    <div class="card"><h2>Por status</h2><table class="valores-table" id="resumoStatus"></table></div>
+    <button class="primary" id="btnExportar" style="margin-bottom:14px;">Exportar CSV do mês</button>
+  </section>
+
+  <!-- CADASTROS (admin) -->
+  <section class="view" id="view-cadastros">
+    <div class="subtabs" id="cadSubtabs">
+      <div class="subtab active" data-sub="atendentes">Atendentes</div>
+      <div class="subtab" data-sub="clientes">Clientes</div>
+      <div class="subtab" data-sub="tipos">Tipos</div>
+      <div class="subtab" data-sub="modulos">Módulos</div>
+      <div class="subtab" data-sub="submodulos">Sub Módulos</div>
+      <div class="subtab" data-sub="status">Status</div>
+      <div class="subtab" data-sub="valores">Valores</div>
+      <div class="subtab" data-sub="usuarios">Usuários (login)</div>
+    </div>
+
+    <div class="cad-view active" id="cad-atendentes">
+      <div class="card">
+        <h2 id="at_tituloForm">Novo atendente</h2>
+        <div class="field"><label>Nome</label><input type="text" id="at_nome"></div>
+        <div class="row">
+          <div class="field"><label>Login</label><input type="text" id="at_login"></div>
+          <div class="field"><label>Senha <span id="at_senha_hint" style="display:none;font-weight:400;color:var(--muted);">(deixe em branco pra manter a atual)</span></label><input type="password" id="at_senha"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>E-mail (opcional)</label><input type="text" id="at_email" placeholder="nome@empresa.com"></div>
+          <div class="field"><label>Celular (opcional)</label><input type="text" id="at_telefone" placeholder="11 99999-9999"></div>
+        </div>
+        <button class="primary" id="btnAddAtendente">Adicionar atendente</button>
+        <button class="ghost" id="btnCancelarEdicaoAtendente" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div id="listAtendentes"></div>
+    </div>
+
+    <div class="cad-view" id="cad-clientes" style="display:none;">
+      <div class="card">
+        <h2>Novo cliente</h2>
+        <div class="field"><label>Nome do cliente</label><input type="text" id="cl_nome"></div>
+        <button class="primary" id="btnAddCliente">Adicionar cliente</button>
+      </div>
+      <div id="listClientes"></div>
+    </div>
+
+    <div class="cad-view" id="cad-tipos" style="display:none;">
+      <div class="card">
+        <h2>Novo tipo de atendimento</h2>
+        <div class="field"><label>Nome do tipo</label><input type="text" id="tp_nome" placeholder="Ex: ATENDIMENTO ONLINE"></div>
+        <button class="primary" id="btnAddTipo">Adicionar tipo</button>
+      </div>
+      <div id="listTipos"></div>
+    </div>
+
+    <div class="cad-view" id="cad-modulos" style="display:none;">
+      <div class="card">
+        <h2>Novo módulo</h2>
+        <div class="field"><label>Nome do módulo</label><input type="text" id="md_nome" placeholder="Ex: RM Nucleus"></div>
+        <button class="primary" id="btnAddModulo">Adicionar módulo</button>
+      </div>
+      <div id="listModulos"></div>
+    </div>
+
+    <div class="cad-view" id="cad-submodulos" style="display:none;">
+      <div class="card">
+        <h2>Novo sub módulo</h2>
+        <div class="field"><label>Nome do sub módulo</label><input type="text" id="sm_nome" placeholder="Ex: RM Reports"></div>
+        <button class="primary" id="btnAddSubModulo">Adicionar sub módulo</button>
+      </div>
+      <div id="listSubModulos"></div>
+    </div>
+
+    <div class="cad-view" id="cad-status" style="display:none;">
+      <div class="card">
+        <h2>Novo status</h2>
+        <div class="field"><label>Nome do status</label><input type="text" id="st_nome" placeholder="Ex: EM ANDAMENTO"></div>
+        <button class="primary" id="btnAddStatus">Adicionar status</button>
+      </div>
+      <div id="listStatus"></div>
+    </div>
+
+    <div class="cad-view" id="cad-valores" style="display:none;">
+      <div class="card">
+        <h2>Definir valores/hora por atendente</h2>
+        <div class="field"><label>Atendente</label><select id="vl_atendente"></select></div>
+        <div class="row">
+          <div class="field"><label>Cliente</label><select id="vl_cliente"></select></div>
+          <div class="field"><label>Tipo</label><select id="vl_tipo"></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Valor real (R$/h)</label><input type="number" step="0.01" id="vl_real"></div>
+          <div class="field"><label>Valor Ananda (R$/h)</label><input type="number" step="0.01" id="vl_ananda"></div>
+        </div>
+        <button class="primary" id="btnAddValor">Salvar valores</button>
+      </div>
+      <div class="card">
+        <h2>Tabela atual</h2>
+        <div class="filters" id="filtroValoresAtendente" style="margin-bottom:10px;"></div>
+        <table class="valores-table" id="tabelaValores"></table>
+      </div>
+    </div>
+
+    <div class="cad-view" id="cad-usuarios" style="display:none;">
+      <div class="card">
+        <h2 id="us_tituloForm">Novo usuário solicitante (login)</h2>
+        <div class="field"><label>Cliente</label><select id="us_cliente"></select></div>
+        <div class="field"><label>Nome</label><input type="text" id="us_nome"></div>
+        <div class="row">
+          <div class="field"><label>Login</label><input type="text" id="us_login"></div>
+          <div class="field"><label>Senha <span id="us_senha_hint" style="display:none;font-weight:400;color:var(--muted);">(deixe em branco pra manter a atual)</span></label><input type="password" id="us_senha"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>E-mail (opcional)</label><input type="text" id="us_email" placeholder="nome@empresa.com"></div>
+          <div class="field"><label>Celular (opcional)</label><input type="text" id="us_telefone" placeholder="11 99999-9999"></div>
+        </div>
+        <button class="primary" id="btnAddUsuario">Adicionar usuário</button>
+        <button class="ghost" id="btnCancelarEdicaoUsuario" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div class="card" id="historicoUsuarioCard" style="display:none;">
+        <h2>Histórico de atendimentos</h2>
+        <div id="historicoUsuario"></div>
+      </div>
+      <div id="listUsuarios"></div>
+    </div>
+  </section>
+</main>
+
+<nav class="bottom" id="bottomNav">
+  <div class="navbtn active" data-view="novo"><span class="ic">＋</span>Novo</div>
+  <div class="navbtn" data-view="lista"><span class="ic">☰</span>Atend.</div>
+  <div class="navbtn" data-view="resumo"><span class="ic">◧</span>Resumo</div>
+  <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
+</nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3 id="modalTitle">Excluir?</h3>
+    <p id="modalText">Essa ação não pode ser desfeita.</p>
+    <div class="modal-actions">
+      <button class="cancel" id="modalCancel">Cancelar</button>
+      <button class="confirm" id="modalConfirm">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="chatModal">
+  <div class="modal">
+    <h3 id="chatTitulo">Atendimento</h3>
+    <div class="chat-sub" id="chatSub"></div>
+    <div id="chatResumo" style="margin-bottom:10px;"></div>
+    <div id="chatHistoricoWrap">
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:4px;">Histórico</div>
+      <div id="chatHistorico" style="max-height:110px;overflow-y:auto;margin-bottom:12px;"></div>
+    </div>
+    <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:4px;">Conversa</div>
+    <div id="chatMensagens"></div>
+    <div class="chat-input-row">
+      <textarea id="chatTexto" placeholder="Escreva uma mensagem…"></textarea>
+      <button id="btnEnviarMensagem">Enviar</button>
+    </div>
+    <button class="ghost" id="btnFecharChat" style="margin-top:10px;">Fechar</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
