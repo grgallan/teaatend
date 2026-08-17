@@ -9,7 +9,7 @@
 const CONFIG = {
   // Cole aqui a URL da sua Edge Function (algo como
   // https://SEU-PROJETO.supabase.co/functions/v1/api)
-  API_URL: 'sb_publishable_yXZ9BSrHp288ZG9bGFLbbQ_Xp_brKiG',
+  API_URL: 'https://prchmojpfgeqbnoiisyf.supabase.co/functions/v1/super-function',
   // Cole aqui a chave "anon public" do seu projeto Supabase
   // (Project Settings → API Keys). Essa chave é segura pra expor
   // no código do site — ela sozinha não dá acesso ao banco.
