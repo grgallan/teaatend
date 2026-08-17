@@ -9,11 +9,11 @@
 const CONFIG = {
   // Cole aqui a URL da sua Edge Function (algo como
   // https://SEU-PROJETO.supabase.co/functions/v1/api)
-  API_URL: 'COLE_AQUI_A_URL_DA_SUA_EDGE_FUNCTION',
+  API_URL: 'sb_publishable_yXZ9BSrHp288ZG9bGFLbbQ_Xp_brKiG',
   // Cole aqui a chave "anon public" do seu projeto Supabase
   // (Project Settings → API Keys). Essa chave é segura pra expor
   // no código do site — ela sozinha não dá acesso ao banco.
-  ANON_KEY: 'COLE_AQUI_A_ANON_KEY_DO_SEU_PROJETO'
+  ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
 };
 
 const SESSAO_KEY = 'sessao_v4';
