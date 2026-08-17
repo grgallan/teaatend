@@ -64,7 +64,7 @@ function lerArquivoBase64(file){
 
 /* ---------- comunicação com o backend (Edge Function do Supabase) ---------- */
 async function api(action, payload={}){
-  if(!CONFIG.API_URL || CONFIG.API_URL.includes('https://prchmojpfgeqbnoiisyf.supabase.co/functions/v1/super-function') || !CONFIG.ANON_KEY || CONFIG.ANON_KEY.includes('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80')){
+  if(!CONFIG.API_URL || CONFIG.API_URL.includes('COLE_AQUI') || !CONFIG.ANON_KEY || CONFIG.ANON_KEY.includes('COLE_AQUI')){
     const msg = 'Configure a URL e a chave da API em app.js (CONFIG.API_URL / CONFIG.ANON_KEY)';
     toast(msg);
     throw new Error(msg);
