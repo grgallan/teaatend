@@ -824,7 +824,7 @@ async function recalcularValores(){
     if(!r.ok){ toast(r.erro || 'Não foi possível recalcular.'); return; }
     await carregarTudo();
     renderLista(); renderResumo();
-    toast(`${r.atualizados} de ${r.total} atendimentos foram atualizados`);
+    toast(`${r.atualizados} atualizados, ${r.semCorrespondencia||0} sem valor cadastrado (não mexidos), de ${r.total} no total`);
   }catch(e){
     toast(e && e.message ? e.message : 'Não foi possível recalcular.');
   } finally {
