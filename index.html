@@ -411,6 +411,17 @@
         <div class="filters" id="filtroValoresAtendente" style="margin-bottom:10px;"></div>
         <table class="valores-table" id="tabelaValores"></table>
       </div>
+      <div class="card">
+        <h2>Recalcular atendimentos existentes</h2>
+        <p style="color:var(--muted);font-size:12.5px;margin:0 0 10px;">
+          Atendimentos salvos antes de existir uma linha de valores pra
+          aquela combinação de atendente + cliente + tipo ficam com R$0,00
+          gravado. Isso não se corrige sozinho quando você cadastra o valor
+          depois — clique abaixo pra recalcular todos de uma vez (não muda
+          horas, data, status ou qualquer outra coisa, só os valores em R$).
+        </p>
+        <button class="primary" id="btnRecalcularValores">Recalcular valores de todos os atendimentos</button>
+      </div>
     </div>
 
     <div class="cad-view" id="cad-usuarios" style="display:none;">

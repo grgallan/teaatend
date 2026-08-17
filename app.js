@@ -814,6 +814,25 @@ async function removerValor(id){
   toast('Valor removido');
 }
 
+async function recalcularValores(){
+  const btn = document.getElementById('btnRecalcularValores');
+  btn.disabled = true;
+  btn.textContent = 'Recalculando…';
+  try{
+    const conta = contaAtual();
+    const r = await api('recalcularValores', { contaId: conta.id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível recalcular.'); return; }
+    await carregarTudo();
+    renderLista(); renderResumo();
+    toast(`${r.atualizados} de ${r.total} atendimentos foram atualizados`);
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível recalcular.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Recalcular valores de todos os atendimentos';
+  }
+}
+
 function renderListUsuarios(){
   document.getElementById('us_cliente').innerHTML = clientes.map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
   const lista = contas.filter(c=>c.perfil==='USUARIO');
@@ -1147,6 +1166,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     document.querySelectorAll('#filtroValoresAtendente .chip').forEach(c=>c.classList.remove('on'));
     chip.classList.add('on');
     renderTabelaValores();
+  });
+
+  document.getElementById('btnRecalcularValores').addEventListener('click', ()=>{
+    pedirConfirmacao(
+      'Recalcular valores de todos os atendimentos?',
+      'Vai buscar o valor certo (por atendente + cliente + tipo) pra cada atendimento salvo e atualizar só os campos em R$. Pode levar alguns segundos se houver muitos atendimentos.',
+      recalcularValores,
+      'Recalcular'
+    );
   });
 
   document.getElementById('btnAddUsuario').addEventListener('click', async ()=>{
