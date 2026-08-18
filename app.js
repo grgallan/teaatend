@@ -15,7 +15,6 @@ const CONFIG = {
   // no código do site — ela sozinha não dá acesso ao banco.
   ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
 };
-
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
@@ -25,7 +24,7 @@ let anexoAtual = { url: '', nome: '' };
 let editandoAtendenteId = null;
 let editandoUsuarioId = null;
 let excluindoAcao = null;
-let filtroCliente = 'TODOS';
+let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = 'TODOS';
 let selecionados = new Set();
 let cadAba = 'atendentes';
@@ -506,15 +505,9 @@ function pedirConfirmacao(titulo, texto, acao, labelBotao){
 function renderFiltros(){
   const el = document.getElementById('filtros');
   const conta = contaAtual();
-  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; return; }
-  el.innerHTML = `<div class="chip on" data-cliente="TODOS">Todos</div>` + clientes.map(c=>`<div class="chip" data-cliente="${c.nome}">${c.nome}</div>`).join('');
-  el.addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    el.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
-    chip.classList.add('on');
-    filtroCliente = chip.dataset.cliente;
-    renderLista();
-  });
+  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; renderFiltrosStatus(); return; }
+  el.innerHTML = `<div class="chip ${filtroCliente.size===0?'on':''}" data-cliente="TODOS">Todos</div>` +
+    clientes.map(c=>`<div class="chip ${filtroCliente.has(c.nome)?'on':''}" data-cliente="${c.nome}">${c.nome}</div>`).join('');
   renderFiltrosStatus();
 }
 
@@ -522,15 +515,8 @@ function renderFiltrosStatus(){
   const el = document.getElementById('filtrosStatus');
   const conta = contaAtual();
   if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; return; }
-  el.innerHTML = `<div class="chip on" data-status="TODOS">Todos status</div>` +
-    statusList.map(s=>`<div class="chip" data-status="${s.nome}">${s.nome}</div>`).join('');
-  el.addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    el.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
-    chip.classList.add('on');
-    filtroStatus = chip.dataset.status;
-    renderLista();
-  });
+  el.innerHTML = `<div class="chip ${filtroStatus==='TODOS'?'on':''}" data-status="TODOS">Todos status</div>` +
+    statusList.map(s=>`<div class="chip ${filtroStatus===s.nome?'on':''}" data-status="${s.nome}">${s.nome}</div>`).join('');
 }
 
 function renderLista(){
@@ -541,7 +527,7 @@ function renderLista(){
   if(conta && conta.perfil === 'USUARIO'){
     itens = itens.filter(r=>r.usuario === conta.nome);
   }else{
-    if(filtroCliente !== 'TODOS') itens = itens.filter(r=>r.cliente===filtroCliente);
+    if(filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
     if(filtroStatus !== 'TODOS') itens = itens.filter(r=>r.status===filtroStatus);
     const de = document.getElementById('periodo_de').value;
     const ate = document.getElementById('periodo_ate').value;
@@ -629,7 +615,7 @@ function popularMeses(){
   sel.value = atual && meses.includes(atual) ? atual : meses[0];
 }
 let filtroResumoAtendente = 'TODOS';
-let filtroResumoCliente = 'TODOS';
+let filtroResumoCliente = new Set(); // vazio = todos
 
 function renderResumo(){
   popularMeses();
@@ -659,10 +645,10 @@ function renderResumo(){
   const campoFiltroCliente = document.getElementById('campoFiltroClienteResumo');
   if(isAdmin || isAtendente){
     campoFiltroCliente.style.display = '';
-    const selCli = document.getElementById('r_cliente');
-    selCli.innerHTML = `<option value="TODOS">Todos os clientes</option>` + clientes.map(c=>`<option value="${c.nome}">${c.nome}</option>`).join('');
-    selCli.value = filtroResumoCliente;
-    if(filtroResumoCliente !== 'TODOS') itens = itens.filter(r=>r.cliente === filtroResumoCliente);
+    const elChips = document.getElementById('r_cliente_chips');
+    elChips.innerHTML = `<div class="chip ${filtroResumoCliente.size===0?'on':''}" data-cliente="TODOS">Todos</div>` +
+      clientes.map(c=>`<div class="chip ${filtroResumoCliente.has(c.nome)?'on':''}" data-cliente="${c.nome}">${c.nome}</div>`).join('');
+    if(filtroResumoCliente.size > 0) itens = itens.filter(r=>filtroResumoCliente.has(r.cliente));
   }else{
     campoFiltroCliente.style.display = 'none';
   }
@@ -1145,7 +1131,26 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnExportar').addEventListener('click', exportarCsv);
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
-  document.getElementById('r_cliente').addEventListener('change', e=>{ filtroResumoCliente = e.target.value; renderResumo(); });
+
+  document.getElementById('filtros').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    if(chip.dataset.cliente === 'TODOS'){ filtroCliente.clear(); }
+    else{ if(filtroCliente.has(chip.dataset.cliente)) filtroCliente.delete(chip.dataset.cliente); else filtroCliente.add(chip.dataset.cliente); }
+    renderFiltros();
+    renderLista();
+  });
+  document.getElementById('filtrosStatus').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    filtroStatus = chip.dataset.status;
+    renderFiltrosStatus();
+    renderLista();
+  });
+  document.getElementById('r_cliente_chips').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    if(chip.dataset.cliente === 'TODOS'){ filtroResumoCliente.clear(); }
+    else{ if(filtroResumoCliente.has(chip.dataset.cliente)) filtroResumoCliente.delete(chip.dataset.cliente); else filtroResumoCliente.add(chip.dataset.cliente); }
+    renderResumo();
+  });
   document.getElementById('periodo_de').addEventListener('change', renderLista);
   document.getElementById('periodo_ate').addEventListener('change', renderLista);
 
