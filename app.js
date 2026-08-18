@@ -15,6 +15,7 @@ const CONFIG = {
   // no código do site — ela sozinha não dá acesso ao banco.
   ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
 };
+
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
@@ -214,6 +215,45 @@ function sair(){
   document.getElementById('screen-login').style.display = 'flex';
   document.getElementById('loginUser').value = '';
   document.getElementById('loginPass').value = '';
+}
+
+function abrirModalSenha(){
+  document.getElementById('senha_atual').value = '';
+  document.getElementById('senha_nova').value = '';
+  document.getElementById('senha_confirma').value = '';
+  document.getElementById('senhaError').classList.remove('show');
+  document.getElementById('senhaModal').classList.add('show');
+}
+function fecharModalSenha(){
+  document.getElementById('senhaModal').classList.remove('show');
+}
+async function salvarNovaSenha(){
+  const senhaAtual = document.getElementById('senha_atual').value;
+  const novaSenha = document.getElementById('senha_nova').value;
+  const confirma = document.getElementById('senha_confirma').value;
+  const err = document.getElementById('senhaError');
+  err.classList.remove('show');
+
+  if(!senhaAtual || !novaSenha || !confirma){ err.textContent = 'Preencha todos os campos.'; err.classList.add('show'); return; }
+  if(novaSenha !== confirma){ err.textContent = 'A nova senha e a confirmação não coincidem.'; err.classList.add('show'); return; }
+  if(novaSenha.length < 4){ err.textContent = 'A nova senha precisa ter pelo menos 4 caracteres.'; err.classList.add('show'); return; }
+
+  const conta = contaAtual();
+  const btn = document.getElementById('senhaConfirmar');
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+  try{
+    const r = await api('alterarMinhaSenha', { contaId: conta.id, senhaAtual, novaSenha });
+    if(!r.ok){ err.textContent = r.erro || 'Não foi possível alterar a senha.'; err.classList.add('show'); return; }
+    fecharModalSenha();
+    toast('Senha alterada com sucesso');
+  }catch(e){
+    err.textContent = e && e.message ? e.message : 'Não foi possível alterar a senha.';
+    err.classList.add('show');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Salvar nova senha';
+  }
 }
 
 function contaAtual(){ return sessaoConta; }
@@ -997,11 +1037,16 @@ async function abrirDetalhe(atendimentoId){
 
   document.getElementById('chatTitulo').textContent = `${r.cliente} · ${r.usuario}`;
   document.getElementById('chatSub').textContent = `Atendente: ${r.atendente || '(a definir)'} · ${d}/${m}/${y} · ${r.status}`;
+  const horario = `${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (intervalo '+r.inter+')' : ''}`;
   document.getElementById('chatResumo').innerHTML = `
-    ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;">${modSub}</div>` : ''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12.5px;margin-bottom:10px;">
+      <div><span style="color:var(--muted);">Tipo</span><br>${labelTipo(r.tipo)}</div>
+      <div><span style="color:var(--muted);">Horário</span><br>${horario}</div>
+    </div>
+    ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;margin-bottom:4px;">${modSub}</div>` : ''}
     ${r.detalhe ? `<div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${escaparHtml(r.detalhe)}</div>` : ''}
     ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);">Solução:</b> ${escaparHtml(r.solucao)}</div>` : ''}
-    ${r.anexoUrl ? `<a href="${r.anexoUrl}" target="_blank" style="font-size:12px;color:var(--accent);">📎 ${r.anexoNome||'anexo'}</a>` : ''}
+    ${r.anexoUrl ? `<a href="${r.anexoUrl}" target="_blank" style="font-size:12px;color:var(--accent);display:inline-block;margin-top:8px;">📎 ${r.anexoNome||'anexo'}</a>` : ''}
   `;
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('chatMensagens').innerHTML = `<div class="chat-empty">Carregando…</div>`;
@@ -1165,6 +1210,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(campo.type === 'password'){ campo.type = 'text'; btn.textContent = 'OCULTAR'; } else { campo.type = 'password'; btn.textContent = 'MOSTRAR'; }
   });
   document.getElementById('btnLogout').addEventListener('click', ()=>pedirConfirmacao('Sair da conta?','Você poderá entrar novamente quando quiser.', sair, 'Sair'));
+  document.getElementById('btnMinhaSenha').addEventListener('click', abrirModalSenha);
+  document.getElementById('senhaCancelar').addEventListener('click', fecharModalSenha);
+  document.getElementById('senhaConfirmar').addEventListener('click', salvarNovaSenha);
 
   document.getElementById('btnRemoverAnexoAtual').addEventListener('click', ()=>{
     anexoAtual = { url: '', nome: '' };
