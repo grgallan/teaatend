@@ -15,7 +15,6 @@ const CONFIG = {
   // no código do site — ela sozinha não dá acesso ao banco.
   ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
 };
-
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
@@ -344,11 +343,22 @@ function popularSelects(){
   document.getElementById('f_modulo').innerHTML = modulos.map(m=>`<option value="${m.nome}">${m.nome}</option>`).join('');
   document.getElementById('f_submodulo').innerHTML = submodulos.map(s=>`<option value="${s.nome}">${s.nome}</option>`).join('');
   document.getElementById('f_status').innerHTML = statusList.map(s=>`<option value="${s.nome}">${s.nome}</option>`).join('');
-  renderSegmentado('f_tipo', tipos.map(t=>t.nome), tipos[0]?.nome);
+
+  const isUsuario = conta && conta.perfil === 'USUARIO';
+  const tipoOnline = tipos.find(t=>t.nome === 'ATENDIMENTO ONLINE');
+  // usuário solicitante sempre abre chamado como "Online" — não escolhe o tipo
+  if(isUsuario && tipoOnline){
+    document.getElementById('campoTipo').style.display = 'none';
+    document.getElementById('campoTipoFixo').style.display = '';
+    renderSegmentado('f_tipo', tipos.map(t=>t.nome), tipoOnline.nome);
+  }else{
+    document.getElementById('campoTipo').style.display = '';
+    document.getElementById('campoTipoFixo').style.display = 'none';
+    renderSegmentado('f_tipo', tipos.map(t=>t.nome), tipos[0]?.nome);
+  }
   renderSegmentado('f_atendente', contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome), null);
 
   // usuário solicitante não escolhe o atendente — um atendente qualquer assume o chamado
-  const isUsuario = conta && conta.perfil === 'USUARIO';
   document.getElementById('campoAtendente').style.display = isUsuario ? 'none' : '';
   document.getElementById('campoAtendenteInfo').style.display = isUsuario ? '' : 'none';
 
@@ -1434,8 +1444,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('periodo_de').addEventListener('change', renderLista);
   document.getElementById('periodo_ate').addEventListener('change', renderLista);
 
-  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>goView(t.dataset.view)));
-  document.querySelectorAll('.navbtn').forEach(t=>t.addEventListener('click', ()=>goView(t.dataset.view)));
+  document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>{
+    if(t.dataset.view === 'novo') resetForm(); // clicar em "Novo" sempre começa um formulário limpo — sem isso, editandoId ficava "grudado" no último atendimento editado e o Salvar sobrescrevia ele em vez de criar um novo
+    goView(t.dataset.view);
+  }));
+  document.querySelectorAll('.navbtn').forEach(t=>t.addEventListener('click', ()=>{
+    if(t.dataset.view === 'novo') resetForm();
+    goView(t.dataset.view);
+  }));
   document.querySelectorAll('.subtab').forEach(t=>t.addEventListener('click', ()=>goCadSub(t.dataset.sub)));
 
   document.getElementById('btnLogin').addEventListener('click', tentarLogin);
