@@ -89,6 +89,48 @@ async function aplicarStatusMassa(){
   }
 }
 
+/* ---------- vínculo entre chamados ---------- */
+let vinculoSelecionadoId = null;
+
+function descreverAtendimentoParaVinculo(r){
+  const [y,m,d] = String(r.data).split('-');
+  const resumoDetalhe = r.detalhe ? stripHtml(r.detalhe).slice(0,40) : '';
+  return `${d}/${m}/${y} · ${r.cliente} · ${r.usuario}${resumoDetalhe ? ' · '+resumoDetalhe : ''}`;
+}
+
+function buscarChamadosParaVinculo(termo){
+  const cont = document.getElementById('vinculoResultados');
+  const termoLimpo = termo.trim().toLowerCase();
+  if(termoLimpo.length < 2){ cont.innerHTML = ''; return; }
+  const excluirId = editandoId; // um chamado não pode se vincular a si mesmo
+  const resultados = atendimentos
+    .filter(r => String(r.id) !== String(excluirId))
+    .filter(r => {
+      const alvo = `${r.cliente} ${r.usuario} ${stripHtml(r.detalhe||'')} ${r.tipo}`.toLowerCase();
+      return alvo.includes(termoLimpo);
+    })
+    .slice(0, 8);
+  if(resultados.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum chamado encontrado.</div>`; return; }
+  cont.innerHTML = resultados.map(r=>`
+    <div class="vinculo-resultado" onclick="selecionarVinculo('${r.id}', '${escaparHtml(descreverAtendimentoParaVinculo(r)).replace(/'/g,"\\'")}')">
+      <b>${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</b>
+      <span>${descreverAtendimentoParaVinculo(r)}</span>
+    </div>`).join('');
+}
+function selecionarVinculo(id, textoDescricao){
+  vinculoSelecionadoId = id;
+  document.getElementById('vinculoSelecionadoTexto').textContent = textoDescricao;
+  document.getElementById('vinculoSelecionado').style.display = 'flex';
+  document.getElementById('f_vinculo_busca').value = '';
+  document.getElementById('vinculoResultados').innerHTML = '';
+}
+function limparVinculoSelecionado(){
+  vinculoSelecionadoId = null;
+  document.getElementById('vinculoSelecionado').style.display = 'none';
+  document.getElementById('f_vinculo_busca').value = '';
+  document.getElementById('vinculoResultados').innerHTML = '';
+}
+
 function contatoDoAtendente(nomeAtendente){
   const a = contas.find(c=>c.perfil==='ATENDENTE' && c.nome===nomeAtendente);
   if(!a) return '';
@@ -316,6 +358,10 @@ function popularSelects(){
   // ajuste manual de horas — só o admin tem esse campo
   const isAdmin = conta && conta.perfil === 'ADMIN';
   document.getElementById('campoQtdManual').style.display = isAdmin ? '' : 'none';
+
+  // data prevista e vínculo com outro chamado — quem está atendendo é quem define isso
+  document.getElementById('campoDataPrevista').style.display = isUsuario ? 'none' : '';
+  document.getElementById('campoVinculo').style.display = isUsuario ? 'none' : '';
 }
 function popularUsuariosSolicitantes(){
   const conta = contaAtual();
@@ -375,7 +421,7 @@ function resetForm(){
   document.getElementById('btnSalvar').textContent = 'Salvar atendimento';
   document.getElementById('f_data').value = new Date().toISOString().slice(0,10);
   popularSelects();
-  document.getElementById('f_detalhe').value = '';
+  document.getElementById('f_detalhe').innerHTML = '';
   document.getElementById('f_solucao').innerHTML = '';
   const conta = contaAtual();
   const isUsuario = conta && conta.perfil === 'USUARIO';
@@ -388,6 +434,8 @@ function resetForm(){
   document.getElementById('campoAnexoNovo').style.display = '';
   document.getElementById('campoAnexosMultiplos').style.display = 'none';
   anexoAtendimentoId = null;
+  document.getElementById('f_data_prevista').value = '';
+  limparVinculoSelecionado();
 
   // todo chamado novo abre como PENDENTE e não é escolhível — só aparece
   // o seletor de status quando editando um atendimento já existente
@@ -417,7 +465,7 @@ async function salvarRegistro(){
   const isUsuario = conta && conta.perfil === 'USUARIO';
   const atendente = isUsuario ? '' : getSegSel('f_atendente');
   if(!tipo || (!isUsuario && !atendente)){ toast('Cadastre ao menos um tipo e um atendente'); return; }
-  const detalhe = document.getElementById('f_detalhe').value.trim();
+  const detalhe = sanitizarHtml(document.getElementById('f_detalhe').innerHTML.trim());
   const solucao = sanitizarHtml(document.getElementById('f_solucao').innerHTML.trim());
   const hi = document.getElementById('f_hi').value;
   const inter = document.getElementById('f_inter').value;
@@ -430,7 +478,10 @@ async function salvarRegistro(){
   btn.disabled = true;
   btn.textContent = 'Salvando…';
   try{
+    const dataPrevista = isUsuario ? '' : document.getElementById('f_data_prevista').value;
+    const vinculadoA = isUsuario ? '' : (vinculoSelecionadoId || '');
     const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
+      dataPrevista, vinculadoA,
       qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
     // anexo inicial (só existe esse campo na criação — depois de salvo, usa a lista de múltiplos anexos)
@@ -476,7 +527,7 @@ function editar(id){
   if(tipoBtn){ document.querySelectorAll('#f_tipo button').forEach(b=>b.classList.remove('sel')); tipoBtn.classList.add('sel'); }
   const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
   if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
-  document.getElementById('f_detalhe').value = r.detalhe || '';
+  document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
   document.getElementById('f_solucao').innerHTML = sanitizarHtml(r.solucao || '');
   document.getElementById('f_hi').value = r.hi;
   document.getElementById('f_inter').value = r.inter;
@@ -488,6 +539,13 @@ function editar(id){
   document.getElementById('campoAnexosMultiplos').style.display = '';
   anexoAtendimentoId = r.id;
   carregarAnexosMultiplos(r.id);
+  document.getElementById('f_data_prevista').value = r.dataPrevista || '';
+  if(r.vinculadoA){
+    const alvo = atendimentos.find(x=>String(x.id)===String(r.vinculadoA));
+    selecionarVinculo(r.vinculadoA, alvo ? descreverAtendimentoParaVinculo(alvo) : 'chamado vinculado');
+  }else{
+    limparVinculoSelecionado();
+  }
   atualizarPreview();
   goView('novo');
 }
@@ -512,7 +570,7 @@ function copiarAtendimento(id){
   if(tipoBtn){ document.querySelectorAll('#f_tipo button').forEach(b=>b.classList.remove('sel')); tipoBtn.classList.add('sel'); }
   const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
   if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
-  document.getElementById('f_detalhe').value = r.detalhe || '';
+  document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
   document.getElementById('f_solucao').innerHTML = '';
   document.getElementById('f_hi').value = r.hi;
   document.getElementById('f_inter').value = r.inter;
@@ -524,6 +582,8 @@ function copiarAtendimento(id){
   document.getElementById('campoAnexoNovo').style.display = '';
   document.getElementById('campoAnexosMultiplos').style.display = 'none';
   anexoAtendimentoId = null;
+  document.getElementById('f_data_prevista').value = '';
+  limparVinculoSelecionado();
   atualizarPreview();
   goView('novo');
   toast('Copiado — ajuste o que precisar e salve como um novo atendimento');
@@ -603,7 +663,7 @@ function renderLista(){
         <span class="tag status-${r.status}">${r.status}</span>
       </div>
       ${modSub ? `<div class="detalhe" style="color:var(--accent);font-weight:600;">${modSub}</div>` : ''}
-      ${r.detalhe ? `<div class="detalhe">${r.detalhe}</div>` : ''}
+      ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe).slice(0,140))}${stripHtml(r.detalhe).length>140?'…':''}</div>` : ''}
       <div class="meta">
         <span class="tag">${labelTipo(r.tipo)}</span>
         <span class="tag">${r.atendente || 'A definir'}</span>
@@ -755,7 +815,7 @@ function exportarCsv(){
   const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
   const rows = itens.map(r=>{
     const [y,m,d]=String(r.data).split('-');
-    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, (r.detalhe||'').replace(/;/g,','), stripHtml(r.solucao).replace(/;/g,','), r.hi, r.inter, r.hf,
+    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, stripHtml(r.detalhe).replace(/;/g,','), stripHtml(r.solucao).replace(/;/g,','), r.hi, r.inter, r.hf,
       Number(r.qtd).toFixed(2), r.vha, Number(r.totalAnanda).toFixed(2), r.status, r.vhr, Number(r.totalReal).toFixed(2), r.anexoUrl||''];
   });
   const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
@@ -1032,35 +1092,81 @@ async function abrirDetalhe(atendimentoId){
   chatAtendimentoId = atendimentoId;
   const [y,m,d] = String(r.data).split('-');
   const modSub = [r.modulo, r.submodulo].filter(Boolean).join(' · ');
+  const conta = contaAtual();
+  const isUsuario = conta && conta.perfil === 'USUARIO';
 
   document.getElementById('chatTitulo').textContent = `${r.cliente} · ${r.usuario}`;
   document.getElementById('chatSub').textContent = `Atendente: ${r.atendente || '(a definir)'} · ${d}/${m}/${y} · ${r.status}`;
   const horario = `${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (intervalo '+r.inter+')' : ''}`;
+  let dataPrevistaTexto = '';
+  if(r.dataPrevista){
+    const [py,pm,pd] = String(r.dataPrevista).split('-');
+    dataPrevistaTexto = `${pd}/${pm}/${py}`;
+  }
   document.getElementById('chatResumo').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12.5px;margin-bottom:10px;">
       <div><span style="color:var(--muted);">Tipo</span><br>${labelTipo(r.tipo)}</div>
       <div><span style="color:var(--muted);">Horário</span><br>${horario}</div>
+      ${dataPrevistaTexto ? `<div><span style="color:var(--muted);">Previsão de conclusão</span><br>${dataPrevistaTexto}</div>` : ''}
     </div>
     ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;margin-bottom:4px;">${modSub}</div>` : ''}
-    ${r.detalhe ? `<div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${escaparHtml(r.detalhe)}</div>` : ''}
+    ${r.detalhe ? `<div class="rt-content" style="font-size:12.5px;color:var(--muted);margin-top:2px;">${sanitizarHtml(r.detalhe)}</div>` : ''}
     ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);display:block;margin-bottom:4px;">Solução:</b><div class="rt-content">${sanitizarHtml(r.solucao)}</div></div>` : ''}
-    <div id="chatAnexosLista" style="margin-top:8px;"></div>
   `;
+  document.getElementById('chatVinculosWrap').style.display = 'none';
+  document.getElementById('chatAnexosLista').innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('chatMensagens').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('chatTexto').value = '';
   document.getElementById('chatModal').classList.add('show');
-  await Promise.all([carregarHistorico(), carregarMensagens(), carregarAnexosDetalhe(atendimentoId)]);
+  await Promise.all([
+    carregarHistorico(),
+    carregarMensagens(),
+    carregarAnexosDetalhe(atendimentoId, !isUsuario),
+    carregarVinculosDetalhe(atendimentoId),
+  ]);
 }
 
-async function carregarAnexosDetalhe(atendimentoId){
-  const cont = document.getElementById('chatAnexosLista');
-  if(!cont) return;
+async function carregarAnexosDetalhe(atendimentoId, podeRemover){
   try{
     const r = await api('listarAnexos', { atendimentoId });
-    if(!r.ok || !r.anexos || r.anexos.length === 0){ cont.innerHTML = ''; return; }
-    cont.innerHTML = r.anexos.map(a=>`<a href="${a.url}" target="_blank" style="font-size:12px;color:var(--accent);display:block;margin-top:4px;">📎 ${escaparHtml(a.nome||'anexo')}</a>`).join('');
-  }catch(e){ cont.innerHTML = ''; }
+    if(!r.ok){ document.getElementById('chatAnexosLista').innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro||'Não foi possível carregar os anexos.'}</div>`; return; }
+    renderAnexosGenerico('chatAnexosLista', r.anexos, atendimentoId, podeRemover);
+  }catch(e){
+    document.getElementById('chatAnexosLista').innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar os anexos.</div>`;
+  }
+}
+
+async function carregarVinculosDetalhe(atendimentoId){
+  const wrap = document.getElementById('chatVinculosWrap');
+  const cont = document.getElementById('chatVinculos');
+  try{
+    const r = await api('listarVinculados', { atendimentoId });
+    if(!r.ok) return;
+    const temPai = !!r.pai;
+    const temFilhos = r.filhos && r.filhos.length > 0;
+    if(!temPai && !temFilhos) return; // sem vínculo nenhum, não mostra a seção
+
+    wrap.style.display = '';
+    let html = '';
+    if(temPai){
+      const [py,pm,pd] = String(r.pai.data).split('-');
+      html += `<div class="cad-item" style="cursor:pointer;" onclick="abrirDetalhe('${r.pai.id}')">
+        <div class="info"><b>Vinculado ao chamado</b><span>${pd}/${pm}/${py} · ${r.pai.cliente} · ${escaparHtml(r.pai.detalhe ? stripHtml(r.pai.detalhe).slice(0,50) : '')}</span></div>
+      </div>`;
+    }
+    if(temFilhos){
+      html += r.filhos.map(f=>{
+        const [fy,fm,fd] = String(f.data).split('-');
+        return `<div class="cad-item" style="cursor:pointer;" onclick="abrirDetalhe('${f.id}')">
+          <div class="info"><b>${fd}/${fm}/${fy} · ${f.cliente}</b><span>${escaparHtml(f.detalhe ? stripHtml(f.detalhe).slice(0,50) : '')} · ${Number(f.qtd).toFixed(2).replace('.',',')}h</span></div>
+          <span class="tag status-${f.status}">${f.status}</span>
+        </div>`;
+      }).join('');
+      html += `<div style="text-align:right;font-size:12.5px;margin-top:6px;color:var(--accent);font-weight:600;">Total de horas (com vinculados): ${r.horasTotais.toFixed(2).replace('.',',')}h</div>`;
+    }
+    cont.innerHTML = html;
+  }catch(e){ /* silencioso — vínculo é informação complementar */ }
 }
 
 function fecharChat(){
@@ -1174,30 +1280,37 @@ function stripHtml(html){
   return (d.textContent || d.innerText || '').replace(/\s+/g,' ').trim();
 }
 
+// funciona pra qualquer editor de texto rico da tela (Detalhe, Solução...) —
+// cada toolbar sabe qual editor controla via data-editor no próprio toolbar
 function configurarEditorRico(){
-  document.querySelectorAll('.rt-toolbar button[data-cmd]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      document.getElementById('f_solucao').focus();
-      document.execCommand(btn.dataset.cmd, false);
+  document.querySelectorAll('.rt-toolbar').forEach(toolbar=>{
+    const editorId = toolbar.dataset.editor;
+    toolbar.querySelectorAll('button[data-cmd]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.getElementById(editorId).focus();
+        document.execCommand(btn.dataset.cmd, false);
+      });
     });
-  });
-  document.getElementById('btnInserirImagemSolucao').addEventListener('click', ()=>{
-    document.getElementById('f_solucao_imagem').click();
-  });
-  document.getElementById('f_solucao_imagem').addEventListener('change', async (e)=>{
-    const arquivo = e.target.files[0];
-    e.target.value = '';
-    if(!arquivo) return;
-    if(arquivo.size > 5 * 1024 * 1024){ toast('Imagem muito grande (máx. 5MB)'); return; }
-    toast('Enviando imagem…');
-    try{
-      const base64 = await lerArquivoBase64(arquivo);
-      const r = await api('uploadImagem', { base64, tipo: arquivo.type, nome: arquivo.name });
-      if(!r.ok){ toast(r.erro || 'Não foi possível enviar a imagem.'); return; }
-      document.getElementById('f_solucao').focus();
-      document.execCommand('insertHTML', false, `<img src="${r.url}" alt="${escaparHtml(r.nome||'')}">`);
-    }catch(err){
-      toast(err && err.message ? err.message : 'Não foi possível enviar a imagem.');
+    const btnImagem = toolbar.querySelector('button[data-cmd-imagem]');
+    if(btnImagem){
+      const inputImagem = toolbar.querySelector('input[type=file]');
+      btnImagem.addEventListener('click', ()=> inputImagem.click());
+      inputImagem.addEventListener('change', async (e)=>{
+        const arquivo = e.target.files[0];
+        e.target.value = '';
+        if(!arquivo) return;
+        if(arquivo.size > 5 * 1024 * 1024){ toast('Imagem muito grande (máx. 5MB)'); return; }
+        toast('Enviando imagem…');
+        try{
+          const base64 = await lerArquivoBase64(arquivo);
+          const r = await api('uploadImagem', { base64, tipo: arquivo.type, nome: arquivo.name });
+          if(!r.ok){ toast(r.erro || 'Não foi possível enviar a imagem.'); return; }
+          document.getElementById(editorId).focus();
+          document.execCommand('insertHTML', false, `<img src="${r.url}" alt="${escaparHtml(r.nome||'')}">`);
+        }catch(err){
+          toast(err && err.message ? err.message : 'Não foi possível enviar a imagem.');
+        }
+      });
     }
   });
 }
@@ -1209,38 +1322,42 @@ async function carregarAnexosMultiplos(atendimentoId){
   try{
     const r = await api('listarAnexos', { atendimentoId });
     if(!r.ok){ cont.innerHTML = `<div class="empty" style="padding:14px;">${r.erro||'Não foi possível carregar os anexos.'}</div>`; return; }
-    renderAnexosLista(r.anexos);
+    renderAnexosGenerico('listaAnexos', r.anexos, atendimentoId, true);
   }catch(e){
     cont.innerHTML = `<div class="empty" style="padding:14px;">Não foi possível carregar os anexos.</div>`;
   }
 }
-function renderAnexosLista(lista){
-  const cont = document.getElementById('listaAnexos');
+// usado tanto pela lista de anexos do formulário de edição (admin/atendente)
+// quanto pela tela de visualização do chamado (usuário/atendente/admin)
+function renderAnexosGenerico(containerId, lista, atendimentoId, podeRemover){
+  const cont = document.getElementById(containerId);
   if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12.5px;">Nenhum anexo ainda.</div>`; return; }
   cont.innerHTML = lista.map(a=>`
     <div class="anexo-item">
       <a href="${a.url}" target="_blank">📎 ${escaparHtml(a.nome||'anexo')}</a>
-      <button type="button" onclick="removerAnexoAgora('${a.id}')">remover</button>
+      ${podeRemover ? `<button type="button" onclick="removerAnexoGenerico('${a.id}','${containerId}','${atendimentoId}',${podeRemover})">remover</button>` : ''}
     </div>`).join('');
 }
-async function adicionarAnexoAgora(arquivo){
-  if(!anexoAtendimentoId){ toast('Salve o atendimento antes de anexar arquivos.'); return; }
+async function adicionarAnexoGenerico(atendimentoId, arquivo, containerId, podeRemover){
+  if(!atendimentoId){ toast('Salve o atendimento antes de anexar arquivos.'); return; }
   if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); return; }
   toast('Enviando anexo…');
   try{
     const base64 = await lerArquivoBase64(arquivo);
-    const r = await api('adicionarAnexo', { atendimentoId: anexoAtendimentoId, base64, tipo: arquivo.type, nome: arquivo.name });
+    const r = await api('adicionarAnexo', { atendimentoId, base64, tipo: arquivo.type, nome: arquivo.name });
     if(!r.ok){ toast(r.erro || 'Não foi possível enviar o anexo.'); return; }
-    await carregarAnexosMultiplos(anexoAtendimentoId);
+    const rl = await api('listarAnexos', { atendimentoId });
+    if(rl.ok) renderAnexosGenerico(containerId, rl.anexos, atendimentoId, podeRemover);
     toast('Anexo adicionado');
   }catch(e){
     toast(e && e.message ? e.message : 'Não foi possível enviar o anexo.');
   }
 }
-async function removerAnexoAgora(id){
+async function removerAnexoGenerico(id, containerId, atendimentoId, podeRemover){
   const r = await api('removerAnexo', { id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarAnexosMultiplos(anexoAtendimentoId);
+  const rl = await api('listarAnexos', { atendimentoId });
+  if(rl.ok) renderAnexosGenerico(containerId, rl.anexos, atendimentoId, podeRemover);
   toast('Anexo removido');
 }
 
@@ -1272,8 +1389,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('f_novo_anexo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
     e.target.value = '';
-    if(arquivo) adicionarAnexoAgora(arquivo);
+    if(arquivo) adicionarAnexoGenerico(anexoAtendimentoId, arquivo, 'listaAnexos', true);
   });
+  document.getElementById('f_anexo_detalhe').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    e.target.value = '';
+    const conta = contaAtual();
+    const podeRemover = !(conta && conta.perfil === 'USUARIO');
+    if(arquivo) adicionarAnexoGenerico(chatAtendimentoId, arquivo, 'chatAnexosLista', podeRemover);
+  });
+
+  document.getElementById('f_vinculo_busca').addEventListener('input', e=>{ buscarChamadosParaVinculo(e.target.value); });
+  document.getElementById('btnRemoverVinculo').addEventListener('click', limparVinculoSelecionado);
 
   document.getElementById('f_cliente').addEventListener('change', ()=>{ popularUsuariosSolicitantes(); atualizarPreview(); });
   document.getElementById('f_hi').addEventListener('change', atualizarPreview);
