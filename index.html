@@ -243,7 +243,10 @@
       <div class="avatar" id="avatarIni">–</div>
       <span id="whoName">–</span>
     </div>
-    <button class="logout" id="btnLogout">Sair</button>
+    <div style="display:flex;gap:6px;">
+      <button class="logout" id="btnMinhaSenha">🔑 Senha</button>
+      <button class="logout" id="btnLogout">Sair</button>
+    </div>
   </div>
 </header>
 
@@ -544,6 +547,21 @@
     <div class="modal-actions" style="margin-top:14px;">
       <button class="cancel" id="statusMassaCancelar">Cancelar</button>
       <button class="confirm neutro" id="statusMassaConfirmar">Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="senhaModal">
+  <div class="modal">
+    <h3>Alterar minha senha</h3>
+    <p style="color:var(--muted);font-size:13px;margin:4px 0 16px;">Confirme sua senha atual e escolha uma nova.</p>
+    <div class="login-error" id="senhaError">As senhas não coincidem.</div>
+    <div class="field"><label>Senha atual</label><input type="password" id="senha_atual" autocomplete="current-password"></div>
+    <div class="field"><label>Nova senha</label><input type="password" id="senha_nova" autocomplete="new-password"></div>
+    <div class="field"><label>Confirmar nova senha</label><input type="password" id="senha_confirma" autocomplete="new-password"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="senhaCancelar">Cancelar</button>
+      <button class="confirm neutro" id="senhaConfirmar">Salvar nova senha</button>
     </div>
   </div>
 </div>
