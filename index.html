@@ -138,6 +138,22 @@
   .item-actions .chatbtn{flex:1;}
 
   select#f_status{width:auto;}
+
+  /* editor de texto rico (Solução) */
+  .rt-toolbar{display:flex;gap:4px;background:var(--panel-2);border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;padding:6px;}
+  .rt-toolbar button{background:transparent;border:1px solid transparent;color:var(--text);width:30px;height:30px;border-radius:6px;font-size:13px;font-family:inherit;cursor:pointer;}
+  .rt-toolbar button:hover{background:var(--panel);border-color:var(--line);}
+  .rt-editor{min-height:90px;max-height:260px;overflow-y:auto;background:var(--panel-2);border:1px solid var(--line);border-radius:0 0 10px 10px;padding:10px;font-size:14px;color:var(--text);}
+  .rt-editor:empty:before{content:attr(data-placeholder);color:var(--muted);}
+  .rt-editor img{max-width:100%;border-radius:8px;margin:4px 0;display:block;}
+  .rt-editor ul,.rt-editor ol{padding-left:22px;margin:6px 0;}
+  .rt-content img{max-width:100%;border-radius:8px;margin:4px 0;display:block;}
+  .rt-content ul,.rt-content ol{padding-left:20px;margin:4px 0;}
+
+  /* lista de anexos múltiplos */
+  .anexo-item{display:flex;justify-content:space-between;align-items:center;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 11px;margin-bottom:6px;font-size:12.5px;}
+  .anexo-item a{color:var(--accent);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%;}
+  .anexo-item button{background:none;border:none;color:var(--bad);font-size:12px;font-family:inherit;padding:2px 6px;}
   .install-banner{background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:none;align-items:center;gap:10px;justify-content:space-between;}
   .install-banner.show{display:flex;}
   .install-banner span{font-size:12.5px;color:var(--text);}
@@ -299,15 +315,26 @@
       </div>
       <div class="field" id="campoSolucao" style="display:none;">
         <label>Solução</label>
-        <textarea id="f_solucao" placeholder="O que foi feito para resolver o chamado"></textarea>
+        <div class="rt-toolbar">
+          <button type="button" data-cmd="bold" title="Negrito"><b>B</b></button>
+          <button type="button" data-cmd="italic" title="Itálico"><i>I</i></button>
+          <button type="button" data-cmd="underline" title="Sublinhado"><u>S</u></button>
+          <button type="button" data-cmd="insertUnorderedList" title="Lista">•≡</button>
+          <button type="button" data-cmd="insertOrderedList" title="Lista numerada">1≡</button>
+          <button type="button" id="btnInserirImagemSolucao" title="Inserir imagem">🖼</button>
+          <input type="file" id="f_solucao_imagem" accept="image/*" style="display:none;">
+        </div>
+        <div id="f_solucao" class="rt-editor" contenteditable="true" data-placeholder="O que foi feito para resolver o chamado"></div>
       </div>
-      <div class="field">
+      <div class="field" id="campoAnexoNovo">
         <label>Anexo (opcional)</label>
         <input type="file" id="f_anexo">
-        <div id="anexoAtualInfo" style="display:none;margin-top:6px;font-size:12px;color:var(--muted);">
-          Anexo atual: <a id="anexoAtualLink" href="#" target="_blank" style="color:var(--accent);">ver</a>
-          <button type="button" class="ghost" id="btnRemoverAnexoAtual" style="margin-left:8px;padding:2px 8px;">remover</button>
-        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:6px 0 0;">Depois de salvar, dá pra anexar mais de um arquivo ao editar o atendimento.</p>
+      </div>
+      <div class="field" id="campoAnexosMultiplos" style="display:none;">
+        <label>Anexos</label>
+        <div id="listaAnexos"></div>
+        <input type="file" id="f_novo_anexo" style="margin-top:8px;">
       </div>
       <div class="preview" id="previewBox">
         <div class="stat"><div class="k">Qtd horas</div><div class="v" id="p_qtd">–</div></div>

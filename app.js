@@ -21,7 +21,7 @@ const SESSAO_KEY = 'sessao_v4';
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
 let sessaoConta = null; // conta logada (sem senha), guardada após login
 let editandoId = null;
-let anexoAtual = { url: '', nome: '' };
+let anexoAtendimentoId = null; // atendimento cujos anexos múltiplos estão sendo geridos ao editar
 let editandoAtendenteId = null;
 let editandoUsuarioId = null;
 let excluindoAcao = null;
@@ -376,7 +376,7 @@ function resetForm(){
   document.getElementById('f_data').value = new Date().toISOString().slice(0,10);
   popularSelects();
   document.getElementById('f_detalhe').value = '';
-  document.getElementById('f_solucao').value = '';
+  document.getElementById('f_solucao').innerHTML = '';
   const conta = contaAtual();
   const isUsuario = conta && conta.perfil === 'USUARIO';
   document.getElementById('f_hi').value = isUsuario ? '00:00' : '08:00';
@@ -385,8 +385,9 @@ function resetForm(){
   document.getElementById('f_status').value = 'PENDENTE';
   document.getElementById('f_qtd_manual').value = '';
   document.getElementById('f_anexo').value = '';
-  document.getElementById('anexoAtualInfo').style.display = 'none';
-  anexoAtual = { url: '', nome: '' };
+  document.getElementById('campoAnexoNovo').style.display = '';
+  document.getElementById('campoAnexosMultiplos').style.display = 'none';
+  anexoAtendimentoId = null;
 
   // todo chamado novo abre como PENDENTE e não é escolhível — só aparece
   // o seletor de status quando editando um atendimento já existente
@@ -417,7 +418,7 @@ async function salvarRegistro(){
   const atendente = isUsuario ? '' : getSegSel('f_atendente');
   if(!tipo || (!isUsuario && !atendente)){ toast('Cadastre ao menos um tipo e um atendente'); return; }
   const detalhe = document.getElementById('f_detalhe').value.trim();
-  const solucao = document.getElementById('f_solucao').value.trim();
+  const solucao = sanitizarHtml(document.getElementById('f_solucao').innerHTML.trim());
   const hi = document.getElementById('f_hi').value;
   const inter = document.getElementById('f_inter').value;
   const hf = document.getElementById('f_hf').value;
@@ -430,15 +431,17 @@ async function salvarRegistro(){
   btn.textContent = 'Salvando…';
   try{
     const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
-      qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined,
-      anexoUrlExistente: anexoAtual.url, anexoNomeExistente: anexoAtual.nome };
+      qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
-    const arquivo = document.getElementById('f_anexo').files[0];
-    if(arquivo){
-      if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); btn.disabled = false; btn.textContent = editandoId ? 'Atualizar atendimento' : 'Salvar atendimento'; return; }
-      payload.anexoBase64 = await lerArquivoBase64(arquivo);
-      payload.anexoTipo = arquivo.type;
-      payload.anexoNome = arquivo.name;
+    // anexo inicial (só existe esse campo na criação — depois de salvo, usa a lista de múltiplos anexos)
+    if(!editandoId){
+      const arquivo = document.getElementById('f_anexo').files[0];
+      if(arquivo){
+        if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); btn.disabled = false; btn.textContent = 'Salvar atendimento'; return; }
+        payload.anexoBase64 = await lerArquivoBase64(arquivo);
+        payload.anexoTipo = arquivo.type;
+        payload.anexoNome = arquivo.name;
+      }
     }
 
     const r = await api('salvarAtendimento', payload);
@@ -474,23 +477,17 @@ function editar(id){
   const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
   if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
   document.getElementById('f_detalhe').value = r.detalhe || '';
-  document.getElementById('f_solucao').value = r.solucao || '';
+  document.getElementById('f_solucao').innerHTML = sanitizarHtml(r.solucao || '');
   document.getElementById('f_hi').value = r.hi;
   document.getElementById('f_inter').value = r.inter;
   document.getElementById('f_hf').value = r.hf;
   document.getElementById('f_status').value = r.status;
   document.getElementById('f_qtd_manual').value = '';
   document.getElementById('f_qtd_manual').placeholder = `Atual: ${Number(r.qtd).toFixed(2).replace('.',',')}h — deixe em branco pra manter`;
-  document.getElementById('f_anexo').value = '';
-  anexoAtual = { url: r.anexoUrl || '', nome: r.anexoNome || '' };
-  const infoEl = document.getElementById('anexoAtualInfo');
-  if(anexoAtual.url){
-    infoEl.style.display = '';
-    document.getElementById('anexoAtualLink').href = anexoAtual.url;
-    document.getElementById('anexoAtualLink').textContent = anexoAtual.nome || 'ver';
-  }else{
-    infoEl.style.display = 'none';
-  }
+  document.getElementById('campoAnexoNovo').style.display = 'none';
+  document.getElementById('campoAnexosMultiplos').style.display = '';
+  anexoAtendimentoId = r.id;
+  carregarAnexosMultiplos(r.id);
   atualizarPreview();
   goView('novo');
 }
@@ -516,7 +513,7 @@ function copiarAtendimento(id){
   const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
   if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
   document.getElementById('f_detalhe').value = r.detalhe || '';
-  document.getElementById('f_solucao').value = '';
+  document.getElementById('f_solucao').innerHTML = '';
   document.getElementById('f_hi').value = r.hi;
   document.getElementById('f_inter').value = r.inter;
   document.getElementById('f_hf').value = r.hf;
@@ -524,8 +521,9 @@ function copiarAtendimento(id){
   document.getElementById('f_qtd_manual').placeholder = 'Deixe em branco pra calcular pelo horário acima';
   // anexo não é copiado — cada atendimento tem o seu
   document.getElementById('f_anexo').value = '';
-  anexoAtual = { url: '', nome: '' };
-  document.getElementById('anexoAtualInfo').style.display = 'none';
+  document.getElementById('campoAnexoNovo').style.display = '';
+  document.getElementById('campoAnexosMultiplos').style.display = 'none';
+  anexoAtendimentoId = null;
   atualizarPreview();
   goView('novo');
   toast('Copiado — ajuste o que precisar e salve como um novo atendimento');
@@ -757,7 +755,7 @@ function exportarCsv(){
   const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
   const rows = itens.map(r=>{
     const [y,m,d]=String(r.data).split('-');
-    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, (r.detalhe||'').replace(/;/g,','), (r.solucao||'').replace(/;/g,','), r.hi, r.inter, r.hf,
+    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, (r.detalhe||'').replace(/;/g,','), stripHtml(r.solucao).replace(/;/g,','), r.hi, r.inter, r.hf,
       Number(r.qtd).toFixed(2), r.vha, Number(r.totalAnanda).toFixed(2), r.status, r.vhr, Number(r.totalReal).toFixed(2), r.anexoUrl||''];
   });
   const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
@@ -1045,14 +1043,24 @@ async function abrirDetalhe(atendimentoId){
     </div>
     ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;margin-bottom:4px;">${modSub}</div>` : ''}
     ${r.detalhe ? `<div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${escaparHtml(r.detalhe)}</div>` : ''}
-    ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);">Solução:</b> ${escaparHtml(r.solucao)}</div>` : ''}
-    ${r.anexoUrl ? `<a href="${r.anexoUrl}" target="_blank" style="font-size:12px;color:var(--accent);display:inline-block;margin-top:8px;">📎 ${r.anexoNome||'anexo'}</a>` : ''}
+    ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);display:block;margin-bottom:4px;">Solução:</b><div class="rt-content">${sanitizarHtml(r.solucao)}</div></div>` : ''}
+    <div id="chatAnexosLista" style="margin-top:8px;"></div>
   `;
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('chatMensagens').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('chatTexto').value = '';
   document.getElementById('chatModal').classList.add('show');
-  await Promise.all([carregarHistorico(), carregarMensagens()]);
+  await Promise.all([carregarHistorico(), carregarMensagens(), carregarAnexosDetalhe(atendimentoId)]);
+}
+
+async function carregarAnexosDetalhe(atendimentoId){
+  const cont = document.getElementById('chatAnexosLista');
+  if(!cont) return;
+  try{
+    const r = await api('listarAnexos', { atendimentoId });
+    if(!r.ok || !r.anexos || r.anexos.length === 0){ cont.innerHTML = ''; return; }
+    cont.innerHTML = r.anexos.map(a=>`<a href="${a.url}" target="_blank" style="font-size:12px;color:var(--accent);display:block;margin-top:4px;">📎 ${escaparHtml(a.nome||'anexo')}</a>`).join('');
+  }catch(e){ cont.innerHTML = ''; }
 }
 
 function fecharChat(){
@@ -1143,6 +1151,99 @@ function escaparHtml(s){
   return d.innerHTML;
 }
 
+/* ---------- texto rico (Solução) ---------- */
+// remove o que pode ser perigoso (script, iframe, atributos on*, links javascript:)
+// mantendo formatação (negrito, listas, imagens) — é um filtro simples, suficiente
+// pra um app interno onde só admin/atendente escrevem nesse campo
+function sanitizarHtml(html){
+  const div = document.createElement('div');
+  div.innerHTML = html || '';
+  div.querySelectorAll('script,style,iframe,object,embed,link,meta').forEach(el=>el.remove());
+  div.querySelectorAll('*').forEach(el=>{
+    [...el.attributes].forEach(attr=>{
+      const nome = attr.name.toLowerCase();
+      if(nome.startsWith('on')) el.removeAttribute(attr.name);
+      if((nome==='href' || nome==='src') && /^\s*javascript:/i.test(attr.value)) el.removeAttribute(attr.name);
+    });
+  });
+  return div.innerHTML;
+}
+function stripHtml(html){
+  const d = document.createElement('div');
+  d.innerHTML = html || '';
+  return (d.textContent || d.innerText || '').replace(/\s+/g,' ').trim();
+}
+
+function configurarEditorRico(){
+  document.querySelectorAll('.rt-toolbar button[data-cmd]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.getElementById('f_solucao').focus();
+      document.execCommand(btn.dataset.cmd, false);
+    });
+  });
+  document.getElementById('btnInserirImagemSolucao').addEventListener('click', ()=>{
+    document.getElementById('f_solucao_imagem').click();
+  });
+  document.getElementById('f_solucao_imagem').addEventListener('change', async (e)=>{
+    const arquivo = e.target.files[0];
+    e.target.value = '';
+    if(!arquivo) return;
+    if(arquivo.size > 5 * 1024 * 1024){ toast('Imagem muito grande (máx. 5MB)'); return; }
+    toast('Enviando imagem…');
+    try{
+      const base64 = await lerArquivoBase64(arquivo);
+      const r = await api('uploadImagem', { base64, tipo: arquivo.type, nome: arquivo.name });
+      if(!r.ok){ toast(r.erro || 'Não foi possível enviar a imagem.'); return; }
+      document.getElementById('f_solucao').focus();
+      document.execCommand('insertHTML', false, `<img src="${r.url}" alt="${escaparHtml(r.nome||'')}">`);
+    }catch(err){
+      toast(err && err.message ? err.message : 'Não foi possível enviar a imagem.');
+    }
+  });
+}
+
+/* ---------- anexos múltiplos (só disponível ao editar um atendimento já existente) ---------- */
+async function carregarAnexosMultiplos(atendimentoId){
+  const cont = document.getElementById('listaAnexos');
+  cont.innerHTML = `<div class="empty" style="padding:14px;">Carregando…</div>`;
+  try{
+    const r = await api('listarAnexos', { atendimentoId });
+    if(!r.ok){ cont.innerHTML = `<div class="empty" style="padding:14px;">${r.erro||'Não foi possível carregar os anexos.'}</div>`; return; }
+    renderAnexosLista(r.anexos);
+  }catch(e){
+    cont.innerHTML = `<div class="empty" style="padding:14px;">Não foi possível carregar os anexos.</div>`;
+  }
+}
+function renderAnexosLista(lista){
+  const cont = document.getElementById('listaAnexos');
+  if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12.5px;">Nenhum anexo ainda.</div>`; return; }
+  cont.innerHTML = lista.map(a=>`
+    <div class="anexo-item">
+      <a href="${a.url}" target="_blank">📎 ${escaparHtml(a.nome||'anexo')}</a>
+      <button type="button" onclick="removerAnexoAgora('${a.id}')">remover</button>
+    </div>`).join('');
+}
+async function adicionarAnexoAgora(arquivo){
+  if(!anexoAtendimentoId){ toast('Salve o atendimento antes de anexar arquivos.'); return; }
+  if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); return; }
+  toast('Enviando anexo…');
+  try{
+    const base64 = await lerArquivoBase64(arquivo);
+    const r = await api('adicionarAnexo', { atendimentoId: anexoAtendimentoId, base64, tipo: arquivo.type, nome: arquivo.name });
+    if(!r.ok){ toast(r.erro || 'Não foi possível enviar o anexo.'); return; }
+    await carregarAnexosMultiplos(anexoAtendimentoId);
+    toast('Anexo adicionado');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível enviar o anexo.');
+  }
+}
+async function removerAnexoAgora(id){
+  const r = await api('removerAnexo', { id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarAnexosMultiplos(anexoAtendimentoId);
+  toast('Anexo removido');
+}
+
 /* ---------- navegação ---------- */
 function goView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -1166,6 +1267,13 @@ function tickClock(){ document.getElementById('clock').textContent = new Date().
 window.addEventListener('DOMContentLoaded', async ()=>{
   segmentedSetup('f_tipo', atualizarPreview);
   segmentedSetup('f_atendente', atualizarPreview);
+  configurarEditorRico();
+
+  document.getElementById('f_novo_anexo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    e.target.value = '';
+    if(arquivo) adicionarAnexoAgora(arquivo);
+  });
 
   document.getElementById('f_cliente').addEventListener('change', ()=>{ popularUsuariosSolicitantes(); atualizarPreview(); });
   document.getElementById('f_hi').addEventListener('change', atualizarPreview);
@@ -1213,11 +1321,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnMinhaSenha').addEventListener('click', abrirModalSenha);
   document.getElementById('senhaCancelar').addEventListener('click', fecharModalSenha);
   document.getElementById('senhaConfirmar').addEventListener('click', salvarNovaSenha);
-
-  document.getElementById('btnRemoverAnexoAtual').addEventListener('click', ()=>{
-    anexoAtual = { url: '', nome: '' };
-    document.getElementById('anexoAtualInfo').style.display = 'none';
-  });
 
   document.getElementById('btnFecharChat').addEventListener('click', fecharChat);
 
