@@ -143,6 +143,30 @@
   .install-banner span{font-size:12.5px;color:var(--text);}
   .install-banner button{background:var(--accent);color:#1A1305;border:none;padding:8px 14px;border-radius:8px;font-weight:700;font-size:12.5px;white-space:nowrap;font-family:inherit;}
 
+  /* telas maiores (tablet/desktop): aproveita o espaço em vez de ficar com
+     uma coluna estreita de celular sobrando espaço vazio dos dois lados */
+  @media (min-width: 860px){
+    header.top{padding-top:24px;}
+    main{max-width:920px;padding:0 24px;}
+    nav.bottom{max-width:920px;}
+    .tabs{max-width:480px;}
+    #listaItens{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;}
+    #listaItens .item{margin-bottom:0;}
+    #listaItens .empty{grid-column:1 / -1;}
+    .summary{grid-template-columns:repeat(4,1fr);}
+    /* modal vira uma caixa central em vez de folha colada embaixo da tela */
+    .modal-bg{align-items:center;justify-content:center;padding:20px;}
+    .modal{border-radius:18px;max-width:480px;max-height:85vh;overflow-y:auto;border-bottom:1px solid var(--line);}
+    #chatModal .modal{max-width:520px;}
+    .login-box{max-width:380px;}
+    .cad-view .row, .cad-view .row3{max-width:640px;}
+  }
+  @media (min-width: 1180px){
+    main{max-width:1080px;}
+    nav.bottom{max-width:1080px;}
+    #listaItens{grid-template-columns:1fr 1fr 1fr;}
+  }
+
   #loadingOverlay{position:fixed;inset:0;background:rgba(18,22,27,.88);z-index:200;display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;}
   .spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
@@ -295,6 +319,10 @@
   <section class="view" id="view-lista">
     <div class="filters" id="filtros"></div>
     <div class="filters" id="filtrosStatus" style="margin-bottom:10px;"></div>
+    <div class="row" id="filtroPeriodo" style="display:none;margin-bottom:10px;">
+      <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="periodo_de"></div>
+      <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="periodo_ate"></div>
+    </div>
     <label id="linhaSelecionarTodos" style="display:none;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer;margin-bottom:10px;">
       <input type="checkbox" id="chkSelecionarTodos"> Selecionar todos visíveis
     </label>
@@ -318,6 +346,10 @@
       <div class="field" id="campoFiltroAtendenteResumo" style="margin-top:10px;display:none;">
         <label>Atendente</label>
         <select id="r_atendente"></select>
+      </div>
+      <div class="field" id="campoFiltroClienteResumo" style="margin-top:10px;display:none;">
+        <label>Cliente</label>
+        <select id="r_cliente"></select>
       </div>
     </div>
     <div class="summary" id="resumoBoxes"></div>

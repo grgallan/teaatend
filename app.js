@@ -536,16 +536,21 @@ function renderFiltrosStatus(){
 function renderLista(){
   const cont = document.getElementById('listaItens');
   const conta = contaAtual();
+  const podeEditar = conta && conta.perfil !== 'USUARIO';
   let itens = atendimentos.slice();
   if(conta && conta.perfil === 'USUARIO'){
     itens = itens.filter(r=>r.usuario === conta.nome);
   }else{
     if(filtroCliente !== 'TODOS') itens = itens.filter(r=>r.cliente===filtroCliente);
     if(filtroStatus !== 'TODOS') itens = itens.filter(r=>r.status===filtroStatus);
+    const de = document.getElementById('periodo_de').value;
+    const ate = document.getElementById('periodo_ate').value;
+    if(de) itens = itens.filter(r=>String(r.data) >= de);
+    if(ate) itens = itens.filter(r=>String(r.data) <= ate);
   }
   itens.sort((a,b)=> String(b.data).localeCompare(String(a.data)));
 
-  const podeEditar = conta && conta.perfil !== 'USUARIO';
+  document.getElementById('filtroPeriodo').style.display = podeEditar ? 'grid' : 'none';
   const verValores = podeVerValores();
   const isUsuario = conta && conta.perfil === 'USUARIO';
   const isAdmin = conta && conta.perfil === 'ADMIN';
@@ -624,12 +629,14 @@ function popularMeses(){
   sel.value = atual && meses.includes(atual) ? atual : meses[0];
 }
 let filtroResumoAtendente = 'TODOS';
+let filtroResumoCliente = 'TODOS';
 
 function renderResumo(){
   popularMeses();
   const mes = document.getElementById('r_mes').value;
   const conta = contaAtual();
   const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAtendente = conta && conta.perfil === 'ATENDENTE';
   let itens = atendimentos.filter(r=>r.mes===mes);
 
   // admin pode filtrar o resumo por um atendente específico; atendente só vê o próprio
@@ -643,9 +650,21 @@ function renderResumo(){
     if(filtroResumoAtendente !== 'TODOS') itens = itens.filter(r=>r.atendente === filtroResumoAtendente);
   }else{
     campoFiltro.style.display = 'none';
-    if(conta && conta.perfil === 'ATENDENTE'){
+    if(isAtendente){
       itens = itens.filter(r=>r.atendente === conta.nome);
     }
+  }
+
+  // filtro por cliente — disponível pro admin e pro atendente
+  const campoFiltroCliente = document.getElementById('campoFiltroClienteResumo');
+  if(isAdmin || isAtendente){
+    campoFiltroCliente.style.display = '';
+    const selCli = document.getElementById('r_cliente');
+    selCli.innerHTML = `<option value="TODOS">Todos os clientes</option>` + clientes.map(c=>`<option value="${c.nome}">${c.nome}</option>`).join('');
+    selCli.value = filtroResumoCliente;
+    if(filtroResumoCliente !== 'TODOS') itens = itens.filter(r=>r.cliente === filtroResumoCliente);
+  }else{
+    campoFiltroCliente.style.display = 'none';
   }
 
   const totalHoras = itens.reduce((s,r)=>s+Number(r.qtd),0);
@@ -1126,6 +1145,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnExportar').addEventListener('click', exportarCsv);
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
+  document.getElementById('r_cliente').addEventListener('change', e=>{ filtroResumoCliente = e.target.value; renderResumo(); });
+  document.getElementById('periodo_de').addEventListener('change', renderLista);
+  document.getElementById('periodo_ate').addEventListener('change', renderLista);
 
   document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>goView(t.dataset.view)));
   document.querySelectorAll('.navbtn').forEach(t=>t.addEventListener('click', ()=>goView(t.dataset.view)));
