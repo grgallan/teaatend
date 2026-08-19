@@ -15,7 +15,6 @@ const CONFIG = {
   // no código do site — ela sozinha não dá acesso ao banco.
   ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
 };
-
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
@@ -348,7 +347,9 @@ function entrarNoApp(){
   document.getElementById('tabCadastros').style.display = isAdmin ? '' : 'none';
   document.getElementById('navCadastros').style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = isUsuario ? 'none' : ''; });
-  document.querySelectorAll('#mainTabs .tab[data-view="gantt"], #bottomNav .navbtn[data-view="gantt"]').forEach(el=>{ el.style.display = isUsuario ? 'none' : ''; });
+  // Cronograma fica disponível pra todo mundo — usuário e atendente veem
+  // só os próprios atendimentos (ou os do cliente, se marcado como admin
+  // do cliente), o filtro é feito dentro de renderGantt()
 
   // valores/hora (R$) só aparecem para o admin — atendentes veem só a quantidade de horas
   document.getElementById('stat_ananda').style.display = isAdmin ? '' : 'none';
@@ -861,6 +862,14 @@ function renderResumo(){
 
 /* ---------- cronograma (Gantt) ---------- */
 function renderFiltrosGantt(){
+  const conta = contaAtual();
+  const isUsuario = conta && conta.perfil === 'USUARIO';
+
+  // usuário só mantém o filtro de Status — cliente/tipo não fazem sentido
+  // pra quem já só vê os próprios atendimentos (ou os do cliente inteiro)
+  document.getElementById('ganttFiltroCliente').closest('.card').style.display = isUsuario ? 'none' : '';
+  document.getElementById('ganttFiltroTipo').closest('.card').style.display = isUsuario ? 'none' : '';
+
   const elCliente = document.getElementById('ganttFiltroCliente');
   elCliente.innerHTML = `<div class="chip ${filtroGanttCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
     clientes.map(c=>`<div class="chip ${filtroGanttCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
@@ -880,6 +889,7 @@ function toggleFiltroMultiplo(set, valor){
 }
 
 function renderGantt(){
+  const conta = contaAtual();
   let de = document.getElementById('gantt_de').value;
   let ate = document.getElementById('gantt_ate').value;
   if(!de || !ate){
@@ -898,6 +908,11 @@ function renderGantt(){
   const totalDias = Math.max(1, Math.round((dataFim - dataInicio) / 86400000) + 1);
 
   let itens = atendimentos.slice();
+  // atendente só vê os próprios atendimentos no cronograma (usuário já vem
+  // filtrado do servidor — só os dele, ou os do cliente se for admin dele)
+  if(conta && conta.perfil === 'ATENDENTE'){
+    itens = itens.filter(r=>r.atendente === conta.nome);
+  }
   if(filtroGanttCliente.size > 0) itens = itens.filter(r=>filtroGanttCliente.has(r.cliente));
   if(filtroGanttTipo.size > 0) itens = itens.filter(r=>filtroGanttTipo.has(r.tipo));
   if(filtroGanttStatus.size > 0) itens = itens.filter(r=>filtroGanttStatus.has(r.status));
@@ -931,7 +946,7 @@ function renderGantt(){
     const duracaoDias = Math.max(1, Math.round((fimClamp - iniClamp) / 86400000) + 1);
     const left = offsetDias * larguraDia;
     const width = duracaoDias * larguraDia;
-    const label = `${r.cliente} · ${r.usuario}`;
+    const label = `${r.usuario} | ${stripHtml(r.detalhe||'') || '(sem detalhe)'}`;
     const [y,m,d] = String(r.data).split('-');
     const tituloBarra = `${label} — início ${d}/${m}${r.dataPrevista ? ' · previsão '+String(r.dataPrevista).split('-').reverse().slice(0,2).join('/') : ' · sem previsão'} — ${r.status}`;
     return `<div class="gantt-row">
@@ -1164,8 +1179,9 @@ function renderListUsuarios(){
   el.innerHTML = lista.map(u=>{
     const cliente = clientes.find(c=>String(c.id)===String(u.clienteId))?.nome || '—';
     const contatos = linhaContatos(u.email, u.telefone);
+    const selo = u.adminCliente ? ` <span class="tag" style="color:var(--accent);">admin do cliente</span>` : '';
     return `<div class="cad-item" style="cursor:pointer;" onclick="editarUsuario('${u.id}')">
-      <div class="info"><b>${u.nome}</b><span>${cliente} · login: ${u.login}</span>${contatos}</div>
+      <div class="info"><b>${u.nome}${selo}</b><span>${cliente} · login: ${u.login}</span>${contatos}</div>
       <div class="acts"><button class="danger" onclick="event.stopPropagation();pedirConfirmacao('Remover usuário?','${u.nome} perderá acesso ao sistema.', ()=>removerConta('${u.id}'))">Remover</button></div>
     </div>`;
   }).join('');
@@ -1183,6 +1199,7 @@ function editarUsuario(id){
   document.getElementById('us_senha_hint').style.display = '';
   document.getElementById('us_email').value = u.email || '';
   document.getElementById('us_telefone').value = u.telefone || '';
+  document.getElementById('us_admin_cliente').checked = !!u.adminCliente;
   document.getElementById('btnAddUsuario').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoUsuario').style.display = '';
 
@@ -1213,6 +1230,7 @@ function cancelarEdicaoUsuario(){
   document.getElementById('us_senha_hint').style.display = 'none';
   document.getElementById('us_email').value = '';
   document.getElementById('us_telefone').value = '';
+  document.getElementById('us_admin_cliente').checked = false;
   document.getElementById('btnAddUsuario').textContent = 'Adicionar usuário';
   document.getElementById('btnCancelarEdicaoUsuario').style.display = 'none';
   document.getElementById('historicoUsuarioCard').style.display = 'none';
@@ -1737,15 +1755,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const senha = document.getElementById('us_senha').value;
     const email = document.getElementById('us_email').value.trim();
     const telefone = document.getElementById('us_telefone').value.trim();
+    const adminCliente = document.getElementById('us_admin_cliente').checked;
     if(!clienteId || !nome || !login){ toast('Preencha todos os campos'); return; }
     if(!editandoUsuarioId && !senha){ toast('Informe uma senha'); return; }
 
     const editando = !!editandoUsuarioId;
     let r;
     if(editando){
-      r = await api('atualizarConta', { id: editandoUsuarioId, nome: nome.toUpperCase(), login, senha, clienteId, email, telefone });
+      r = await api('atualizarConta', { id: editandoUsuarioId, nome: nome.toUpperCase(), login, senha, clienteId, email, telefone, adminCliente });
     }else{
-      r = await api('addUsuario', { nome: nome.toUpperCase(), login, senha, clienteId, email, telefone });
+      r = await api('addUsuario', { nome: nome.toUpperCase(), login, senha, clienteId, email, telefone, adminCliente });
     }
     if(!r.ok) return;
     cancelarEdicaoUsuario();
