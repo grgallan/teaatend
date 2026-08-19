@@ -657,6 +657,8 @@ function pedirConfirmacao(titulo, texto, acao, labelBotao){
 function renderFiltros(){
   const el = document.getElementById('filtros');
   const conta = contaAtual();
+  // usuário não filtra por cliente (só vê o próprio cliente mesmo) — mas
+  // status e período são liberados abaixo
   if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; renderFiltrosStatus(); return; }
   el.innerHTML = `<div class="chip ${filtroCliente.size===0?'on':''}" data-cliente="TODOS">Todos</div>` +
     clientes.map(c=>`<div class="chip ${filtroCliente.has(c.nome)?'on':''}" data-cliente="${c.nome}">${c.nome}</div>`).join('');
@@ -665,8 +667,6 @@ function renderFiltros(){
 
 function renderFiltrosStatus(){
   const el = document.getElementById('filtrosStatus');
-  const conta = contaAtual();
-  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; return; }
   el.innerHTML = `<div class="chip ${filtroStatus==='TODOS'?'on':''}" data-status="TODOS">Todos status</div>` +
     statusList.map(s=>`<div class="chip ${filtroStatus===s.nome?'on':''}" data-status="${s.nome}">${s.nome}</div>`).join('');
 }
@@ -675,23 +675,22 @@ function renderLista(){
   const cont = document.getElementById('listaItens');
   const conta = contaAtual();
   const podeEditar = conta && conta.perfil !== 'USUARIO';
+  const isUsuario = conta && conta.perfil === 'USUARIO';
   let itens = atendimentos.slice();
   // usuário: o servidor já manda só o que ele pode ver (os próprios, ou
-  // todos do cliente se for "administrador do cliente") — não filtra de
-  // novo aqui, senão descarta os atendimentos dos outros do mesmo cliente
-  if(conta && conta.perfil !== 'USUARIO'){
-    if(filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
-    if(filtroStatus !== 'TODOS') itens = itens.filter(r=>r.status===filtroStatus);
-    const de = document.getElementById('periodo_de').value;
-    const ate = document.getElementById('periodo_ate').value;
-    if(de) itens = itens.filter(r=>String(r.data) >= de);
-    if(ate) itens = itens.filter(r=>String(r.data) <= ate);
-  }
+  // todos do cliente se for "administrador do cliente") — não filtra por
+  // cliente aqui, senão descarta os atendimentos dos outros do mesmo
+  // cliente; mas status e período valem pra ele também
+  if(!isUsuario && filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
+  if(filtroStatus !== 'TODOS') itens = itens.filter(r=>r.status===filtroStatus);
+  const de = document.getElementById('periodo_de').value;
+  const ate = document.getElementById('periodo_ate').value;
+  if(de) itens = itens.filter(r=>String(r.data) >= de);
+  if(ate) itens = itens.filter(r=>String(r.data) <= ate);
   itens.sort((a,b)=> String(b.data).localeCompare(String(a.data)));
 
-  document.getElementById('filtroPeriodo').style.display = podeEditar ? 'grid' : 'none';
+  document.getElementById('filtroPeriodo').style.display = 'grid';
   const verValores = podeVerValores();
-  const isUsuario = conta && conta.perfil === 'USUARIO';
   const isAdmin = conta && conta.perfil === 'ADMIN';
 
   document.getElementById('linhaSelecionarTodos').style.display = podeEditar ? 'flex' : 'none';
