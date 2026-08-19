@@ -807,7 +807,7 @@ function renderResumo(){
   }
 
   const totalHoras = itens.reduce((s,r)=>s+Number(r.qtd),0);
-  const verValoresReal = podeVerValores();               // Valor Real — só admin
+  const verValoresReal = isAdmin || (conta && conta.perfil === 'USUARIO' && conta.adminCliente); // Valor Real — admin e o usuário administrador do cliente
   const verValorAtendente = isAdmin || (conta && conta.perfil === 'ATENDENTE'); // Valor Atendente — admin e o próprio atendente
 
   if(verValoresReal || verValorAtendente){
