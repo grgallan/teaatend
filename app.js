@@ -15,6 +15,7 @@ const CONFIG = {
   // no código do site — ela sozinha não dá acesso ao banco.
   ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
 };
+
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
@@ -88,46 +89,78 @@ async function aplicarStatusMassa(){
   }
 }
 
-/* ---------- vínculo entre chamados ---------- */
-let vinculoSelecionadoId = null;
-
+/* ---------- vínculo entre chamados (múltiplos — cada um numa linha própria, nunca substitui) ---------- */
 function descreverAtendimentoParaVinculo(r){
   const [y,m,d] = String(r.data).split('-');
   const resumoDetalhe = r.detalhe ? stripHtml(r.detalhe).slice(0,40) : '';
   return `${d}/${m}/${y} · ${r.cliente} · ${r.usuario}${resumoDetalhe ? ' · '+resumoDetalhe : ''}`;
 }
 
-function buscarChamadosParaVinculo(termo){
-  const cont = document.getElementById('vinculoResultados');
-  const termoLimpo = termo.trim().toLowerCase();
-  if(termoLimpo.length < 2){ cont.innerHTML = ''; return; }
-  const excluirId = editandoId; // um chamado não pode se vincular a si mesmo
-  const resultados = atendimentos
-    .filter(r => String(r.id) !== String(excluirId))
-    .filter(r => {
-      const alvo = `${r.cliente} ${r.usuario} ${stripHtml(r.detalhe||'')} ${r.tipo}`.toLowerCase();
-      return alvo.includes(termoLimpo);
-    })
-    .slice(0, 8);
-  if(resultados.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum chamado encontrado.</div>`; return; }
-  cont.innerHTML = resultados.map(r=>`
-    <div class="vinculo-resultado" onclick="selecionarVinculo('${r.id}', '${escaparHtml(descreverAtendimentoParaVinculo(r)).replace(/'/g,"\\'")}')">
-      <b>${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</b>
-      <span>${descreverAtendimentoParaVinculo(r)}</span>
-    </div>`).join('');
+// busca genérica — usada tanto no formulário de edição quanto na tela de
+// detalhe; cada contexto tem seu próprio input/lista de resultados
+function configurarBuscaVinculo(buscaInputId, resultadosId, obterAtendimentoIdAtual, aoSelecionar){
+  document.getElementById(buscaInputId).addEventListener('input', e=>{
+    const termo = e.target.value.trim().toLowerCase();
+    const cont = document.getElementById(resultadosId);
+    if(termo.length < 2){ cont.innerHTML = ''; return; }
+    const atualId = obterAtendimentoIdAtual();
+    const resultados = atendimentos
+      .filter(r => String(r.id) !== String(atualId))
+      .filter(r => `${r.cliente} ${r.usuario} ${stripHtml(r.detalhe||'')} ${r.tipo}`.toLowerCase().includes(termo))
+      .slice(0, 8);
+    if(resultados.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum chamado encontrado.</div>`; return; }
+    cont.innerHTML = resultados.map(r=>`
+      <div class="vinculo-resultado" data-id="${r.id}">
+        <b>${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</b>
+        <span>${descreverAtendimentoParaVinculo(r)}</span>
+      </div>`).join('');
+    cont.querySelectorAll('.vinculo-resultado').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        aoSelecionar(el.dataset.id);
+        document.getElementById(buscaInputId).value = '';
+        cont.innerHTML = '';
+      });
+    });
+  });
 }
-function selecionarVinculo(id, textoDescricao){
-  vinculoSelecionadoId = id;
-  document.getElementById('vinculoSelecionadoTexto').textContent = textoDescricao;
-  document.getElementById('vinculoSelecionado').style.display = 'flex';
-  document.getElementById('f_vinculo_busca').value = '';
-  document.getElementById('vinculoResultados').innerHTML = '';
+
+async function adicionarVinculoAgora(atendimentoId, outroId, containerId, podeRemover){
+  if(!atendimentoId){ toast('Salve o atendimento antes de vincular.'); return; }
+  const r = await api('adicionarVinculo', { atendimentoId, outroId });
+  if(!r.ok){ toast(r.erro || 'Não foi possível vincular.'); return; }
+  await recarregarVinculos(atendimentoId, containerId, podeRemover);
+  toast('Vinculado');
 }
-function limparVinculoSelecionado(){
-  vinculoSelecionadoId = null;
-  document.getElementById('vinculoSelecionado').style.display = 'none';
-  document.getElementById('f_vinculo_busca').value = '';
-  document.getElementById('vinculoResultados').innerHTML = '';
+async function removerVinculoAgora(vinculoId, atendimentoId, containerId, podeRemover){
+  const r = await api('removerVinculo', { id: vinculoId });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover o vínculo.'); return; }
+  await recarregarVinculos(atendimentoId, containerId, podeRemover);
+  toast('Vínculo removido');
+}
+async function recarregarVinculos(atendimentoId, containerId, podeRemover){
+  try{
+    const r = await api('listarVinculados', { atendimentoId });
+    if(!r.ok){ document.getElementById(containerId).innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro||'Não foi possível carregar.'}</div>`; return null; }
+    renderVinculosLista(containerId, r.vinculados, atendimentoId, podeRemover);
+    return r;
+  }catch(e){
+    document.getElementById(containerId).innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar os vínculos.</div>`;
+    return null;
+  }
+}
+function renderVinculosLista(containerId, lista, atendimentoId, podeRemover){
+  const cont = document.getElementById(containerId);
+  if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum vínculo ainda.</div>`; return; }
+  cont.innerHTML = lista.map(v=>{
+    const [y,m,d] = String(v.data).split('-');
+    return `<div class="cad-item">
+      <div class="info" style="cursor:pointer;" onclick="abrirDetalhe('${v.id}')">
+        <b>${d}/${m}/${y} · ${escaparHtml(v.cliente)}</b>
+        <span>${escaparHtml(v.usuario)} · ${Number(v.qtd).toFixed(2).replace('.',',')}h · <span class="tag status-${v.status}">${v.status}</span></span>
+      </div>
+      ${podeRemover ? `<div class="acts"><button class="danger" onclick="removerVinculoAgora('${v.vinculoId}','${atendimentoId}','${containerId}',true)">Remover</button></div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 function contatoDoAtendente(nomeAtendente){
@@ -371,7 +404,10 @@ function popularSelects(){
 
   // data prevista e vínculo com outro chamado — quem está atendendo é quem define isso
   document.getElementById('campoDataPrevista').style.display = isUsuario ? 'none' : '';
-  document.getElementById('campoVinculo').style.display = isUsuario ? 'none' : '';
+  if(isUsuario){
+    document.getElementById('campoVinculo').style.display = 'none';
+    document.getElementById('campoVinculoNovo').style.display = 'none';
+  }
 }
 function popularUsuariosSolicitantes(){
   const conta = contaAtual();
@@ -445,7 +481,10 @@ function resetForm(){
   document.getElementById('campoAnexosMultiplos').style.display = 'none';
   anexoAtendimentoId = null;
   document.getElementById('f_data_prevista').value = '';
-  limparVinculoSelecionado();
+  document.getElementById('campoVinculo').style.display = 'none';
+  document.getElementById('campoVinculoNovo').style.display = '';
+  document.getElementById('f_vinculo_busca').value = '';
+  document.getElementById('vinculoResultados').innerHTML = '';
 
   // todo chamado novo abre como PENDENTE e não é escolhível — só aparece
   // o seletor de status quando editando um atendimento já existente
@@ -489,9 +528,8 @@ async function salvarRegistro(){
   btn.textContent = 'Salvando…';
   try{
     const dataPrevista = isUsuario ? '' : document.getElementById('f_data_prevista').value;
-    const vinculadoA = isUsuario ? '' : (vinculoSelecionadoId || '');
     const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
-      dataPrevista, vinculadoA,
+      dataPrevista,
       qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
     // anexo inicial (só existe esse campo na criação — depois de salvo, usa a lista de múltiplos anexos)
@@ -550,12 +588,11 @@ function editar(id){
   anexoAtendimentoId = r.id;
   carregarAnexosMultiplos(r.id);
   document.getElementById('f_data_prevista').value = r.dataPrevista || '';
-  if(r.vinculadoA){
-    const alvo = atendimentos.find(x=>String(x.id)===String(r.vinculadoA));
-    selecionarVinculo(r.vinculadoA, alvo ? descreverAtendimentoParaVinculo(alvo) : 'chamado vinculado');
-  }else{
-    limparVinculoSelecionado();
-  }
+  document.getElementById('campoVinculo').style.display = '';
+  document.getElementById('campoVinculoNovo').style.display = 'none';
+  document.getElementById('f_vinculo_busca').value = '';
+  document.getElementById('vinculoResultados').innerHTML = '';
+  recarregarVinculos(r.id, 'listaVinculos', true);
   atualizarPreview();
   goView('novo');
 }
@@ -593,7 +630,10 @@ function copiarAtendimento(id){
   document.getElementById('campoAnexosMultiplos').style.display = 'none';
   anexoAtendimentoId = null;
   document.getElementById('f_data_prevista').value = '';
-  limparVinculoSelecionado();
+  document.getElementById('campoVinculo').style.display = 'none';
+  document.getElementById('campoVinculoNovo').style.display = '';
+  document.getElementById('f_vinculo_busca').value = '';
+  document.getElementById('vinculoResultados').innerHTML = '';
   atualizarPreview();
   goView('novo');
   toast('Copiado — ajuste o que precisar e salve como um novo atendimento');
@@ -1095,6 +1135,7 @@ function linkWhatsapp(telefone){
 
 /* ---------- bate-papo por atendimento ---------- */
 let chatAtendimentoId = null;
+let chatPodeRemoverVinculo = false;
 
 async function abrirDetalhe(atendimentoId){
   const r = atendimentos.find(x=>String(x.id)===String(atendimentoId));
@@ -1133,7 +1174,7 @@ async function abrirDetalhe(atendimentoId){
     carregarHistorico(),
     carregarMensagens(),
     carregarAnexosDetalhe(atendimentoId, !isUsuario),
-    carregarVinculosDetalhe(atendimentoId),
+    carregarVinculosDetalhe(atendimentoId, !isUsuario),
   ]);
 }
 
@@ -1147,35 +1188,22 @@ async function carregarAnexosDetalhe(atendimentoId, podeRemover){
   }
 }
 
-async function carregarVinculosDetalhe(atendimentoId){
+async function carregarVinculosDetalhe(atendimentoId, podeGerenciar){
   const wrap = document.getElementById('chatVinculosWrap');
-  const cont = document.getElementById('chatVinculos');
+  document.getElementById('chatVinculoAdd').style.display = podeGerenciar ? '' : 'none';
+  chatPodeRemoverVinculo = podeGerenciar;
   try{
-    const r = await api('listarVinculados', { atendimentoId });
-    if(!r.ok) return;
-    const temPai = !!r.pai;
-    const temFilhos = r.filhos && r.filhos.length > 0;
-    if(!temPai && !temFilhos) return; // sem vínculo nenhum, não mostra a seção
-
-    wrap.style.display = '';
-    let html = '';
-    if(temPai){
-      const [py,pm,pd] = String(r.pai.data).split('-');
-      html += `<div class="cad-item" style="cursor:pointer;" onclick="abrirDetalhe('${r.pai.id}')">
-        <div class="info"><b>Vinculado ao chamado</b><span>${pd}/${pm}/${py} · ${r.pai.cliente} · ${escaparHtml(r.pai.detalhe ? stripHtml(r.pai.detalhe).slice(0,50) : '')}</span></div>
-      </div>`;
+    const r = await recarregarVinculos(atendimentoId, 'chatVinculos', podeGerenciar);
+    if(!r) { wrap.style.display = podeGerenciar ? '' : 'none'; return; }
+    const temVinculos = r.vinculados && r.vinculados.length > 0;
+    // sem gerência (usuário) e sem nenhum vínculo, não mostra a seção — pra quem gerencia, mostra sempre (pra poder adicionar)
+    wrap.style.display = (podeGerenciar || temVinculos) ? '' : 'none';
+    if(temVinculos){
+      const totalEl = document.createElement('div');
+      totalEl.style.cssText = 'text-align:right;font-size:12.5px;margin-top:6px;color:var(--accent);font-weight:600;';
+      totalEl.textContent = `Total de horas (com vinculados): ${r.horasTotais.toFixed(2).replace('.',',')}h`;
+      document.getElementById('chatVinculos').appendChild(totalEl);
     }
-    if(temFilhos){
-      html += r.filhos.map(f=>{
-        const [fy,fm,fd] = String(f.data).split('-');
-        return `<div class="cad-item" style="cursor:pointer;" onclick="abrirDetalhe('${f.id}')">
-          <div class="info"><b>${fd}/${fm}/${fy} · ${f.cliente}</b><span>${escaparHtml(f.detalhe ? stripHtml(f.detalhe).slice(0,50) : '')} · ${Number(f.qtd).toFixed(2).replace('.',',')}h</span></div>
-          <span class="tag status-${f.status}">${f.status}</span>
-        </div>`;
-      }).join('');
-      html += `<div style="text-align:right;font-size:12.5px;margin-top:6px;color:var(--accent);font-weight:600;">Total de horas (com vinculados): ${r.horasTotais.toFixed(2).replace('.',',')}h</div>`;
-    }
-    cont.innerHTML = html;
   }catch(e){ /* silencioso — vínculo é informação complementar */ }
 }
 
@@ -1409,8 +1437,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(arquivo) adicionarAnexoGenerico(chatAtendimentoId, arquivo, 'chatAnexosLista', podeRemover);
   });
 
-  document.getElementById('f_vinculo_busca').addEventListener('input', e=>{ buscarChamadosParaVinculo(e.target.value); });
-  document.getElementById('btnRemoverVinculo').addEventListener('click', limparVinculoSelecionado);
+  configurarBuscaVinculo('f_vinculo_busca', 'vinculoResultados', ()=>editandoId, (outroId)=>{
+    adicionarVinculoAgora(editandoId, outroId, 'listaVinculos', true);
+  });
+  configurarBuscaVinculo('f_vinculo_busca_detalhe', 'vinculoResultadosDetalhe', ()=>chatAtendimentoId, (outroId)=>{
+    adicionarVinculoAgora(chatAtendimentoId, outroId, 'chatVinculos', chatPodeRemoverVinculo);
+  });
 
   document.getElementById('f_cliente').addEventListener('change', ()=>{ popularUsuariosSolicitantes(); atualizarPreview(); });
   document.getElementById('f_hi').addEventListener('change', atualizarPreview);
