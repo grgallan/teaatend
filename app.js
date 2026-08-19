@@ -15,6 +15,7 @@ const CONFIG = {
   // no código do site — ela sozinha não dá acesso ao banco.
   ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
 };
+
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
@@ -343,10 +344,11 @@ function entrarNoApp(){
 
   const isAdmin = conta.perfil === 'ADMIN';
   const isUsuario = conta.perfil === 'USUARIO';
+  const podeVerResumo = !isUsuario || conta.adminCliente; // usuário comum não vê; administrador do cliente vê
 
   document.getElementById('tabCadastros').style.display = isAdmin ? '' : 'none';
   document.getElementById('navCadastros').style.display = isAdmin ? '' : 'none';
-  document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = isUsuario ? 'none' : ''; });
+  document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = podeVerResumo ? '' : 'none'; });
   // Cronograma fica disponível pra todo mundo — usuário e atendente veem
   // só os próprios atendimentos (ou os do cliente, se marcado como admin
   // do cliente), o filtro é feito dentro de renderGantt()
@@ -674,9 +676,10 @@ function renderLista(){
   const conta = contaAtual();
   const podeEditar = conta && conta.perfil !== 'USUARIO';
   let itens = atendimentos.slice();
-  if(conta && conta.perfil === 'USUARIO'){
-    itens = itens.filter(r=>r.usuario === conta.nome);
-  }else{
+  // usuário: o servidor já manda só o que ele pode ver (os próprios, ou
+  // todos do cliente se for "administrador do cliente") — não filtra de
+  // novo aqui, senão descarta os atendimentos dos outros do mesmo cliente
+  if(conta && conta.perfil !== 'USUARIO'){
     if(filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
     if(filtroStatus !== 'TODOS') itens = itens.filter(r=>r.status===filtroStatus);
     const de = document.getElementById('periodo_de').value;
@@ -888,12 +891,13 @@ function toggleFiltroMultiplo(set, valor){
   if(set.has(valor)) set.delete(valor); else set.add(valor);
 }
 
-function renderGantt(){
+// calcula o período e os itens filtrados — usado tanto pra desenhar o
+// gráfico quanto pra exportar o CSV, garantindo que os dois batem sempre
+function calcularItensGantt(){
   const conta = contaAtual();
   let de = document.getElementById('gantt_de').value;
   let ate = document.getElementById('gantt_ate').value;
   if(!de || !ate){
-    // padrão: mês atual
     const hoje = new Date();
     const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const ultimo = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0);
@@ -904,19 +908,15 @@ function renderGantt(){
   }
   const dataInicio = new Date(de+'T00:00:00');
   const dataFim = new Date(ate+'T00:00:00');
-  if(dataFim < dataInicio){ document.getElementById('ganttChart').innerHTML = `<div class="empty">O período "Até" precisa ser depois do "De".</div>`; return; }
-  const totalDias = Math.max(1, Math.round((dataFim - dataInicio) / 86400000) + 1);
+  if(dataFim < dataInicio) return { itens: [], dataInicio, dataFim, de, ate, invalido: true };
 
   let itens = atendimentos.slice();
-  // atendente só vê os próprios atendimentos no cronograma (usuário já vem
-  // filtrado do servidor — só os dele, ou os do cliente se for admin dele)
   if(conta && conta.perfil === 'ATENDENTE'){
     itens = itens.filter(r=>r.atendente === conta.nome);
   }
   if(filtroGanttCliente.size > 0) itens = itens.filter(r=>filtroGanttCliente.has(r.cliente));
   if(filtroGanttTipo.size > 0) itens = itens.filter(r=>filtroGanttTipo.has(r.tipo));
   if(filtroGanttStatus.size > 0) itens = itens.filter(r=>filtroGanttStatus.has(r.status));
-  // só entra no gráfico quem tem alguma sobreposição com o período escolhido
   itens = itens.filter(r=>{
     if(!r.data) return false;
     const ini = new Date(r.data+'T00:00:00');
@@ -924,6 +924,13 @@ function renderGantt(){
     return fim >= dataInicio && ini <= dataFim;
   });
   itens.sort((a,b)=> String(a.data).localeCompare(String(b.data)));
+  return { itens, dataInicio, dataFim, de, ate, invalido: false };
+}
+
+function renderGantt(){
+  const { itens, dataInicio, dataFim, invalido } = calcularItensGantt();
+  if(invalido){ document.getElementById('ganttChart').innerHTML = `<div class="empty">O período "Até" precisa ser depois do "De".</div>`; return; }
+  const totalDias = Math.max(1, Math.round((dataFim - dataInicio) / 86400000) + 1);
 
   const cont = document.getElementById('ganttChart');
   if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">📊</div>Nenhum atendimento no período/filtros selecionados.</div>`; return; }
@@ -963,10 +970,45 @@ function renderGantt(){
   `;
 }
 
+function exportarCsvGantt(){
+  const { itens, de, ate, invalido } = calcularItensGantt();
+  if(invalido){ toast('O período "Até" precisa ser depois do "De".'); return; }
+  if(itens.length===0){ toast('Nada para exportar com esse período/filtros'); return; }
+  const header = ['DATA','DATA PREVISTA','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','QTD','STATUS'];
+  const rows = itens.map(r=>{
+    const [y,m,d] = String(r.data).split('-');
+    const dataFmt = `${d}/${m}/${y}`;
+    let previstaFmt = '';
+    if(r.dataPrevista){ const [py,pm,pd] = String(r.dataPrevista).split('-'); previstaFmt = `${pd}/${pm}/${py}`; }
+    return [dataFmt, previstaFmt, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente,
+      stripHtml(r.detalhe).replace(/;/g,','), Number(r.qtd).toFixed(2), r.status];
+  });
+  const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=`cronograma_${de}_a_${ate}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast('CSV exportado');
+}
+
 function exportarCsv(){
   const mes = document.getElementById('r_mes').value;
-  const itens = atendimentos.filter(r=>r.mes===mes).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data)));
-  if(itens.length===0){ toast('Nada para exportar neste mês'); return; }
+  const conta = contaAtual();
+  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAtendente = conta && conta.perfil === 'ATENDENTE';
+
+  // mesmos filtros aplicados na tela do Resumo — senão o CSV sai com tudo,
+  // ignorando o que a pessoa filtrou antes de exportar
+  let itens = atendimentos.filter(r=>r.mes===mes);
+  if(isAdmin){
+    if(filtroResumoAtendente !== 'TODOS') itens = itens.filter(r=>r.atendente === filtroResumoAtendente);
+  }else if(isAtendente){
+    itens = itens.filter(r=>r.atendente === conta.nome);
+  }
+  if((isAdmin || isAtendente) && filtroResumoCliente.size > 0) itens = itens.filter(r=>filtroResumoCliente.has(r.cliente));
+
+  itens = itens.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+  if(itens.length===0){ toast('Nada para exportar com esse filtro'); return; }
   const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
   const rows = itens.map(r=>{
     const [y,m,d]=String(r.data).split('-');
@@ -1563,6 +1605,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('f_qtd_manual').addEventListener('input', atualizarPreview);
   document.getElementById('btnSalvar').addEventListener('click', salvarRegistro);
   document.getElementById('btnExportar').addEventListener('click', exportarCsv);
+  document.getElementById('btnExportarGantt').addEventListener('click', exportarCsvGantt);
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
 
