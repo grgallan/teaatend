@@ -348,6 +348,7 @@ function entrarNoApp(){
   document.getElementById('tabCadastros').style.display = isAdmin ? '' : 'none';
   document.getElementById('navCadastros').style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = isUsuario ? 'none' : ''; });
+  document.querySelectorAll('#mainTabs .tab[data-view="gantt"], #bottomNav .navbtn[data-view="gantt"]').forEach(el=>{ el.style.display = isUsuario ? 'none' : ''; });
 
   // valores/hora (R$) só aparecem para o admin — atendentes veem só a quantidade de horas
   document.getElementById('stat_ananda').style.display = isAdmin ? '' : 'none';
@@ -858,6 +859,95 @@ function renderResumo(){
   document.getElementById('resumoStatus').innerHTML = `<tr><th>Status</th><th>Qtd.</th><th>%</th></tr>${linhasStatus}`;
 }
 
+/* ---------- cronograma (Gantt) ---------- */
+function renderFiltrosGantt(){
+  const elCliente = document.getElementById('ganttFiltroCliente');
+  elCliente.innerHTML = `<div class="chip ${filtroGanttCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    clientes.map(c=>`<div class="chip ${filtroGanttCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
+
+  const elTipo = document.getElementById('ganttFiltroTipo');
+  elTipo.innerHTML = `<div class="chip ${filtroGanttTipo.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    tipos.map(t=>`<div class="chip ${filtroGanttTipo.has(t.nome)?'on':''}" data-valor="${t.nome}">${labelTipo(t.nome)}</div>`).join('');
+
+  const elStatus = document.getElementById('ganttFiltroStatus');
+  elStatus.innerHTML = `<div class="chip ${filtroGanttStatus.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    statusList.map(s=>`<div class="chip ${filtroGanttStatus.has(s.nome)?'on':''}" data-valor="${s.nome}">${s.nome}</div>`).join('');
+}
+
+function toggleFiltroMultiplo(set, valor){
+  if(valor === 'TODOS'){ set.clear(); return; }
+  if(set.has(valor)) set.delete(valor); else set.add(valor);
+}
+
+function renderGantt(){
+  let de = document.getElementById('gantt_de').value;
+  let ate = document.getElementById('gantt_ate').value;
+  if(!de || !ate){
+    // padrão: mês atual
+    const hoje = new Date();
+    const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const ultimo = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0);
+    de = primeiro.toISOString().slice(0,10);
+    ate = ultimo.toISOString().slice(0,10);
+    document.getElementById('gantt_de').value = de;
+    document.getElementById('gantt_ate').value = ate;
+  }
+  const dataInicio = new Date(de+'T00:00:00');
+  const dataFim = new Date(ate+'T00:00:00');
+  if(dataFim < dataInicio){ document.getElementById('ganttChart').innerHTML = `<div class="empty">O período "Até" precisa ser depois do "De".</div>`; return; }
+  const totalDias = Math.max(1, Math.round((dataFim - dataInicio) / 86400000) + 1);
+
+  let itens = atendimentos.slice();
+  if(filtroGanttCliente.size > 0) itens = itens.filter(r=>filtroGanttCliente.has(r.cliente));
+  if(filtroGanttTipo.size > 0) itens = itens.filter(r=>filtroGanttTipo.has(r.tipo));
+  if(filtroGanttStatus.size > 0) itens = itens.filter(r=>filtroGanttStatus.has(r.status));
+  // só entra no gráfico quem tem alguma sobreposição com o período escolhido
+  itens = itens.filter(r=>{
+    if(!r.data) return false;
+    const ini = new Date(r.data+'T00:00:00');
+    const fim = new Date((r.dataPrevista || r.data)+'T00:00:00');
+    return fim >= dataInicio && ini <= dataFim;
+  });
+  itens.sort((a,b)=> String(a.data).localeCompare(String(b.data)));
+
+  const cont = document.getElementById('ganttChart');
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">📊</div>Nenhum atendimento no período/filtros selecionados.</div>`; return; }
+
+  const larguraDia = 100 / totalDias;
+  let headerDias = '';
+  for(let i=0;i<totalDias;i++){
+    const d = new Date(dataInicio); d.setDate(d.getDate()+i);
+    const mostrarNumero = totalDias <= 45 || d.getDate() === 1 || i === 0;
+    headerDias += `<div class="gantt-day" style="width:${larguraDia}%;">${mostrarNumero ? d.getDate()+'/'+(d.getMonth()+1) : ''}</div>`;
+  }
+
+  const linhas = itens.map(r=>{
+    const ini = new Date(r.data+'T00:00:00');
+    const semPrevisao = !r.dataPrevista;
+    const fim = new Date((r.dataPrevista || r.data)+'T00:00:00');
+    const iniClamp = ini < dataInicio ? dataInicio : ini;
+    const fimClamp = fim > dataFim ? dataFim : fim;
+    const offsetDias = Math.round((iniClamp - dataInicio) / 86400000);
+    const duracaoDias = Math.max(1, Math.round((fimClamp - iniClamp) / 86400000) + 1);
+    const left = offsetDias * larguraDia;
+    const width = duracaoDias * larguraDia;
+    const label = `${r.cliente} · ${r.usuario}`;
+    const [y,m,d] = String(r.data).split('-');
+    const tituloBarra = `${label} — início ${d}/${m}${r.dataPrevista ? ' · previsão '+String(r.dataPrevista).split('-').reverse().slice(0,2).join('/') : ' · sem previsão'} — ${r.status}`;
+    return `<div class="gantt-row">
+      <div class="gantt-label" title="${escaparHtml(label)}">${escaparHtml(label)}</div>
+      <div class="gantt-track">
+        <div class="gantt-bar status-${r.status} ${semPrevisao?'gantt-bar-sem-previsao':''}" style="left:${left}%;width:${width}%;" title="${escaparHtml(tituloBarra)}" onclick="abrirDetalhe('${r.id}')"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div class="gantt-header"><div class="gantt-label-col"></div><div class="gantt-days">${headerDias}</div></div>
+    ${linhas}
+  `;
+}
+
 function exportarCsv(){
   const mes = document.getElementById('r_mes').value;
   const itens = atendimentos.filter(r=>r.mes===mes).slice().sort((a,b)=>String(a.data).localeCompare(String(b.data)));
@@ -1012,6 +1102,9 @@ async function removerStatus(id){
 }
 
 let filtroValoresAtendenteId = 'TODOS';
+let filtroGanttCliente = new Set();
+let filtroGanttTipo = new Set();
+let filtroGanttStatus = new Set();
 
 function renderValoresForm(){
   document.getElementById('vl_atendente').innerHTML = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
@@ -1407,6 +1500,7 @@ function goView(name){
   document.querySelectorAll('.navbtn').forEach(t=>t.classList.toggle('active', t.dataset.view===name));
   if(name==='lista') renderLista();
   if(name==='resumo') renderResumo();
+  if(name==='gantt'){ renderFiltrosGantt(); renderGantt(); }
   if(name==='cadastros') goCadSub(cadAba);
 }
 function goCadSub(sub){
@@ -1475,6 +1569,24 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('periodo_de').addEventListener('change', renderLista);
   document.getElementById('periodo_ate').addEventListener('change', renderLista);
+
+  document.getElementById('ganttFiltroCliente').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(filtroGanttCliente, chip.dataset.valor);
+    renderFiltrosGantt(); renderGantt();
+  });
+  document.getElementById('ganttFiltroTipo').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(filtroGanttTipo, chip.dataset.valor);
+    renderFiltrosGantt(); renderGantt();
+  });
+  document.getElementById('ganttFiltroStatus').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(filtroGanttStatus, chip.dataset.valor);
+    renderFiltrosGantt(); renderGantt();
+  });
+  document.getElementById('gantt_de').addEventListener('change', renderGantt);
+  document.getElementById('gantt_ate').addEventListener('change', renderGantt);
 
   document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>{
     if(t.dataset.view === 'novo') resetForm(); // clicar em "Novo" sempre começa um formulário limpo — sem isso, editandoId ficava "grudado" no último atendimento editado e o Salvar sobrescrevia ele em vez de criar um novo

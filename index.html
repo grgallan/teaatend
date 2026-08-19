@@ -160,6 +160,20 @@
   .vinculo-resultado:hover{border-color:var(--accent);}
   .vinculo-resultado b{display:block;font-size:12.5px;}
   .vinculo-resultado span{color:var(--muted);font-size:11.5px;}
+
+  /* gráfico de Gantt (cronograma) */
+  .gantt-header{display:flex;border-bottom:2px solid var(--line);padding-bottom:4px;margin-bottom:2px;}
+  .gantt-label-col{width:220px;flex-shrink:0;}
+  .gantt-days{flex:1;display:flex;position:relative;}
+  .gantt-day{text-align:center;font-size:9px;color:var(--muted);border-right:1px dashed var(--line);padding-bottom:2px;}
+  .gantt-row{display:flex;border-bottom:1px solid var(--line);min-height:34px;align-items:center;}
+  .gantt-label{width:220px;flex-shrink:0;padding:6px 10px 6px 0;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .gantt-track{flex:1;position:relative;height:22px;background:linear-gradient(90deg,transparent 0,transparent calc(100% - 1px),var(--line) 0);background-size:calc(100%/1) 100%;}
+  .gantt-bar{position:absolute;top:2px;height:18px;border-radius:5px;background:var(--accent);cursor:pointer;min-width:6px;}
+  .gantt-bar.status-PENDENTE{background:var(--warn);}
+  .gantt-bar.status-VALIDADO{background:var(--ok);}
+  .gantt-bar.status-NÃO\ VALIDADO{background:var(--bad);}
+  .gantt-bar-sem-previsao{opacity:.55;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.3),rgba(255,255,255,.3) 3px,transparent 3px,transparent 6px);}
   .install-banner{background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:none;align-items:center;gap:10px;justify-content:space-between;}
   .install-banner.show{display:flex;}
   .install-banner span{font-size:12.5px;color:var(--text);}
@@ -282,6 +296,7 @@
     <div class="tab active" data-view="novo">Novo</div>
     <div class="tab" data-view="lista">Atendimentos</div>
     <div class="tab" data-view="resumo">Resumo</div>
+    <div class="tab" data-view="gantt" id="tabGantt">Cronograma</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
   </div>
 
@@ -427,6 +442,38 @@
     <button class="primary" id="btnExportar" style="margin-bottom:14px;">Exportar CSV do mês</button>
   </section>
 
+  <!-- CRONOGRAMA (Gantt) -->
+  <section class="view" id="view-gantt">
+    <div class="card">
+      <h2>Período</h2>
+      <div class="row">
+        <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="gantt_de"></div>
+        <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="gantt_ate"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Cliente</h2>
+      <div class="filters" id="ganttFiltroCliente"></div>
+    </div>
+    <div class="card">
+      <h2>Tipo de atendimento</h2>
+      <div class="filters" id="ganttFiltroTipo"></div>
+    </div>
+    <div class="card">
+      <h2>Status</h2>
+      <div class="filters" id="ganttFiltroStatus"></div>
+    </div>
+    <div class="card" style="overflow-x:auto;padding:12px 0 16px;">
+      <div style="padding:0 16px;display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:11px;color:var(--muted);">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--warn);margin-right:4px;"></span>Pendente</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--ok);margin-right:4px;"></span>Validado</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--bad);margin-right:4px;"></span>Não validado</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:var(--accent);opacity:.55;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.3),rgba(255,255,255,.3) 3px,transparent 3px,transparent 6px);margin-right:4px;"></span>Sem previsão</span>
+      </div>
+      <div id="ganttChart" style="min-width:640px;padding:0 16px;"></div>
+    </div>
+  </section>
+
   <!-- CADASTROS (admin) -->
   <section class="view" id="view-cadastros">
     <div class="subtabs" id="cadSubtabs">
@@ -566,6 +613,7 @@
   <div class="navbtn active" data-view="novo"><span class="ic">＋</span>Novo</div>
   <div class="navbtn" data-view="lista"><span class="ic">☰</span>Atend.</div>
   <div class="navbtn" data-view="resumo"><span class="ic">◧</span>Resumo</div>
+  <div class="navbtn" data-view="gantt" id="navGantt"><span class="ic">📊</span>Cronog.</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 </div>
