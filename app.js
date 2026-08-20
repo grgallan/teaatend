@@ -9,11 +9,14 @@
 const CONFIG = {
   // Cole aqui a URL da sua Edge Function (algo como
   // https://SEU-PROJETO.supabase.co/functions/v1/api)
-  API_URL: 'https://prchmojpfgeqbnoiisyf.supabase.co/functions/v1/super-function',
+  API_URL: 'https://prchmojpfgeqbnoiisyf.supabase.co/functions/v1/super-function'',
   // Cole aqui a chave "anon public" do seu projeto Supabase
   // (Project Settings → API Keys). Essa chave é segura pra expor
   // no código do site — ela sozinha não dá acesso ao banco.
-  ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80'
+  ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByY2htb2pwZmdlcWJub2lpc3lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY5NjMzMDYsImV4cCI6MjEwMjUzOTMwNn0.BnkW_pMECVDuV-bIjVJ0mpkmQhdTyty_2ityu7gyy80',
+  // Chave pública VAPID (notificações push) — veja o LEIA-ME.md.
+  // Deixe vazio ('') se não quiser usar notificações push.
+  VAPID_PUBLIC_KEY: 'BISfjGp1ZksMHOnvGJmSGk4vP8khf8H6tCcSUywhXaL6Fwl0CGML4yEROkJ_VAsH0z2AmmStgODOBOo2O_Oe5oY'
 };
 
 const SESSAO_KEY = 'sessao_v4';
@@ -332,6 +335,82 @@ async function salvarNovaSenha(){
 
 function contaAtual(){ return sessaoConta; }
 
+/* ---------- notificações push ---------- */
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for(let i=0;i<rawData.length;i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function inscricaoPushAtual(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+async function atualizarBotaoNotificacoes(){
+  const btn = document.getElementById('btnNotificacoes');
+  if(!CONFIG.VAPID_PUBLIC_KEY || !('serviceWorker' in navigator) || !('PushManager' in window)){
+    btn.style.display = 'none';
+    return;
+  }
+  btn.style.display = '';
+  const inscricao = await inscricaoPushAtual();
+  btn.textContent = inscricao ? '🔕 Desativar avisos' : '🔔 Avisos';
+}
+
+async function alternarNotificacoes(){
+  const btn = document.getElementById('btnNotificacoes');
+  const inscricaoExistente = await inscricaoPushAtual();
+
+  if(inscricaoExistente){
+    // desativar
+    btn.disabled = true;
+    try{
+      await api('removerInscricaoPush', { endpoint: inscricaoExistente.endpoint });
+      await inscricaoExistente.unsubscribe();
+      toast('Notificações desativadas');
+    }catch(e){
+      toast('Não foi possível desativar');
+    } finally {
+      btn.disabled = false;
+      atualizarBotaoNotificacoes();
+    }
+    return;
+  }
+
+  // ativar
+  if(Notification.permission === 'denied'){
+    toast('Notificações bloqueadas no navegador — precisa liberar nas configurações do site');
+    return;
+  }
+  btn.disabled = true;
+  try{
+    const permissao = await Notification.requestPermission();
+    if(permissao !== 'granted'){ toast('Permissão não concedida'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const inscricao = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(CONFIG.VAPID_PUBLIC_KEY)
+    });
+    const conta = contaAtual();
+    const json = inscricao.toJSON();
+    const r = await api('salvarInscricaoPush', {
+      contaId: conta.id, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth
+    });
+    if(!r.ok){ toast(r.erro || 'Não foi possível ativar as notificações'); return; }
+    toast('Notificações ativadas');
+  }catch(e){
+    toast('Não foi possível ativar as notificações');
+  } finally {
+    btn.disabled = false;
+    atualizarBotaoNotificacoes();
+  }
+}
+
 function entrarNoApp(){
   const conta = contaAtual();
   if(!conta){ sair(); return; }
@@ -341,6 +420,7 @@ function entrarNoApp(){
   document.getElementById('app').style.display = 'block';
   document.getElementById('whoName').textContent = conta.nome;
   document.getElementById('avatarIni').textContent = conta.nome.slice(0,2).toUpperCase();
+  atualizarBotaoNotificacoes();
 
   const isAdmin = conta.perfil === 'ADMIN';
   const isUsuario = conta.perfil === 'USUARIO';
@@ -1666,6 +1746,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnLogout').addEventListener('click', ()=>pedirConfirmacao('Sair da conta?','Você poderá entrar novamente quando quiser.', sair, 'Sair'));
   document.getElementById('btnMinhaSenha').addEventListener('click', abrirModalSenha);
+  document.getElementById('btnNotificacoes').addEventListener('click', alternarNotificacoes);
   document.getElementById('senhaCancelar').addEventListener('click', fecharModalSenha);
   document.getElementById('senhaConfirmar').addEventListener('click', salvarNovaSenha);
 
