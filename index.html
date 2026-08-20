@@ -12,17 +12,18 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
-    --bg:#12161B; --panel:#1B222A; --panel-2:#232C35; --line:#2C3742;
-    --text:#E9EDF1; --muted:#8B99A6; --accent:#E8A33D; --accent-dim:#4A3A20;
-    --ok:#4FAE7D; --warn:#E8A33D; --bad:#E1615A; --radius:14px;
+    --bg:#F4F6F8; --panel:#FFFFFF; --panel-2:#EEF1F4; --line:#DCE2E8;
+    --text:#1B222A; --muted:#5B6B7A; --accent:#D68A1F; --accent-dim:#FBEBD1;
+    --ok:#2F9E63; --warn:#D68A1F; --bad:#D6473F; --radius:14px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
   body{padding-bottom:90px;}
-  header.top{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#12161B 80%,rgba(18,22,27,0));padding:calc(env(safe-area-inset-top) + 18px) 18px 14px;}
+  header.top{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,var(--bg) 80%,transparent);padding:calc(env(safe-area-inset-top) + 18px) 18px 14px;}
   .brand{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  #sidebar{display:none;}
   .brand h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px;}
   .brand-right{display:flex;align-items:center;gap:10px;}
   .brand .clock{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;}
@@ -102,7 +103,7 @@
   .empty{text-align:center;padding:50px 20px;color:var(--muted);}
   .empty .big{font-size:34px;margin-bottom:8px;}
 
-  nav.bottom{position:fixed;bottom:0;left:0;right:0;z-index:30;background:rgba(18,22,27,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);display:flex;gap:6px;max-width:640px;margin:0 auto;overflow-x:auto;}
+  nav.bottom{position:fixed;bottom:0;left:0;right:0;z-index:30;background:var(--panel);backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:8px 10px calc(env(safe-area-inset-bottom) + 8px);display:flex;gap:6px;max-width:640px;margin:0 auto;overflow-x:auto;}
   nav.bottom .navbtn{flex:1;min-width:64px;text-align:center;padding:8px 4px;border-radius:11px;color:var(--muted);font-size:11px;font-weight:600;}
   nav.bottom .navbtn.active{color:var(--accent);background:var(--panel-2);}
   nav.bottom .navbtn .ic{display:block;font-size:19px;margin-bottom:2px;}
@@ -183,12 +184,7 @@
      uma coluna estreita de celular sobrando espaço vazio dos dois lados */
   @media (min-width: 860px){
     header.top{padding-top:24px;}
-    main{max-width:920px;padding:0 24px;}
-    nav.bottom{max-width:920px;}
-    .tabs{max-width:480px;}
-    #listaItens{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start;}
-    #listaItens .item{margin-bottom:0;}
-    #listaItens .empty{grid-column:1 / -1;}
+    main{max-width:1000px;padding:0 24px;}
     .summary{grid-template-columns:repeat(4,1fr);}
     /* modal vira uma caixa central em vez de folha colada embaixo da tela */
     .modal-bg{align-items:center;justify-content:center;padding:20px;}
@@ -196,11 +192,43 @@
     #chatModal .modal{max-width:520px;}
     .login-box{max-width:380px;}
     .cad-view .row, .cad-view .row3{max-width:640px;}
+
+    /* menu lateral fixo no lugar das abas de cima + barra de baixo */
+    body{padding-bottom:0;padding-left:220px;}
+    .tabs{display:none;}
+    nav.bottom{display:none;}
+    #sidebar{
+      display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;width:220px;
+      background:var(--panel);border-right:1px solid var(--line);padding:20px 14px;gap:4px;z-index:25;
+    }
+    #sidebar .brand-side{font-weight:700;font-size:16px;margin-bottom:22px;padding:0 8px;color:var(--text);}
+    #sidebar .side-item{
+      display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;color:var(--muted);
+      cursor:pointer;font-size:13.5px;font-weight:600;
+    }
+    #sidebar .side-item .ic{font-size:16px;}
+    #sidebar .side-item:hover{background:var(--panel-2);color:var(--text);}
+    #sidebar .side-item.active{background:var(--accent-dim);color:var(--accent);}
+
+    /* atendimentos em formato de lista (uma linha cada) em vez de cartões lado a lado */
+    #listaItens{display:flex;flex-direction:column;gap:8px;}
+    .item{display:flex;align-items:center;gap:14px;padding:10px 14px;margin-bottom:0;}
+    .item .top{flex:0 0 260px;min-width:0;}
+    .item .cliente{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .item .data{font-size:10.5px;white-space:nowrap;}
+    /* módulo/sub módulo não aparece na lista compacta (só no Detalhes) — evita
+       que linhas com módulo fiquem mais largas que as sem módulo */
+    .item [style*="color:var(--accent);font-weight:600"]{display:none;}
+    .item .detalhe{flex:1;min-width:80px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .item .meta{flex:0 0 auto;margin:0;flex-wrap:nowrap;}
+    .item .valores{flex:0 0 110px;flex-direction:column;align-items:flex-end;gap:1px;margin:0;padding:0;border-top:none;}
+    .item .valores .v1{font-size:10.5px;white-space:nowrap;}
+    .item-actions{flex:0 0 auto;margin:0 !important;gap:5px;}
+    .item-actions button{flex:none;padding:5px 8px;font-size:11px;}
+    #listaItens .empty{grid-column:unset;}
   }
   @media (min-width: 1180px){
-    main{max-width:1080px;}
-    nav.bottom{max-width:1080px;}
-    #listaItens{grid-template-columns:1fr 1fr 1fr;}
+    main{max-width:1120px;}
   }
 
   #loadingOverlay{position:fixed;inset:0;background:rgba(18,22,27,.88);z-index:200;display:none;align-items:center;justify-content:center;flex-direction:column;gap:10px;}
@@ -286,6 +314,15 @@
     </div>
   </div>
 </header>
+
+<nav id="sidebar">
+  <div class="brand-side">Atendimentos</div>
+  <div class="side-item navbtn active" data-view="novo"><span class="ic">＋</span>Novo</div>
+  <div class="side-item navbtn" data-view="lista"><span class="ic">☰</span>Atendimentos</div>
+  <div class="side-item navbtn" data-view="resumo" id="sideResumo"><span class="ic">◧</span>Resumo</div>
+  <div class="side-item navbtn" data-view="gantt"><span class="ic">📊</span>Cronograma</div>
+  <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic">⚙</span>Cadastros</div>
+</nav>
 
 <main>
   <div class="install-banner" id="installBanner">

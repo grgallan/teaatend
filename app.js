@@ -428,7 +428,9 @@ function entrarNoApp(){
 
   document.getElementById('tabCadastros').style.display = isAdmin ? '' : 'none';
   document.getElementById('navCadastros').style.display = isAdmin ? '' : 'none';
+  document.getElementById('sideCadastros').style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = podeVerResumo ? '' : 'none'; });
+  document.getElementById('sideResumo').style.display = podeVerResumo ? '' : 'none';
   // Cronograma fica disponível pra todo mundo — usuário e atendente veem
   // só os próprios atendimentos (ou os do cliente, se marcado como admin
   // do cliente), o filtro é feito dentro de renderGantt()
