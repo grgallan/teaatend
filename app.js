@@ -1051,6 +1051,55 @@ function renderGantt(){
   `;
 }
 
+/* ---------- gerar PDF (usa o "Salvar como PDF" do próprio navegador) ---------- */
+function prepararImpressao(titulo, filtrosTexto){
+  const agora = new Date();
+  const dataHora = agora.toLocaleDateString('pt-BR') + ' às ' + agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('printHeader').innerHTML = `
+    <div class="print-empresa">T&A Tecnologia</div>
+    <h1>${escaparHtml(titulo)}</h1>
+    ${filtrosTexto ? `<div class="print-filtros">${escaparHtml(filtrosTexto)}</div>` : ''}
+    <div class="print-data">Gerado em ${dataHora}</div>
+  `;
+  window.print();
+}
+
+function gerarPdfResumo(){
+  const conta = contaAtual();
+  const mesTexto = document.getElementById('r_mes').selectedOptions[0]?.textContent || '';
+  const partes = [`Mês: ${mesTexto}`];
+  if(conta && conta.perfil === 'ADMIN' && filtroResumoAtendente !== 'TODOS') partes.push(`Atendente: ${filtroResumoAtendente}`);
+  if((conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE')) && filtroResumoCliente.size > 0) partes.push(`Cliente: ${[...filtroResumoCliente].join(', ')}`);
+  prepararImpressao('Resumo de Atendimentos', partes.join(' · '));
+}
+
+function gerarPdfLista(){
+  const partes = [];
+  if(filtroCliente.size > 0) partes.push(`Cliente: ${[...filtroCliente].join(', ')}`);
+  if(filtroStatus !== 'TODOS') partes.push(`Status: ${filtroStatus}`);
+  const de = document.getElementById('periodo_de').value;
+  const ate = document.getElementById('periodo_ate').value;
+  if(de || ate) partes.push(`Período: ${de || '(início)'} a ${ate || '(hoje)'}`);
+  prepararImpressao('Lista de Atendimentos', partes.join(' · '));
+}
+
+function gerarPdfGantt(){
+  const { de, ate } = calcularItensGantt();
+  const partes = [`Período: ${de} a ${ate}`];
+  if(filtroGanttCliente.size > 0) partes.push(`Cliente: ${[...filtroGanttCliente].join(', ')}`);
+  if(filtroGanttTipo.size > 0) partes.push(`Tipo: ${[...filtroGanttTipo].map(labelTipo).join(', ')}`);
+  if(filtroGanttStatus.size > 0) partes.push(`Status: ${[...filtroGanttStatus].join(', ')}`);
+  prepararImpressao('Cronograma', partes.join(' · '));
+}
+
+function gerarPdfAtendimento(){
+  const r = atendimentos.find(x=>String(x.id)===String(chatAtendimentoId));
+  const titulo = r ? `Atendimento — ${r.cliente} · ${r.usuario}` : 'Atendimento';
+  document.body.classList.add('print-modo-atendimento');
+  window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-atendimento'); }, { once: true });
+  prepararImpressao(titulo, '');
+}
+
 function exportarCsvGantt(){
   const { itens, de, ate, invalido } = calcularItensGantt();
   if(invalido){ toast('O período "Até" precisa ser depois do "De".'); return; }
@@ -1687,6 +1736,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnSalvar').addEventListener('click', salvarRegistro);
   document.getElementById('btnExportar').addEventListener('click', exportarCsv);
   document.getElementById('btnExportarGantt').addEventListener('click', exportarCsvGantt);
+  document.getElementById('btnPdfResumo').addEventListener('click', gerarPdfResumo);
+  document.getElementById('btnPdfLista').addEventListener('click', gerarPdfLista);
+  document.getElementById('btnPdfGantt').addEventListener('click', gerarPdfGantt);
+  document.getElementById('btnPdfAtendimento').addEventListener('click', gerarPdfAtendimento);
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
 

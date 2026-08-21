@@ -264,6 +264,44 @@
   .perfil-badge.ADMIN{background:#3A1918;color:#f3b7b4;}
   .perfil-badge.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
   .perfil-badge.USUARIO{background:#173425;color:var(--ok);}
+
+  #printHeader{display:none;}
+
+  /* ---------- impressão / gerar PDF ---------- */
+  @media print{
+    body{padding:0 !important;background:#fff !important;color:#111 !important;}
+    #sidebar, .tabs, nav.bottom, .brand .clock, #btnMinhaSenha, #btnNotificacoes, #btnLogout,
+    #installBanner, .install-banner,
+    .filters, #filtroPeriodo, #linhaSelecionarTodos, .item-actions, .chk-item,
+    #btnExportar, #btnExportarGantt, #btnPdfResumo, #btnPdfGantt, #btnPdfLista, #btnPdfAtendimento,
+    #campoFiltroAtendenteResumo, #r_cliente_chips,
+    #chatVinculoAdd, #f_anexo_detalhe, .chat-input-row, #btnFecharChat,
+    #ganttFiltroCliente, #ganttFiltroTipo, #ganttFiltroStatus, #gantt_de, #gantt_ate,
+    .gantt-filtro-card,
+    #cardFiltrosResumo,
+    .view:not(.active), #toast, #modalBg, #senhaModal, #statusMassaModal
+    { display:none !important; }
+
+    main{max-width:100% !important;padding:0 !important;margin:0 !important;}
+    header.top{display:none !important;}
+    #printHeader{display:block !important;margin-bottom:18px;border-bottom:2px solid #111;padding-bottom:10px;}
+    #printHeader .print-empresa{font-weight:800;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#555;}
+    #printHeader h1{font-size:19px;margin:2px 0 6px;}
+    #printHeader .print-filtros{font-size:11.5px;color:#333;margin-bottom:2px;}
+    #printHeader .print-data{font-size:10.5px;color:#777;}
+
+    .item{border:1px solid #ccc !important;break-inside:avoid;background:#fff !important;}
+    .card{border:1px solid #ccc !important;box-shadow:none !important;background:#fff !important;}
+    .tag{border:1px solid #999 !important;background:#f2f2f2 !important;color:#111 !important;}
+    #ganttChart{overflow:visible !important;}
+    .gantt-row{break-inside:avoid;}
+
+    /* o atendimento (modal) some do fundo escuro e vira uma página normal */
+    .modal-bg.show{position:static !important;background:#fff !important;padding:0 !important;display:block !important;}
+    .modal-bg.show .modal{position:static !important;max-width:100% !important;max-height:none !important;box-shadow:none !important;border:none !important;border-radius:0 !important;padding:0 !important;}
+    /* ao gerar PDF de um atendimento específico, esconde a tela de fundo (Lista/Resumo/etc.) */
+    body.print-modo-atendimento .view{display:none !important;}
+  }
 </style>
 </head>
 <body>
@@ -325,6 +363,7 @@
 </nav>
 
 <main>
+  <div id="printHeader"></div>
   <div class="install-banner" id="installBanner">
     <span>Instale este app na tela inicial para usar offline.</span>
     <button id="installBtn">Instalar</button>
@@ -445,6 +484,7 @@
     <label id="linhaSelecionarTodos" style="display:none;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer;margin-bottom:10px;">
       <input type="checkbox" id="chkSelecionarTodos"> Selecionar todos visíveis
     </label>
+    <button class="ghost" id="btnPdfLista" style="margin-bottom:10px;">🖨 Gerar PDF da lista filtrada</button>
     <div class="card" id="barraSelecao" style="display:none;padding:12px 14px;margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
         <span id="contadorSelecionados" style="font-size:13px;font-weight:600;"></span>
@@ -459,7 +499,7 @@
 
   <!-- RESUMO -->
   <section class="view" id="view-resumo">
-    <div class="card">
+    <div class="card" id="cardFiltrosResumo">
       <h2>Mês de referência</h2>
       <select id="r_mes"></select>
       <div class="field" id="campoFiltroAtendenteResumo" style="margin-top:10px;display:none;">
@@ -478,26 +518,27 @@
     </div>
     <div class="card"><h2>Por status</h2><table class="valores-table" id="resumoStatus"></table></div>
     <button class="primary" id="btnExportar" style="margin-bottom:14px;">Exportar CSV do mês</button>
+    <button class="ghost" id="btnPdfResumo" style="margin-bottom:14px;width:100%;">🖨 Gerar PDF do Resumo</button>
   </section>
 
   <!-- CRONOGRAMA (Gantt) -->
   <section class="view" id="view-gantt">
-    <div class="card">
+    <div class="card gantt-filtro-card">
       <h2>Período</h2>
       <div class="row">
         <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="gantt_de"></div>
         <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="gantt_ate"></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card gantt-filtro-card">
       <h2>Cliente</h2>
       <div class="filters" id="ganttFiltroCliente"></div>
     </div>
-    <div class="card">
+    <div class="card gantt-filtro-card">
       <h2>Tipo de atendimento</h2>
       <div class="filters" id="ganttFiltroTipo"></div>
     </div>
-    <div class="card">
+    <div class="card gantt-filtro-card">
       <h2>Status</h2>
       <div class="filters" id="ganttFiltroStatus"></div>
     </div>
@@ -511,6 +552,7 @@
       <div id="ganttChart" style="min-width:640px;padding:0 16px;"></div>
     </div>
     <button class="primary" id="btnExportarGantt" style="margin-bottom:14px;">Exportar CSV do período filtrado</button>
+    <button class="ghost" id="btnPdfGantt" style="margin-bottom:14px;width:100%;">🖨 Gerar PDF do Cronograma</button>
   </section>
 
   <!-- CADASTROS (admin) -->
@@ -701,6 +743,7 @@
       <textarea id="chatTexto" placeholder="Escreva uma mensagem…"></textarea>
       <button id="btnEnviarMensagem">Enviar</button>
     </div>
+    <button class="ghost" id="btnPdfAtendimento" style="margin-top:10px;">🖨 Gerar PDF</button>
     <button class="ghost" id="btnFecharChat" style="margin-top:10px;">Fechar</button>
   </div>
 </div>
