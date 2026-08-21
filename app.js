@@ -429,6 +429,9 @@ function entrarNoApp(){
   document.getElementById('tabCadastros').style.display = isAdmin ? '' : 'none';
   document.getElementById('navCadastros').style.display = isAdmin ? '' : 'none';
   document.getElementById('sideCadastros').style.display = isAdmin ? '' : 'none';
+  document.getElementById('tabRelatorio').style.display = isAdmin ? '' : 'none';
+  document.getElementById('navRelatorio').style.display = isAdmin ? '' : 'none';
+  document.getElementById('sideRelatorio').style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = podeVerResumo ? '' : 'none'; });
   document.getElementById('sideResumo').style.display = podeVerResumo ? '' : 'none';
   // Cronograma fica disponível pra todo mundo — usuário e atendente veem
@@ -1100,6 +1103,221 @@ function gerarPdfAtendimento(){
   prepararImpressao(titulo, '');
 }
 
+function renderRelatorioFiltros(){
+  document.getElementById('relFiltroCliente').innerHTML = `<div class="chip ${relFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    clientes.map(c=>`<div class="chip ${relFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
+  document.getElementById('relFiltroTipo').innerHTML = `<div class="chip ${relFiltroTipo.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    tipos.map(t=>`<div class="chip ${relFiltroTipo.has(t.nome)?'on':''}" data-valor="${t.nome}">${labelTipo(t.nome)}</div>`).join('');
+  document.getElementById('relFiltroStatus').innerHTML = `<div class="chip ${relFiltroStatus.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    statusList.map(s=>`<div class="chip ${relFiltroStatus.has(s.nome)?'on':''}" data-valor="${s.nome}">${s.nome}</div>`).join('');
+}
+
+// lista reordenável (as que já estão escolhidas) + lista de disponíveis pra adicionar
+function renderRelatorioColunas(){
+  const cont = document.getElementById('relatorioColunasOrdem');
+  if(relColunas.length === 0){
+    cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12px;">Nenhuma coluna escolhida ainda.</div>`;
+  }else{
+    cont.innerHTML = relColunas.map((key,i)=>{
+      const c = colunaInfo(key);
+      if(!c) return '';
+      return `<div class="rel-coluna-ordem">
+        <span class="rel-coluna-nome">${escaparHtml(c.label)}</span>
+        <button type="button" data-acao="up" data-key="${key}" ${i===0?'disabled':''} title="Mover pra cima">↑</button>
+        <button type="button" data-acao="down" data-key="${key}" ${i===relColunas.length-1?'disabled':''} title="Mover pra baixo">↓</button>
+        <button type="button" data-acao="remover" data-key="${key}" title="Remover">✕</button>
+      </div>`;
+    }).join('');
+  }
+
+  const disponiveis = COLUNAS_RELATORIO.filter(c=>!relColunas.includes(c.key));
+  document.getElementById('relatorioColunasDisponiveis').innerHTML = disponiveis.length === 0
+    ? `<div class="empty" style="padding:6px 0;font-size:11.5px;grid-column:1/-1;">Todas as colunas já foram adicionadas.</div>`
+    : disponiveis.map(c=>`
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 0;cursor:pointer;">
+        <input type="checkbox" class="rel-coluna-add" data-key="${c.key}">
+        ${escaparHtml(c.label)}
+      </label>`).join('');
+}
+
+function moverColunaRelatorio(key, direcao){
+  const i = relColunas.indexOf(key);
+  if(i === -1) return;
+  const j = direcao === 'up' ? i-1 : i+1;
+  if(j < 0 || j >= relColunas.length) return;
+  [relColunas[i], relColunas[j]] = [relColunas[j], relColunas[i]];
+  renderRelatorioColunas();
+  renderRelatorioPreview();
+}
+
+function calcularItensRelatorio(){
+  let itens = atendimentos.slice();
+  if(relFiltroCliente.size > 0) itens = itens.filter(r=>relFiltroCliente.has(r.cliente));
+  if(relFiltroTipo.size > 0) itens = itens.filter(r=>relFiltroTipo.has(r.tipo));
+  if(relFiltroStatus.size > 0) itens = itens.filter(r=>relFiltroStatus.has(r.status));
+  const de = document.getElementById('rel_de').value;
+  const ate = document.getElementById('rel_ate').value;
+  if(de) itens = itens.filter(r=>String(r.data) >= de);
+  if(ate) itens = itens.filter(r=>String(r.data) <= ate);
+  itens.sort((a,b)=> String(a.data).localeCompare(String(b.data)));
+  return itens;
+}
+
+function totalizarColunas(colunasNumericas, itensGrupo){
+  return colunasNumericas.map(c=>{
+    const soma = itensGrupo.reduce((s,r)=>s+c.valorBruto(r), 0);
+    return `${c.label}: ${c.ehHoras ? soma.toFixed(2).replace('.',',')+'h' : fmtMoeda(soma)}`;
+  }).join(' · ');
+}
+
+// em qual tela estamos gerando/pré-visualizando agora — o construtor
+// (admin) ou a tela de consumo de relatórios publicados (todo mundo)
+function relContainerAtivo(){
+  return document.getElementById('view-relatoriospub').classList.contains('active') ? 'relatorioPubPreview' : 'relatorioPreview';
+}
+
+function renderFichaRelatorio(itens, cont){
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado com esses filtros.</div>`; return; }
+  cont.innerHTML = itens.map(r=>{
+    const [y,m,d] = String(r.data).split('-');
+    return `<div class="rel-ficha-item">
+      <h3>${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</h3>
+      <div class="rel-ficha-sub">${d}/${m}/${y} · Atendente: ${escaparHtml(r.atendente||'(a definir)')} · ${escaparHtml(r.status)}</div>
+      <div class="rel-ficha-label">Detalhe</div>
+      <div class="rel-content">${r.detalhe ? sanitizarHtml(r.detalhe) : '<span style="color:var(--muted);">(sem detalhe)</span>'}</div>
+      <div class="rel-ficha-label">Solução</div>
+      <div class="rel-content">${r.solucao ? sanitizarHtml(r.solucao) : '<span style="color:var(--muted);">(sem solução registrada)</span>'}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderRelatorioPreview(){
+  const itens = calcularItensRelatorio();
+  const cont = document.getElementById(relContainerAtivo());
+
+  if(relTipoVisualizacao === 'ficha'){
+    renderFichaRelatorio(itens, cont);
+    document.getElementById('btnExcelRelatorio').style.display = 'none';
+    if(document.getElementById('btnExcelRelatorioPub')) document.getElementById('btnExcelRelatorioPub').style.display = 'none';
+    return;
+  }
+  document.getElementById('btnExcelRelatorio').style.display = '';
+  if(document.getElementById('btnExcelRelatorioPub')) document.getElementById('btnExcelRelatorioPub').style.display = '';
+
+  const colunasAtivas = relColunas.map(colunaInfo).filter(Boolean);
+  const colunasNumericas = colunasAtivas.filter(c=>c.numerica);
+
+  if(colunasAtivas.length === 0){ cont.innerHTML = `<div class="empty">Marque ao menos uma coluna.</div>`; return; }
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado com esses filtros.</div>`; return; }
+
+  const linhaHtml = r => `<tr>${colunasAtivas.map(c=>`<td>${escaparHtml(String(c.formatar(r)))}</td>`).join('')}</tr>`;
+
+  let corpo;
+  if(relAgrupar === 'nenhum'){
+    corpo = itens.map(linhaHtml).join('');
+  }else{
+    const chaveDe = r => relAgrupar==='cliente' ? r.cliente : relAgrupar==='atendente' ? (r.atendente||'(a definir)') : r.status;
+    const grupos = {};
+    itens.forEach(r=>{ const k=chaveDe(r); (grupos[k]=grupos[k]||[]).push(r); });
+    corpo = Object.entries(grupos).map(([nome, itensGrupo])=>{
+      const subtotal = colunasNumericas.length > 0
+        ? `<tr class="rel-subtotal"><td colspan="${colunasAtivas.length}">Subtotal — ${totalizarColunas(colunasNumericas, itensGrupo)}</td></tr>`
+        : '';
+      return `<tr class="rel-grupo"><td colspan="${colunasAtivas.length}">${escaparHtml(nome)} (${itensGrupo.length})</td></tr>${itensGrupo.map(linhaHtml).join('')}${subtotal}`;
+    }).join('');
+  }
+
+  const totalGeral = colunasNumericas.length > 0
+    ? `<tr class="rel-total"><td colspan="${colunasAtivas.length}">TOTAL GERAL — ${totalizarColunas(colunasNumericas, itens)}</td></tr>`
+    : '';
+
+  cont.innerHTML = `<table class="valores-table rel-tabela">
+    <thead><tr>${colunasAtivas.map(c=>`<th>${escaparHtml(c.label)}</th>`).join('')}</tr></thead>
+    <tbody>${corpo}${totalGeral}</tbody>
+  </table>`;
+}
+
+// os dois modelos abaixo NUNCA mudam — são o ponto de partida original.
+// "Detalhado" é um modelo novo que não mexe nos outros dois.
+function aplicarPresetRelatorio(tipo){
+  if(tipo === 'atendimentos'){
+    relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horario','qtd','status'];
+    relAgrupar = 'nenhum';
+    relTipoVisualizacao = 'tabela';
+    document.getElementById('rel_titulo').value = 'Relatório de Atendimentos';
+  }else if(tipo === 'financeiro'){
+    relColunas = ['cliente','atendente','qtd','totalReal','totalAnanda'];
+    relAgrupar = 'cliente';
+    relTipoVisualizacao = 'tabela';
+    document.getElementById('rel_titulo').value = 'Relatório Financeiro';
+  }else{
+    relColunas = ['data','cliente','usuario','atendente','status'];
+    relAgrupar = 'nenhum';
+    relTipoVisualizacao = 'ficha';
+    document.getElementById('rel_titulo').value = 'Relatório Detalhado';
+  }
+  document.getElementById('rel_agrupar').value = relAgrupar;
+  renderRelatorioColunas();
+  renderRelatorioPreview();
+}
+
+function tituloEFiltrosRelatorio(){
+  const titulo = document.getElementById('rel_titulo').value.trim() || 'Relatório Personalizado';
+  const partes = [];
+  if(relFiltroCliente.size > 0) partes.push(`Cliente: ${[...relFiltroCliente].join(', ')}`);
+  if(relFiltroTipo.size > 0) partes.push(`Tipo: ${[...relFiltroTipo].map(labelTipo).join(', ')}`);
+  if(relFiltroStatus.size > 0) partes.push(`Status: ${[...relFiltroStatus].join(', ')}`);
+  const de = document.getElementById('rel_de').value;
+  const ate = document.getElementById('rel_ate').value;
+  if(de || ate) partes.push(`Período: ${de || '(início)'} a ${ate || '(hoje)'}`);
+  return { titulo, filtrosTexto: partes.join(' · ') };
+}
+
+function gerarPdfRelatorio(){
+  renderRelatorioPreview();
+  const { titulo, filtrosTexto } = tituloEFiltrosRelatorio();
+  prepararImpressao(titulo, filtrosTexto);
+}
+
+function gerarExcelRelatorio(){
+  if(relTipoVisualizacao === 'ficha'){ toast('O modelo "Detalhado" não sai em Excel — use o PDF.'); return; }
+  const itens = calcularItensRelatorio();
+  const colunasAtivas = relColunas.map(colunaInfo).filter(Boolean);
+  if(colunasAtivas.length === 0){ toast('Marque ao menos uma coluna.'); return; }
+  if(itens.length === 0){ toast('Nada pra exportar com esses filtros.'); return; }
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+
+  const linhas = [colunasAtivas.map(c=>c.label)];
+  if(relAgrupar === 'nenhum'){
+    itens.forEach(r=>linhas.push(colunasAtivas.map(c=>c.formatar(r))));
+  }else{
+    const chaveDe = r => relAgrupar==='cliente' ? r.cliente : relAgrupar==='atendente' ? (r.atendente||'(a definir)') : r.status;
+    const grupos = {};
+    itens.forEach(r=>{ const k=chaveDe(r); (grupos[k]=grupos[k]||[]).push(r); });
+    const colunasNumericas = colunasAtivas.filter(c=>c.numerica);
+    Object.entries(grupos).forEach(([nome, itensGrupo])=>{
+      linhas.push([`${nome} (${itensGrupo.length})`]);
+      itensGrupo.forEach(r=>linhas.push(colunasAtivas.map(c=>c.formatar(r))));
+      if(colunasNumericas.length > 0){
+        linhas.push(['Subtotal', ...colunasNumericas.map(c=>{
+          const soma = itensGrupo.reduce((s,r)=>s+c.valorBruto(r), 0);
+          return c.ehHoras ? soma.toFixed(2).replace('.',',')+'h' : soma;
+        })]);
+      }
+      linhas.push([]);
+    });
+  }
+
+  const { titulo } = tituloEFiltrosRelatorio();
+  const planilha = XLSX.utils.aoa_to_sheet(linhas);
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, planilha, 'Relatório');
+  XLSX.writeFile(livro, `${titulo.replace(/[^a-zA-Z0-9 ]/g,'').trim() || 'relatorio'}.xlsx`);
+  toast('Excel gerado');
+}
+
+
+
 function exportarCsvGantt(){
   const { itens, de, ate, invalido } = calcularItensGantt();
   if(invalido){ toast('O período "Até" precisa ser depois do "De".'); return; }
@@ -1119,6 +1337,159 @@ function exportarCsvGantt(){
   const a = document.createElement('a'); a.href=url; a.download=`cronograma_${de}_a_${ate}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   toast('CSV exportado');
+}
+
+/* ---------- salvar / gerenciar / publicar relatórios ---------- */
+function configAtualRelatorio(){
+  return {
+    colunas: relColunas.slice(),
+    agrupar: relAgrupar,
+    tipoVisualizacao: relTipoVisualizacao,
+    titulo: document.getElementById('rel_titulo').value.trim(),
+    filtroCliente: [...relFiltroCliente],
+    filtroTipo: [...relFiltroTipo],
+    filtroStatus: [...relFiltroStatus],
+  };
+}
+
+function carregarConfigNoRelatorio(config){
+  relColunas = (config.colunas || []).slice();
+  relAgrupar = config.agrupar || 'nenhum';
+  relTipoVisualizacao = config.tipoVisualizacao || 'tabela';
+  document.getElementById('rel_titulo').value = config.titulo || '';
+  document.getElementById('rel_agrupar').value = relAgrupar;
+  relFiltroCliente = new Set(config.filtroCliente || []);
+  relFiltroTipo = new Set(config.filtroTipo || []);
+  relFiltroStatus = new Set(config.filtroStatus || []);
+}
+
+function abrirModalSalvarRelatorio(){
+  document.getElementById('salvarRelatorioTitulo').textContent = relEditandoId ? 'Editar relatório salvo' : 'Salvar relatório';
+  document.getElementById('rel_salvar_nome').value = document.getElementById('rel_titulo').value.trim();
+  document.getElementById('rel_salvar_publicado').checked = false;
+  document.getElementById('rel_salvar_perfil_atendente').checked = false;
+  document.getElementById('rel_salvar_perfil_usuario').checked = false;
+  if(relEditandoId){
+    const existente = (relatoriosSalvosCache || []).find(r=>r.id === relEditandoId);
+    if(existente){
+      document.getElementById('rel_salvar_nome').value = existente.nome;
+      document.getElementById('rel_salvar_publicado').checked = !!existente.publicado;
+      document.getElementById('rel_salvar_perfil_atendente').checked = (existente.visivelPerfis||[]).includes('ATENDENTE');
+      document.getElementById('rel_salvar_perfil_usuario').checked = (existente.visivelPerfis||[]).includes('USUARIO');
+    }
+  }
+  document.getElementById('salvarRelatorioModal').classList.add('show');
+}
+function fecharModalSalvarRelatorio(){
+  document.getElementById('salvarRelatorioModal').classList.remove('show');
+}
+
+async function confirmarSalvarRelatorio(){
+  const nome = document.getElementById('rel_salvar_nome').value.trim();
+  if(!nome){ toast('Dê um nome ao relatório'); return; }
+  const publicado = document.getElementById('rel_salvar_publicado').checked;
+  const visivelPerfis = ['ADMIN'];
+  if(document.getElementById('rel_salvar_perfil_atendente').checked) visivelPerfis.push('ATENDENTE');
+  if(document.getElementById('rel_salvar_perfil_usuario').checked) visivelPerfis.push('USUARIO');
+
+  const conta = contaAtual();
+  const btn = document.getElementById('rel_salvar_confirmar');
+  btn.disabled = true;
+  try{
+    const r = await api('salvarRelatorio', {
+      id: relEditandoId, contaId: conta.id, nome, publicado, visivelPerfis,
+      config: configAtualRelatorio(),
+    });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    fecharModalSalvarRelatorio();
+    relEditandoId = null;
+    await carregarRelatoriosSalvos();
+    renderListaRelatoriosSalvos();
+    toast('Relatório salvo');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível salvar.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+let relatoriosSalvosCache = [];
+async function carregarRelatoriosSalvos(){
+  const conta = contaAtual();
+  if(!conta) return;
+  try{
+    const r = await api('listarRelatoriosSalvos', { contaId: conta.id });
+    if(r.ok) relatoriosSalvosCache = r.relatorios || [];
+  }catch(e){ /* silencioso */ }
+}
+
+function renderListaRelatoriosSalvos(){
+  const cont = document.getElementById('listaRelatoriosSalvos');
+  if(!cont) return;
+  if(relatoriosSalvosCache.length === 0){ cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12.5px;">Nenhum relatório salvo ainda.</div>`; return; }
+  cont.innerHTML = relatoriosSalvosCache.map(r=>`
+    <div class="rel-relatorio-item">
+      <div class="rel-relatorio-nome">${escaparHtml(r.nome)}</div>
+      <div class="rel-relatorio-meta">${r.publicado ? '🟢 Publicado' : '⚪ Rascunho'} · Visível para: ${(r.visivelPerfis||[]).map(p=>({'ADMIN':'Admin','ATENDENTE':'Atendente','USUARIO':'Usuário'}[p]||p)).join(', ')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="ghost" onclick="carregarRelatorioSalvoNoConstrutor('${r.id}')">Editar</button>
+        <button class="ghost" onclick="removerRelatorioSalvo('${r.id}')">Excluir</button>
+      </div>
+    </div>`).join('');
+}
+
+function carregarRelatorioSalvoNoConstrutor(id){
+  const r = relatoriosSalvosCache.find(x=>x.id === id);
+  if(!r) return;
+  relEditandoId = id;
+  carregarConfigNoRelatorio(r.config || {});
+  renderRelatorioColunas();
+  renderRelatorioPreview();
+  toast(`Editando "${r.nome}" — ajuste e clique em "💾 Salvar como relatório" pra atualizar`);
+}
+
+async function removerRelatorioSalvo(id){
+  const conta = contaAtual();
+  const r = await api('removerRelatorio', { id, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarRelatoriosSalvos();
+  renderListaRelatoriosSalvos();
+  toast('Relatório removido');
+}
+
+/* ---------- consumo de relatórios publicados (todo mundo autorizado) ---------- */
+let relatoriosPublicadosCache = [];
+async function carregarRelatoriosPublicados(){
+  const conta = contaAtual();
+  if(!conta) return;
+  const cont = document.getElementById('listaRelatoriosPublicados');
+  cont.innerHTML = `<div class="empty" style="padding:14px;">Carregando…</div>`;
+  try{
+    const r = await api('listarRelatoriosSalvos', { contaId: conta.id });
+    if(!r.ok){ cont.innerHTML = `<div class="empty">${r.erro||'Não foi possível carregar.'}</div>`; return; }
+    relatoriosPublicadosCache = (r.relatorios || []).filter(x=>x.publicado);
+    if(relatoriosPublicadosCache.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">📑</div>Nenhum relatório publicado disponível ainda.</div>`; return; }
+    cont.innerHTML = relatoriosPublicadosCache.map(rel=>`
+      <div class="rel-relatorio-item">
+        <div class="rel-relatorio-nome">${escaparHtml(rel.nome)}</div>
+        <div class="rel-relatorio-meta">${(rel.config && rel.config.tipoVisualizacao === 'ficha') ? 'Modelo detalhado (com fotos)' : 'Modelo em tabela'}</div>
+        <button class="primary" onclick="usarRelatorioPublicado('${rel.id}')">Usar este relatório</button>
+      </div>`).join('');
+  }catch(e){
+    cont.innerHTML = `<div class="empty">Não foi possível carregar os relatórios.</div>`;
+  }
+}
+
+function usarRelatorioPublicado(id){
+  const rel = relatoriosPublicadosCache.find(x=>x.id === id);
+  if(!rel) return;
+  relEditandoId = null; // consumindo, não editando o salvo original
+  carregarConfigNoRelatorio(rel.config || {});
+  document.getElementById('rel_titulo').value = rel.nome;
+  document.getElementById('relatorioPubTitulo').textContent = rel.nome;
+  document.getElementById('cardPreviewRelatoriosPub').style.display = '';
+  renderRelatorioPreview();
+  document.getElementById('cardPreviewRelatoriosPub').scrollIntoView({ behavior:'smooth' });
 }
 
 function exportarCsv(){
@@ -1292,6 +1663,42 @@ let filtroValoresAtendenteId = 'TODOS';
 let filtroGanttCliente = new Set();
 let filtroGanttTipo = new Set();
 let filtroGanttStatus = new Set();
+
+/* ---------- construtor de relatório ---------- */
+let relFiltroCliente = new Set();
+let relFiltroTipo = new Set();
+let relFiltroStatus = new Set();
+let relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horario','qtd','status']; // array — mantém a ordem escolhida
+let relAgrupar = 'nenhum';
+let relTipoVisualizacao = 'tabela'; // 'tabela' ou 'ficha' (detalhado, com fotos)
+let relEditandoId = null; // id do relatório salvo sendo editado (null = novo)
+
+const COLUNAS_RELATORIO = [
+  { key:'id', label:'Nº do Atendimento', formatar:r=>r.id },
+  { key:'data', label:'Data', formatar:r=>{ const [y,m,d]=String(r.data).split('-'); return `${d}/${m}/${y}`; } },
+  { key:'mes', label:'Mês de Referência', formatar:r=>r.mes||'' },
+  { key:'cliente', label:'Cliente', formatar:r=>r.cliente },
+  { key:'usuario', label:'Usuário', formatar:r=>r.usuario },
+  { key:'atendente', label:'Atendente', formatar:r=>r.atendente || '(a definir)' },
+  { key:'tipo', label:'Tipo', formatar:r=>labelTipo(r.tipo) },
+  { key:'modulo', label:'Módulo', formatar:r=>r.modulo||'' },
+  { key:'submodulo', label:'Sub Módulo', formatar:r=>r.submodulo||'' },
+  { key:'detalhe', label:'Detalhe', formatar:r=>stripHtml(r.detalhe||'') },
+  { key:'solucao', label:'Solução', formatar:r=>stripHtml(r.solucao||'') },
+  { key:'horario', label:'Horário (Inicial–Final)', formatar:r=>`${r.hi}–${r.hf}` },
+  { key:'hi', label:'Hora Inicial', formatar:r=>r.hi },
+  { key:'inter', label:'Intervalo', formatar:r=>r.inter },
+  { key:'hf', label:'Hora Final', formatar:r=>r.hf },
+  { key:'qtd', label:'Qtd Horas', formatar:r=>Number(r.qtd).toFixed(2).replace('.',',')+'h', numerica:true, valorBruto:r=>Number(r.qtd)||0, ehHoras:true },
+  { key:'status', label:'Status', formatar:r=>r.status },
+  { key:'dataPrevista', label:'Data Prevista', formatar:r=>{ if(!r.dataPrevista) return ''; const [y,m,d]=String(r.dataPrevista).split('-'); return `${d}/${m}/${y}`; } },
+  { key:'anexo', label:'Anexo', formatar:r=>r.anexoNome || '' },
+  { key:'vhr', label:'Valor Real/h', formatar:r=>fmtMoeda(Number(r.vhr)||0) },
+  { key:'totalReal', label:'Total Real', formatar:r=>fmtMoeda(Number(r.totalReal)||0), numerica:true, valorBruto:r=>Number(r.totalReal)||0 },
+  { key:'vha', label:'Valor Atendente/h', formatar:r=>fmtMoeda(Number(r.vha)||0) },
+  { key:'totalAnanda', label:'Total Atendente', formatar:r=>fmtMoeda(Number(r.totalAnanda)||0), numerica:true, valorBruto:r=>Number(r.totalAnanda)||0 },
+];
+function colunaInfo(key){ return COLUNAS_RELATORIO.find(c=>c.key===key); }
 
 function renderValoresForm(){
   document.getElementById('vl_atendente').innerHTML = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
@@ -1691,6 +2098,14 @@ function goView(name){
   if(name==='lista') renderLista();
   if(name==='resumo') renderResumo();
   if(name==='gantt'){ renderFiltrosGantt(); renderGantt(); }
+  if(name==='relatorio'){
+    renderRelatorioFiltros(); renderRelatorioColunas(); renderRelatorioPreview();
+    carregarRelatoriosSalvos().then(renderListaRelatoriosSalvos);
+  }
+  if(name==='relatoriospub'){
+    document.getElementById('cardPreviewRelatoriosPub').style.display = 'none';
+    carregarRelatoriosPublicados();
+  }
   if(name==='cadastros') goCadSub(cadAba);
 }
 function goCadSub(sub){
@@ -1740,6 +2155,52 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPdfLista').addEventListener('click', gerarPdfLista);
   document.getElementById('btnPdfGantt').addEventListener('click', gerarPdfGantt);
   document.getElementById('btnPdfAtendimento').addEventListener('click', gerarPdfAtendimento);
+
+  document.getElementById('btnPresetAtendimentos').addEventListener('click', ()=>aplicarPresetRelatorio('atendimentos'));
+  document.getElementById('btnPresetFinanceiro').addEventListener('click', ()=>aplicarPresetRelatorio('financeiro'));
+  document.getElementById('btnPresetDetalhado').addEventListener('click', ()=>aplicarPresetRelatorio('detalhado'));
+  document.getElementById('relFiltroCliente').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(relFiltroCliente, chip.dataset.valor);
+    renderRelatorioFiltros(); renderRelatorioPreview();
+  });
+  document.getElementById('relFiltroTipo').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(relFiltroTipo, chip.dataset.valor);
+    renderRelatorioFiltros(); renderRelatorioPreview();
+  });
+  document.getElementById('relFiltroStatus').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(relFiltroStatus, chip.dataset.valor);
+    renderRelatorioFiltros(); renderRelatorioPreview();
+  });
+  document.getElementById('rel_de').addEventListener('change', renderRelatorioPreview);
+  document.getElementById('rel_ate').addEventListener('change', renderRelatorioPreview);
+  document.getElementById('rel_agrupar').addEventListener('change', e=>{ relAgrupar = e.target.value; renderRelatorioPreview(); });
+  document.getElementById('relatorioColunasOrdem').addEventListener('click', e=>{
+    const btn = e.target.closest('button[data-acao]'); if(!btn) return;
+    const key = btn.dataset.key;
+    if(btn.dataset.acao === 'remover'){
+      relColunas = relColunas.filter(k=>k!==key);
+      renderRelatorioColunas(); renderRelatorioPreview();
+    }else{
+      moverColunaRelatorio(key, btn.dataset.acao);
+    }
+  });
+  document.getElementById('relatorioColunasDisponiveis').addEventListener('change', e=>{
+    if(!e.target.classList.contains('rel-coluna-add')) return;
+    const key = e.target.dataset.key;
+    if(e.target.checked && !relColunas.includes(key)) relColunas.push(key);
+    renderRelatorioColunas();
+    renderRelatorioPreview();
+  });
+  document.getElementById('btnPdfRelatorio').addEventListener('click', gerarPdfRelatorio);
+  document.getElementById('btnExcelRelatorio').addEventListener('click', gerarExcelRelatorio);
+  document.getElementById('btnPdfRelatorioPub').addEventListener('click', gerarPdfRelatorio);
+  document.getElementById('btnExcelRelatorioPub').addEventListener('click', gerarExcelRelatorio);
+  document.getElementById('btnAbrirSalvarRelatorio').addEventListener('click', abrirModalSalvarRelatorio);
+  document.getElementById('rel_salvar_cancelar').addEventListener('click', fecharModalSalvarRelatorio);
+  document.getElementById('rel_salvar_confirmar').addEventListener('click', confirmarSalvarRelatorio);
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
 

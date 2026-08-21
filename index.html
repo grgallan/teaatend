@@ -264,6 +264,23 @@
   .perfil-badge.ADMIN{background:#3A1918;color:#f3b7b4;}
   .perfil-badge.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
   .perfil-badge.USUARIO{background:#173425;color:var(--ok);}
+  .rel-tabela th, .rel-tabela td{white-space:nowrap;}
+  .rel-tabela tr.rel-grupo td{background:var(--panel-2);font-weight:700;color:var(--accent);padding-top:12px;}
+  .rel-tabela tr.rel-subtotal td{font-weight:600;color:var(--text);border-top:1px solid var(--line);font-size:11.5px;}
+  .rel-tabela tr.rel-total td{font-weight:800;color:var(--accent);border-top:2px solid var(--text);font-size:12.5px;padding-top:10px;}
+  .rel-coluna-ordem{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;margin-bottom:5px;font-size:12.5px;}
+  .rel-coluna-ordem .rel-coluna-nome{flex:1;}
+  .rel-coluna-ordem button{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);width:24px;height:24px;font-size:12px;padding:0;cursor:pointer;}
+  .rel-coluna-ordem button:hover{color:var(--text);}
+  .rel-ficha-item{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;break-inside:avoid;}
+  .rel-ficha-item h3{font-size:13.5px;margin:0 0 4px;}
+  .rel-ficha-item .rel-ficha-sub{color:var(--muted);font-size:11.5px;margin-bottom:10px;}
+  .rel-ficha-item .rel-ficha-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin:10px 0 4px;}
+  .rel-ficha-item .rel-content img{max-width:100%;border-radius:8px;margin:4px 0;}
+  .rel-ficha-item .rel-content{font-size:12.5px;}
+  .rel-relatorio-item{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;}
+  .rel-relatorio-item .rel-relatorio-nome{font-weight:700;font-size:13.5px;margin-bottom:2px;}
+  .rel-relatorio-item .rel-relatorio-meta{color:var(--muted);font-size:11.5px;margin-bottom:10px;}
 
   #printHeader{display:none;}
 
@@ -274,12 +291,14 @@
     #installBanner, .install-banner,
     .filters, #filtroPeriodo, #linhaSelecionarTodos, .item-actions, .chk-item,
     #btnExportar, #btnExportarGantt, #btnPdfResumo, #btnPdfGantt, #btnPdfLista, #btnPdfAtendimento,
+    #btnPdfRelatorio, #btnExcelRelatorio, #btnAbrirSalvarRelatorio, #btnPdfRelatorioPub, #btnExcelRelatorioPub,
     #campoFiltroAtendenteResumo, #r_cliente_chips,
     #chatVinculoAdd, #f_anexo_detalhe, .chat-input-row, #btnFecharChat,
     #ganttFiltroCliente, #ganttFiltroTipo, #ganttFiltroStatus, #gantt_de, #gantt_ate,
     .gantt-filtro-card,
     #cardFiltrosResumo,
-    .view:not(.active), #toast, #modalBg, #senhaModal, #statusMassaModal
+    #relatorioControles, #cardRelatoriosSalvos, #cardIntroRelatoriosPub,
+    .view:not(.active), #toast, #modalBg, #senhaModal, #statusMassaModal, #salvarRelatorioModal
     { display:none !important; }
 
     main{max-width:100% !important;padding:0 !important;margin:0 !important;}
@@ -359,6 +378,8 @@
   <div class="side-item navbtn" data-view="lista"><span class="ic">☰</span>Atendimentos</div>
   <div class="side-item navbtn" data-view="resumo" id="sideResumo"><span class="ic">◧</span>Resumo</div>
   <div class="side-item navbtn" data-view="gantt"><span class="ic">📊</span>Cronograma</div>
+  <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio"><span class="ic">📄</span>Construtor</div>
+  <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub"><span class="ic">📑</span>Relatórios</div>
   <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 
@@ -374,6 +395,8 @@
     <div class="tab" data-view="lista">Atendimentos</div>
     <div class="tab" data-view="resumo">Resumo</div>
     <div class="tab" data-view="gantt" id="tabGantt">Cronograma</div>
+    <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
+    <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
   </div>
 
@@ -555,6 +578,89 @@
     <button class="ghost" id="btnPdfGantt" style="margin-bottom:14px;width:100%;">🖨 Gerar PDF do Cronograma</button>
   </section>
 
+  <!-- RELATÓRIO (construtor — admin) -->
+  <section class="view" id="view-relatorio">
+    <div id="relatorioControles">
+      <div class="card">
+        <h2>Modelo rápido</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="ghost" id="btnPresetAtendimentos" style="flex:1;">📋 Atendimentos</button>
+          <button class="ghost" id="btnPresetFinanceiro" style="flex:1;">💰 Financeiro</button>
+          <button class="ghost" id="btnPresetDetalhado" style="flex:1;">🖼️ Detalhado (com fotos)</button>
+        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:8px 0 0;">Preenche as colunas e o agrupamento com um ponto de partida — depois é só ajustar como quiser. "Detalhado" mostra o Detalhe e a Solução completos (com imagens), um atendimento por bloco.</p>
+      </div>
+      <div class="card">
+        <h2>Título do relatório</h2>
+        <input type="text" id="rel_titulo" placeholder="Ex: Atendimentos de Agosto — FUJICOM">
+      </div>
+      <div class="card">
+        <h2>Período</h2>
+        <div class="row">
+          <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="rel_de"></div>
+          <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="rel_ate"></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Cliente</h2>
+        <div class="filters" id="relFiltroCliente"></div>
+      </div>
+      <div class="card">
+        <h2>Tipo de atendimento</h2>
+        <div class="filters" id="relFiltroTipo"></div>
+      </div>
+      <div class="card">
+        <h2>Status</h2>
+        <div class="filters" id="relFiltroStatus"></div>
+      </div>
+      <div class="card">
+        <h2>Agrupar por</h2>
+        <select id="rel_agrupar">
+          <option value="nenhum">Não agrupar</option>
+          <option value="cliente">Cliente</option>
+          <option value="atendente">Atendente</option>
+          <option value="status">Status</option>
+        </select>
+      </div>
+      <div class="card" id="cardColunasRelatorio">
+        <h2>Colunas selecionadas (ordem de exibição)</h2>
+        <div id="relatorioColunasOrdem" style="margin-bottom:10px;"></div>
+        <h2 style="margin-top:14px;">Adicionar coluna</h2>
+        <div id="relatorioColunasDisponiveis" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button class="primary" id="btnPdfRelatorio" style="flex:1;">🖨 Gerar PDF</button>
+        <button class="primary" id="btnExcelRelatorio" style="flex:1;">📊 Gerar Excel</button>
+      </div>
+      <button class="ghost" id="btnAbrirSalvarRelatorio" style="margin-bottom:14px;width:100%;">💾 Salvar como relatório</button>
+    </div>
+    <div class="card" style="overflow-x:auto;">
+      <h2>Pré-visualização</h2>
+      <div id="relatorioPreview"></div>
+    </div>
+    <div class="card" id="cardRelatoriosSalvos">
+      <h2>Meus relatórios salvos</h2>
+      <div id="listaRelatoriosSalvos"></div>
+    </div>
+  </section>
+
+  <!-- RELATÓRIOS PUBLICADOS (consumo — todo mundo autorizado) -->
+  <section class="view" id="view-relatoriospub">
+    <div class="card" id="cardIntroRelatoriosPub">
+      <h2>Relatórios disponíveis</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 4px;">Relatórios prontos, publicados pelo administrador. Clique em gerar pra baixar.</p>
+    </div>
+    <div id="listaRelatoriosPublicados"></div>
+    <div class="card" id="cardPreviewRelatoriosPub" style="display:none;overflow-x:auto;">
+      <h2 id="relatorioPubTitulo">Pré-visualização</h2>
+      <div id="relatorioPubPreview"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button class="primary" id="btnPdfRelatorioPub" style="flex:1;">🖨 Gerar PDF</button>
+        <button class="primary" id="btnExcelRelatorioPub" style="flex:1;">📊 Gerar Excel</button>
+      </div>
+    </div>
+  </section>
+
   <!-- CADASTROS (admin) -->
   <section class="view" id="view-cadastros">
     <div class="subtabs" id="cadSubtabs">
@@ -698,6 +804,8 @@
   <div class="navbtn" data-view="lista"><span class="ic">☰</span>Atend.</div>
   <div class="navbtn" data-view="resumo"><span class="ic">◧</span>Resumo</div>
   <div class="navbtn" data-view="gantt" id="navGantt"><span class="ic">📊</span>Cronog.</div>
+  <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic">📄</span>Constr.</div>
+  <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic">📑</span>Relat.</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 </div>
@@ -760,6 +868,25 @@
   </div>
 </div>
 
+<div class="modal-bg" id="salvarRelatorioModal">
+  <div class="modal">
+    <h3 id="salvarRelatorioTitulo">Salvar relatório</h3>
+    <div class="field"><label>Nome do relatório</label><input type="text" id="rel_salvar_nome" placeholder="Ex: Chamados pendentes por atendente"></div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer;margin-bottom:12px;">
+      <input type="checkbox" id="rel_salvar_publicado"> Publicado — fica disponível na aba "Relatórios" pra quem tiver acesso
+    </label>
+    <div class="field">
+      <label>Quem pode ver (além do admin)</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" id="rel_salvar_perfil_atendente"> Atendentes</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="rel_salvar_perfil_usuario"> Usuários solicitantes</label>
+    </div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="rel_salvar_cancelar">Cancelar</button>
+      <button class="confirm neutro" id="rel_salvar_confirmar">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="senhaModal">
   <div class="modal">
     <h3>Alterar minha senha</h3>
@@ -775,6 +902,7 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
