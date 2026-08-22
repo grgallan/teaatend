@@ -432,6 +432,9 @@ function entrarNoApp(){
   document.getElementById('tabRelatorio').style.display = isAdmin ? '' : 'none';
   document.getElementById('navRelatorio').style.display = isAdmin ? '' : 'none';
   document.getElementById('sideRelatorio').style.display = isAdmin ? '' : 'none';
+  document.getElementById('tabFinanceiro').style.display = isAdmin ? '' : 'none';
+  document.getElementById('navFinanceiro').style.display = isAdmin ? '' : 'none';
+  document.getElementById('sideFinanceiro').style.display = isAdmin ? '' : 'none';
   document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = podeVerResumo ? '' : 'none'; });
   document.getElementById('sideResumo').style.display = podeVerResumo ? '' : 'none';
   // Cronograma fica disponível pra todo mundo — usuário e atendente veem
@@ -1492,6 +1495,219 @@ function usarRelatorioPublicado(id){
   document.getElementById('cardPreviewRelatoriosPub').scrollIntoView({ behavior:'smooth' });
 }
 
+/* ---------- financeiro (lançamentos/faturas por cliente+mês) ---------- */
+let finAtendimentosSelecionados = new Set();
+let finFiltroCliente = new Set();
+let finFiltroStatus = new Set();
+let lancamentosCache = [];
+let finLancamentoEmFoco = null; // id do lançamento sendo baixado/editado no modal
+
+function popularClientesFinanceiro(){
+  const sel = document.getElementById('fin_cliente');
+  const atual = sel.value;
+  sel.innerHTML = clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  if(atual && clientes.some(c=>c.nome===atual)) sel.value = atual;
+}
+
+function popularMesesFinanceiro(){
+  const sel = document.getElementById('fin_mes');
+  const atual = sel.value;
+  const meses = mesesDisponiveis();
+  sel.innerHTML = meses.map(m=>`<option value="${m}">${m}</option>`).join('');
+  sel.value = atual && meses.includes(atual) ? atual : meses[0];
+}
+
+function atendimentosParaFinanceiro(){
+  const cliente = document.getElementById('fin_cliente').value;
+  const mes = document.getElementById('fin_mes').value;
+  return atendimentos.filter(r=>r.cliente===cliente && r.mes===mes).sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+}
+
+function renderFinAtendimentosLista(){
+  const itens = atendimentosParaFinanceiro();
+  // toda vez que troca cliente/mês, começa com tudo marcado
+  finAtendimentosSelecionados = new Set(itens.map(r=>r.id));
+  renderFinListaComSelecao(itens);
+  atualizarValorTotalFin();
+}
+
+function renderFinListaComSelecao(itens){
+  const cont = document.getElementById('finAtendimentosLista');
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12.5px;">Nenhum atendimento desse cliente nesse mês.</div>`; return; }
+  cont.innerHTML = itens.map(r=>{
+    const [y,m,d] = String(r.data).split('-');
+    return `<label class="fin-item-check">
+      <span style="display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" class="fin-check-item" data-id="${r.id}" ${finAtendimentosSelecionados.has(r.id)?'checked':''}>
+        ${d}/${m} · ${escaparHtml(stripHtml(r.detalhe||'').slice(0,40))} · ${escaparHtml(r.status)}
+      </span>
+      <b style="color:var(--accent);">${fmtMoeda(Number(r.totalReal)||0)}</b>
+    </label>`;
+  }).join('');
+}
+
+function atualizarValorTotalFin(){
+  const itens = atendimentosParaFinanceiro().filter(r=>finAtendimentosSelecionados.has(r.id));
+  const total = itens.reduce((s,r)=>s+(Number(r.totalReal)||0), 0);
+  document.getElementById('finValorTotal').textContent = fmtMoeda(total);
+  return total;
+}
+
+async function gerarLancamento(){
+  const cliente = document.getElementById('fin_cliente').value;
+  const mesReferencia = document.getElementById('fin_mes').value;
+  const dataVencimento = document.getElementById('fin_vencimento').value;
+  if(!cliente || !mesReferencia){ toast('Escolha cliente e mês'); return; }
+  if(!dataVencimento){ toast('Informe a data de vencimento'); return; }
+  const atendimentoIds = [...finAtendimentosSelecionados];
+  if(atendimentoIds.length === 0){ toast('Marque ao menos um atendimento'); return; }
+  const valorTotal = atualizarValorTotalFin();
+
+  const conta = contaAtual();
+  const btn = document.getElementById('btnGerarLancamento');
+  btn.disabled = true;
+  try{
+    const r = await api('criarLancamento', {
+      contaId: conta.id, cliente, mesReferencia, valorTotal, atendimentoIds, dataVencimento,
+      numeroNotaFiscal: document.getElementById('fin_nota_fiscal').value.trim(),
+      historico: document.getElementById('fin_historico_novo').value.trim(),
+    });
+    if(!r.ok){ toast(r.erro || 'Não foi possível gerar o lançamento.'); return; }
+    document.getElementById('fin_vencimento').value = '';
+    document.getElementById('fin_nota_fiscal').value = '';
+    document.getElementById('fin_historico_novo').value = '';
+    await carregarLancamentos();
+    renderListaLancamentos();
+    toast('Lançamento gerado');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível gerar o lançamento.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function carregarLancamentos(){
+  const conta = contaAtual();
+  if(!conta) return;
+  try{
+    const r = await api('listarLancamentos', { contaId: conta.id });
+    if(r.ok) lancamentosCache = r.lancamentos || [];
+  }catch(e){ /* silencioso */ }
+}
+
+function renderFinFiltros(){
+  document.getElementById('finFiltroCliente').innerHTML = `<div class="chip ${finFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    clientes.map(c=>`<div class="chip ${finFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
+  document.getElementById('finFiltroStatus').innerHTML = `<div class="chip ${finFiltroStatus.size===0?'on':''}" data-valor="TODOS">Todos status</div>` +
+    ['ABERTO','BAIXADO','CANCELADO'].map(s=>`<div class="chip ${finFiltroStatus.has(s)?'on':''}" data-valor="${s}">${s}</div>`).join('');
+}
+
+function renderListaLancamentos(){
+  const cont = document.getElementById('listaLancamentos');
+  let itens = lancamentosCache.slice();
+  if(finFiltroCliente.size > 0) itens = itens.filter(l=>finFiltroCliente.has(l.cliente));
+  if(finFiltroStatus.size > 0) itens = itens.filter(l=>finFiltroStatus.has(l.status));
+
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">💵</div>Nenhum lançamento encontrado.</div>`; return; }
+
+  const fmtData = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
+
+  cont.innerHTML = itens.map(l=>`
+    <div class="fin-lancamento">
+      <div class="fin-topo">
+        <div>
+          <div class="fin-cliente">${escaparHtml(l.cliente)}</div>
+          <div class="fin-mes">Referência: ${escaparHtml(l.mesReferencia)}${l.numeroNotaFiscal ? ' · NF ' + escaparHtml(l.numeroNotaFiscal) : ''}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="fin-valor">${fmtMoeda(l.valorTotal)}</div>
+          <span class="fin-status ${l.status}">${l.status}</span>
+        </div>
+      </div>
+      <div class="fin-datas">
+        <div><b>Vencimento</b>${fmtData(l.dataVencimento)}</div>
+        <div><b>Previsão de baixa</b>${fmtData(l.dataPrevisaoBaixa)}</div>
+        <div><b>Data de baixa</b>${fmtData(l.dataBaixa)}</div>
+      </div>
+      ${l.historico ? `<div class="fin-historico">${escaparHtml(l.historico)}</div>` : ''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        ${l.status === 'ABERTO' ? `<button class="primary" onclick="abrirModalBaixar('${l.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">Baixar</button>` : ''}
+        <button class="ghost" onclick="abrirModalEditarLancamento('${l.id}')">Editar</button>
+        ${l.status !== 'CANCELADO' ? `<button class="ghost" onclick="cancelarLancamentoUi('${l.id}')">Cancelar</button>` : ''}
+        <button class="ghost" onclick="removerLancamentoUi('${l.id}')">Excluir</button>
+      </div>
+    </div>`).join('');
+}
+
+function abrirModalBaixar(id){
+  finLancamentoEmFoco = id;
+  document.getElementById('fin_data_baixa_input').value = new Date().toISOString().slice(0,10);
+  document.getElementById('baixarLancamentoModal').classList.add('show');
+}
+function fecharModalBaixar(){
+  document.getElementById('baixarLancamentoModal').classList.remove('show');
+  finLancamentoEmFoco = null;
+}
+async function confirmarBaixaLancamento(){
+  const dataBaixa = document.getElementById('fin_data_baixa_input').value;
+  if(!dataBaixa){ toast('Informe a data de baixa'); return; }
+  const conta = contaAtual();
+  const r = await api('baixarLancamento', { contaId: conta.id, id: finLancamentoEmFoco, dataBaixa });
+  if(!r.ok){ toast(r.erro || 'Não foi possível dar baixa.'); return; }
+  fecharModalBaixar();
+  await carregarLancamentos();
+  renderListaLancamentos();
+  toast('Baixa registrada');
+}
+
+function abrirModalEditarLancamento(id){
+  const l = lancamentosCache.find(x=>x.id===id);
+  if(!l) return;
+  finLancamentoEmFoco = id;
+  document.getElementById('fin_edit_vencimento').value = l.dataVencimento || '';
+  document.getElementById('fin_edit_previsao').value = l.dataPrevisaoBaixa || '';
+  document.getElementById('fin_edit_nota_fiscal').value = l.numeroNotaFiscal || '';
+  document.getElementById('fin_edit_historico').value = l.historico || '';
+  document.getElementById('editarLancamentoModal').classList.add('show');
+}
+function fecharModalEditarLancamento(){
+  document.getElementById('editarLancamentoModal').classList.remove('show');
+  finLancamentoEmFoco = null;
+}
+async function confirmarEdicaoLancamento(){
+  const conta = contaAtual();
+  const r = await api('atualizarLancamento', {
+    contaId: conta.id, id: finLancamentoEmFoco,
+    dataVencimento: document.getElementById('fin_edit_vencimento').value,
+    dataPrevisaoBaixa: document.getElementById('fin_edit_previsao').value,
+    numeroNotaFiscal: document.getElementById('fin_edit_nota_fiscal').value.trim(),
+    historico: document.getElementById('fin_edit_historico').value.trim(),
+  });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+  fecharModalEditarLancamento();
+  await carregarLancamentos();
+  renderListaLancamentos();
+  toast('Lançamento atualizado');
+}
+
+async function cancelarLancamentoUi(id){
+  const conta = contaAtual();
+  const r = await api('cancelarLancamento', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível cancelar.'); return; }
+  await carregarLancamentos();
+  renderListaLancamentos();
+  toast('Lançamento cancelado');
+}
+
+async function removerLancamentoUi(id){
+  const conta = contaAtual();
+  const r = await api('removerLancamento', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarLancamentos();
+  renderListaLancamentos();
+  toast('Lançamento removido');
+}
+
 function exportarCsv(){
   const mes = document.getElementById('r_mes').value;
   const conta = contaAtual();
@@ -2106,6 +2322,13 @@ function goView(name){
     document.getElementById('cardPreviewRelatoriosPub').style.display = 'none';
     carregarRelatoriosPublicados();
   }
+  if(name==='financeiro'){
+    popularClientesFinanceiro();
+    popularMesesFinanceiro();
+    renderFinAtendimentosLista();
+    renderFinFiltros();
+    carregarLancamentos().then(renderListaLancamentos);
+  }
   if(name==='cadastros') goCadSub(cadAba);
 }
 function goCadSub(sub){
@@ -2201,6 +2424,30 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnAbrirSalvarRelatorio').addEventListener('click', abrirModalSalvarRelatorio);
   document.getElementById('rel_salvar_cancelar').addEventListener('click', fecharModalSalvarRelatorio);
   document.getElementById('rel_salvar_confirmar').addEventListener('click', confirmarSalvarRelatorio);
+
+  document.getElementById('fin_cliente').addEventListener('change', renderFinAtendimentosLista);
+  document.getElementById('fin_mes').addEventListener('change', renderFinAtendimentosLista);
+  document.getElementById('finAtendimentosLista').addEventListener('change', e=>{
+    if(!e.target.classList.contains('fin-check-item')) return;
+    const id = e.target.dataset.id;
+    if(e.target.checked) finAtendimentosSelecionados.add(id); else finAtendimentosSelecionados.delete(id);
+    atualizarValorTotalFin();
+  });
+  document.getElementById('btnGerarLancamento').addEventListener('click', gerarLancamento);
+  document.getElementById('finFiltroCliente').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(finFiltroCliente, chip.dataset.valor);
+    renderFinFiltros(); renderListaLancamentos();
+  });
+  document.getElementById('finFiltroStatus').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(finFiltroStatus, chip.dataset.valor);
+    renderFinFiltros(); renderListaLancamentos();
+  });
+  document.getElementById('fin_baixar_cancelar').addEventListener('click', fecharModalBaixar);
+  document.getElementById('fin_baixar_confirmar').addEventListener('click', confirmarBaixaLancamento);
+  document.getElementById('fin_editar_cancelar').addEventListener('click', fecharModalEditarLancamento);
+  document.getElementById('fin_editar_confirmar').addEventListener('click', confirmarEdicaoLancamento);
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
 

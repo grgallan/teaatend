@@ -281,6 +281,19 @@
   .rel-relatorio-item{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;}
   .rel-relatorio-item .rel-relatorio-nome{font-weight:700;font-size:13.5px;margin-bottom:2px;}
   .rel-relatorio-item .rel-relatorio-meta{color:var(--muted);font-size:11.5px;margin-bottom:10px;}
+  .fin-lancamento{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;}
+  .fin-lancamento .fin-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;}
+  .fin-lancamento .fin-cliente{font-weight:700;font-size:14px;}
+  .fin-lancamento .fin-mes{color:var(--muted);font-size:11.5px;}
+  .fin-lancamento .fin-valor{font-size:17px;font-weight:800;color:var(--accent);}
+  .fin-lancamento .fin-datas{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11.5px;margin:8px 0;}
+  .fin-lancamento .fin-datas b{display:block;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em;}
+  .fin-lancamento .fin-historico{font-size:12px;color:var(--muted);background:var(--panel-2);border-radius:8px;padding:8px 10px;margin:6px 0;}
+  .fin-status{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;white-space:nowrap;}
+  .fin-status.ABERTO{background:var(--accent-dim);color:var(--accent);}
+  .fin-status.BAIXADO{background:#173425;color:var(--ok);}
+  .fin-status.CANCELADO{background:#3A1918;color:var(--bad);}
+  .fin-item-check{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;margin-bottom:5px;font-size:12px;}
 
   #printHeader{display:none;}
 
@@ -380,6 +393,7 @@
   <div class="side-item navbtn" data-view="gantt"><span class="ic">📊</span>Cronograma</div>
   <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio"><span class="ic">📄</span>Construtor</div>
   <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub"><span class="ic">📑</span>Relatórios</div>
+  <div class="side-item navbtn" data-view="financeiro" id="sideFinanceiro"><span class="ic">💵</span>Financeiro</div>
   <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 
@@ -397,6 +411,7 @@
     <div class="tab" data-view="gantt" id="tabGantt">Cronograma</div>
     <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
     <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
+    <div class="tab" data-view="financeiro" id="tabFinanceiro">Financeiro</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
   </div>
 
@@ -661,6 +676,35 @@
     </div>
   </section>
 
+  <!-- FINANCEIRO (lançamentos/faturas — admin) -->
+  <section class="view" id="view-financeiro">
+    <div class="card">
+      <h2>Gerar novo lançamento</h2>
+      <div class="row">
+        <div class="field"><label>Cliente</label><select id="fin_cliente"></select></div>
+        <div class="field"><label>Mês de referência</label><select id="fin_mes"></select></div>
+      </div>
+      <div id="finAtendimentosLista" style="margin:10px 0;"></div>
+      <div class="field"><label>Valor total (soma do Total Real dos marcados)</label>
+        <div id="finValorTotal" style="font-size:20px;font-weight:800;color:var(--accent);padding:8px 0;">R$ 0,00</div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Data de Vencimento</label><input type="date" id="fin_vencimento"></div>
+        <div class="field"><label>Número da Nota Fiscal (opcional)</label><input type="text" id="fin_nota_fiscal" placeholder="Ex: 1234"></div>
+      </div>
+      <div class="field"><label>Histórico (opcional)</label><textarea id="fin_historico_novo" placeholder="Observações sobre esse lançamento"></textarea></div>
+      <button class="primary" id="btnGerarLancamento" style="margin-bottom:4px;">Gerar Lançamento</button>
+    </div>
+
+    <div class="card">
+      <h2>Filtrar lançamentos</h2>
+      <div class="filters" id="finFiltroCliente"></div>
+      <div class="filters" id="finFiltroStatus" style="margin-top:8px;"></div>
+    </div>
+
+    <div id="listaLancamentos"></div>
+  </section>
+
   <!-- CADASTROS (admin) -->
   <section class="view" id="view-cadastros">
     <div class="subtabs" id="cadSubtabs">
@@ -806,6 +850,7 @@
   <div class="navbtn" data-view="gantt" id="navGantt"><span class="ic">📊</span>Cronog.</div>
   <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic">📄</span>Constr.</div>
   <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic">📑</span>Relat.</div>
+  <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic">💵</span>Financ.</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 </div>
@@ -864,6 +909,34 @@
     <div class="modal-actions" style="margin-top:14px;">
       <button class="cancel" id="statusMassaCancelar">Cancelar</button>
       <button class="confirm neutro" id="statusMassaConfirmar">Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="baixarLancamentoModal">
+  <div class="modal">
+    <h3>Dar baixa no lançamento</h3>
+    <p style="color:var(--muted);font-size:13px;margin:4px 0 16px;">Confirme a data em que o pagamento foi recebido.</p>
+    <div class="field"><label>Data de Baixa</label><input type="date" id="fin_data_baixa_input"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="fin_baixar_cancelar">Cancelar</button>
+      <button class="confirm neutro" id="fin_baixar_confirmar">Confirmar baixa</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="editarLancamentoModal">
+  <div class="modal">
+    <h3>Editar lançamento</h3>
+    <div class="row">
+      <div class="field"><label>Data de Vencimento</label><input type="date" id="fin_edit_vencimento"></div>
+      <div class="field"><label>Previsão de Baixa</label><input type="date" id="fin_edit_previsao"></div>
+    </div>
+    <div class="field"><label>Número da Nota Fiscal</label><input type="text" id="fin_edit_nota_fiscal"></div>
+    <div class="field"><label>Histórico</label><textarea id="fin_edit_historico"></textarea></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="fin_editar_cancelar">Cancelar</button>
+      <button class="confirm neutro" id="fin_editar_confirmar">Salvar</button>
     </div>
   </div>
 </div>
