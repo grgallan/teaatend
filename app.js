@@ -387,24 +387,42 @@ async function alternarNotificacoes(){
     toast('Notificações bloqueadas no navegador — precisa liberar nas configurações do site');
     return;
   }
+  if(!CONFIG.VAPID_PUBLIC_KEY){
+    toast('Chave VAPID não configurada no app.js — veja o LEIA-ME.md');
+    console.error('[push] CONFIG.VAPID_PUBLIC_KEY está vazia. Cole a chave pública no topo do app.js.');
+    return;
+  }
   btn.disabled = true;
   try{
     const permissao = await Notification.requestPermission();
-    if(permissao !== 'granted'){ toast('Permissão não concedida'); return; }
+    if(permissao !== 'granted'){ toast('Permissão de notificação não concedida no navegador'); return; }
     const reg = await navigator.serviceWorker.ready;
-    const inscricao = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(CONFIG.VAPID_PUBLIC_KEY)
-    });
+    let inscricao;
+    try{
+      inscricao = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(CONFIG.VAPID_PUBLIC_KEY)
+      });
+    }catch(erroSubscribe){
+      console.error('[push] Falha ao inscrever no navegador:', erroSubscribe);
+      // esse erro específico quase sempre é a chave VAPID errada/incompleta no app.js
+      toast('Não foi possível ativar — confira se a chave VAPID no app.js está exatamente igual à que você gerou (veja o console F12 pra detalhes)');
+      return;
+    }
     const conta = contaAtual();
     const json = inscricao.toJSON();
     const r = await api('salvarInscricaoPush', {
       contaId: conta.id, endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth
     });
-    if(!r.ok){ toast(r.erro || 'Não foi possível ativar as notificações'); return; }
+    if(!r.ok){
+      console.error('[push] Servidor recusou salvar a inscrição:', r.erro);
+      toast(r.erro || 'Não foi possível ativar as notificações');
+      return;
+    }
     toast('Notificações ativadas');
   }catch(e){
-    toast('Não foi possível ativar as notificações');
+    console.error('[push] Erro inesperado ao ativar notificações:', e);
+    toast('Não foi possível ativar as notificações — veja o console (F12) pra detalhes');
   } finally {
     btn.disabled = false;
     atualizarBotaoNotificacoes();
@@ -1708,6 +1726,163 @@ async function removerLancamentoUi(id){
   toast('Lançamento removido');
 }
 
+/* ---------- importar nota fiscal (XML) ---------- */
+let xmlNotaOriginal = '';
+
+function textoDaTag(escopo, tag){
+  const el = escopo.getElementsByTagName(tag)[0];
+  return el ? el.textContent.trim() : '';
+}
+
+function processarXmlNotaFiscal(textoXml){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(textoXml, 'text/xml');
+  if(doc.querySelector('parsererror')){ toast('Esse arquivo não parece ser um XML válido'); return; }
+
+  const numero = textoDaTag(doc, 'Numero');
+  const codigoVerificacao = textoDaTag(doc, 'CodigoVerificacao');
+  const dataEmissaoBruta = textoDaTag(doc, 'DataEmissao'); // ex: 2026-08-03T13:35:35.463-03:00
+  const dataEmissao = dataEmissaoBruta ? dataEmissaoBruta.slice(0,10) : '';
+  const valorServicos = textoDaTag(doc, 'ValorServicos');
+  const valorIss = textoDaTag(doc, 'ValorIss');
+  const valorLiquido = textoDaTag(doc, 'ValorLiquidoNfse');
+  const discriminacao = textoDaTag(doc, 'Discriminacao');
+
+  // o RazaoSocial aparece 2x no XML (prestador e tomador) — tem que
+  // buscar especificamente dentro de TomadorServico, senão pega a nossa
+  // própria empresa (prestador) por engano
+  const tomadorEl = doc.getElementsByTagName('TomadorServico')[0];
+  const cliente = tomadorEl ? textoDaTag(tomadorEl, 'RazaoSocial') : '';
+  const cnpjCpf = tomadorEl ? (textoDaTag(tomadorEl, 'Cnpj') || textoDaTag(tomadorEl, 'Cpf')) : '';
+
+  if(!numero && !cliente){ toast('Não consegui encontrar os dados da nota nesse arquivo. Confira se é o XML certo.'); return; }
+
+  xmlNotaOriginal = textoXml;
+  document.getElementById('fin_xml_numero').value = numero;
+  document.getElementById('fin_xml_data').value = dataEmissao;
+  document.getElementById('fin_xml_cliente').value = cliente;
+  document.getElementById('fin_xml_cnpj').value = cnpjCpf;
+  document.getElementById('fin_xml_valor_servicos').value = valorServicos;
+  document.getElementById('fin_xml_valor_iss').value = valorIss;
+  document.getElementById('fin_xml_valor_liquido').value = valorLiquido;
+  document.getElementById('fin_xml_discriminacao').value = discriminacao;
+  document.getElementById('fin_xml_preview').style.display = '';
+}
+
+function aoEscolherArquivoXml(e){
+  const arquivo = e.target.files[0];
+  if(!arquivo) return;
+  const leitor = new FileReader();
+  leitor.onload = ev => processarXmlNotaFiscal(ev.target.result);
+  leitor.onerror = () => toast('Não foi possível ler o arquivo');
+  leitor.readAsText(arquivo, 'UTF-8');
+}
+
+async function salvarNotaImportada(){
+  const conta = contaAtual();
+  const btn = document.getElementById('btnSalvarNotaImportada');
+  btn.disabled = true;
+  try{
+    const r = await api('importarNotaFiscal', {
+      contaId: conta.id,
+      numeroNota: document.getElementById('fin_xml_numero').value.trim(),
+      codigoVerificacao: '',
+      dataEmissao: document.getElementById('fin_xml_data').value,
+      cliente: document.getElementById('fin_xml_cliente').value.trim(),
+      cnpjCpfTomador: document.getElementById('fin_xml_cnpj').value.trim(),
+      valorServicos: document.getElementById('fin_xml_valor_servicos').value,
+      valorIss: document.getElementById('fin_xml_valor_iss').value,
+      valorLiquido: document.getElementById('fin_xml_valor_liquido').value,
+      discriminacao: document.getElementById('fin_xml_discriminacao').value.trim(),
+      xmlOriginal: xmlNotaOriginal,
+    });
+    if(!r.ok){ toast(r.erro || 'Não foi possível importar a nota.'); return; }
+    document.getElementById('fin_xml_preview').style.display = 'none';
+    document.getElementById('fin_xml_arquivo').value = '';
+    xmlNotaOriginal = '';
+    await carregarNotasImportadas();
+    renderListaNotasImportadas();
+    toast('Nota fiscal importada');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível importar a nota.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+let notasImportadasCache = [];
+async function carregarNotasImportadas(){
+  const conta = contaAtual();
+  if(!conta) return;
+  try{
+    const r = await api('listarNotasImportadas', { contaId: conta.id });
+    if(r.ok) notasImportadasCache = r.notas || [];
+  }catch(e){ /* silencioso */ }
+}
+
+function renderListaNotasImportadas(){
+  const cont = document.getElementById('listaNotasImportadas');
+  if(notasImportadasCache.length === 0){ cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12.5px;">Nenhuma nota importada ainda.</div>`; return; }
+  const fmtData = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
+  cont.innerHTML = notasImportadasCache.map(n=>`
+    <div class="fin-lancamento">
+      <div class="fin-topo">
+        <div>
+          <div class="fin-cliente">${escaparHtml(n.cliente || '(sem tomador identificado)')}</div>
+          <div class="fin-mes">NF ${escaparHtml(n.numeroNota)} · Emitida em ${fmtData(n.dataEmissao)}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="fin-valor">${fmtMoeda(n.valorLiquido)}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        ${n.lancamentoGeradoId
+          ? `<span class="fin-status BAIXADO">✓ Financeiro já gerado</span>`
+          : `<button class="primary" onclick="gerarFinanceiroDaNota('${n.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">Gerar Financeiro</button>`}
+        <button class="ghost" onclick="removerNotaImportadaUi('${n.id}')">Excluir</button>
+      </div>
+    </div>`).join('');
+}
+
+async function gerarFinanceiroDaNota(notaId){
+  const nota = notasImportadasCache.find(n=>n.id===notaId);
+  if(!nota) return;
+  const conta = contaAtual();
+
+  // vencimento padrão: 30 dias após a emissão — pode ajustar depois pelo "Editar"
+  let vencimento = '';
+  if(nota.dataEmissao){
+    const d = new Date(nota.dataEmissao+'T00:00:00');
+    d.setDate(d.getDate()+30);
+    vencimento = d.toISOString().slice(0,10);
+  }
+  const [ano, mes] = (nota.dataEmissao || '').split('-');
+  const mesReferencia = (mes && ano) ? `${mes}/${ano}` : mesesDisponiveis()[0];
+
+  const r = await api('criarLancamento', {
+    contaId: conta.id, cliente: nota.cliente || '(tomador não identificado)', mesReferencia,
+    valorTotal: nota.valorLiquido, atendimentoIds: [], dataVencimento: vencimento,
+    numeroNotaFiscal: nota.numeroNota,
+    historico: `Gerado a partir da nota fiscal importada nº ${nota.numeroNota}.`,
+  });
+  if(!r.ok){ toast(r.erro || 'Não foi possível gerar o financeiro.'); return; }
+
+  await api('vincularNotaLancamento', { contaId: conta.id, notaId: nota.id, lancamentoId: r.id });
+  await Promise.all([carregarNotasImportadas(), carregarLancamentos()]);
+  renderListaNotasImportadas();
+  renderListaLancamentos();
+  toast('Lançamento financeiro gerado a partir da nota — confira o vencimento (30 dias padrão)');
+}
+
+async function removerNotaImportadaUi(id){
+  const conta = contaAtual();
+  const r = await api('removerNotaImportada', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarNotasImportadas();
+  renderListaNotasImportadas();
+  toast('Nota removida');
+}
+
 function exportarCsv(){
   const mes = document.getElementById('r_mes').value;
   const conta = contaAtual();
@@ -2328,6 +2503,9 @@ function goView(name){
     renderFinAtendimentosLista();
     renderFinFiltros();
     carregarLancamentos().then(renderListaLancamentos);
+    carregarNotasImportadas().then(renderListaNotasImportadas);
+    document.getElementById('fin_xml_preview').style.display = 'none';
+    document.getElementById('fin_xml_arquivo').value = '';
   }
   if(name==='cadastros') goCadSub(cadAba);
 }
@@ -2448,6 +2626,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('fin_baixar_confirmar').addEventListener('click', confirmarBaixaLancamento);
   document.getElementById('fin_editar_cancelar').addEventListener('click', fecharModalEditarLancamento);
   document.getElementById('fin_editar_confirmar').addEventListener('click', confirmarEdicaoLancamento);
+  document.getElementById('fin_xml_arquivo').addEventListener('change', aoEscolherArquivoXml);
+  document.getElementById('btnSalvarNotaImportada').addEventListener('click', salvarNotaImportada);
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
 

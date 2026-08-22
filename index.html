@@ -679,6 +679,32 @@
   <!-- FINANCEIRO (lançamentos/faturas — admin) -->
   <section class="view" id="view-financeiro">
     <div class="card">
+      <h2>Importar Nota Fiscal (XML)</h2>
+      <p style="color:var(--muted);font-size:12px;margin:0 0 10px;">Aceita o XML da NFS-e emitida (padrão Fortaleza/GINFES). Os dados são extraídos automaticamente — confira antes de salvar.</p>
+      <input type="file" id="fin_xml_arquivo" accept=".xml,text/xml">
+      <div id="fin_xml_preview" style="display:none;margin-top:14px;">
+        <div class="row">
+          <div class="field"><label>Número da Nota</label><input type="text" id="fin_xml_numero"></div>
+          <div class="field"><label>Data de Emissão</label><input type="date" id="fin_xml_data"></div>
+        </div>
+        <div class="field"><label>Cliente (Tomador)</label><input type="text" id="fin_xml_cliente"></div>
+        <div class="field"><label>CNPJ/CPF do Tomador</label><input type="text" id="fin_xml_cnpj"></div>
+        <div class="row">
+          <div class="field"><label>Valor dos Serviços</label><input type="number" step="0.01" id="fin_xml_valor_servicos"></div>
+          <div class="field"><label>Valor do ISS</label><input type="number" step="0.01" id="fin_xml_valor_iss"></div>
+        </div>
+        <div class="field"><label>Valor Líquido</label><input type="number" step="0.01" id="fin_xml_valor_liquido"></div>
+        <div class="field"><label>Discriminação do Serviço</label><textarea id="fin_xml_discriminacao"></textarea></div>
+        <button class="primary" id="btnSalvarNotaImportada" style="margin-bottom:4px;">Salvar Nota Importada</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Notas fiscais importadas</h2>
+      <div id="listaNotasImportadas"></div>
+    </div>
+
+    <div class="card">
       <h2>Gerar novo lançamento</h2>
       <div class="row">
         <div class="field"><label>Cliente</label><select id="fin_cliente"></select></div>
