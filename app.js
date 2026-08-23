@@ -37,7 +37,7 @@ let cadAba = 'atendentes';
 /* ---------- utilidades ---------- */
 function fmtMoeda(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
 function timeToHours(t){ if(!t) return 0; const [h,m]=t.split(':').map(Number); return h + m/60; }
-function calcQtd(hi,hf){ let q = timeToHours(hf) - timeToHours(hi); if(q<0) q += 24; return q; }
+function calcQtd(hi,hf,inter){ let q = timeToHours(hf) - timeToHours(hi); if(q<0) q += 24; q -= timeToHours(inter); return Math.max(0, q); }
 function mesFromData(dataStr){ if(!dataStr) return ''; const [y,m]=dataStr.split('-'); return `${m}/${y}`; }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
 function labelTipo(nome){ if(nome==='ATENDIMENTO ONLINE') return 'Online'; if(nome==='VISITA TECNICA') return 'Visita técnica'; return nome; }
@@ -569,8 +569,9 @@ function atualizarPreview(){
   const atendenteNome = getSegSel('f_atendente');
   const hi = document.getElementById('f_hi').value;
   const hf = document.getElementById('f_hf').value;
+  const inter = document.getElementById('f_inter').value;
   const qtdManualStr = document.getElementById('f_qtd_manual').value;
-  const qtd = qtdManualStr !== '' ? Number(qtdManualStr) : calcQtd(hi, hf);
+  const qtd = qtdManualStr !== '' ? Number(qtdManualStr) : calcQtd(hi, hf, inter);
   const vals = valoresPara(clienteNome, tipoNome, atendenteNome);
   document.getElementById('p_qtd').textContent = qtd.toFixed(2).replace('.',',') + 'h';
   document.getElementById('p_ananda').textContent = fmtMoeda(qtd * vals.ananda);
