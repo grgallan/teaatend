@@ -1630,6 +1630,10 @@ function renderListaLancamentos(){
   let itens = lancamentosCache.slice();
   if(finFiltroCliente.size > 0) itens = itens.filter(l=>finFiltroCliente.has(l.cliente));
   if(finFiltroStatus.size > 0) itens = itens.filter(l=>finFiltroStatus.has(l.status));
+  const de = document.getElementById('fin_lista_de').value;
+  const ate = document.getElementById('fin_lista_ate').value;
+  if(de) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento >= de);
+  if(ate) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento <= ate);
 
   if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">💵</div>Nenhum lançamento encontrado.</div>`; return; }
 
@@ -1994,6 +1998,10 @@ function renderResumoFinanceiro(){
   renderResumoFinanceiroFiltros();
   let itens = lancamentosCache.slice();
   if(finResumoFiltroCliente.size > 0) itens = itens.filter(l=>finResumoFiltroCliente.has(l.cliente));
+  const de = document.getElementById('fin_resumo_de').value;
+  const ate = document.getElementById('fin_resumo_ate').value;
+  if(de) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento >= de);
+  if(ate) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento <= ate);
 
   const somaPor = status => itens.filter(l=>l.status===status).reduce((s,l)=>s+Number(l.valorTotal), 0);
   const recebido = somaPor('BAIXADO');
@@ -3044,6 +3052,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toggleFiltroMultiplo(finResumoFiltroCliente, chip.dataset.valor);
     renderResumoFinanceiro();
   });
+  document.getElementById('fin_resumo_de').addEventListener('change', renderResumoFinanceiro);
+  document.getElementById('fin_resumo_ate').addEventListener('change', renderResumoFinanceiro);
+  document.getElementById('fin_lista_de').addEventListener('change', renderListaLancamentos);
+  document.getElementById('fin_lista_ate').addEventListener('change', renderListaLancamentos);
 
   // agenda
   document.querySelectorAll('.ag-modo-btn').forEach(btn=>{
