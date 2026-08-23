@@ -1739,13 +1739,12 @@ function textoDaTag(escopo, tag){
   return el ? el.textContent.trim() : '';
 }
 
-function processarXmlNotaFiscal(textoXml){
+function extrairDadosNota(textoXml){
   const parser = new DOMParser();
   const doc = parser.parseFromString(textoXml, 'text/xml');
-  if(doc.querySelector('parsererror')){ toast('Esse arquivo não parece ser um XML válido'); return; }
+  if(doc.querySelector('parsererror')) return null;
 
   const numero = textoDaTag(doc, 'Numero');
-  const codigoVerificacao = textoDaTag(doc, 'CodigoVerificacao');
   const dataEmissaoBruta = textoDaTag(doc, 'DataEmissao'); // ex: 2026-08-03T13:35:35.463-03:00
   const dataEmissao = dataEmissaoBruta ? dataEmissaoBruta.slice(0,10) : '';
   const valorServicos = textoDaTag(doc, 'ValorServicos');
@@ -1760,27 +1759,87 @@ function processarXmlNotaFiscal(textoXml){
   const cliente = tomadorEl ? textoDaTag(tomadorEl, 'RazaoSocial') : '';
   const cnpjCpf = tomadorEl ? (textoDaTag(tomadorEl, 'Cnpj') || textoDaTag(tomadorEl, 'Cpf')) : '';
 
-  if(!numero && !cliente){ toast('Não consegui encontrar os dados da nota nesse arquivo. Confira se é o XML certo.'); return; }
+  if(!numero && !cliente) return null;
+  return { numero, dataEmissao, cliente, cnpjCpf, valorServicos, valorIss, valorLiquido, discriminacao };
+}
 
-  xmlNotaOriginal = textoXml;
-  document.getElementById('fin_xml_numero').value = numero;
-  document.getElementById('fin_xml_data').value = dataEmissao;
-  document.getElementById('fin_xml_cliente').value = cliente;
-  document.getElementById('fin_xml_cnpj').value = cnpjCpf;
-  document.getElementById('fin_xml_valor_servicos').value = valorServicos;
-  document.getElementById('fin_xml_valor_iss').value = valorIss;
-  document.getElementById('fin_xml_valor_liquido').value = valorLiquido;
-  document.getElementById('fin_xml_discriminacao').value = discriminacao;
+function preencherPreviewNota(dados, xmlOriginal){
+  xmlNotaOriginal = xmlOriginal;
+  document.getElementById('fin_xml_numero').value = dados.numero;
+  document.getElementById('fin_xml_data').value = dados.dataEmissao;
+  document.getElementById('fin_xml_cliente').value = dados.cliente;
+  document.getElementById('fin_xml_cnpj').value = dados.cnpjCpf;
+  document.getElementById('fin_xml_valor_servicos').value = dados.valorServicos;
+  document.getElementById('fin_xml_valor_iss').value = dados.valorIss;
+  document.getElementById('fin_xml_valor_liquido').value = dados.valorLiquido;
+  document.getElementById('fin_xml_discriminacao').value = dados.discriminacao;
   document.getElementById('fin_xml_preview').style.display = '';
 }
 
-function aoEscolherArquivoXml(e){
-  const arquivo = e.target.files[0];
-  if(!arquivo) return;
-  const leitor = new FileReader();
-  leitor.onload = ev => processarXmlNotaFiscal(ev.target.result);
-  leitor.onerror = () => toast('Não foi possível ler o arquivo');
-  leitor.readAsText(arquivo, 'UTF-8');
+function lerArquivoComoTexto(arquivo){
+  return new Promise((resolve, reject)=>{
+    const leitor = new FileReader();
+    leitor.onload = ev => resolve(ev.target.result);
+    leitor.onerror = () => reject(new Error(`Não foi possível ler ${arquivo.name}`));
+    leitor.readAsText(arquivo, 'UTF-8');
+  });
+}
+
+async function aoEscolherArquivoXml(e){
+  const arquivos = [...e.target.files];
+  if(arquivos.length === 0) return;
+  document.getElementById('fin_xml_resumo_lote').style.display = 'none';
+  document.getElementById('fin_xml_preview').style.display = 'none';
+
+  // 1 arquivo só: mostra a prévia pra conferir/editar antes de salvar
+  // (comportamento de sempre)
+  if(arquivos.length === 1){
+    try{
+      const texto = await lerArquivoComoTexto(arquivos[0]);
+      const dados = extrairDadosNota(texto);
+      if(!dados){ toast('Não consegui encontrar os dados da nota nesse arquivo. Confira se é o XML certo.'); return; }
+      preencherPreviewNota(dados, texto);
+    }catch(err){ toast(err.message); }
+    return;
+  }
+
+  // vários arquivos de uma vez: importa tudo direto (sem revisão
+  // individual — inviável revisar um por um nesse caso) e mostra um
+  // resumo do que deu certo/errado no final
+  const conta = contaAtual();
+  const resumoEl = document.getElementById('fin_xml_resumo_lote');
+  resumoEl.style.display = '';
+  resumoEl.innerHTML = `<div class="empty" style="padding:10px 0;">Importando ${arquivos.length} arquivos…</div>`;
+
+  let sucesso = 0, vinculadas = 0;
+  const falhas = [];
+  for(const arquivo of arquivos){
+    try{
+      const texto = await lerArquivoComoTexto(arquivo);
+      const dados = extrairDadosNota(texto);
+      if(!dados){ falhas.push(`${arquivo.name}: não parece um XML de nota fiscal válido`); continue; }
+      const r = await api('importarNotaFiscal', {
+        contaId: conta.id, numeroNota: dados.numero, codigoVerificacao: '',
+        dataEmissao: dados.dataEmissao, cliente: dados.cliente, cnpjCpfTomador: dados.cnpjCpf,
+        valorServicos: dados.valorServicos, valorIss: dados.valorIss, valorLiquido: dados.valorLiquido,
+        discriminacao: dados.discriminacao, xmlOriginal: texto,
+      });
+      if(!r.ok){ falhas.push(`${arquivo.name}: ${r.erro || 'falha ao salvar'}`); continue; }
+      sucesso++;
+      if(r.clienteEncontrado) vinculadas++;
+    }catch(err){
+      falhas.push(`${arquivo.name}: ${err.message}`);
+    }
+  }
+
+  document.getElementById('fin_xml_arquivo').value = '';
+  await carregarNotasImportadas();
+  renderListaNotasImportadas();
+  resumoEl.innerHTML = `<div class="empty" style="padding:10px 0;text-align:left;">
+    <b>${sucesso} de ${arquivos.length} nota(s) importada(s)</b>${sucesso>0 ? ` — ${vinculadas} vinculada(s) automaticamente ao cadastro pelo CNPJ` : ''}.
+    ${falhas.length>0 ? `<div style="color:var(--bad);margin-top:6px;">${falhas.map(f=>escaparHtml(f)).join('<br>')}</div>` : ''}
+  </div>`;
+  toast(`${sucesso} nota(s) importada(s)`);
 }
 
 async function salvarNotaImportada(){
@@ -2089,27 +2148,65 @@ function agNavegar(direcao){
   renderAgenda();
 }
 
+function proximaDataRepeticao(dataAtual, tipo){
+  const d = new Date(dataAtual+'T00:00:00');
+  if(tipo === 'diaria') d.setDate(d.getDate()+1);
+  else if(tipo === 'semanal') d.setDate(d.getDate()+7);
+  else if(tipo === 'mensal') d.setMonth(d.getMonth()+1);
+  return agIsoLocal(d);
+}
+
 async function criarAgendamento(){
   const conta = contaAtual();
   const titulo = document.getElementById('ag_titulo').value.trim();
-  const data = document.getElementById('ag_data').value;
+  const dataInicial = document.getElementById('ag_data').value;
   const horaInicio = document.getElementById('ag_hora_inicio').value;
   const horaFim = document.getElementById('ag_hora_fim').value;
-  if(!titulo || !data || !horaInicio || !horaFim){ toast('Preencha título, data e os dois horários'); return; }
+  if(!titulo || !dataInicial || !horaInicio || !horaFim){ toast('Preencha título, data e os dois horários'); return; }
 
   const isAdmin = conta.perfil === 'ADMIN';
-  const r = await api('criarAgendamento', {
-    contaId: conta.id, titulo, data, horaInicio, horaFim,
-    cliente: document.getElementById('ag_cliente').value,
-    atendente: isAdmin ? document.getElementById('ag_atendente').value : conta.nome,
-    descricao: document.getElementById('ag_descricao').value.trim(),
-  });
-  if(!r.ok){ toast(r.erro || 'Não foi possível criar o agendamento.'); return; }
-  document.getElementById('ag_titulo').value = '';
-  document.getElementById('ag_descricao').value = '';
-  await carregarAgendamentos();
-  renderAgenda();
-  toast('Agendamento criado');
+  const cliente = document.getElementById('ag_cliente').value;
+  const atendente = isAdmin ? document.getElementById('ag_atendente').value : conta.nome;
+  const descricao = sanitizarHtml(document.getElementById('ag_descricao').innerHTML.trim());
+
+  const tipoRepeticao = document.getElementById('ag_repetir').value;
+  const repetirAte = document.getElementById('ag_repetir_ate').value;
+
+  // monta a lista de datas: só a data escolhida (sem repetição), ou uma
+  // por ocorrência até "repetir até" — com um teto de segurança (200)
+  // pra nunca criar uma quantidade absurda de agendamentos sem querer
+  const datas = [dataInicial];
+  if(tipoRepeticao !== 'nao' && repetirAte && repetirAte > dataInicial){
+    let atual = dataInicial;
+    let seguranca = 0;
+    while(seguranca < 200){
+      atual = proximaDataRepeticao(atual, tipoRepeticao);
+      if(atual > repetirAte) break;
+      datas.push(atual);
+      seguranca++;
+    }
+  }
+
+  const btn = document.getElementById('btnCriarAgendamento');
+  btn.disabled = true;
+  try{
+    let falhas = 0;
+    for(const data of datas){
+      const r = await api('criarAgendamento', { contaId: conta.id, titulo, data, horaInicio, horaFim, cliente, atendente, descricao });
+      if(!r.ok) falhas++;
+    }
+    document.getElementById('ag_titulo').value = '';
+    document.getElementById('ag_descricao').innerHTML = '';
+    document.getElementById('ag_repetir').value = 'nao';
+    document.getElementById('ag_repetir_ate').value = '';
+    document.getElementById('campoAgendaRepetirAte').style.display = 'none';
+    await carregarAgendamentos();
+    renderAgenda();
+    if(falhas > 0) toast(`${datas.length - falhas} de ${datas.length} agendamento(s) criado(s) — ${falhas} falharam`);
+    else toast(datas.length > 1 ? `${datas.length} agendamentos criados` : 'Agendamento criado');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function abrirEditarAgendamento(id){
@@ -2124,7 +2221,7 @@ function abrirEditarAgendamento(id){
   document.getElementById('ag_edit_cliente').value = a.cliente || '';
   document.getElementById('ag_edit_hora_inicio').value = a.horaInicio;
   document.getElementById('ag_edit_hora_fim').value = a.horaFim;
-  document.getElementById('ag_edit_descricao').value = a.descricao || '';
+  document.getElementById('ag_edit_descricao').innerHTML = sanitizarHtml(a.descricao || '');
   if(conta.perfil === 'ADMIN') document.getElementById('ag_edit_atendente').value = a.atendente || '';
   document.getElementById('editarAgendamentoModal').classList.add('show');
 }
@@ -2141,7 +2238,7 @@ async function confirmarEdicaoAgendamento(){
     cliente: document.getElementById('ag_edit_cliente').value,
     horaInicio: document.getElementById('ag_edit_hora_inicio').value,
     horaFim: document.getElementById('ag_edit_hora_fim').value,
-    descricao: document.getElementById('ag_edit_descricao').value.trim(),
+    descricao: sanitizarHtml(document.getElementById('ag_edit_descricao').innerHTML.trim()),
     ...(conta.perfil === 'ADMIN' ? { atendente: document.getElementById('ag_edit_atendente').value } : {}),
   });
   if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
@@ -2150,11 +2247,10 @@ async function confirmarEdicaoAgendamento(){
   renderAgenda();
   toast('Agendamento atualizado');
 }
-async function excluirAgendamentoAtual(){
+async function excluirAgendamento(id){
   const conta = contaAtual();
-  const r = await api('removerAgendamento', { contaId: conta.id, id: agEditandoId });
+  const r = await api('removerAgendamento', { contaId: conta.id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível excluir.'); return; }
-  fecharEditarAgendamento();
   await carregarAgendamentos();
   renderAgenda();
   toast('Agendamento excluído');
@@ -2961,11 +3057,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('agProximo').addEventListener('click', ()=>agNavegar(1));
   document.getElementById('agHoje').addEventListener('click', ()=>{ agDataRef = new Date(); renderAgenda(); });
   document.getElementById('ag_filtro_atendente').addEventListener('change', e=>{ agFiltroAtendente = e.target.value; renderAgenda(); });
+  document.getElementById('ag_repetir').addEventListener('change', e=>{
+    document.getElementById('campoAgendaRepetirAte').style.display = e.target.value === 'nao' ? 'none' : '';
+  });
   document.getElementById('btnCriarAgendamento').addEventListener('click', criarAgendamento);
   document.getElementById('ag_editar_cancelar').addEventListener('click', fecharEditarAgendamento);
   document.getElementById('ag_editar_confirmar').addEventListener('click', confirmarEdicaoAgendamento);
   document.getElementById('ag_editar_excluir').addEventListener('click', ()=>{
-    pedirConfirmacao('Excluir agendamento?', 'Essa ação não pode ser desfeita.', excluirAgendamentoAtual);
+    const idParaExcluir = agEditandoId;
+    fecharEditarAgendamento();
+    pedirConfirmacao('Excluir agendamento?', 'Essa ação não pode ser desfeita.', ()=>excluirAgendamento(idParaExcluir));
   });
 
   document.getElementById('r_mes').addEventListener('change', renderResumo);
