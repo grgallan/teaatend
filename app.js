@@ -27,6 +27,7 @@ let editandoId = null;
 let anexoAtendimentoId = null; // atendimento cujos anexos múltiplos estão sendo geridos ao editar
 let editandoAtendenteId = null;
 let editandoUsuarioId = null;
+let editandoClienteId = null;
 let excluindoAcao = null;
 let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = 'TODOS';
@@ -453,6 +454,10 @@ function entrarNoApp(){
   document.getElementById('tabFinanceiro').style.display = isAdmin ? '' : 'none';
   document.getElementById('navFinanceiro').style.display = isAdmin ? '' : 'none';
   document.getElementById('sideFinanceiro').style.display = isAdmin ? '' : 'none';
+  const podeVerAgenda = podeVerResumo; // mesma regra: todo mundo, exceto usuário comum (sem ser admin do cliente)
+  document.getElementById('tabAgenda').style.display = podeVerAgenda ? '' : 'none';
+  document.getElementById('navAgenda').style.display = podeVerAgenda ? '' : 'none';
+  document.getElementById('sideAgenda').style.display = podeVerAgenda ? '' : 'none';
   document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = podeVerResumo ? '' : 'none'; });
   document.getElementById('sideResumo').style.display = podeVerResumo ? '' : 'none';
   // Cronograma fica disponível pra todo mundo — usuário e atendente veem
@@ -1828,7 +1833,9 @@ function renderListaNotasImportadas(){
     <div class="fin-lancamento">
       <div class="fin-topo">
         <div>
-          <div class="fin-cliente">${escaparHtml(n.cliente || '(sem tomador identificado)')}</div>
+          <div class="fin-cliente">${escaparHtml(n.cliente || '(sem tomador identificado)')}
+            ${n.clienteId ? ' <span style="color:var(--ok);font-size:10.5px;">✓ vinculado ao cadastro</span>' : ' <span style="color:var(--bad);font-size:10.5px;">⚠ CNPJ não encontrado no cadastro</span>'}
+          </div>
           <div class="fin-mes">NF ${escaparHtml(n.numeroNota)} · Emitida em ${fmtData(n.dataEmissao)}</div>
         </div>
         <div style="text-align:right;">
@@ -1839,6 +1846,7 @@ function renderListaNotasImportadas(){
         ${n.lancamentoGeradoId
           ? `<span class="fin-status BAIXADO">✓ Financeiro já gerado</span>`
           : `<button class="primary" onclick="gerarFinanceiroDaNota('${n.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">Gerar Financeiro</button>`}
+        <button class="ghost" onclick="abrirVerNota('${n.id}')">Ver detalhes</button>
         <button class="ghost" onclick="removerNotaImportadaUi('${n.id}')">Excluir</button>
       </div>
     </div>`).join('');
@@ -1881,6 +1889,275 @@ async function removerNotaImportadaUi(id){
   await carregarNotasImportadas();
   renderListaNotasImportadas();
   toast('Nota removida');
+}
+
+function abrirVerNota(id){
+  const n = notasImportadasCache.find(x=>x.id===id);
+  if(!n) return;
+  const fmtData = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
+  document.getElementById('verNotaConteudo').innerHTML = `
+    <div class="fin-datas" style="grid-template-columns:1fr 1fr;">
+      <div><b>Número da Nota</b>${escaparHtml(n.numeroNota)}</div>
+      <div><b>Data de Emissão</b>${fmtData(n.dataEmissao)}</div>
+    </div>
+    <p style="margin:12px 0 4px;"><b>Cliente (Tomador):</b> ${escaparHtml(n.cliente || '(não identificado)')}
+      ${n.clienteId ? ' <span style="color:var(--ok);">✓ vinculado ao cadastro</span>' : ' <span style="color:var(--bad);">⚠ não vinculado — CNPJ não bateu com nenhum cliente cadastrado</span>'}</p>
+    <p style="margin:4px 0;"><b>CNPJ/CPF:</b> ${escaparHtml(n.cnpjCpfTomador || '—')}</p>
+    <div class="fin-datas" style="grid-template-columns:1fr 1fr 1fr;margin:10px 0;">
+      <div><b>Valor Serviços</b>${fmtMoeda(n.valorServicos)}</div>
+      <div><b>Valor ISS</b>${fmtMoeda(n.valorIss)}</div>
+      <div><b>Valor Líquido</b>${fmtMoeda(n.valorLiquido)}</div>
+    </div>
+    <p style="margin:10px 0 4px;"><b>Discriminação:</b></p>
+    <div class="fin-historico" style="white-space:pre-wrap;">${escaparHtml(n.discriminacao || '(vazio)')}</div>
+    <p style="margin:12px 0 4px;"><b>Situação do Financeiro:</b> ${n.lancamentoGeradoId ? '✓ lançamento já gerado' : 'ainda não gerado'}</p>
+    <p style="margin:4px 0;color:var(--muted);font-size:11.5px;">Importado por ${escaparHtml(n.importadoPor)}</p>
+  `;
+  document.getElementById('verNotaModal').classList.add('show');
+}
+
+/* ---------- Financeiro: navegação por submenu ---------- */
+let finAba = 'lancar';
+function goFinSub(sub){
+  finAba = sub;
+  document.querySelectorAll('#finSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.finsub===sub));
+  document.querySelectorAll('.fin-sub-view').forEach(v=>{ v.style.display = (v.id === 'fin-sub-'+sub) ? '' : 'none'; });
+  if(sub === 'resumo') renderResumoFinanceiro();
+}
+
+/* ---------- Financeiro: resumo (recebido, em aberto, previsão) ---------- */
+let finResumoFiltroCliente = new Set();
+function renderResumoFinanceiroFiltros(){
+  document.getElementById('finResumoFiltroCliente').innerHTML = `<div class="chip ${finResumoFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    clientes.map(c=>`<div class="chip ${finResumoFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${escaparHtml(c.nome)}</div>`).join('');
+}
+function renderResumoFinanceiro(){
+  renderResumoFinanceiroFiltros();
+  let itens = lancamentosCache.slice();
+  if(finResumoFiltroCliente.size > 0) itens = itens.filter(l=>finResumoFiltroCliente.has(l.cliente));
+
+  const somaPor = status => itens.filter(l=>l.status===status).reduce((s,l)=>s+Number(l.valorTotal), 0);
+  const recebido = somaPor('BAIXADO');
+  const aberto = somaPor('ABERTO');
+  const previsto = recebido + aberto; // total geral do período/filtro, independente de já ter sido baixado
+
+  document.getElementById('finResumoBoxes').innerHTML = `
+    <div class="summary">
+      <div class="box"><div class="k">Recebido (Baixado)</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
+      <div class="box"><div class="k">Em Aberto</div><div class="v" style="color:var(--accent)">${fmtMoeda(aberto)}</div></div>
+      <div class="box"><div class="k">Previsão Total</div><div class="v">${fmtMoeda(previsto)}</div></div>
+    </div>
+  `;
+}
+
+/* ---------- agenda ---------- */
+let agendamentosCache = [];
+let agModo = 'dia'; // 'dia' | 'semana' | 'mes'
+let agDataRef = new Date();
+let agFiltroAtendente = 'TODOS';
+let agEditandoId = null;
+
+function agIsoLocal(d){
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${dd}`;
+}
+function agInicioSemana(d){
+  const r = new Date(d); r.setDate(r.getDate() - r.getDay()); r.setHours(0,0,0,0); return r;
+}
+
+async function carregarAgendamentos(){
+  const conta = contaAtual();
+  if(!conta) return;
+  try{
+    const r = await api('listarAgendamentos', { contaId: conta.id });
+    if(r.ok) agendamentosCache = r.agendamentos || [];
+  }catch(e){ /* silencioso */ }
+}
+
+function popularSelectsAgenda(){
+  const conta = contaAtual();
+  const selCliente = document.getElementById('ag_cliente');
+  const valorAtualCliente = selCliente.value;
+  selCliente.innerHTML = `<option value="">(nenhum)</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  if([...selCliente.options].some(o=>o.value===valorAtualCliente)) selCliente.value = valorAtualCliente;
+
+  const selClienteEdit = document.getElementById('ag_edit_cliente');
+  selClienteEdit.innerHTML = `<option value="">(nenhum)</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+
+  const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+  const isAdmin = conta && conta.perfil === 'ADMIN';
+  document.getElementById('campoAgendaAtendente').style.display = isAdmin ? '' : 'none';
+  document.getElementById('campoAgendaEditAtendente').style.display = isAdmin ? '' : 'none';
+  document.getElementById('campoAgendaFiltroAtendente').style.display = isAdmin ? '' : 'none';
+  if(isAdmin){
+    document.getElementById('ag_atendente').innerHTML = atendentesNomes.map(n=>`<option value="${escaparHtml(n)}">${escaparHtml(n)}</option>`).join('');
+    document.getElementById('ag_edit_atendente').innerHTML = atendentesNomes.map(n=>`<option value="${escaparHtml(n)}">${escaparHtml(n)}</option>`).join('');
+    document.getElementById('ag_filtro_atendente').innerHTML = `<option value="TODOS">Todos os atendentes</option>` + atendentesNomes.map(n=>`<option value="${escaparHtml(n)}">${escaparHtml(n)}</option>`).join('');
+  }
+
+  // só admin/atendente criam agendamento — usuário administrador do
+  // cliente só consulta a própria agenda
+  const podeGerenciar = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
+  document.getElementById('cardNovoAgendamento').style.display = podeGerenciar ? '' : 'none';
+}
+
+function agendamentosFiltrados(){
+  let itens = agendamentosCache.slice();
+  if(agFiltroAtendente !== 'TODOS') itens = itens.filter(a=>a.atendente===agFiltroAtendente);
+  return itens;
+}
+
+function atualizarLabelPeriodo(){
+  const label = document.getElementById('agPeriodoLabel');
+  if(agModo === 'dia'){
+    label.textContent = agDataRef.toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+  }else if(agModo === 'semana'){
+    const ini = agInicioSemana(agDataRef);
+    const fim = new Date(ini); fim.setDate(fim.getDate()+6);
+    label.textContent = `${ini.toLocaleDateString('pt-BR')} — ${fim.toLocaleDateString('pt-BR')}`;
+  }else{
+    label.textContent = agDataRef.toLocaleDateString('pt-BR', { month:'long', year:'numeric' });
+  }
+}
+
+function renderCompromisso(a){
+  return `<div class="ag-compromisso" onclick="abrirEditarAgendamento('${a.id}')">
+    <div class="ag-hora">${a.horaInicio}</div>
+    <div class="ag-info">
+      <div class="ag-titulo">${escaparHtml(a.titulo)}</div>
+      <div class="ag-sub">${a.horaInicio}–${a.horaFim}${a.cliente ? ' · '+escaparHtml(a.cliente) : ''}${a.atendente ? ' · '+escaparHtml(a.atendente) : ''}</div>
+    </div>
+  </div>`;
+}
+
+function renderAgendaDia(itens){
+  const dataStr = agIsoLocal(agDataRef);
+  const doDia = itens.filter(a=>a.data===dataStr).sort((a,b)=>a.horaInicio.localeCompare(b.horaInicio));
+  if(doDia.length===0) return `<div class="empty"><div class="big">📅</div>Nenhum compromisso nesse dia.</div>`;
+  return doDia.map(renderCompromisso).join('');
+}
+
+function renderAgendaSemana(itens){
+  const ini = agInicioSemana(agDataRef);
+  let html = '';
+  for(let i=0;i<7;i++){
+    const d = new Date(ini); d.setDate(d.getDate()+i);
+    const dataStr = agIsoLocal(d);
+    const doDia = itens.filter(a=>a.data===dataStr).sort((a,b)=>a.horaInicio.localeCompare(b.horaInicio));
+    html += `<div class="ag-dia-grupo"><h4>${d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'})}</h4>`;
+    html += doDia.length===0 ? `<div class="empty" style="padding:8px 0;font-size:11.5px;">Sem compromissos.</div>` : doDia.map(renderCompromisso).join('');
+    html += `</div>`;
+  }
+  return html;
+}
+
+function renderAgendaMes(itens){
+  const ano = agDataRef.getFullYear(), mes = agDataRef.getMonth();
+  const primeiroDiaMes = new Date(ano, mes, 1);
+  const inicioGrade = agInicioSemana(primeiroDiaMes);
+  const hojeStr = agIsoLocal(new Date());
+
+  const cabecalho = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map(d=>`<div class="ag-mes-cabecalho">${d}</div>`).join('');
+  let celulas = '';
+  for(let i=0;i<42;i++){
+    const d = new Date(inicioGrade); d.setDate(d.getDate()+i);
+    const dataStr = agIsoLocal(d);
+    const doDia = itens.filter(a=>a.data===dataStr).sort((a,b)=>a.horaInicio.localeCompare(b.horaInicio));
+    const foraDoMes = d.getMonth() !== mes;
+    celulas += `<div class="ag-mes-dia ${foraDoMes?'fora-do-mes':''} ${dataStr===hojeStr?'hoje':''}">
+      <div class="ag-mes-numero">${d.getDate()}</div>
+      ${doDia.slice(0,3).map(a=>`<div class="ag-mes-item" onclick="abrirEditarAgendamento('${a.id}')" title="${escaparHtml(a.titulo)}">${a.horaInicio} ${escaparHtml(a.titulo)}</div>`).join('')}
+      ${doDia.length>3 ? `<div style="color:var(--muted);font-size:9.5px;">+${doDia.length-3} mais</div>` : ''}
+    </div>`;
+  }
+  return `<div class="ag-mes-grid">${cabecalho}${celulas}</div>`;
+}
+
+function renderAgenda(){
+  atualizarLabelPeriodo();
+  const itens = agendamentosFiltrados();
+  const cont = document.getElementById('agendaConteudo');
+  if(agModo === 'dia') cont.innerHTML = renderAgendaDia(itens);
+  else if(agModo === 'semana') cont.innerHTML = renderAgendaSemana(itens);
+  else cont.innerHTML = renderAgendaMes(itens);
+}
+
+function agNavegar(direcao){
+  if(agModo === 'dia') agDataRef.setDate(agDataRef.getDate() + direcao);
+  else if(agModo === 'semana') agDataRef.setDate(agDataRef.getDate() + direcao*7);
+  else agDataRef.setMonth(agDataRef.getMonth() + direcao);
+  renderAgenda();
+}
+
+async function criarAgendamento(){
+  const conta = contaAtual();
+  const titulo = document.getElementById('ag_titulo').value.trim();
+  const data = document.getElementById('ag_data').value;
+  const horaInicio = document.getElementById('ag_hora_inicio').value;
+  const horaFim = document.getElementById('ag_hora_fim').value;
+  if(!titulo || !data || !horaInicio || !horaFim){ toast('Preencha título, data e os dois horários'); return; }
+
+  const isAdmin = conta.perfil === 'ADMIN';
+  const r = await api('criarAgendamento', {
+    contaId: conta.id, titulo, data, horaInicio, horaFim,
+    cliente: document.getElementById('ag_cliente').value,
+    atendente: isAdmin ? document.getElementById('ag_atendente').value : conta.nome,
+    descricao: document.getElementById('ag_descricao').value.trim(),
+  });
+  if(!r.ok){ toast(r.erro || 'Não foi possível criar o agendamento.'); return; }
+  document.getElementById('ag_titulo').value = '';
+  document.getElementById('ag_descricao').value = '';
+  await carregarAgendamentos();
+  renderAgenda();
+  toast('Agendamento criado');
+}
+
+function abrirEditarAgendamento(id){
+  const conta = contaAtual();
+  const podeGerenciar = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
+  if(!podeGerenciar) return; // usuário administrador do cliente só consulta
+  const a = agendamentosCache.find(x=>x.id===id);
+  if(!a) return;
+  agEditandoId = id;
+  document.getElementById('ag_edit_titulo').value = a.titulo;
+  document.getElementById('ag_edit_data').value = a.data;
+  document.getElementById('ag_edit_cliente').value = a.cliente || '';
+  document.getElementById('ag_edit_hora_inicio').value = a.horaInicio;
+  document.getElementById('ag_edit_hora_fim').value = a.horaFim;
+  document.getElementById('ag_edit_descricao').value = a.descricao || '';
+  if(conta.perfil === 'ADMIN') document.getElementById('ag_edit_atendente').value = a.atendente || '';
+  document.getElementById('editarAgendamentoModal').classList.add('show');
+}
+function fecharEditarAgendamento(){
+  document.getElementById('editarAgendamentoModal').classList.remove('show');
+  agEditandoId = null;
+}
+async function confirmarEdicaoAgendamento(){
+  const conta = contaAtual();
+  const r = await api('atualizarAgendamento', {
+    contaId: conta.id, id: agEditandoId,
+    titulo: document.getElementById('ag_edit_titulo').value.trim(),
+    data: document.getElementById('ag_edit_data').value,
+    cliente: document.getElementById('ag_edit_cliente').value,
+    horaInicio: document.getElementById('ag_edit_hora_inicio').value,
+    horaFim: document.getElementById('ag_edit_hora_fim').value,
+    descricao: document.getElementById('ag_edit_descricao').value.trim(),
+    ...(conta.perfil === 'ADMIN' ? { atendente: document.getElementById('ag_edit_atendente').value } : {}),
+  });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+  fecharEditarAgendamento();
+  await carregarAgendamentos();
+  renderAgenda();
+  toast('Agendamento atualizado');
+}
+async function excluirAgendamentoAtual(){
+  const conta = contaAtual();
+  const r = await api('removerAgendamento', { contaId: conta.id, id: agEditandoId });
+  if(!r.ok){ toast(r.erro || 'Não foi possível excluir.'); return; }
+  fecharEditarAgendamento();
+  await carregarAgendamentos();
+  renderAgenda();
+  toast('Agendamento excluído');
 }
 
 function exportarCsv(){
@@ -1984,8 +2261,33 @@ function renderListClientes(){
   const el = document.getElementById('listClientes');
   if(clientes.length===0){ el.innerHTML = `<div class="empty">Nenhum cliente cadastrado.</div>`; return; }
   el.innerHTML = clientes.map(c=>`
-    <div class="cad-item"><div class="info"><b>${c.nome}</b></div>
-    <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover cliente?','Isso não apaga lançamentos já salvos, mas remove das opções futuras.', ()=>removerCliente('${c.id}'))">Remover</button></div></div>`).join('');
+    <div class="cad-item"><div class="info"><b>${escaparHtml(c.nome)}</b>
+      ${c.nomeFantasia ? `<span>${escaparHtml(c.nomeFantasia)}</span>` : ''}
+      ${c.cnpj ? `<span>CNPJ: ${escaparHtml(c.cnpj)}</span>` : `<span style="color:var(--bad);">Sem CNPJ cadastrado</span>`}
+    </div>
+    <div class="acts">
+      <button class="ghost" onclick="editarCliente('${c.id}')">Editar</button>
+      <button class="danger" onclick="pedirConfirmacao('Remover cliente?','Isso não apaga lançamentos já salvos, mas remove das opções futuras.', ()=>removerCliente('${c.id}'))">Remover</button>
+    </div></div>`).join('');
+}
+function editarCliente(id){
+  const c = clientes.find(x=>String(x.id)===String(id));
+  if(!c) return;
+  editandoClienteId = id;
+  document.getElementById('cl_nome').value = c.nome;
+  document.getElementById('cl_cnpj').value = c.cnpj || '';
+  document.getElementById('cl_nome_fantasia').value = c.nomeFantasia || '';
+  document.getElementById('btnAddCliente').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoCliente').style.display = '';
+  document.getElementById('cl_nome').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function cancelarEdicaoCliente(){
+  editandoClienteId = null;
+  document.getElementById('cl_nome').value = '';
+  document.getElementById('cl_cnpj').value = '';
+  document.getElementById('cl_nome_fantasia').value = '';
+  document.getElementById('btnAddCliente').textContent = 'Adicionar cliente';
+  document.getElementById('btnCancelarEdicaoCliente').style.display = 'none';
 }
 async function removerCliente(id){
   const r = await api('removerCliente', { id });
@@ -2498,6 +2800,7 @@ function goView(name){
     carregarRelatoriosPublicados();
   }
   if(name==='financeiro'){
+    goFinSub(finAba);
     popularClientesFinanceiro();
     popularMesesFinanceiro();
     renderFinAtendimentosLista();
@@ -2506,6 +2809,10 @@ function goView(name){
     carregarNotasImportadas().then(renderListaNotasImportadas);
     document.getElementById('fin_xml_preview').style.display = 'none';
     document.getElementById('fin_xml_arquivo').value = '';
+  }
+  if(name==='agenda'){
+    popularSelectsAgenda();
+    carregarAgendamentos().then(renderAgenda);
   }
   if(name==='cadastros') goCadSub(cadAba);
 }
@@ -2628,6 +2935,39 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('fin_editar_confirmar').addEventListener('click', confirmarEdicaoLancamento);
   document.getElementById('fin_xml_arquivo').addEventListener('change', aoEscolherArquivoXml);
   document.getElementById('btnSalvarNotaImportada').addEventListener('click', salvarNotaImportada);
+
+  document.getElementById('finSubtabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    goFinSub(tab.dataset.finsub);
+  });
+  document.getElementById('verNota_fechar').addEventListener('click', ()=>{
+    document.getElementById('verNotaModal').classList.remove('show');
+  });
+  document.getElementById('finResumoFiltroCliente').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(finResumoFiltroCliente, chip.dataset.valor);
+    renderResumoFinanceiro();
+  });
+
+  // agenda
+  document.querySelectorAll('.ag-modo-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      agModo = btn.dataset.modo;
+      document.querySelectorAll('.ag-modo-btn').forEach(b=>b.classList.toggle('active', b===btn));
+      renderAgenda();
+    });
+  });
+  document.getElementById('agAnterior').addEventListener('click', ()=>agNavegar(-1));
+  document.getElementById('agProximo').addEventListener('click', ()=>agNavegar(1));
+  document.getElementById('agHoje').addEventListener('click', ()=>{ agDataRef = new Date(); renderAgenda(); });
+  document.getElementById('ag_filtro_atendente').addEventListener('change', e=>{ agFiltroAtendente = e.target.value; renderAgenda(); });
+  document.getElementById('btnCriarAgendamento').addEventListener('click', criarAgendamento);
+  document.getElementById('ag_editar_cancelar').addEventListener('click', fecharEditarAgendamento);
+  document.getElementById('ag_editar_confirmar').addEventListener('click', confirmarEdicaoAgendamento);
+  document.getElementById('ag_editar_excluir').addEventListener('click', ()=>{
+    pedirConfirmacao('Excluir agendamento?', 'Essa ação não pode ser desfeita.', excluirAgendamentoAtual);
+  });
+
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
 
@@ -2735,13 +3075,19 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
+    const cnpj = document.getElementById('cl_cnpj').value.trim();
+    const nomeFantasia = document.getElementById('cl_nome_fantasia').value.trim();
     if(!nome){ toast('Informe o nome do cliente'); return; }
-    const r = await api('addCliente', { nome: nome.toUpperCase() });
-    if(!r.ok) return;
-    document.getElementById('cl_nome').value='';
+    const editando = !!editandoClienteId;
+    const r = editando
+      ? await api('atualizarCliente', { id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia })
+      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    cancelarEdicaoCliente();
     await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
-    toast('Cliente adicionado');
+    toast(editando ? 'Cliente atualizado' : 'Cliente adicionado');
   });
+  document.getElementById('btnCancelarEdicaoCliente').addEventListener('click', cancelarEdicaoCliente);
 
   document.getElementById('btnAddTipo').addEventListener('click', async ()=>{
     const nome = document.getElementById('tp_nome').value.trim();

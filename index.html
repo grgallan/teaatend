@@ -281,6 +281,22 @@
   .rel-relatorio-item{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;}
   .rel-relatorio-item .rel-relatorio-nome{font-weight:700;font-size:13.5px;margin-bottom:2px;}
   .rel-relatorio-item .rel-relatorio-meta{color:var(--muted);font-size:11.5px;margin-bottom:10px;}
+  .ag-modo-btn.active{background:var(--accent-dim);color:var(--accent);border-color:var(--accent);}
+  .ag-compromisso{display:flex;align-items:center;gap:10px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:pointer;}
+  .ag-compromisso:hover{border-color:var(--accent);}
+  .ag-compromisso .ag-hora{font-weight:700;font-size:12px;color:var(--accent);flex:0 0 auto;min-width:40px;}
+  .ag-compromisso .ag-info{flex:1;min-width:0;}
+  .ag-compromisso .ag-titulo{font-weight:600;font-size:12.5px;}
+  .ag-compromisso .ag-sub{color:var(--muted);font-size:11px;}
+  .ag-dia-grupo{margin-bottom:14px;}
+  .ag-dia-grupo h4{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px;}
+  .ag-mes-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .ag-mes-cabecalho{font-size:10px;color:var(--muted);text-align:center;padding:4px 0;font-weight:700;text-transform:uppercase;}
+  .ag-mes-dia{border:1px solid var(--line);border-radius:8px;min-height:64px;padding:4px;font-size:10px;background:var(--panel-2);}
+  .ag-mes-dia.fora-do-mes{opacity:.35;}
+  .ag-mes-dia.hoje{border-color:var(--accent);}
+  .ag-mes-dia .ag-mes-numero{font-weight:700;margin-bottom:3px;}
+  .ag-mes-dia .ag-mes-item{background:var(--accent-dim);color:var(--accent);border-radius:4px;padding:1px 4px;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;}
   .fin-lancamento{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px;}
   .fin-lancamento .fin-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;}
   .fin-lancamento .fin-cliente{font-weight:700;font-size:14px;}
@@ -394,6 +410,7 @@
   <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio"><span class="ic">📄</span>Construtor</div>
   <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub"><span class="ic">📑</span>Relatórios</div>
   <div class="side-item navbtn" data-view="financeiro" id="sideFinanceiro"><span class="ic">💵</span>Financeiro</div>
+  <div class="side-item navbtn" data-view="agenda" id="sideAgenda"><span class="ic">📅</span>Agenda</div>
   <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 
@@ -412,6 +429,7 @@
     <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
     <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
     <div class="tab" data-view="financeiro" id="tabFinanceiro">Financeiro</div>
+    <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
   </div>
 
@@ -678,57 +696,112 @@
 
   <!-- FINANCEIRO (lançamentos/faturas — admin) -->
   <section class="view" id="view-financeiro">
-    <div class="card">
-      <h2>Importar Nota Fiscal (XML)</h2>
-      <p style="color:var(--muted);font-size:12px;margin:0 0 10px;">Aceita o XML da NFS-e emitida (padrão Fortaleza/GINFES). Os dados são extraídos automaticamente — confira antes de salvar.</p>
-      <input type="file" id="fin_xml_arquivo" accept=".xml,text/xml">
-      <div id="fin_xml_preview" style="display:none;margin-top:14px;">
+    <div class="subtabs" id="finSubtabs">
+      <div class="subtab active" data-finsub="lancar">Criar Lançamento</div>
+      <div class="subtab" data-finsub="importar">Importar XML</div>
+      <div class="subtab" data-finsub="lista">Lançamentos</div>
+      <div class="subtab" data-finsub="resumo">Resumo Financeiro</div>
+    </div>
+
+    <div class="fin-sub-view" id="fin-sub-lancar">
+      <div class="card">
+        <h2>Gerar novo lançamento</h2>
         <div class="row">
-          <div class="field"><label>Número da Nota</label><input type="text" id="fin_xml_numero"></div>
-          <div class="field"><label>Data de Emissão</label><input type="date" id="fin_xml_data"></div>
+          <div class="field"><label>Cliente</label><select id="fin_cliente"></select></div>
+          <div class="field"><label>Mês de referência</label><select id="fin_mes"></select></div>
         </div>
-        <div class="field"><label>Cliente (Tomador)</label><input type="text" id="fin_xml_cliente"></div>
-        <div class="field"><label>CNPJ/CPF do Tomador</label><input type="text" id="fin_xml_cnpj"></div>
+        <div id="finAtendimentosLista" style="margin:10px 0;"></div>
+        <div class="field"><label>Valor total (soma do Total Real dos marcados)</label>
+          <div id="finValorTotal" style="font-size:20px;font-weight:800;color:var(--accent);padding:8px 0;">R$ 0,00</div>
+        </div>
         <div class="row">
-          <div class="field"><label>Valor dos Serviços</label><input type="number" step="0.01" id="fin_xml_valor_servicos"></div>
-          <div class="field"><label>Valor do ISS</label><input type="number" step="0.01" id="fin_xml_valor_iss"></div>
+          <div class="field"><label>Data de Vencimento</label><input type="date" id="fin_vencimento"></div>
+          <div class="field"><label>Número da Nota Fiscal (opcional)</label><input type="text" id="fin_nota_fiscal" placeholder="Ex: 1234"></div>
         </div>
-        <div class="field"><label>Valor Líquido</label><input type="number" step="0.01" id="fin_xml_valor_liquido"></div>
-        <div class="field"><label>Discriminação do Serviço</label><textarea id="fin_xml_discriminacao"></textarea></div>
-        <button class="primary" id="btnSalvarNotaImportada" style="margin-bottom:4px;">Salvar Nota Importada</button>
+        <div class="field"><label>Histórico (opcional)</label><textarea id="fin_historico_novo" placeholder="Observações sobre esse lançamento"></textarea></div>
+        <button class="primary" id="btnGerarLancamento" style="margin-bottom:4px;">Gerar Lançamento</button>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Notas fiscais importadas</h2>
-      <div id="listaNotasImportadas"></div>
+    <div class="fin-sub-view" id="fin-sub-importar" style="display:none;">
+      <div class="card">
+        <h2>Importar Nota Fiscal (XML)</h2>
+        <p style="color:var(--muted);font-size:12px;margin:0 0 10px;">Aceita o XML da NFS-e emitida (padrão Fortaleza/GINFES). Os dados são extraídos automaticamente — se o CNPJ do tomador bater com um cliente cadastrado, já vincula sozinho.</p>
+        <input type="file" id="fin_xml_arquivo" accept=".xml,text/xml">
+        <div id="fin_xml_preview" style="display:none;margin-top:14px;">
+          <div class="row">
+            <div class="field"><label>Número da Nota</label><input type="text" id="fin_xml_numero"></div>
+            <div class="field"><label>Data de Emissão</label><input type="date" id="fin_xml_data"></div>
+          </div>
+          <div class="field"><label>Cliente (Tomador)</label><input type="text" id="fin_xml_cliente"></div>
+          <div class="field"><label>CNPJ/CPF do Tomador</label><input type="text" id="fin_xml_cnpj"></div>
+          <div class="row">
+            <div class="field"><label>Valor dos Serviços</label><input type="number" step="0.01" id="fin_xml_valor_servicos"></div>
+            <div class="field"><label>Valor do ISS</label><input type="number" step="0.01" id="fin_xml_valor_iss"></div>
+          </div>
+          <div class="field"><label>Valor Líquido</label><input type="number" step="0.01" id="fin_xml_valor_liquido"></div>
+          <div class="field"><label>Discriminação do Serviço</label><textarea id="fin_xml_discriminacao"></textarea></div>
+          <button class="primary" id="btnSalvarNotaImportada" style="margin-bottom:4px;">Salvar Nota Importada</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Notas fiscais importadas</h2>
+        <div id="listaNotasImportadas"></div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>Gerar novo lançamento</h2>
+    <div class="fin-sub-view" id="fin-sub-lista" style="display:none;">
+      <div class="card">
+        <h2>Filtrar lançamentos</h2>
+        <div class="filters" id="finFiltroCliente"></div>
+        <div class="filters" id="finFiltroStatus" style="margin-top:8px;"></div>
+      </div>
+      <div id="listaLancamentos"></div>
+    </div>
+
+    <div class="fin-sub-view" id="fin-sub-resumo" style="display:none;">
+      <div class="card">
+        <h2>Filtrar resumo</h2>
+        <div class="filters" id="finResumoFiltroCliente"></div>
+      </div>
+      <div id="finResumoBoxes"></div>
+    </div>
+  </section>
+
+  <!-- AGENDA (admin, atendente, e usuário administrador do cliente) -->
+  <section class="view" id="view-agenda">
+    <div class="card" id="cardNovoAgendamento">
+      <h2>Novo agendamento</h2>
+      <div class="field"><label>Título</label><input type="text" id="ag_titulo" placeholder="Ex: Visita técnica"></div>
       <div class="row">
-        <div class="field"><label>Cliente</label><select id="fin_cliente"></select></div>
-        <div class="field"><label>Mês de referência</label><select id="fin_mes"></select></div>
-      </div>
-      <div id="finAtendimentosLista" style="margin:10px 0;"></div>
-      <div class="field"><label>Valor total (soma do Total Real dos marcados)</label>
-        <div id="finValorTotal" style="font-size:20px;font-weight:800;color:var(--accent);padding:8px 0;">R$ 0,00</div>
+        <div class="field"><label>Data</label><input type="date" id="ag_data"></div>
+        <div class="field"><label>Cliente (opcional)</label><select id="ag_cliente"><option value="">(nenhum)</option></select></div>
       </div>
       <div class="row">
-        <div class="field"><label>Data de Vencimento</label><input type="date" id="fin_vencimento"></div>
-        <div class="field"><label>Número da Nota Fiscal (opcional)</label><input type="text" id="fin_nota_fiscal" placeholder="Ex: 1234"></div>
+        <div class="field"><label>Hora Início</label><input type="time" id="ag_hora_inicio"></div>
+        <div class="field"><label>Hora Fim</label><input type="time" id="ag_hora_fim"></div>
       </div>
-      <div class="field"><label>Histórico (opcional)</label><textarea id="fin_historico_novo" placeholder="Observações sobre esse lançamento"></textarea></div>
-      <button class="primary" id="btnGerarLancamento" style="margin-bottom:4px;">Gerar Lançamento</button>
+      <div class="field" id="campoAgendaAtendente" style="display:none;"><label>Atendente</label><select id="ag_atendente"></select></div>
+      <div class="field"><label>Descrição (opcional)</label><textarea id="ag_descricao" placeholder="Detalhes do compromisso"></textarea></div>
+      <button class="primary" id="btnCriarAgendamento">Criar agendamento</button>
     </div>
 
     <div class="card">
-      <h2>Filtrar lançamentos</h2>
-      <div class="filters" id="finFiltroCliente"></div>
-      <div class="filters" id="finFiltroStatus" style="margin-top:8px;"></div>
+      <h2>Agenda</h2>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+        <button class="ghost ag-modo-btn active" data-modo="dia" style="flex:none;width:auto;padding:8px 16px;">Dia</button>
+        <button class="ghost ag-modo-btn" data-modo="semana" style="flex:none;width:auto;padding:8px 16px;">Semana</button>
+        <button class="ghost ag-modo-btn" data-modo="mes" style="flex:none;width:auto;padding:8px 16px;">Mês</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <button class="ghost" id="agAnterior" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">←</button>
+        <div id="agPeriodoLabel" style="font-weight:700;flex:1;text-align:center;font-size:13.5px;"></div>
+        <button class="ghost" id="agProximo" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">→</button>
+        <button class="ghost" id="agHoje" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">Hoje</button>
+      </div>
+      <div class="field" id="campoAgendaFiltroAtendente" style="display:none;margin-bottom:10px;"><label>Atendente</label><select id="ag_filtro_atendente"><option value="TODOS">Todos os atendentes</option></select></div>
+      <div id="agendaConteudo"></div>
     </div>
-
-    <div id="listaLancamentos"></div>
   </section>
 
   <!-- CADASTROS (admin) -->
@@ -766,7 +839,13 @@
       <div class="card">
         <h2>Novo cliente</h2>
         <div class="field"><label>Nome do cliente</label><input type="text" id="cl_nome"></div>
+        <div class="row">
+          <div class="field"><label>CNPJ</label><input type="text" id="cl_cnpj" placeholder="Só números ou formatado, tanto faz"></div>
+          <div class="field"><label>Nome Fantasia</label><input type="text" id="cl_nome_fantasia"></div>
+        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">O CNPJ é usado pra vincular automaticamente as notas fiscais importadas a esse cliente.</p>
         <button class="primary" id="btnAddCliente">Adicionar cliente</button>
+        <button class="ghost" id="btnCancelarEdicaoCliente" style="display:none;width:100%;margin-top:8px;">Cancelar edição</button>
       </div>
       <div id="listClientes"></div>
     </div>
@@ -877,6 +956,7 @@
   <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic">📄</span>Constr.</div>
   <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic">📑</span>Relat.</div>
   <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic">💵</span>Financ.</div>
+  <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic">📅</span>Agenda</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 </div>
@@ -947,6 +1027,38 @@
     <div class="modal-actions" style="margin-top:14px;">
       <button class="cancel" id="fin_baixar_cancelar">Cancelar</button>
       <button class="confirm neutro" id="fin_baixar_confirmar">Confirmar baixa</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="editarAgendamentoModal">
+  <div class="modal">
+    <h3>Editar agendamento</h3>
+    <div class="field"><label>Título</label><input type="text" id="ag_edit_titulo"></div>
+    <div class="row">
+      <div class="field"><label>Data</label><input type="date" id="ag_edit_data"></div>
+      <div class="field"><label>Cliente</label><select id="ag_edit_cliente"><option value="">(nenhum)</option></select></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Hora Início</label><input type="time" id="ag_edit_hora_inicio"></div>
+      <div class="field"><label>Hora Fim</label><input type="time" id="ag_edit_hora_fim"></div>
+    </div>
+    <div class="field" id="campoAgendaEditAtendente" style="display:none;"><label>Atendente</label><select id="ag_edit_atendente"></select></div>
+    <div class="field"><label>Descrição</label><textarea id="ag_edit_descricao"></textarea></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="ag_editar_cancelar">Cancelar</button>
+      <button class="confirm neutro" id="ag_editar_confirmar">Salvar</button>
+    </div>
+    <button class="ghost" id="ag_editar_excluir" style="margin-top:8px;width:100%;color:var(--bad);">Excluir agendamento</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="verNotaModal">
+  <div class="modal">
+    <h3>Nota fiscal importada</h3>
+    <div id="verNotaConteudo" style="font-size:13px;"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="verNota_fechar">Fechar</button>
     </div>
   </div>
 </div>
