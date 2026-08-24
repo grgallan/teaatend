@@ -796,65 +796,74 @@
 
   <!-- AGENDA (admin, atendente, e usuário administrador do cliente) -->
   <section class="view" id="view-agenda">
-    <div class="card" id="cardNovoAgendamento">
-      <h2>Novo agendamento</h2>
-      <div class="field"><label>Título</label><input type="text" id="ag_titulo" placeholder="Ex: Visita técnica"></div>
-      <div class="row">
-        <div class="field"><label>Data</label><input type="date" id="ag_data"></div>
-        <div class="field"><label>Cliente (opcional)</label><select id="ag_cliente"><option value="">(nenhum)</option></select></div>
-      </div>
-      <div class="row">
-        <div class="field"><label>Hora Início</label><input type="time" id="ag_hora_inicio"></div>
-        <div class="field"><label>Hora Fim</label><input type="time" id="ag_hora_fim"></div>
-      </div>
-      <div class="field" id="campoAgendaAtendente" style="display:none;"><label>Atendente</label><select id="ag_atendente"></select></div>
-      <div class="field">
-        <label>Cor</label>
-        <div class="ag-cores" id="ag_cores"></div>
-        <input type="hidden" id="ag_cor_selecionada" value="">
-      </div>
-      <div class="row">
-        <div class="field"><label>Repetir</label>
-          <select id="ag_repetir">
-            <option value="nao">Não repetir</option>
-            <option value="diaria">Diariamente</option>
-            <option value="semanal">Semanalmente</option>
-            <option value="mensal">Mensalmente</option>
-          </select>
-        </div>
-        <div class="field" id="campoAgendaRepetirAte" style="display:none;"><label>Repetir até</label><input type="date" id="ag_repetir_ate"></div>
-      </div>
-      <div class="field">
-        <label>Descrição (opcional)</label>
-        <div class="rt-toolbar" data-editor="ag_descricao">
-          <button type="button" data-cmd="bold" title="Negrito"><b>B</b></button>
-          <button type="button" data-cmd="italic" title="Itálico"><i>I</i></button>
-          <button type="button" data-cmd="underline" title="Sublinhado"><u>S</u></button>
-          <button type="button" data-cmd="insertUnorderedList" title="Lista">•≡</button>
-          <button type="button" data-cmd="insertOrderedList" title="Lista numerada">1≡</button>
-          <button type="button" data-cmd-imagem="ag_descricao" title="Inserir imagem">🖼</button>
-          <input type="file" id="ag_descricao_imagem" accept="image/*" style="display:none;">
-        </div>
-        <div id="ag_descricao" class="rt-editor" contenteditable="true" data-placeholder="Detalhes do compromisso"></div>
-      </div>
-      <button class="primary" id="btnCriarAgendamento">Criar agendamento</button>
+    <div class="subtabs" id="agSubtabs">
+      <div class="subtab active" data-agsub="novo">Novo Agendamento</div>
+      <div class="subtab" data-agsub="calendario">Agenda</div>
     </div>
 
-    <div class="card">
-      <h2>Agenda</h2>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
-        <button class="ghost ag-modo-btn active" data-modo="dia" style="flex:none;width:auto;padding:8px 16px;">Dia</button>
-        <button class="ghost ag-modo-btn" data-modo="semana" style="flex:none;width:auto;padding:8px 16px;">Semana</button>
-        <button class="ghost ag-modo-btn" data-modo="mes" style="flex:none;width:auto;padding:8px 16px;">Mês</button>
+    <div class="ag-sub-view" id="ag-sub-novo">
+      <div class="card" id="cardNovoAgendamento">
+        <h2>Novo agendamento</h2>
+        <div class="field"><label>Título</label><input type="text" id="ag_titulo" placeholder="Ex: Visita técnica"></div>
+        <div class="row">
+          <div class="field"><label>Data</label><input type="date" id="ag_data"></div>
+          <div class="field"><label>Cliente (opcional)</label><select id="ag_cliente"><option value="">(nenhum)</option></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Hora Início</label><input type="time" id="ag_hora_inicio"></div>
+          <div class="field"><label>Hora Fim</label><input type="time" id="ag_hora_fim"></div>
+        </div>
+        <div class="field" id="campoAgendaAtendente" style="display:none;"><label>Atendente</label><select id="ag_atendente"></select></div>
+        <div class="field">
+          <label>Cor</label>
+          <div class="ag-cores" id="ag_cores"></div>
+          <input type="hidden" id="ag_cor_selecionada" value="">
+        </div>
+        <div class="row">
+          <div class="field"><label>Repetir</label>
+            <select id="ag_repetir">
+              <option value="nao">Não repetir</option>
+              <option value="diaria">Diariamente</option>
+              <option value="semanal">Semanalmente</option>
+              <option value="mensal">Mensalmente</option>
+            </select>
+          </div>
+          <div class="field" id="campoAgendaRepetirAte" style="display:none;"><label>Repetir até</label><input type="date" id="ag_repetir_ate"></div>
+        </div>
+        <div class="field">
+          <label>Descrição (opcional)</label>
+          <div class="rt-toolbar" data-editor="ag_descricao">
+            <button type="button" data-cmd="bold" title="Negrito"><b>B</b></button>
+            <button type="button" data-cmd="italic" title="Itálico"><i>I</i></button>
+            <button type="button" data-cmd="underline" title="Sublinhado"><u>S</u></button>
+            <button type="button" data-cmd="insertUnorderedList" title="Lista">•≡</button>
+            <button type="button" data-cmd="insertOrderedList" title="Lista numerada">1≡</button>
+            <button type="button" data-cmd-imagem="ag_descricao" title="Inserir imagem">🖼</button>
+            <input type="file" id="ag_descricao_imagem" accept="image/*" style="display:none;">
+          </div>
+          <div id="ag_descricao" class="rt-editor" contenteditable="true" data-placeholder="Detalhes do compromisso"></div>
+        </div>
+        <button class="primary" id="btnCriarAgendamento">Criar agendamento</button>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-        <button class="ghost" id="agAnterior" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">←</button>
-        <div id="agPeriodoLabel" style="font-weight:700;flex:1;text-align:center;font-size:13.5px;"></div>
-        <button class="ghost" id="agProximo" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">→</button>
-        <button class="ghost" id="agHoje" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">Hoje</button>
+    </div>
+
+    <div class="ag-sub-view" id="ag-sub-calendario" style="display:none;">
+      <div class="card">
+        <h2>Agenda</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="ghost ag-modo-btn active" data-modo="dia" style="flex:none;width:auto;padding:8px 16px;">Dia</button>
+          <button class="ghost ag-modo-btn" data-modo="semana" style="flex:none;width:auto;padding:8px 16px;">Semana</button>
+          <button class="ghost ag-modo-btn" data-modo="mes" style="flex:none;width:auto;padding:8px 16px;">Mês</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <button class="ghost" id="agAnterior" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">←</button>
+          <div id="agPeriodoLabel" style="font-weight:700;flex:1;text-align:center;font-size:13.5px;"></div>
+          <button class="ghost" id="agProximo" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">→</button>
+          <button class="ghost" id="agHoje" style="flex:none;width:auto;padding:8px 14px;margin-top:0;">Hoje</button>
+        </div>
+        <div class="field" id="campoAgendaFiltroAtendente" style="display:none;margin-bottom:10px;"><label>Atendente</label><select id="ag_filtro_atendente"><option value="TODOS">Todos os atendentes</option></select></div>
+        <div id="agendaConteudo"></div>
       </div>
-      <div class="field" id="campoAgendaFiltroAtendente" style="display:none;margin-bottom:10px;"><label>Atendente</label><select id="ag_filtro_atendente"><option value="TODOS">Todos os atendentes</option></select></div>
-      <div id="agendaConteudo"></div>
     </div>
   </section>
 

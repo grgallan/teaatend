@@ -2039,6 +2039,14 @@ function goFinSub(sub){
   if(sub === 'resumo') renderResumoFinanceiro();
 }
 
+/* ---------- Agenda: navegação por submenu ---------- */
+let agAba = 'novo';
+function goAgSub(sub){
+  agAba = sub;
+  document.querySelectorAll('#agSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.agsub===sub));
+  document.querySelectorAll('.ag-sub-view').forEach(v=>{ v.style.display = (v.id === 'ag-sub-'+sub) ? '' : 'none'; });
+}
+
 /* ---------- Financeiro: resumo (recebido, em aberto, previsão) ---------- */
 let finResumoFiltroCliente = new Set();
 function renderResumoFinanceiroFiltros(){
@@ -2396,6 +2404,7 @@ async function criarAgendamento(){
     renderSeletorCores('ag_cores', '');
     await carregarAgendamentos();
     renderAgenda();
+    goAgSub('calendario');
     if(falhas > 0) toast(`${datas.length - falhas} de ${datas.length} agendamento(s) criado(s) — ${falhas} falharam`);
     else toast(datas.length > 1 ? `${datas.length} agendamentos criados` : 'Agendamento criado');
   } finally {
@@ -3105,6 +3114,10 @@ function goView(name){
     document.getElementById('fin_xml_arquivo').value = '';
   }
   if(name==='agenda'){
+    const contaAg = contaAtual();
+    const podeGerenciarAg = contaAg && (contaAg.perfil === 'ADMIN' || contaAg.perfil === 'ATENDENTE');
+    document.querySelector('#agSubtabs .subtab[data-agsub="novo"]').style.display = podeGerenciarAg ? '' : 'none';
+    goAgSub(podeGerenciarAg ? agAba : 'calendario');
     popularSelectsAgenda();
     renderSeletorCores('ag_cores', document.getElementById('ag_cor_selecionada').value);
     carregarAgendamentos().then(renderAgenda);
@@ -3234,6 +3247,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('finSubtabs').addEventListener('click', e=>{
     const tab = e.target.closest('.subtab'); if(!tab) return;
     goFinSub(tab.dataset.finsub);
+  });
+  document.getElementById('agSubtabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    goAgSub(tab.dataset.agsub);
   });
   document.getElementById('verNota_fechar').addEventListener('click', ()=>{
     document.getElementById('verNotaModal').classList.remove('show');
