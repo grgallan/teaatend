@@ -1911,6 +1911,7 @@ function renderListaNotasImportadas(){
           ? `<span class="fin-status BAIXADO">✓ Financeiro já gerado</span>`
           : `<button class="primary" onclick="gerarFinanceiroDaNota('${n.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">Gerar Financeiro</button>`}
         <button class="ghost" onclick="abrirVerNota('${n.id}')">Ver detalhes</button>
+        <button class="ghost" onclick="baixarXmlNota('${n.id}')">⬇ Baixar XML</button>
         <button class="ghost" onclick="removerNotaImportadaUi('${n.id}')">Excluir</button>
       </div>
     </div>`).join('');
@@ -1955,10 +1956,56 @@ async function removerNotaImportadaUi(id){
   toast('Nota removida');
 }
 
+// percorre o XML inteiro e devolve uma linha por campo "folha" (sem
+// filhos), com o caminho completo até ele — assim tags repetidas em
+// lugares diferentes (ex: RazaoSocial existe no prestador E no tomador)
+// não se confundem
+function achatarXml(textoXml){
+  const doc = new DOMParser().parseFromString(textoXml, 'text/xml');
+  if(doc.querySelector('parsererror')) return [];
+  const linhas = [];
+  function caminhoDe(el){
+    const partes = [];
+    let atual = el;
+    while(atual && atual.nodeType === 1){ partes.unshift(atual.tagName); atual = atual.parentElement; }
+    return partes.join(' › ');
+  }
+  function percorrer(el){
+    const filhos = [...el.children];
+    if(filhos.length === 0){
+      const valor = (el.textContent || '').trim();
+      if(valor) linhas.push({ caminho: caminhoDe(el), valor });
+    }else{
+      filhos.forEach(percorrer);
+    }
+  }
+  if(doc.documentElement) percorrer(doc.documentElement);
+  return linhas;
+}
+
+function baixarXmlNota(id){
+  const n = notasImportadasCache.find(x=>x.id===id);
+  if(!n || !n.xmlOriginal){ toast('XML original não está disponível pra essa nota'); return; }
+  const blob = new Blob([n.xmlOriginal], { type: 'text/xml;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `nota_fiscal_${n.numeroNota || n.id}.xml`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function abrirVerNota(id){
   const n = notasImportadasCache.find(x=>x.id===id);
   if(!n) return;
   const fmtData = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
+  const linhasXml = n.xmlOriginal ? achatarXml(n.xmlOriginal) : [];
+  const tabelaXml = linhasXml.length > 0
+    ? `<table class="valores-table" style="font-size:11px;">
+        <thead><tr><th>Campo (caminho no XML)</th><th>Valor</th></tr></thead>
+        <tbody>${linhasXml.map(l=>`<tr><td style="color:var(--muted);">${escaparHtml(l.caminho)}</td><td>${escaparHtml(l.valor)}</td></tr>`).join('')}</tbody>
+      </table>`
+    : `<div class="empty" style="padding:10px 0;font-size:12px;">XML original não disponível pra essa nota.</div>`;
+
   document.getElementById('verNotaConteudo').innerHTML = `
     <div class="fin-datas" style="grid-template-columns:1fr 1fr;">
       <div><b>Número da Nota</b>${escaparHtml(n.numeroNota)}</div>
@@ -1976,6 +2023,9 @@ function abrirVerNota(id){
     <div class="fin-historico" style="white-space:pre-wrap;">${escaparHtml(n.discriminacao || '(vazio)')}</div>
     <p style="margin:12px 0 4px;"><b>Situação do Financeiro:</b> ${n.lancamentoGeradoId ? '✓ lançamento já gerado' : 'ainda não gerado'}</p>
     <p style="margin:4px 0;color:var(--muted);font-size:11.5px;">Importado por ${escaparHtml(n.importadoPor)}</p>
+    <button class="ghost" onclick="baixarXmlNota('${n.id}')" style="margin:10px 0;">⬇ Baixar XML original</button>
+    <p style="margin:16px 0 6px;"><b>Todos os campos do XML (${linhasXml.length}):</b></p>
+    <div style="max-height:320px;overflow-y:auto;">${tabelaXml}</div>
   `;
   document.getElementById('verNotaModal').classList.add('show');
 }
