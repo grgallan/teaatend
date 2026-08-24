@@ -2138,6 +2138,23 @@ function atualizarLabelPeriodo(){
   }
 }
 
+// monta o link do "Google Agenda" que, ao clicar, abre a tela de criar
+// evento do Google já preenchida com os dados desse agendamento — não
+// precisa de login/API do Google, é só uma URL com os parâmetros certos
+function linkGoogleAgenda(a){
+  const soDigitos = s => String(s || '').replace(/\D/g, '');
+  const inicio = `${soDigitos(a.data)}T${soDigitos(a.horaInicio)}00`;
+  const fim = `${soDigitos(a.data)}T${soDigitos(a.horaFim)}00`;
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: a.titulo || 'Compromisso',
+    dates: `${inicio}/${fim}`,
+    details: stripHtml(a.descricao || ''),
+    location: a.cliente || '',
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 function renderCompromisso(a){
   return `<div class="ag-compromisso" onclick="abrirEditarAgendamento('${a.id}')">
     <div class="ag-hora">${a.horaInicio}</div>
@@ -2145,6 +2162,7 @@ function renderCompromisso(a){
       <div class="ag-titulo">${escaparHtml(a.titulo)}</div>
       <div class="ag-sub">${a.horaInicio}–${a.horaFim}${a.cliente ? ' · '+escaparHtml(a.cliente) : ''}${a.atendente ? ' · '+escaparHtml(a.atendente) : ''}</div>
     </div>
+    <a href="${linkGoogleAgenda(a)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Adicionar ao Google Agenda" style="flex:none;font-size:17px;text-decoration:none;padding:4px;">📆</a>
   </div>`;
 }
 
@@ -2281,6 +2299,7 @@ function abrirEditarAgendamento(id){
   document.getElementById('ag_edit_hora_inicio').value = a.horaInicio;
   document.getElementById('ag_edit_hora_fim').value = a.horaFim;
   document.getElementById('ag_edit_descricao').innerHTML = sanitizarHtml(a.descricao || '');
+  document.getElementById('ag_editar_google').href = linkGoogleAgenda(a);
   if(conta.perfil === 'ADMIN') document.getElementById('ag_edit_atendente').value = a.atendente || '';
   document.getElementById('editarAgendamentoModal').classList.add('show');
 }
