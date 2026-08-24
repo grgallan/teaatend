@@ -2165,10 +2165,29 @@ function minutosDoDia(horaStr){
   return (h||0)*60 + (m||0);
 }
 function corDoEvento(a){
+  if(a.cor) return a.cor; // cor escolhida manualmente tem prioridade
   const chave = a.atendente || a.cliente || a.titulo || '';
   let hash = 0;
   for(let i=0;i<chave.length;i++) hash = (hash*31 + chave.charCodeAt(i)) % 997;
   return AG_PALETA_CORES[Math.abs(hash) % AG_PALETA_CORES.length];
+}
+
+// as mesmas 11 cores que o Google Agenda oferece pra escolher manualmente
+const AG_PALETA_ESCOLHA = [
+  { nome:'Tomate', valor:'#D50000' }, { nome:'Flamingo', valor:'#E67C73' },
+  { nome:'Tangerina', valor:'#F4511E' }, { nome:'Banana', valor:'#F6BF26' },
+  { nome:'Sálvia', valor:'#33B679' }, { nome:'Manjericão', valor:'#0B8043' },
+  { nome:'Pavão', valor:'#039BE5' }, { nome:'Mirtilo', valor:'#3F51B5' },
+  { nome:'Lavanda', valor:'#7986CB' }, { nome:'Uva', valor:'#8E24AA' },
+  { nome:'Grafite', valor:'#616161' },
+];
+
+function renderSeletorCores(containerId, corSelecionada){
+  const cont = document.getElementById(containerId);
+  const automaticaHtml = `<div class="ag-cor-opcao automatica ${!corSelecionada?'selecionada':''}" data-cor="" title="Automática (pelo atendente)"></div>`;
+  cont.innerHTML = automaticaHtml + AG_PALETA_ESCOLHA.map(c=>`
+    <div class="ag-cor-opcao ${corSelecionada===c.valor?'selecionada':''}" data-cor="${c.valor}" title="${c.nome}" style="background:${c.valor};"></div>
+  `).join('');
 }
 
 // agrupa só os compromissos que realmente se sobrepõem no tempo — o
@@ -2297,7 +2316,7 @@ function renderAgendaMes(itens){
     const foraDoMes = d.getMonth() !== mes;
     celulas += `<div class="ag-mes-dia ${foraDoMes?'fora-do-mes':''} ${dataStr===hojeStr?'hoje':''}">
       <div class="ag-mes-numero">${d.getDate()}</div>
-      ${doDia.slice(0,3).map(a=>`<div class="ag-mes-item" onclick="abrirEditarAgendamento('${a.id}')" title="${escaparHtml(a.titulo)}">${a.horaInicio} ${escaparHtml(a.titulo)}</div>`).join('')}
+      ${doDia.slice(0,3).map(a=>`<div class="ag-mes-item" onclick="abrirEditarAgendamento('${a.id}')" title="${escaparHtml(a.titulo)}" style="background:${corDoEvento(a)};color:#fff;">${a.horaInicio} ${escaparHtml(a.titulo)}</div>`).join('')}
       ${doDia.length>3 ? `<div style="color:var(--muted);font-size:9.5px;">+${doDia.length-3} mais</div>` : ''}
     </div>`;
   }
@@ -2340,6 +2359,7 @@ async function criarAgendamento(){
   const cliente = document.getElementById('ag_cliente').value;
   const atendente = isAdmin ? document.getElementById('ag_atendente').value : conta.nome;
   const descricao = sanitizarHtml(document.getElementById('ag_descricao').innerHTML.trim());
+  const cor = document.getElementById('ag_cor_selecionada').value;
 
   const tipoRepeticao = document.getElementById('ag_repetir').value;
   const repetirAte = document.getElementById('ag_repetir_ate').value;
@@ -2364,7 +2384,7 @@ async function criarAgendamento(){
   try{
     let falhas = 0;
     for(const data of datas){
-      const r = await api('criarAgendamento', { contaId: conta.id, titulo, data, horaInicio, horaFim, cliente, atendente, descricao });
+      const r = await api('criarAgendamento', { contaId: conta.id, titulo, data, horaInicio, horaFim, cliente, atendente, descricao, cor });
       if(!r.ok) falhas++;
     }
     document.getElementById('ag_titulo').value = '';
@@ -2372,6 +2392,8 @@ async function criarAgendamento(){
     document.getElementById('ag_repetir').value = 'nao';
     document.getElementById('ag_repetir_ate').value = '';
     document.getElementById('campoAgendaRepetirAte').style.display = 'none';
+    document.getElementById('ag_cor_selecionada').value = '';
+    renderSeletorCores('ag_cores', '');
     await carregarAgendamentos();
     renderAgenda();
     if(falhas > 0) toast(`${datas.length - falhas} de ${datas.length} agendamento(s) criado(s) — ${falhas} falharam`);
@@ -2395,6 +2417,8 @@ function abrirEditarAgendamento(id){
   document.getElementById('ag_edit_hora_fim').value = a.horaFim;
   document.getElementById('ag_edit_descricao').innerHTML = sanitizarHtml(a.descricao || '');
   document.getElementById('ag_editar_google').href = linkGoogleAgenda(a);
+  document.getElementById('ag_edit_cor').value = a.cor || '';
+  renderSeletorCores('ag_cores_edit', a.cor || '');
   if(conta.perfil === 'ADMIN') document.getElementById('ag_edit_atendente').value = a.atendente || '';
   document.getElementById('editarAgendamentoModal').classList.add('show');
 }
@@ -2412,6 +2436,7 @@ async function confirmarEdicaoAgendamento(){
     horaInicio: document.getElementById('ag_edit_hora_inicio').value,
     horaFim: document.getElementById('ag_edit_hora_fim').value,
     descricao: sanitizarHtml(document.getElementById('ag_edit_descricao').innerHTML.trim()),
+    cor: document.getElementById('ag_edit_cor').value,
     ...(conta.perfil === 'ADMIN' ? { atendente: document.getElementById('ag_edit_atendente').value } : {}),
   });
   if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
@@ -3081,6 +3106,7 @@ function goView(name){
   }
   if(name==='agenda'){
     popularSelectsAgenda();
+    renderSeletorCores('ag_cores', document.getElementById('ag_cor_selecionada').value);
     carregarAgendamentos().then(renderAgenda);
   }
   if(name==='cadastros') goCadSub(cadAba);
@@ -3236,6 +3262,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('ag_filtro_atendente').addEventListener('change', e=>{ agFiltroAtendente = e.target.value; renderAgenda(); });
   document.getElementById('ag_repetir').addEventListener('change', e=>{
     document.getElementById('campoAgendaRepetirAte').style.display = e.target.value === 'nao' ? 'none' : '';
+  });
+  document.getElementById('ag_cores').addEventListener('click', e=>{
+    const op = e.target.closest('.ag-cor-opcao'); if(!op) return;
+    document.getElementById('ag_cor_selecionada').value = op.dataset.cor;
+    renderSeletorCores('ag_cores', op.dataset.cor);
+  });
+  document.getElementById('ag_cores_edit').addEventListener('click', e=>{
+    const op = e.target.closest('.ag-cor-opcao'); if(!op) return;
+    document.getElementById('ag_edit_cor').value = op.dataset.cor;
+    renderSeletorCores('ag_cores_edit', op.dataset.cor);
   });
   document.getElementById('btnCriarAgendamento').addEventListener('click', criarAgendamento);
   document.getElementById('ag_editar_cancelar').addEventListener('click', fecharEditarAgendamento);
