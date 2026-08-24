@@ -2155,36 +2155,131 @@ function linkGoogleAgenda(a){
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-function renderCompromisso(a){
-  return `<div class="ag-compromisso" onclick="abrirEditarAgendamento('${a.id}')">
-    <div class="ag-hora">${a.horaInicio}</div>
-    <div class="ag-info">
-      <div class="ag-titulo">${escaparHtml(a.titulo)}</div>
-      <div class="ag-sub">${a.horaInicio}–${a.horaFim}${a.cliente ? ' · '+escaparHtml(a.cliente) : ''}${a.atendente ? ' · '+escaparHtml(a.atendente) : ''}</div>
+/* ---------- grade de horários (visões Dia e Semana, estilo Google) ---------- */
+const AG_PX_HORA = 48;
+const AG_PALETA_CORES = ['#3B82F6','#F97316','#10B981','#8B5CF6','#EC4899','#14B8A6','#EF4444','#6366F1'];
+let agGradeHoraMin = 7, agGradeHoraMax = 20;
+
+function minutosDoDia(horaStr){
+  const [h,m] = String(horaStr||'00:00').split(':').map(Number);
+  return (h||0)*60 + (m||0);
+}
+function corDoEvento(a){
+  const chave = a.atendente || a.cliente || a.titulo || '';
+  let hash = 0;
+  for(let i=0;i<chave.length;i++) hash = (hash*31 + chave.charCodeAt(i)) % 997;
+  return AG_PALETA_CORES[Math.abs(hash) % AG_PALETA_CORES.length];
+}
+
+// agrupa só os compromissos que realmente se sobrepõem no tempo — o
+// resto do dia continua em largura cheia, igual o Google faz
+function agGruposSobrepostos(eventos){
+  const ordenado = eventos.slice().sort((a,b)=>minutosDoDia(a.horaInicio)-minutosDoDia(b.horaInicio));
+  const grupos = [];
+  let atual = [], fimAtual = -1;
+  for(const ev of ordenado){
+    const ini = minutosDoDia(ev.horaInicio);
+    const fim = Math.max(ini+15, minutosDoDia(ev.horaFim));
+    if(atual.length && ini >= fimAtual){ grupos.push(atual); atual = []; fimAtual = -1; }
+    atual.push(ev);
+    fimAtual = Math.max(fimAtual, fim);
+  }
+  if(atual.length) grupos.push(atual);
+  return grupos;
+}
+
+// dentro de um grupo sobreposto, distribui em colunas lado a lado (o
+// clássico algoritmo de "interval partitioning" que agendas usam)
+function agPosicionarColunas(grupo){
+  const ordenado = grupo.slice().sort((a,b)=>minutosDoDia(a.horaInicio)-minutosDoDia(b.horaInicio));
+  const finsColuna = [];
+  const posicoes = [];
+  for(const ev of ordenado){
+    const ini = minutosDoDia(ev.horaInicio);
+    const fim = Math.max(ini+15, minutosDoDia(ev.horaFim));
+    let col = finsColuna.findIndex(f=>f<=ini);
+    if(col === -1){ col = finsColuna.length; finsColuna.push(fim); }
+    else finsColuna[col] = fim;
+    posicoes.push({ ev, col, ini, fim });
+  }
+  const totalColunas = finsColuna.length;
+  return posicoes.map(p=>({...p, totalColunas}));
+}
+
+function agRenderBloco(p){
+  const { ev, col, ini, fim, totalColunas } = p;
+  const top = (ini - agGradeHoraMin*60) / 60 * AG_PX_HORA;
+  const altura = Math.max(18, (fim - ini) / 60 * AG_PX_HORA - 2);
+  const largura = 100/totalColunas;
+  const esquerda = largura*col;
+  const cor = corDoEvento(ev);
+  return `<div class="ag-bloco-evento" style="top:${top}px;height:${altura}px;left:calc(${esquerda}% + 1px);width:calc(${largura}% - 2px);background:${cor};" onclick="abrirEditarAgendamento('${ev.id}')" title="${escaparHtml(ev.titulo)} · ${ev.horaInicio}–${ev.horaFim}">
+    <div class="ag-bloco-titulo">${escaparHtml(ev.titulo)}</div>
+    <div class="ag-bloco-hora">${ev.horaInicio}–${ev.horaFim}${ev.cliente ? ' · '+escaparHtml(ev.cliente) : ''}</div>
+  </div>`;
+}
+
+// dias: [{ label, eventos }] — usada tanto pela visão Dia (1 coluna)
+// quanto pela Semana (7 colunas)
+function renderGradeHoraria(dias){
+  let minHora = 7, maxHora = 20;
+  dias.forEach(d=>d.eventos.forEach(ev=>{
+    const hIni = Math.floor(minutosDoDia(ev.horaInicio)/60);
+    const hFim = Math.ceil(minutosDoDia(ev.horaFim)/60);
+    if(hIni < minHora) minHora = hIni;
+    if(hFim > maxHora) maxHora = hFim;
+  }));
+  agGradeHoraMin = minHora; agGradeHoraMax = maxHora;
+  const totalHoras = maxHora - minHora;
+  const alturaTotal = totalHoras * AG_PX_HORA;
+
+  const marcasHora = [];
+  const linhasHora = [];
+  for(let h=minHora; h<=maxHora; h++){
+    marcasHora.push(`<div class="ag-hora-marca" style="top:${(h-minHora)*AG_PX_HORA}px;">${String(h).padStart(2,'0')}:00</div>`);
+    linhasHora.push(`<div class="ag-linha-hora" style="top:${(h-minHora)*AG_PX_HORA}px;"></div>`);
+  }
+
+  const colunasDias = dias.map(d=>{
+    const grupos = agGruposSobrepostos(d.eventos);
+    const blocos = grupos.flatMap(g=>agPosicionarColunas(g).map(agRenderBloco)).join('');
+    return `<div class="ag-coluna-dia" style="height:${alturaTotal}px;">${linhasHora.join('')}${blocos}</div>`;
+  }).join('');
+
+  const cabecalhoDias = dias.map(d=>`<div class="ag-grade-dia-cab">${d.label}</div>`).join('');
+  const totalTemCompromisso = dias.some(d=>d.eventos.length>0);
+
+  return `<div class="ag-grade-wrap">
+    <div class="ag-grade-cabecalho-linha" style="grid-template-columns:52px repeat(${dias.length},1fr);">
+      <div></div>${cabecalhoDias}
     </div>
-    <a href="${linkGoogleAgenda(a)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Adicionar ao Google Agenda" style="flex:none;font-size:17px;text-decoration:none;padding:4px;">📆</a>
+    <div class="ag-grade-corpo" style="grid-template-columns:52px repeat(${dias.length},1fr);height:${alturaTotal}px;">
+      <div class="ag-eixo-horas" style="height:${alturaTotal}px;">${marcasHora.join('')}</div>
+      ${colunasDias}
+    </div>
+    ${totalTemCompromisso ? '' : `<div class="empty" style="padding:14px;"><div class="big">📅</div>Nenhum compromisso nesse período.</div>`}
   </div>`;
 }
 
 function renderAgendaDia(itens){
   const dataStr = agIsoLocal(agDataRef);
-  const doDia = itens.filter(a=>a.data===dataStr).sort((a,b)=>a.horaInicio.localeCompare(b.horaInicio));
-  if(doDia.length===0) return `<div class="empty"><div class="big">📅</div>Nenhum compromisso nesse dia.</div>`;
-  return doDia.map(renderCompromisso).join('');
+  const doDia = itens.filter(a=>a.data===dataStr);
+  const label = agDataRef.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'});
+  return renderGradeHoraria([{ label, eventos: doDia }]);
 }
 
 function renderAgendaSemana(itens){
   const ini = agInicioSemana(agDataRef);
-  let html = '';
+  const dias = [];
   for(let i=0;i<7;i++){
     const d = new Date(ini); d.setDate(d.getDate()+i);
     const dataStr = agIsoLocal(d);
-    const doDia = itens.filter(a=>a.data===dataStr).sort((a,b)=>a.horaInicio.localeCompare(b.horaInicio));
-    html += `<div class="ag-dia-grupo"><h4>${d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'})}</h4>`;
-    html += doDia.length===0 ? `<div class="empty" style="padding:8px 0;font-size:11.5px;">Sem compromissos.</div>` : doDia.map(renderCompromisso).join('');
-    html += `</div>`;
+    dias.push({
+      label: `${d.toLocaleDateString('pt-BR',{weekday:'short'}).toUpperCase()} ${d.getDate()}`,
+      eventos: itens.filter(a=>a.data===dataStr),
+    });
   }
-  return html;
+  return renderGradeHoraria(dias);
 }
 
 function renderAgendaMes(itens){
