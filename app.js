@@ -609,6 +609,7 @@ function resetForm(){
   // "Solução" só faz sentido pra quem está atendendo o chamado — some
   // na criação (ninguém resolveu nada ainda) e aparece ao editar
   document.getElementById('campoSolucao').style.display = 'none';
+  document.getElementById('blocoMovimentacoesEdicao').style.display = 'none';
 
   if(conta && conta.perfil === 'ATENDENTE'){
     const btn = document.querySelector(`#f_atendente button[data-val="${conta.nome}"]`);
@@ -709,6 +710,10 @@ function editar(id){
   document.getElementById('f_vinculo_busca').value = '';
   document.getElementById('vinculoResultados').innerHTML = '';
   recarregarVinculos(r.id, 'listaVinculos', true);
+  document.getElementById('blocoMovimentacoesEdicao').style.display = '';
+  document.getElementById('movTempoWrap_ed').style.display = (contaAtual()?.perfil === 'USUARIO') ? 'none' : '';
+  movLimparComposer('_ed');
+  carregarMovimentacoes(r.id, '_ed');
   atualizarPreview();
   goView('novo');
 }
@@ -723,6 +728,7 @@ function copiarAtendimento(id){
   document.getElementById('campoStatusSelect').style.display = 'none';
   document.getElementById('campoStatusFixo').style.display = '';
   document.getElementById('campoSolucao').style.display = 'none';
+  document.getElementById('blocoMovimentacoesEdicao').style.display = 'none';
   const cliente = clientes.find(c=>c.nome===r.cliente);
   if(cliente) document.getElementById('f_cliente').value = cliente.id;
   popularUsuariosSolicitantes();
@@ -2855,19 +2861,12 @@ async function abrirDetalhe(atendimentoId){
   document.getElementById('chatAnexosLista').innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('movLista').innerHTML = `<div class="chat-empty">Carregando…</div>`;
-  document.getElementById('mov_texto').innerHTML = '';
-  document.getElementById('mov_tempo_inicio').value = '';
-  document.getElementById('mov_tempo_fim').value = '';
-  document.getElementById('movTempoResumo').textContent = '';
-  document.getElementById('mov_anexo').value = '';
-  document.getElementById('mov_anexo_nome').textContent = '';
-  movAnexoArquivo = null;
-  cancelarRespostaMovimentacao();
+  movLimparComposer('');
   document.getElementById('movTempoWrap').style.display = (isUsuario) ? 'none' : '';
   document.getElementById('chatModal').classList.add('show');
   await Promise.all([
     carregarHistorico(),
-    carregarMovimentacoes(),
+    carregarMovimentacoes(atendimentoId, ''),
     carregarAnexosDetalhe(atendimentoId, !isUsuario),
     carregarVinculosDetalhe(atendimentoId, !isUsuario),
   ]);
@@ -2931,8 +2930,26 @@ async function carregarHistorico(){
     </div>`).join('');
 }
 
-let movRespondendoId = null;
-let movRespondendoResumo = '';
+let movEstado = {
+  '': { atendimentoId: null, cache: [], respondendoId: null, editandoId: null, anexoArquivo: null },
+  '_ed': { atendimentoId: null, cache: [], respondendoId: null, editandoId: null, anexoArquivo: null },
+};
+// os dois lugares onde as movimentações aparecem (modal de detalhes e a
+// tela de editar atendimento) usam nomes de campo ligeiramente
+// diferentes — esse mapa resolve pra cada sufixo
+function movIds(sufixo){
+  return sufixo === '_ed' ? {
+    lista:'movLista_ed', composer:'movComposerWrap_ed', respWrap:'movRespondendoWrap_ed', respTexto:'movRespondendoTexto_ed',
+    respCancelar:'movCancelarResposta_ed', tempoWrap:'movTempoWrap_ed', tempoInicio:'mov_tempo_inicio_ed', tempoFim:'mov_tempo_fim_ed',
+    tempoResumo:'movTempoResumo_ed', texto:'mov_texto_ed', anexo:'mov_anexo_ed', anexoNome:'mov_anexo_ed_nome',
+    btnEnviar:'btnEnviarMovimentacao_ed', bloqueado:'movBloqueadoAviso_ed',
+  } : {
+    lista:'movLista', composer:'movComposerWrap', respWrap:'movRespondendoWrap', respTexto:'movRespondendoTexto',
+    respCancelar:'movCancelarResposta', tempoWrap:'movTempoWrap', tempoInicio:'mov_tempo_inicio', tempoFim:'mov_tempo_fim',
+    tempoResumo:'movTempoResumo', texto:'mov_texto', anexo:'mov_anexo', anexoNome:'mov_anexo_nome',
+    btnEnviar:'btnEnviarMovimentacao', bloqueado:'movBloqueadoAviso',
+  };
+}
 
 function movLabelPerfil(perfil){
   return perfil === 'USUARIO' ? 'Cliente' : perfil === 'ATENDENTE' ? 'Atendente' : 'Admin';
@@ -2955,31 +2972,37 @@ function movResumoTempo(inicioLocal, fimLocal){
   return `${fmt(di)} - ${fmt(df)} · ${horas.toFixed(2).replace('.',',')}h`;
 }
 
-async function carregarMovimentacoes(){
-  if(!chatAtendimentoId) return;
-  const cont = document.getElementById('movLista');
-  const r = atendimentos.find(x=>String(x.id)===String(chatAtendimentoId));
+async function carregarMovimentacoes(atendimentoId, sufixo){
+  sufixo = sufixo || '';
+  const ids = movIds(sufixo);
+  const estado = movEstado[sufixo];
+  estado.atendimentoId = atendimentoId;
+  if(!atendimentoId) return;
+  const cont = document.getElementById(ids.lista);
+  const r = atendimentos.find(x=>String(x.id)===String(atendimentoId));
   const bloqueado = r && r.status === 'VALIDADO';
-  document.getElementById('movComposerWrap').style.display = bloqueado ? 'none' : '';
-  document.getElementById('movBloqueadoAviso').style.display = bloqueado ? '' : 'none';
+  document.getElementById(ids.composer).style.display = bloqueado ? 'none' : '';
+  document.getElementById(ids.bloqueado).style.display = bloqueado ? '' : 'none';
 
   let resp;
   try{
-    resp = await api('listarMovimentacoes', { atendimentoId: chatAtendimentoId });
+    resp = await api('listarMovimentacoes', { atendimentoId });
   }catch(e){
     cont.innerHTML = `<div class="chat-empty">Não foi possível carregar as movimentações.</div>`;
     return;
   }
   if(!resp.ok){ cont.innerHTML = `<div class="chat-empty">${resp.erro || 'Não foi possível carregar as movimentações.'}</div>`; return; }
 
-  movimentacoesCache = resp.movimentacoes || [];
-  if(movimentacoesCache.length === 0){
+  estado.cache = resp.movimentacoes || [];
+  if(estado.cache.length === 0){
     cont.innerHTML = `<div class="chat-empty">Nenhuma movimentação ainda.</div>`;
     return;
   }
-  cont.innerHTML = movimentacoesCache.map(m=>{
-    const citada = m.respondendoA ? movimentacoesCache.find(x=>x.id===m.respondendoA) : null;
+  const conta = contaAtual();
+  cont.innerHTML = estado.cache.map(m=>{
+    const citada = m.respondendoA ? estado.cache.find(x=>x.id===m.respondendoA) : null;
     const tempoTexto = (m.tempoInicio && m.tempoFim) ? movResumoTempo(m.tempoInicio, m.tempoFim) : '';
+    const podeGerenciar = !bloqueado && conta && (conta.perfil === 'ADMIN' || conta.nome === m.autorNome);
     return `<div class="mov-item">
       ${citada ? `<div class="mov-respondendo-item">Em resposta a <b>${escaparHtml(citada.autorNome)}</b>: "${escaparHtml(stripHtml(citada.texto).slice(0,60))}"</div>` : ''}
       <div class="mov-topo">
@@ -2992,71 +3015,135 @@ async function carregarMovimentacoes(){
       ${tempoTexto ? `<div class="mov-tempo">⏱ Tempo de trabalho: ${tempoTexto}</div>` : ''}
       <div class="mov-conteudo rt-content">${sanitizarHtml(m.texto)}</div>
       ${(m.anexos && m.anexos.length>0) ? m.anexos.map(a=>`<div class="mov-anexo-item">📎 <a href="${a.url}" target="_blank">${escaparHtml(a.nome)}</a></div>`).join('') : ''}
-      <button type="button" class="mov-btn-responder" onclick="responderMovimentacao('${m.id}')">↩ Responder</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;">
+        ${!bloqueado ? `<button type="button" class="mov-btn-responder" onclick="responderMovimentacao('${m.id}','${sufixo}')">↩ Responder</button>` : ''}
+        ${podeGerenciar ? `<button type="button" class="mov-btn-responder" onclick="editarMovimentacaoUi('${m.id}','${sufixo}')">✎ Editar</button>` : ''}
+        ${podeGerenciar ? `<button type="button" class="mov-btn-responder" onclick="excluirMovimentacaoUi('${m.id}','${sufixo}')">🗑 Excluir</button>` : ''}
+      </div>
     </div>`;
   }).join('');
 }
 
-function responderMovimentacao(id){
-  const m = movimentacoesCache.find(x=>x.id===id);
+function movLimparComposer(sufixo){
+  const ids = movIds(sufixo);
+  const estado = movEstado[sufixo];
+  document.getElementById(ids.texto).innerHTML = '';
+  document.getElementById(ids.tempoInicio).value = '';
+  document.getElementById(ids.tempoFim).value = '';
+  document.getElementById(ids.tempoResumo).textContent = '';
+  document.getElementById(ids.anexo).value = '';
+  document.getElementById(ids.anexoNome).textContent = '';
+  document.getElementById(ids.respWrap).style.display = 'none';
+  estado.respondendoId = null;
+  estado.editandoId = null;
+  estado.anexoArquivo = null;
+  document.getElementById(ids.btnEnviar).textContent = 'Enviar';
+}
+
+function responderMovimentacao(id, sufixo){
+  sufixo = sufixo || '';
+  const ids = movIds(sufixo);
+  const estado = movEstado[sufixo];
+  const m = estado.cache.find(x=>x.id===id);
   if(!m) return;
-  movRespondendoId = id;
-  movRespondendoResumo = `${m.autorNome}: "${stripHtml(m.texto).slice(0,60)}"`;
-  document.getElementById('movRespondendoTexto').textContent = `Respondendo a ${movRespondendoResumo}`;
-  document.getElementById('movRespondendoWrap').style.display = 'flex';
-  document.getElementById('mov_texto').focus();
-}
-function cancelarRespostaMovimentacao(){
-  movRespondendoId = null;
-  document.getElementById('movRespondendoWrap').style.display = 'none';
+  estado.editandoId = null;
+  estado.respondendoId = id;
+  document.getElementById(ids.respTexto).textContent = `Respondendo a ${m.autorNome}: "${stripHtml(m.texto).slice(0,60)}"`;
+  document.getElementById(ids.respWrap).style.display = 'flex';
+  document.getElementById(ids.btnEnviar).textContent = 'Enviar';
+  document.getElementById(ids.texto).focus();
 }
 
-let movAnexoArquivo = null;
-function atualizarResumoTempoMov(){
-  const ini = document.getElementById('mov_tempo_inicio').value;
-  const fim = document.getElementById('mov_tempo_fim').value;
-  document.getElementById('movTempoResumo').textContent = (ini && fim) ? movResumoTempo(ini, fim) : '';
+function editarMovimentacaoUi(id, sufixo){
+  sufixo = sufixo || '';
+  const ids = movIds(sufixo);
+  const estado = movEstado[sufixo];
+  const m = estado.cache.find(x=>x.id===id);
+  if(!m) return;
+  estado.respondendoId = null;
+  estado.editandoId = id;
+  document.getElementById(ids.texto).innerHTML = sanitizarHtml(m.texto || '');
+  document.getElementById(ids.tempoInicio).value = m.tempoInicio || '';
+  document.getElementById(ids.tempoFim).value = m.tempoFim || '';
+  atualizarResumoTempoMov(sufixo);
+  document.getElementById(ids.respTexto).textContent = `Editando a movimentação de ${m.autorNome}`;
+  document.getElementById(ids.respWrap).style.display = 'flex';
+  document.getElementById(ids.btnEnviar).textContent = 'Salvar edição';
+  document.getElementById(ids.texto).focus();
 }
 
-async function enviarMovimentacao(){
-  if(!chatAtendimentoId) return;
+function cancelarRespostaMovimentacao(sufixo){
+  sufixo = sufixo || '';
+  const ids = movIds(sufixo);
+  const estado = movEstado[sufixo];
+  estado.respondendoId = null;
+  estado.editandoId = null;
+  document.getElementById(ids.respWrap).style.display = 'none';
+  document.getElementById(ids.btnEnviar).textContent = 'Enviar';
+}
+
+async function excluirMovimentacaoUi(id, sufixo){
+  sufixo = sufixo || '';
+  const estado = movEstado[sufixo];
+  pedirConfirmacao('Excluir movimentação?', 'Essa ação não pode ser desfeita.', async ()=>{
+    const conta = contaAtual();
+    const r = await api('removerMovimentacao', { contaId: conta.id, id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível excluir.'); return; }
+    await carregarMovimentacoes(estado.atendimentoId, sufixo);
+    toast('Movimentação excluída');
+  });
+}
+
+function atualizarResumoTempoMov(sufixo){
+  sufixo = sufixo || '';
+  const ids = movIds(sufixo);
+  const ini = document.getElementById(ids.tempoInicio).value;
+  const fim = document.getElementById(ids.tempoFim).value;
+  document.getElementById(ids.tempoResumo).textContent = (ini && fim) ? movResumoTempo(ini, fim) : '';
+}
+
+async function enviarMovimentacao(sufixo){
+  sufixo = sufixo || '';
+  const ids = movIds(sufixo);
+  const estado = movEstado[sufixo];
+  if(!estado.atendimentoId) return;
   const conta = contaAtual();
-  const textoHtml = sanitizarHtml(document.getElementById('mov_texto').innerHTML.trim());
+  const textoHtml = sanitizarHtml(document.getElementById(ids.texto).innerHTML.trim());
   const textoLimpo = stripHtml(textoHtml).trim();
-  if(!textoLimpo && !movAnexoArquivo){ toast('Escreva algo ou anexe um arquivo'); return; }
+  if(!textoLimpo && !estado.anexoArquivo){ toast('Escreva algo ou anexe um arquivo'); return; }
 
   const podeRegistrarTempo = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
-  const tempoInicio = podeRegistrarTempo ? document.getElementById('mov_tempo_inicio').value : '';
-  const tempoFim = podeRegistrarTempo ? document.getElementById('mov_tempo_fim').value : '';
+  const tempoInicio = podeRegistrarTempo ? document.getElementById(ids.tempoInicio).value : '';
+  const tempoFim = podeRegistrarTempo ? document.getElementById(ids.tempoFim).value : '';
   if((tempoInicio && !tempoFim) || (!tempoInicio && tempoFim)){ toast('Preencha início e fim do tempo de trabalho, ou deixe os dois em branco'); return; }
   if(tempoInicio && tempoFim && tempoFim < tempoInicio){ toast('O fim do tempo de trabalho não pode ser antes do início'); return; }
 
-  const btn = document.getElementById('btnEnviarMovimentacao');
+  const btn = document.getElementById(ids.btnEnviar);
+  const editando = !!estado.editandoId;
   btn.disabled = true;
-  btn.textContent = 'Enviando…';
+  btn.textContent = editando ? 'Salvando…' : 'Enviando…';
   try{
-    const payload = {
-      atendimentoId: chatAtendimentoId, texto: textoHtml, autorNome: conta.nome, autorPerfil: conta.perfil,
-      tempoInicio, tempoFim, respondendoA: movRespondendoId,
-    };
-    if(movAnexoArquivo){
-      payload.anexoBase64 = await lerArquivoBase64(movAnexoArquivo);
-      payload.anexoTipo = movAnexoArquivo.type;
-      payload.anexoNome = movAnexoArquivo.name;
+    let r;
+    if(editando){
+      r = await api('atualizarMovimentacao', { contaId: conta.id, id: estado.editandoId, texto: textoHtml, tempoInicio, tempoFim });
+    }else{
+      const payload = {
+        atendimentoId: estado.atendimentoId, texto: textoHtml, autorNome: conta.nome, autorPerfil: conta.perfil,
+        tempoInicio, tempoFim, respondendoA: estado.respondendoId,
+      };
+      if(estado.anexoArquivo){
+        payload.anexoBase64 = await lerArquivoBase64(estado.anexoArquivo);
+        payload.anexoTipo = estado.anexoArquivo.type;
+        payload.anexoNome = estado.anexoArquivo.name;
+      }
+      r = await api('criarMovimentacao', payload);
     }
-    const r = await api('criarMovimentacao', payload);
-    if(!r.ok){ toast(r.erro || 'Não foi possível enviar.'); return; }
-    document.getElementById('mov_texto').innerHTML = '';
-    document.getElementById('mov_tempo_inicio').value = '';
-    document.getElementById('mov_tempo_fim').value = '';
-    document.getElementById('movTempoResumo').textContent = '';
-    document.getElementById('mov_anexo').value = '';
-    document.getElementById('mov_anexo_nome').textContent = '';
-    movAnexoArquivo = null;
-    cancelarRespostaMovimentacao();
-    await carregarMovimentacoes();
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    movLimparComposer(sufixo);
+    await carregarMovimentacoes(estado.atendimentoId, sufixo);
+    if(editando) toast('Movimentação atualizada');
   }catch(e){
-    toast(e && e.message ? e.message : 'Não foi possível enviar.');
+    toast(e && e.message ? e.message : 'Não foi possível salvar.');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Enviar';
@@ -3464,14 +3551,23 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnAlterarStatusMassa').addEventListener('click', abrirModalStatusMassa);
   document.getElementById('statusMassaCancelar').addEventListener('click', fecharModalStatusMassa);
   document.getElementById('statusMassaConfirmar').addEventListener('click', aplicarStatusMassa);
-  document.getElementById('btnEnviarMovimentacao').addEventListener('click', enviarMovimentacao);
-  document.getElementById('movCancelarResposta').addEventListener('click', cancelarRespostaMovimentacao);
-  document.getElementById('mov_tempo_inicio').addEventListener('change', atualizarResumoTempoMov);
-  document.getElementById('mov_tempo_fim').addEventListener('change', atualizarResumoTempoMov);
+  document.getElementById('btnEnviarMovimentacao').addEventListener('click', ()=>enviarMovimentacao(''));
+  document.getElementById('movCancelarResposta').addEventListener('click', ()=>cancelarRespostaMovimentacao(''));
+  document.getElementById('mov_tempo_inicio').addEventListener('change', ()=>atualizarResumoTempoMov(''));
+  document.getElementById('mov_tempo_fim').addEventListener('change', ()=>atualizarResumoTempoMov(''));
   document.getElementById('mov_anexo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
-    movAnexoArquivo = arquivo || null;
+    movEstado[''].anexoArquivo = arquivo || null;
     document.getElementById('mov_anexo_nome').textContent = arquivo ? `📎 ${arquivo.name}` : '';
+  });
+  document.getElementById('btnEnviarMovimentacao_ed').addEventListener('click', ()=>enviarMovimentacao('_ed'));
+  document.getElementById('movCancelarResposta_ed').addEventListener('click', ()=>cancelarRespostaMovimentacao('_ed'));
+  document.getElementById('mov_tempo_inicio_ed').addEventListener('change', ()=>atualizarResumoTempoMov('_ed'));
+  document.getElementById('mov_tempo_fim_ed').addEventListener('change', ()=>atualizarResumoTempoMov('_ed'));
+  document.getElementById('mov_anexo_ed').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    movEstado['_ed'].anexoArquivo = arquivo || null;
+    document.getElementById('mov_anexo_ed_nome').textContent = arquivo ? `📎 ${arquivo.name}` : '';
   });
 
   document.getElementById('btnAddAtendente').addEventListener('click', async ()=>{
