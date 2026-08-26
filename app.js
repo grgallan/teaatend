@@ -2822,6 +2822,7 @@ function linkWhatsapp(telefone){
 /* ---------- bate-papo por atendimento ---------- */
 let chatAtendimentoId = null;
 let chatPodeRemoverVinculo = false;
+let movimentacoesCache = [];
 
 async function abrirDetalhe(atendimentoId){
   const r = atendimentos.find(x=>String(x.id)===String(atendimentoId));
@@ -2853,12 +2854,20 @@ async function abrirDetalhe(atendimentoId){
   document.getElementById('chatVinculosWrap').style.display = 'none';
   document.getElementById('chatAnexosLista').innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
-  document.getElementById('chatMensagens').innerHTML = `<div class="chat-empty">Carregando…</div>`;
-  document.getElementById('chatTexto').value = '';
+  document.getElementById('movLista').innerHTML = `<div class="chat-empty">Carregando…</div>`;
+  document.getElementById('mov_texto').innerHTML = '';
+  document.getElementById('mov_tempo_inicio').value = '';
+  document.getElementById('mov_tempo_fim').value = '';
+  document.getElementById('movTempoResumo').textContent = '';
+  document.getElementById('mov_anexo').value = '';
+  document.getElementById('mov_anexo_nome').textContent = '';
+  movAnexoArquivo = null;
+  cancelarRespostaMovimentacao();
+  document.getElementById('movTempoWrap').style.display = (isUsuario) ? 'none' : '';
   document.getElementById('chatModal').classList.add('show');
   await Promise.all([
     carregarHistorico(),
-    carregarMensagens(),
+    carregarMovimentacoes(),
     carregarAnexosDetalhe(atendimentoId, !isUsuario),
     carregarVinculosDetalhe(atendimentoId, !isUsuario),
   ]);
@@ -2922,53 +2931,132 @@ async function carregarHistorico(){
     </div>`).join('');
 }
 
-async function carregarMensagens(){
-  if(!chatAtendimentoId) return;
-  const cont = document.getElementById('chatMensagens');
-  let r;
-  try{
-    r = await api('listarMensagens', { atendimentoId: chatAtendimentoId });
-  }catch(e){
-    cont.innerHTML = `<div class="chat-empty">Não foi possível carregar as mensagens. ${e && e.message ? e.message : 'Tente novamente.'}</div>`;
-    return;
-  }
-  if(!r.ok){
-    cont.innerHTML = `<div class="chat-empty">${r.erro || 'Não foi possível carregar as mensagens.'}</div>`;
-    return;
-  }
-  const conta = contaAtual();
-  if(r.mensagens.length === 0){
-    cont.innerHTML = `<div class="chat-empty">Nenhuma mensagem ainda. Escreva a primeira!</div>`;
-  }else{
-    cont.innerHTML = r.mensagens.map(m=>{
-      const minha = conta && m.autorNome === conta.nome;
-      const hora = String(m.dataHora||'').slice(11,16) || '';
-      return `<div class="msg ${minha?'mine':'theirs'}">
-        ${!minha ? `<div class="autor">${m.autorNome}</div>` : ''}
-        <div>${escaparHtml(m.texto)}</div>
-        <div class="hora">${hora}</div>
-      </div>`;
-    }).join('');
-  }
-  cont.scrollTop = cont.scrollHeight;
+let movRespondendoId = null;
+let movRespondendoResumo = '';
+
+function movLabelPerfil(perfil){
+  return perfil === 'USUARIO' ? 'Cliente' : perfil === 'ATENDENTE' ? 'Atendente' : 'Admin';
+}
+function movIniciais(nome){
+  const partes = String(nome||'').trim().split(/\s+/);
+  return ((partes[0]?.[0]||'') + (partes[1]?.[0]||'')).toUpperCase();
+}
+function movFmtDataHora(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+}
+// mesmo estilo do resumo "26/08/2026 10:38 - 26/08/2026 10:38" + horas
+function movResumoTempo(inicioLocal, fimLocal){
+  if(!inicioLocal || !fimLocal) return '';
+  const di = new Date(inicioLocal), df = new Date(fimLocal);
+  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const horas = Math.max(0, (df - di) / 3600000);
+  return `${fmt(di)} - ${fmt(df)} · ${horas.toFixed(2).replace('.',',')}h`;
 }
 
-async function enviarMensagem(){
-  const texto = document.getElementById('chatTexto').value.trim();
-  if(!texto || !chatAtendimentoId) return;
+async function carregarMovimentacoes(){
+  if(!chatAtendimentoId) return;
+  const cont = document.getElementById('movLista');
+  const r = atendimentos.find(x=>String(x.id)===String(chatAtendimentoId));
+  const bloqueado = r && r.status === 'VALIDADO';
+  document.getElementById('movComposerWrap').style.display = bloqueado ? 'none' : '';
+  document.getElementById('movBloqueadoAviso').style.display = bloqueado ? '' : 'none';
+
+  let resp;
+  try{
+    resp = await api('listarMovimentacoes', { atendimentoId: chatAtendimentoId });
+  }catch(e){
+    cont.innerHTML = `<div class="chat-empty">Não foi possível carregar as movimentações.</div>`;
+    return;
+  }
+  if(!resp.ok){ cont.innerHTML = `<div class="chat-empty">${resp.erro || 'Não foi possível carregar as movimentações.'}</div>`; return; }
+
+  movimentacoesCache = resp.movimentacoes || [];
+  if(movimentacoesCache.length === 0){
+    cont.innerHTML = `<div class="chat-empty">Nenhuma movimentação ainda.</div>`;
+    return;
+  }
+  cont.innerHTML = movimentacoesCache.map(m=>{
+    const citada = m.respondendoA ? movimentacoesCache.find(x=>x.id===m.respondendoA) : null;
+    const tempoTexto = (m.tempoInicio && m.tempoFim) ? movResumoTempo(m.tempoInicio, m.tempoFim) : '';
+    return `<div class="mov-item">
+      ${citada ? `<div class="mov-respondendo-item">Em resposta a <b>${escaparHtml(citada.autorNome)}</b>: "${escaparHtml(stripHtml(citada.texto).slice(0,60))}"</div>` : ''}
+      <div class="mov-topo">
+        <div class="mov-autor">
+          <div class="mov-avatar">${movIniciais(m.autorNome)}</div>
+          <div><span class="mov-nome">${escaparHtml(m.autorNome)}</span><span class="mov-perfil ${m.autorPerfil}">${movLabelPerfil(m.autorPerfil)}</span></div>
+        </div>
+        <div class="mov-data">${movFmtDataHora(m.criadoEm)}</div>
+      </div>
+      ${tempoTexto ? `<div class="mov-tempo">⏱ Tempo de trabalho: ${tempoTexto}</div>` : ''}
+      <div class="mov-conteudo rt-content">${sanitizarHtml(m.texto)}</div>
+      ${(m.anexos && m.anexos.length>0) ? m.anexos.map(a=>`<div class="mov-anexo-item">📎 <a href="${a.url}" target="_blank">${escaparHtml(a.nome)}</a></div>`).join('') : ''}
+      <button type="button" class="mov-btn-responder" onclick="responderMovimentacao('${m.id}')">↩ Responder</button>
+    </div>`;
+  }).join('');
+}
+
+function responderMovimentacao(id){
+  const m = movimentacoesCache.find(x=>x.id===id);
+  if(!m) return;
+  movRespondendoId = id;
+  movRespondendoResumo = `${m.autorNome}: "${stripHtml(m.texto).slice(0,60)}"`;
+  document.getElementById('movRespondendoTexto').textContent = `Respondendo a ${movRespondendoResumo}`;
+  document.getElementById('movRespondendoWrap').style.display = 'flex';
+  document.getElementById('mov_texto').focus();
+}
+function cancelarRespostaMovimentacao(){
+  movRespondendoId = null;
+  document.getElementById('movRespondendoWrap').style.display = 'none';
+}
+
+let movAnexoArquivo = null;
+function atualizarResumoTempoMov(){
+  const ini = document.getElementById('mov_tempo_inicio').value;
+  const fim = document.getElementById('mov_tempo_fim').value;
+  document.getElementById('movTempoResumo').textContent = (ini && fim) ? movResumoTempo(ini, fim) : '';
+}
+
+async function enviarMovimentacao(){
+  if(!chatAtendimentoId) return;
   const conta = contaAtual();
-  const btn = document.getElementById('btnEnviarMensagem');
+  const textoHtml = sanitizarHtml(document.getElementById('mov_texto').innerHTML.trim());
+  const textoLimpo = stripHtml(textoHtml).trim();
+  if(!textoLimpo && !movAnexoArquivo){ toast('Escreva algo ou anexe um arquivo'); return; }
+
+  const podeRegistrarTempo = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
+  const tempoInicio = podeRegistrarTempo ? document.getElementById('mov_tempo_inicio').value : '';
+  const tempoFim = podeRegistrarTempo ? document.getElementById('mov_tempo_fim').value : '';
+  if((tempoInicio && !tempoFim) || (!tempoInicio && tempoFim)){ toast('Preencha início e fim do tempo de trabalho, ou deixe os dois em branco'); return; }
+  if(tempoInicio && tempoFim && tempoFim < tempoInicio){ toast('O fim do tempo de trabalho não pode ser antes do início'); return; }
+
+  const btn = document.getElementById('btnEnviarMovimentacao');
   btn.disabled = true;
   btn.textContent = 'Enviando…';
   try{
-    const r = await api('enviarMensagem', { atendimentoId: chatAtendimentoId, texto, autorNome: conta.nome, autorPerfil: conta.perfil });
-    if(!r.ok){ toast(r.erro || 'Não foi possível enviar a mensagem.'); return; }
-    document.getElementById('chatTexto').value = '';
-    await carregarMensagens();
+    const payload = {
+      atendimentoId: chatAtendimentoId, texto: textoHtml, autorNome: conta.nome, autorPerfil: conta.perfil,
+      tempoInicio, tempoFim, respondendoA: movRespondendoId,
+    };
+    if(movAnexoArquivo){
+      payload.anexoBase64 = await lerArquivoBase64(movAnexoArquivo);
+      payload.anexoTipo = movAnexoArquivo.type;
+      payload.anexoNome = movAnexoArquivo.name;
+    }
+    const r = await api('criarMovimentacao', payload);
+    if(!r.ok){ toast(r.erro || 'Não foi possível enviar.'); return; }
+    document.getElementById('mov_texto').innerHTML = '';
+    document.getElementById('mov_tempo_inicio').value = '';
+    document.getElementById('mov_tempo_fim').value = '';
+    document.getElementById('movTempoResumo').textContent = '';
+    document.getElementById('mov_anexo').value = '';
+    document.getElementById('mov_anexo_nome').textContent = '';
+    movAnexoArquivo = null;
+    cancelarRespostaMovimentacao();
+    await carregarMovimentacoes();
   }catch(e){
-    // antes essa falha ficava sem nenhum aviso — o botão só voltava ao normal
-    // e parecia que a mensagem tinha "sumido" sem enviar
-    toast(e && e.message ? e.message : 'Não foi possível enviar a mensagem.');
+    toast(e && e.message ? e.message : 'Não foi possível enviar.');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Enviar';
@@ -3376,9 +3464,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnAlterarStatusMassa').addEventListener('click', abrirModalStatusMassa);
   document.getElementById('statusMassaCancelar').addEventListener('click', fecharModalStatusMassa);
   document.getElementById('statusMassaConfirmar').addEventListener('click', aplicarStatusMassa);
-  document.getElementById('btnEnviarMensagem').addEventListener('click', enviarMensagem);
-  document.getElementById('chatTexto').addEventListener('keydown', e=>{
-    if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); enviarMensagem(); }
+  document.getElementById('btnEnviarMovimentacao').addEventListener('click', enviarMovimentacao);
+  document.getElementById('movCancelarResposta').addEventListener('click', cancelarRespostaMovimentacao);
+  document.getElementById('mov_tempo_inicio').addEventListener('change', atualizarResumoTempoMov);
+  document.getElementById('mov_tempo_fim').addEventListener('change', atualizarResumoTempoMov);
+  document.getElementById('mov_anexo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    movAnexoArquivo = arquivo || null;
+    document.getElementById('mov_anexo_nome').textContent = arquivo ? `📎 ${arquivo.name}` : '';
   });
 
   document.getElementById('btnAddAtendente').addEventListener('click', async ()=>{
