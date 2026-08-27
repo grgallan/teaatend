@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [];
+let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], perfisAcesso = [];
 let sessaoConta = null; // conta logada (sem senha), guardada após login
 let editandoId = null;
 let anexoAtendimentoId = null; // atendimento cujos anexos múltiplos estão sendo geridos ao editar
@@ -30,9 +30,21 @@ let editandoUsuarioId = null;
 let editandoClienteId = null;
 let excluindoAcao = null;
 let filtroCliente = new Set(); // vazio = todos
-let filtroStatus = 'TODOS';
+let filtroStatus = new Set(); // vazio = todos
 let selecionados = new Set();
 let cadAba = 'atendentes';
+let editandoPerfilAcessoId = null;
+const MENUS_PERFIL_ACESSO = [
+  { chave:'atendimentos', label:'Atendimentos' },
+  { chave:'resumo', label:'Resumo' },
+  { chave:'cronograma', label:'Cronograma' },
+  { chave:'construtor_relatorios', label:'Construtor de Relatórios' },
+  { chave:'relatorios', label:'Relatórios' },
+  { chave:'financeiro', label:'Financeiro' },
+  { chave:'agenda', label:'Agenda' },
+  { chave:'videos', label:'Vídeos' },
+  { chave:'cadastros', label:'Cadastros' },
+];
 
 /* ---------- utilidades ---------- */
 function fmtMoeda(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
@@ -41,7 +53,55 @@ function calcQtd(hi,hf,inter){ let q = timeToHours(hf) - timeToHours(hi); if(q<0
 function mesFromData(dataStr){ if(!dataStr) return ''; const [y,m]=dataStr.split('-'); return `${m}/${y}`; }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
 function labelTipo(nome){ if(nome==='ATENDIMENTO ONLINE') return 'Online'; if(nome==='VISITA TECNICA') return 'Visita técnica'; return nome; }
-function podeVerValores(){ const c = contaAtual(); return c && c.perfil === 'ADMIN'; }
+// conta ADMIN sempre tem acesso total; conta ATENDENTE marcada com o flag
+// "eh_administrador" (Cadastros → Atendentes) passa a ter os mesmos
+// privilégios de administrador do sistema, sem deixar de ser atendente
+function ehAdminEfetivo(conta){
+  return !!conta && (conta.perfil === 'ADMIN' || (conta.perfil === 'ATENDENTE' && !!conta.ehAdministrador));
+}
+function podeVerValores(){ const c = contaAtual(); return ehAdminEfetivo(c); }
+
+/* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
+// devolve {visualizar,editar,excluir,inserir} pro menu informado — admin
+// (ou atendente marcado como administrador) sempre tem tudo liberado;
+// senão, é o OR de todos os perfis de acesso vinculados à conta; se a
+// conta não tiver NENHUM perfil de acesso vinculado, devolve null — sinal
+// pra quem chamou usar a regra padrão de hoje (compatibilidade com contas
+// que nunca tiveram um perfil de acesso configurado)
+function permissaoMenu(conta, menu){
+  if(ehAdminEfetivo(conta)) return {visualizar:true, editar:true, excluir:true, inserir:true};
+  const ids = (conta && conta.perfisAcessoIds) || [];
+  if(ids.length === 0) return null;
+  const merge = {visualizar:false, editar:false, excluir:false, inserir:false};
+  perfisAcesso.filter(p=>ids.includes(p.id)).forEach(p=>{
+    const perm = p.permissoes && p.permissoes[menu];
+    if(!perm) return;
+    if(perm.visualizar) merge.visualizar = true;
+    if(perm.editar) merge.editar = true;
+    if(perm.excluir) merge.excluir = true;
+    if(perm.inserir) merge.inserir = true;
+  });
+  return merge;
+}
+// versão prática pra "esse menu aparece?" — usa a permissão configurada
+// se existir, senão cai no comportamento padrão (parâmetro "padrao")
+function menuVisivel(conta, menu, padrao){
+  const p = permissaoMenu(conta, menu);
+  return p ? p.visualizar : padrao;
+}
+// esconde/mostra TODAS as representações de uma view (aba de cima, menu
+// lateral e barra inferior) de uma vez, sem precisar de um id em cada uma
+function aplicarVisibilidadeMenu(viewName, visivel){
+  document.querySelectorAll(`[data-view="${viewName}"]`).forEach(el=>{ el.style.display = visivel ? '' : 'none'; });
+}
+// nome de status pode ter espaço/acento (ex: "EM VALIDAÇÃO") — não dá pra
+// usar direto como classe CSS (classe com espaço vira duas classes, e o
+// navegador nunca dá match numa classe assim), por isso esse slug
+function statusSlug(nome){
+  return String(nome||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,'-').toUpperCase();
+}
+function primeiroDiaMes(d){ return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10); }
+function ultimoDiaMes(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10); }
 /* ---------- seleção múltipla / alteração de status em massa ---------- */
 function toggleSelecao(id, marcado){
   if(marcado) selecionados.add(id); else selecionados.delete(id);
@@ -160,9 +220,93 @@ function renderVinculosLista(containerId, lista, atendimentoId, podeRemover){
     return `<div class="cad-item">
       <div class="info" style="cursor:pointer;" onclick="abrirDetalhe('${v.id}')">
         <b>${d}/${m}/${y} · ${escaparHtml(v.cliente)}</b>
-        <span>${escaparHtml(v.usuario)} · ${Number(v.qtd).toFixed(2).replace('.',',')}h · <span class="tag status-${v.status}">${v.status}</span></span>
+        <span>${escaparHtml(v.usuario)} · ${Number(v.qtd).toFixed(2).replace('.',',')}h · <span class="tag status-${statusSlug(v.status)}">${v.status}</span></span>
       </div>
       ${podeRemover ? `<div class="acts"><button class="danger" onclick="removerVinculoAgora('${v.vinculoId}','${atendimentoId}','${containerId}',true)">Remover</button></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* ---------- vínculo entre atendimento e vídeos/tutoriais ---------- */
+// ids dos vídeos já vinculados, por container (form de edição x modal de
+// detalhe) — usado só pra não sugerir de novo, na busca, um vídeo que já
+// está vinculado
+let videosVinculadosPorContainer = {};
+
+// carrega o cache de vídeos sem mexer na tela da aba Vídeos — usado só
+// pra alimentar a busca de vínculo no formulário/detalhe do atendimento
+async function carregarVideosCacheParaVinculo(){
+  const conta = contaAtual();
+  if(!conta) return;
+  try{
+    const r = await api('listarVideos', { contaId: conta.id });
+    if(r.ok) videosCache = r.videos || [];
+  }catch(e){ /* busca de vínculo fica só sem resultados — não é crítico */ }
+}
+
+function configurarBuscaVideo(buscaInputId, resultadosId, obterVideosJaVinculados, aoSelecionar){
+  document.getElementById(buscaInputId).addEventListener('input', e=>{
+    const termo = e.target.value.trim().toLowerCase();
+    const cont = document.getElementById(resultadosId);
+    if(termo.length < 2){ cont.innerHTML = ''; return; }
+    const jaVinculados = new Set(obterVideosJaVinculados());
+    const resultados = videosCache
+      .filter(v => !jaVinculados.has(String(v.id)))
+      .filter(v => `${v.titulo} ${v.modulo||''} ${v.cliente||''}`.toLowerCase().includes(termo))
+      .slice(0, 8);
+    if(resultados.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum vídeo encontrado.</div>`; return; }
+    cont.innerHTML = resultados.map(v=>`
+      <div class="vinculo-resultado" data-id="${v.id}">
+        <b>${escaparHtml(v.titulo)}</b>
+        <span>${escaparHtml([v.cliente, v.modulo].filter(Boolean).join(' · ') || 'Geral')}</span>
+      </div>`).join('');
+    cont.querySelectorAll('.vinculo-resultado').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        aoSelecionar(el.dataset.id);
+        document.getElementById(buscaInputId).value = '';
+        cont.innerHTML = '';
+      });
+    });
+  });
+}
+
+async function adicionarVideoVinculoAgora(atendimentoId, videoId, containerId, podeRemover){
+  if(!atendimentoId){ toast('Salve o atendimento antes de vincular um vídeo.'); return; }
+  const r = await api('vincularVideoAtendimento', { atendimentoId, videoId });
+  if(!r.ok){ toast(r.erro || 'Não foi possível vincular o vídeo.'); return; }
+  await recarregarVideosVinculados(atendimentoId, containerId, podeRemover);
+  toast('Vídeo vinculado');
+}
+async function removerVideoVinculoAgora(vinculoId, atendimentoId, containerId, podeRemover){
+  const r = await api('desvincularVideoAtendimento', { id: vinculoId });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover o vídeo.'); return; }
+  await recarregarVideosVinculados(atendimentoId, containerId, podeRemover);
+  toast('Vídeo desvinculado');
+}
+async function recarregarVideosVinculados(atendimentoId, containerId, podeRemover){
+  try{
+    const r = await api('listarVideosDoAtendimento', { atendimentoId });
+    if(!r.ok){ document.getElementById(containerId).innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro||'Não foi possível carregar.'}</div>`; return null; }
+    videosVinculadosPorContainer[containerId] = (r.videos || []).map(v=>String(v.id));
+    renderVideosVinculadosLista(containerId, r.videos, atendimentoId, podeRemover);
+    return r;
+  }catch(e){
+    document.getElementById(containerId).innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar os vídeos vinculados.</div>`;
+    return null;
+  }
+}
+function renderVideosVinculadosLista(containerId, lista, atendimentoId, podeRemover){
+  const cont = document.getElementById(containerId);
+  if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum vídeo vinculado ainda.</div>`; return; }
+  cont.innerHTML = lista.map(v=>{
+    const videoId = extrairIdYoutube(v.urlYoutube);
+    const link = videoId ? `https://www.youtube.com/watch?v=${videoId}` : v.urlYoutube;
+    return `<div class="cad-item">
+      <div class="info"><a href="${link}" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none;">
+        <b>▶ ${escaparHtml(v.titulo)}</b>
+        <span>${escaparHtml([v.cliente, v.modulo].filter(Boolean).join(' · ') || 'Geral')}</span>
+      </a></div>
+      ${podeRemover ? `<div class="acts"><button class="danger" onclick="removerVideoVinculoAgora('${v.vinculoId}','${atendimentoId}','${containerId}',true)">Remover</button></div>` : ''}
     </div>`;
   }).join('');
 }
@@ -179,7 +323,7 @@ function contatoDoAtendente(nomeAtendente){
 function podeUsarChat(r){
   const c = contaAtual();
   if(!c) return false;
-  if(c.perfil === 'ADMIN') return true;
+  if(ehAdminEfetivo(c)) return true;
   if(c.perfil === 'ATENDENTE') return r.atendente === c.nome;
   if(c.perfil === 'USUARIO') return r.usuario === c.nome;
   return false;
@@ -244,6 +388,14 @@ async function carregarTudo(){
   const r = await api('dados', { contaId });
   if(!r.ok) return false;
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
+  perfisAcesso = r.perfisAcesso||[];
+  // a sessão foi salva no login (antes de existir "perfisAcesso") — depois
+  // do primeiro carregamento de dados, sincroniza com a versão mais
+  // atual da própria conta (permissões podem ter mudado desde o login)
+  if(sessaoConta){
+    const atualizada = contas.find(c=>String(c.id)===String(sessaoConta.id));
+    if(atualizada) { sessaoConta = atualizada; gravarSessao(sessaoConta); }
+  }
   return true;
 }
 
@@ -441,28 +593,27 @@ function entrarNoApp(){
   document.getElementById('avatarIni').textContent = conta.nome.slice(0,2).toUpperCase();
   atualizarBotaoNotificacoes();
 
-  const isAdmin = conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   const isUsuario = conta.perfil === 'USUARIO';
   const podeVerResumo = !isUsuario || conta.adminCliente; // usuário comum não vê; administrador do cliente vê
-
-  document.getElementById('tabCadastros').style.display = isAdmin ? '' : 'none';
-  document.getElementById('navCadastros').style.display = isAdmin ? '' : 'none';
-  document.getElementById('sideCadastros').style.display = isAdmin ? '' : 'none';
-  document.getElementById('tabRelatorio').style.display = isAdmin ? '' : 'none';
-  document.getElementById('navRelatorio').style.display = isAdmin ? '' : 'none';
-  document.getElementById('sideRelatorio').style.display = isAdmin ? '' : 'none';
-  document.getElementById('tabFinanceiro').style.display = isAdmin ? '' : 'none';
-  document.getElementById('navFinanceiro').style.display = isAdmin ? '' : 'none';
-  document.getElementById('sideFinanceiro').style.display = isAdmin ? '' : 'none';
   const podeVerAgenda = podeVerResumo; // mesma regra: todo mundo, exceto usuário comum (sem ser admin do cliente)
-  document.getElementById('tabAgenda').style.display = podeVerAgenda ? '' : 'none';
-  document.getElementById('navAgenda').style.display = podeVerAgenda ? '' : 'none';
-  document.getElementById('sideAgenda').style.display = podeVerAgenda ? '' : 'none';
-  document.querySelectorAll('#mainTabs .tab[data-view="resumo"], #bottomNav .navbtn[data-view="resumo"]').forEach(el=>{ el.style.display = podeVerResumo ? '' : 'none'; });
-  document.getElementById('sideResumo').style.display = podeVerResumo ? '' : 'none';
-  // Cronograma fica disponível pra todo mundo — usuário e atendente veem
-  // só os próprios atendimentos (ou os do cliente, se marcado como admin
-  // do cliente), o filtro é feito dentro de renderGantt()
+
+  // visibilidade de cada menu — usa o Perfil de Acesso vinculado à conta
+  // quando existir (flag "Visualizar"); sem nenhum perfil vinculado, cai
+  // no comportamento padrão de sempre (2º parâmetro)
+  aplicarVisibilidadeMenu('lista', menuVisivel(conta, 'atendimentos', true));
+  aplicarVisibilidadeMenu('novo', menuVisivel(conta, 'atendimentos', true) && (permissaoMenu(conta,'atendimentos')?.inserir ?? true));
+  aplicarVisibilidadeMenu('resumo', menuVisivel(conta, 'resumo', podeVerResumo));
+  aplicarVisibilidadeMenu('gantt', menuVisivel(conta, 'cronograma', true));
+  aplicarVisibilidadeMenu('relatorio', menuVisivel(conta, 'construtor_relatorios', isAdmin));
+  aplicarVisibilidadeMenu('relatoriospub', menuVisivel(conta, 'relatorios', true));
+  aplicarVisibilidadeMenu('financeiro', menuVisivel(conta, 'financeiro', isAdmin));
+  aplicarVisibilidadeMenu('agenda', menuVisivel(conta, 'agenda', podeVerAgenda));
+  aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
+  aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
+  // Cronograma: usuário e atendente veem só os próprios atendimentos (ou
+  // os do cliente, se marcado como admin do cliente) — filtro feito dentro
+  // de renderGantt()
 
   // valores/hora (R$) só aparecem para o admin — atendentes veem só a quantidade de horas
   document.getElementById('stat_ananda').style.display = isAdmin ? '' : 'none';
@@ -473,7 +624,9 @@ function entrarNoApp(){
   renderCadastrosTudo();
   resetForm();
   renderFiltros();
-  goView(isUsuario ? 'lista' : 'novo');
+  const alvoPadrao = isUsuario ? 'lista' : 'novo';
+  const podeAbrirAlvoPadrao = document.querySelector(`.tab[data-view="${alvoPadrao}"]`)?.style.display !== 'none';
+  goView(podeAbrirAlvoPadrao ? alvoPadrao : 'lista');
 }
 
 /* ---------- selects dinâmicos (form Novo) ---------- */
@@ -514,7 +667,7 @@ function popularSelects(){
   document.getElementById('campoHorarios').style.display = isUsuario ? 'none' : '';
 
   // ajuste manual de horas — só o admin tem esse campo
-  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   document.getElementById('campoQtdManual').style.display = isAdmin ? '' : 'none';
 
   // data prevista e vínculo com outro chamado — quem está atendendo é quem define isso
@@ -522,6 +675,8 @@ function popularSelects(){
   if(isUsuario){
     document.getElementById('campoVinculo').style.display = 'none';
     document.getElementById('campoVinculoNovo').style.display = 'none';
+    document.getElementById('campoVideosVinculo').style.display = 'none';
+    document.getElementById('campoVideoVinculoNovo').style.display = 'none';
   }
 }
 function popularUsuariosSolicitantes(){
@@ -601,6 +756,10 @@ function resetForm(){
   document.getElementById('campoVinculoNovo').style.display = '';
   document.getElementById('f_vinculo_busca').value = '';
   document.getElementById('vinculoResultados').innerHTML = '';
+  document.getElementById('campoVideosVinculo').style.display = 'none';
+  document.getElementById('campoVideoVinculoNovo').style.display = '';
+  document.getElementById('f_video_busca').value = '';
+  document.getElementById('videoVinculoResultados').innerHTML = '';
 
   // todo chamado novo abre como PENDENTE e não é escolhível — só aparece
   // o seletor de status quando editando um atendimento já existente
@@ -637,7 +796,7 @@ async function salvarRegistro(){
   const inter = document.getElementById('f_inter').value;
   const hf = document.getElementById('f_hf').value;
   const status = document.getElementById('f_status').value;
-  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   const qtdManualStr = isAdmin ? document.getElementById('f_qtd_manual').value : '';
 
   const btn = document.getElementById('btnSalvar');
@@ -710,6 +869,12 @@ function editar(id){
   document.getElementById('f_vinculo_busca').value = '';
   document.getElementById('vinculoResultados').innerHTML = '';
   recarregarVinculos(r.id, 'listaVinculos', true);
+  document.getElementById('campoVideosVinculo').style.display = '';
+  document.getElementById('campoVideoVinculoNovo').style.display = 'none';
+  document.getElementById('f_video_busca').value = '';
+  document.getElementById('videoVinculoResultados').innerHTML = '';
+  carregarVideosCacheParaVinculo();
+  recarregarVideosVinculados(r.id, 'listaVideosVinculo', true);
   document.getElementById('blocoMovimentacoesEdicao').style.display = '';
   document.getElementById('movTempoWrap_ed').style.display = (contaAtual()?.perfil === 'USUARIO') ? 'none' : '';
   movLimparComposer('_ed');
@@ -756,6 +921,11 @@ function copiarAtendimento(id){
   document.getElementById('campoVinculoNovo').style.display = '';
   document.getElementById('f_vinculo_busca').value = '';
   document.getElementById('vinculoResultados').innerHTML = '';
+  // vídeos vinculados também não são copiados — cada atendimento tem os seus
+  document.getElementById('campoVideosVinculo').style.display = 'none';
+  document.getElementById('campoVideoVinculoNovo').style.display = '';
+  document.getElementById('f_video_busca').value = '';
+  document.getElementById('videoVinculoResultados').innerHTML = '';
   atualizarPreview();
   goView('novo');
   toast('Copiado — ajuste o que precisar e salve como um novo atendimento');
@@ -772,21 +942,53 @@ function pedirConfirmacao(titulo, texto, acao, labelBotao){
 }
 
 /* ---------- lista de lançamentos ---------- */
+function aplicarPeriodoPadraoSeVazio(){
+  const de = document.getElementById('periodo_de');
+  const ate = document.getElementById('periodo_ate');
+  if(de && ate && !de.value && !ate.value){
+    const hoje = new Date();
+    de.value = primeiroDiaMes(hoje);
+    ate.value = ultimoDiaMes(hoje);
+  }
+}
+
 function renderFiltros(){
   const el = document.getElementById('filtros');
   const conta = contaAtual();
+  aplicarPeriodoPadraoSeVazio();
   // usuário não filtra por cliente (só vê o próprio cliente mesmo) — mas
   // status e período são liberados abaixo
   if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; renderFiltrosStatus(); return; }
-  el.innerHTML = `<div class="chip ${filtroCliente.size===0?'on':''}" data-cliente="TODOS">Todos</div>` +
-    clientes.map(c=>`<div class="chip ${filtroCliente.has(c.nome)?'on':''}" data-cliente="${c.nome}">${c.nome}</div>`).join('');
+  el.innerHTML = `
+    <div class="lookup-multi">
+      <div class="lookup-tags" id="filtroClienteTags"></div>
+      <input type="text" id="filtroClienteBusca" placeholder="Filtrar por cliente…" autocomplete="off">
+      <div class="lookup-dropdown" id="filtroClienteDropdown"></div>
+    </div>`;
+  renderFiltroClienteTags();
+  renderFiltroClienteDropdown('');
   renderFiltrosStatus();
+}
+
+function renderFiltroClienteTags(){
+  const el = document.getElementById('filtroClienteTags');
+  if(!el) return;
+  el.innerHTML = [...filtroCliente].map(nome=>`<div class="lookup-tag">${escaparHtml(nome)}<button type="button" data-remover="${escaparHtml(nome)}">×</button></div>`).join('');
+}
+
+function renderFiltroClienteDropdown(termo){
+  const el = document.getElementById('filtroClienteDropdown');
+  if(!el) return;
+  const t = String(termo||'').trim().toLowerCase();
+  const opcoes = clientes.filter(c=> !t || c.nome.toLowerCase().includes(t));
+  if(opcoes.length === 0){ el.innerHTML = `<div class="lookup-dropdown-empty">Nenhum cliente encontrado.</div>`; return; }
+  el.innerHTML = opcoes.map(c=>`<div class="lookup-dropdown-item ${filtroCliente.has(c.nome)?'sel':''}" data-cliente="${escaparHtml(c.nome)}">${filtroCliente.has(c.nome)?'✓ ':''}${escaparHtml(c.nome)}</div>`).join('');
 }
 
 function renderFiltrosStatus(){
   const el = document.getElementById('filtrosStatus');
-  el.innerHTML = `<div class="chip ${filtroStatus==='TODOS'?'on':''}" data-status="TODOS">Todos status</div>` +
-    statusList.map(s=>`<div class="chip ${filtroStatus===s.nome?'on':''}" data-status="${s.nome}">${s.nome}</div>`).join('');
+  el.innerHTML = `<div class="chip ${filtroStatus.size===0?'on':''}" data-status="TODOS">Todos status</div>` +
+    statusList.map(s=>`<div class="chip ${filtroStatus.has(s.nome)?'on':''}" data-status="${s.nome}">${s.nome}</div>`).join('');
 }
 
 function renderLista(){
@@ -800,7 +1002,7 @@ function renderLista(){
   // cliente aqui, senão descarta os atendimentos dos outros do mesmo
   // cliente; mas status e período valem pra ele também
   if(!isUsuario && filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
-  if(filtroStatus !== 'TODOS') itens = itens.filter(r=>r.status===filtroStatus);
+  if(filtroStatus.size > 0) itens = itens.filter(r=>filtroStatus.has(r.status));
   const de = document.getElementById('periodo_de').value;
   const ate = document.getElementById('periodo_ate').value;
   if(de) itens = itens.filter(r=>String(r.data) >= de);
@@ -809,10 +1011,13 @@ function renderLista(){
 
   document.getElementById('filtroPeriodo').style.display = 'grid';
   const verValores = podeVerValores();
-  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
+  const permAt = permissaoMenu(conta, 'atendimentos');
+  const podeEditarBtn = permAt ? permAt.editar : podeEditar;
+  const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
 
-  document.getElementById('linhaSelecionarTodos').style.display = podeEditar ? 'flex' : 'none';
-  if(!podeEditar){ selecionados.clear(); }
+  document.getElementById('linhaSelecionarTodos').style.display = (podeEditarBtn || podeExcluirBtn) ? 'flex' : 'none';
+  if(!podeEditarBtn && !podeExcluirBtn){ selecionados.clear(); }
   atualizarBarraSelecao();
 
   if(itens.length===0){ cont.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum atendimento encontrado.</div>`; return; }
@@ -824,7 +1029,7 @@ function renderLista(){
     const modSub = [r.modulo, r.submodulo].filter(Boolean).join(' · ');
     const contatoAtendente = isUsuario ? contatoDoAtendente(r.atendente) : '';
     const clicavel = podeUsarChat(r);
-    const checkbox = podeEditar ? `<input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="event.stopPropagation();toggleSelecao('${r.id}', this.checked)" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">` : '';
+    const checkbox = (podeEditarBtn || podeExcluirBtn) ? `<input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="event.stopPropagation();toggleSelecao('${r.id}', this.checked)" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">` : '';
     return `
     <div class="item" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''}>
       <div class="top">
@@ -832,7 +1037,7 @@ function renderLista(){
         <div><div class="cliente">${r.cliente} · ${r.usuario}</div>
         <div class="data">${dataFmt} · ${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (int. '+r.inter+')' : ''}</div></div>
         ${checkbox ? `</div></div>` : '</div>'}
-        <span class="tag status-${r.status}">${r.status}</span>
+        <span class="tag status-${statusSlug(r.status)}">${r.status}</span>
       </div>
       ${modSub ? `<div class="detalhe" style="color:var(--accent);font-weight:600;">${modSub}</div>` : ''}
       ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe).slice(0,140))}${stripHtml(r.detalhe).length>140?'…':''}</div>` : ''}
@@ -849,10 +1054,10 @@ function renderLista(){
         <span class="v1">Atendente: ${fmtMoeda(Number(r.totalAnanda))}</span>
         <span class="v2">${fmtMoeda(Number(r.totalReal))}</span>
       </div>` : ''}
-      ${podeEditar ? `
+      ${(podeEditarBtn || podeExcluirBtn) ? `
       <div class="item-actions">
-        <button class="ghost" onclick="event.stopPropagation();editar('${r.id}')">Editar</button>
-        <button class="ghost" onclick="event.stopPropagation();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">Excluir</button>
+        ${podeEditarBtn ? `<button class="ghost" onclick="event.stopPropagation();editar('${r.id}')">Editar</button>` : ''}
+        ${podeExcluirBtn ? `<button class="ghost" onclick="event.stopPropagation();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">Excluir</button>` : ''}
         ${isAdmin ? `<button class="ghost" onclick="event.stopPropagation();copiarAtendimento('${r.id}')">Copiar</button>` : ''}
         ${clicavel ? `<button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button>` : ''}
       </div>` : (clicavel ? `
@@ -891,7 +1096,7 @@ function renderResumo(){
   popularMeses();
   const mes = document.getElementById('r_mes').value;
   const conta = contaAtual();
-  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   const isAtendente = conta && conta.perfil === 'ATENDENTE';
   let itens = atendimentos.filter(r=>r.mes===mes);
 
@@ -975,7 +1180,7 @@ function renderResumo(){
   const totalItens = itens.length || 1;
   const linhasStatus = Object.entries(statusCount).map(([k,v])=>{
     const pct = ((v/totalItens)*100).toFixed(0);
-    return `<tr><td><span class="tag status-${k}">${k}</span></td><td>${v}</td><td>${pct}%</td></tr>`;
+    return `<tr><td><span class="tag status-${statusSlug(k)}">${k}</span></td><td>${v}</td><td>${pct}%</td></tr>`;
   }).join('');
   document.getElementById('resumoStatus').innerHTML = `<tr><th>Status</th><th>Qtd.</th><th>%</th></tr>${linhasStatus}`;
 }
@@ -1076,7 +1281,7 @@ function renderGantt(){
     return `<div class="gantt-row">
       <div class="gantt-label" title="${escaparHtml(label)}">${escaparHtml(label)}</div>
       <div class="gantt-track">
-        <div class="gantt-bar status-${r.status} ${semPrevisao?'gantt-bar-sem-previsao':''}" style="left:${left}%;width:${width}%;" title="${escaparHtml(tituloBarra)}" onclick="abrirDetalhe('${r.id}')"></div>
+        <div class="gantt-bar status-${statusSlug(r.status)} ${semPrevisao?'gantt-bar-sem-previsao':''}" style="left:${left}%;width:${width}%;" title="${escaparHtml(tituloBarra)}" onclick="abrirDetalhe('${r.id}')"></div>
       </div>
     </div>`;
   }).join('');
@@ -1104,7 +1309,7 @@ function gerarPdfResumo(){
   const conta = contaAtual();
   const mesTexto = document.getElementById('r_mes').selectedOptions[0]?.textContent || '';
   const partes = [`Mês: ${mesTexto}`];
-  if(conta && conta.perfil === 'ADMIN' && filtroResumoAtendente !== 'TODOS') partes.push(`Atendente: ${filtroResumoAtendente}`);
+  if(ehAdminEfetivo(conta) && filtroResumoAtendente !== 'TODOS') partes.push(`Atendente: ${filtroResumoAtendente}`);
   if((conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE')) && filtroResumoCliente.size > 0) partes.push(`Cliente: ${[...filtroResumoCliente].join(', ')}`);
   prepararImpressao('Resumo de Atendimentos', partes.join(' · '));
 }
@@ -1112,7 +1317,7 @@ function gerarPdfResumo(){
 function gerarPdfLista(){
   const partes = [];
   if(filtroCliente.size > 0) partes.push(`Cliente: ${[...filtroCliente].join(', ')}`);
-  if(filtroStatus !== 'TODOS') partes.push(`Status: ${filtroStatus}`);
+  if(filtroStatus.size > 0) partes.push(`Status: ${[...filtroStatus].join(', ')}`);
   const de = document.getElementById('periodo_de').value;
   const ate = document.getElementById('periodo_ate').value;
   if(de || ate) partes.push(`Período: ${de || '(início)'} a ${ate || '(hoje)'}`);
@@ -2117,7 +2322,7 @@ function popularSelectsAgenda(){
   selClienteEdit.innerHTML = `<option value="">(nenhum)</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
 
   const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
-  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   document.getElementById('campoAgendaAtendente').style.display = isAdmin ? '' : 'none';
   document.getElementById('campoAgendaEditAtendente').style.display = isAdmin ? '' : 'none';
   document.getElementById('campoAgendaFiltroAtendente').style.display = isAdmin ? '' : 'none';
@@ -2369,7 +2574,7 @@ async function criarAgendamento(){
   const horaFim = document.getElementById('ag_hora_fim').value;
   if(!titulo || !dataInicial || !horaInicio || !horaFim){ toast('Preencha título, data e os dois horários'); return; }
 
-  const isAdmin = conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   const cliente = document.getElementById('ag_cliente').value;
   const atendente = isAdmin ? document.getElementById('ag_atendente').value : conta.nome;
   const descricao = sanitizarHtml(document.getElementById('ag_descricao').innerHTML.trim());
@@ -2434,7 +2639,7 @@ function abrirEditarAgendamento(id){
   document.getElementById('ag_editar_google').href = linkGoogleAgenda(a);
   document.getElementById('ag_edit_cor').value = a.cor || '';
   renderSeletorCores('ag_cores_edit', a.cor || '');
-  if(conta.perfil === 'ADMIN') document.getElementById('ag_edit_atendente').value = a.atendente || '';
+  if(ehAdminEfetivo(conta)) document.getElementById('ag_edit_atendente').value = a.atendente || '';
   document.getElementById('editarAgendamentoModal').classList.add('show');
 }
 function fecharEditarAgendamento(){
@@ -2452,7 +2657,7 @@ async function confirmarEdicaoAgendamento(){
     horaFim: document.getElementById('ag_edit_hora_fim').value,
     descricao: sanitizarHtml(document.getElementById('ag_edit_descricao').innerHTML.trim()),
     cor: document.getElementById('ag_edit_cor').value,
-    ...(conta.perfil === 'ADMIN' ? { atendente: document.getElementById('ag_edit_atendente').value } : {}),
+    ...(ehAdminEfetivo(conta) ? { atendente: document.getElementById('ag_edit_atendente').value } : {}),
   });
   if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
   fecharEditarAgendamento();
@@ -2472,7 +2677,7 @@ async function excluirAgendamento(id){
 function exportarCsv(){
   const mes = document.getElementById('r_mes').value;
   const conta = contaAtual();
-  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   const isAtendente = conta && conta.perfil === 'ATENDENTE';
 
   // mesmos filtros aplicados na tela do Resumo — senão o CSV sai com tudo,
@@ -2503,7 +2708,85 @@ function exportarCsv(){
 
 /* ================= CADASTROS (somente ADMIN) ================= */
 function renderCadastrosTudo(){
-  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios();
+  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso();
+  renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
+  renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
+}
+
+/* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
+function renderMatrizPerfil(permissoesAtuais){
+  const tbody = document.querySelector('#pa_matriz tbody');
+  const perm = permissoesAtuais || {};
+  tbody.innerHTML = MENUS_PERFIL_ACESSO.map(({chave,label})=>{
+    const p = perm[chave] || {};
+    const cel = (campo)=>`<td><input type="checkbox" data-menu="${chave}" data-campo="${campo}" ${p[campo]?'checked':''}></td>`;
+    return `<tr><td>${label}</td>${cel('visualizar')}${cel('editar')}${cel('excluir')}${cel('inserir')}</tr>`;
+  }).join('');
+}
+function lerMatrizPerfil(){
+  const permissoes = {};
+  MENUS_PERFIL_ACESSO.forEach(({chave})=>{ permissoes[chave] = {visualizar:false, editar:false, excluir:false, inserir:false}; });
+  document.querySelectorAll('#pa_matriz input[type=checkbox]').forEach(chk=>{
+    permissoes[chk.dataset.menu][chk.dataset.campo] = chk.checked;
+  });
+  return permissoes;
+}
+function renderListPerfisAcesso(){
+  const el = document.getElementById('listPerfisAcesso');
+  if(!el) return;
+  if(perfisAcesso.length === 0){ el.innerHTML = `<div class="empty">Nenhum perfil de acesso cadastrado.</div>`; return; }
+  el.innerHTML = perfisAcesso.map(p=>{
+    const qtdContas = contas.filter(c=>(c.perfisAcessoIds||[]).includes(p.id)).length;
+    return `
+    <div class="cad-item" style="cursor:pointer;" onclick="editarPerfilAcesso('${p.id}')">
+      <div class="info"><b>${escaparHtml(p.nome)}</b><span>${qtdContas} conta${qtdContas===1?'':'s'} vinculada${qtdContas===1?'':'s'}</span></div>
+      <div class="acts"><button class="danger" onclick="event.stopPropagation();pedirConfirmacao('Remover perfil de acesso?','As contas vinculadas a ele voltam ao acesso padrão do perfil (Atendente/Usuário).', ()=>removerPerfilAcessoUi('${p.id}'))">Remover</button></div>
+    </div>`;
+  }).join('');
+}
+function limparFormPerfilAcesso(){
+  editandoPerfilAcessoId = null;
+  document.getElementById('pa_tituloForm').textContent = 'Novo perfil de acesso';
+  document.getElementById('pa_nome').value = '';
+  renderMatrizPerfil({});
+  document.getElementById('btnAddPerfilAcesso').textContent = 'Adicionar perfil';
+  document.getElementById('btnCancelarEdicaoPerfilAcesso').style.display = 'none';
+}
+function editarPerfilAcesso(id){
+  const p = perfisAcesso.find(x=>String(x.id)===String(id));
+  if(!p) return;
+  editandoPerfilAcessoId = id;
+  document.getElementById('pa_tituloForm').textContent = `Editando: ${p.nome}`;
+  document.getElementById('pa_nome').value = p.nome;
+  renderMatrizPerfil(p.permissoes);
+  document.getElementById('btnAddPerfilAcesso').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoPerfilAcesso').style.display = '';
+  document.getElementById('pa_nome').scrollIntoView({behavior:'smooth', block:'start'});
+}
+async function removerPerfilAcessoUi(id){
+  const conta = contaAtual();
+  const r = await api('removerPerfilAcesso', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  if(editandoPerfilAcessoId === id) limparFormPerfilAcesso();
+  await carregarTudo();
+  renderListPerfisAcesso();
+  renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
+  renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
+  toast('Perfil removido');
+}
+
+// checkboxes de perfis de acesso usados nos formulários de Atendente/Usuário
+function renderPerfisAcessoCheckboxes(containerId, idsMarcados){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const marcados = new Set(idsMarcados || []);
+  if(perfisAcesso.length === 0){ el.innerHTML = `<div class="empty">Nenhum perfil de acesso cadastrado ainda — crie um na aba "Perfis de Acesso".</div>`; return; }
+  el.innerHTML = perfisAcesso.map(p=>`
+    <label><input type="checkbox" value="${p.id}" ${marcados.has(p.id)?'checked':''}> ${escaparHtml(p.nome)}</label>
+  `).join('');
+}
+function lerPerfisAcessoMarcados(containerId){
+  return [...document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`)].map(c=>c.value);
 }
 
 function renderListAtendentes(){
@@ -2512,9 +2795,10 @@ function renderListAtendentes(){
   if(lista.length===0){ el.innerHTML = `<div class="empty">Nenhum atendente cadastrado.</div>`; return; }
   el.innerHTML = lista.map(a=>{
     const contatos = linhaContatos(a.email, a.telefone);
+    const selo = a.ehAdministrador ? ` <span class="tag" style="color:var(--accent);">administrador</span>` : '';
     return `
     <div class="cad-item" style="cursor:pointer;" onclick="editarAtendente('${a.id}')">
-      <div class="info"><b>${a.nome}</b><span>login: ${a.login}</span>${contatos}</div>
+      <div class="info"><b>${a.nome}</b>${selo}<span>login: ${a.login}</span>${contatos}</div>
       <div class="acts"><button class="danger" onclick="event.stopPropagation();pedirConfirmacao('Remover atendente?','${a.nome} perderá acesso ao sistema.', ()=>removerConta('${a.id}'))">Remover</button></div>
     </div>`;
   }).join('');
@@ -2540,6 +2824,8 @@ function editarAtendente(id){
   document.getElementById('at_senha_hint').style.display = '';
   document.getElementById('at_email').value = a.email || '';
   document.getElementById('at_telefone').value = a.telefone || '';
+  document.getElementById('at_administrador').checked = !!a.ehAdministrador;
+  renderPerfisAcessoCheckboxes('at_perfis_acesso', a.perfisAcessoIds||[]);
   document.getElementById('btnAddAtendente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoAtendente').style.display = '';
   document.getElementById('at_nome').scrollIntoView({behavior:'smooth', block:'start'});
@@ -2554,6 +2840,8 @@ function cancelarEdicaoAtendente(){
   document.getElementById('at_senha_hint').style.display = 'none';
   document.getElementById('at_email').value = '';
   document.getElementById('at_telefone').value = '';
+  document.getElementById('at_administrador').checked = false;
+  renderPerfisAcessoCheckboxes('at_perfis_acesso', []);
   document.getElementById('btnAddAtendente').textContent = 'Adicionar atendente';
   document.getElementById('btnCancelarEdicaoAtendente').style.display = 'none';
 }
@@ -2655,7 +2943,7 @@ async function carregarVideos(){
 
 function renderListaVideos(){
   const conta = contaAtual();
-  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const isAdmin = ehAdminEfetivo(conta);
   const cont = document.getElementById('listaVideos');
   let itens = videosCache.slice();
   if(vidFiltroModulo !== 'TODOS') itens = itens.filter(v=>v.modulo === vidFiltroModulo);
@@ -2795,7 +3083,7 @@ function renderComentariosVideo(videoId){
   const listaHtml = comentarios.length === 0
     ? `<div style="color:var(--muted);font-size:11.5px;">Nenhum comentário ainda.</div>`
     : comentarios.map(c=>{
-        const podeExcluir = conta && (conta.perfil === 'ADMIN' || conta.nome === c.autorNome);
+        const podeExcluir = conta && (ehAdminEfetivo(conta) || conta.nome === c.autorNome);
         return `<div class="vid-comentario-item">
           <div class="vid-comentario-topo">
             <span class="vid-comentario-nome">${escaparHtml(c.autorNome)}</span>
@@ -3008,6 +3296,7 @@ function editarUsuario(id){
   document.getElementById('us_email').value = u.email || '';
   document.getElementById('us_telefone').value = u.telefone || '';
   document.getElementById('us_admin_cliente').checked = !!u.adminCliente;
+  renderPerfisAcessoCheckboxes('us_perfis_acesso', u.perfisAcessoIds||[]);
   document.getElementById('btnAddUsuario').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoUsuario').style.display = '';
 
@@ -3021,7 +3310,7 @@ function editarUsuario(id){
       const [y,m,d] = String(r.data).split('-');
       return `<div class="cad-item" style="cursor:default;">
         <div class="info"><b>${d}/${m}/${y} · ${labelTipo(r.tipo)}</b><span>${r.atendente} · ${r.qtd ? Number(r.qtd).toFixed(2).replace('.',',')+'h' : ''}</span></div>
-        <span class="tag status-${r.status}">${r.status}</span>
+        <span class="tag status-${statusSlug(r.status)}">${r.status}</span>
       </div>`;
     }).join('');
   }
@@ -3039,6 +3328,7 @@ function cancelarEdicaoUsuario(){
   document.getElementById('us_email').value = '';
   document.getElementById('us_telefone').value = '';
   document.getElementById('us_admin_cliente').checked = false;
+  renderPerfisAcessoCheckboxes('us_perfis_acesso', []);
   document.getElementById('btnAddUsuario').textContent = 'Adicionar usuário';
   document.getElementById('btnCancelarEdicaoUsuario').style.display = 'none';
   document.getElementById('historicoUsuarioCard').style.display = 'none';
@@ -3085,17 +3375,20 @@ async function abrirDetalhe(atendimentoId){
     ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);display:block;margin-bottom:4px;">Solução:</b><div class="rt-content">${sanitizarHtml(r.solucao)}</div></div>` : ''}
   `;
   document.getElementById('chatVinculosWrap').style.display = 'none';
+  document.getElementById('chatVideosWrap').style.display = 'none';
   document.getElementById('chatAnexosLista').innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('movLista').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   movLimparComposer('');
   document.getElementById('movTempoWrap').style.display = (isUsuario) ? 'none' : '';
   document.getElementById('chatModal').classList.add('show');
+  if(!isUsuario) carregarVideosCacheParaVinculo();
   await Promise.all([
     carregarHistorico(),
     carregarMovimentacoes(atendimentoId, ''),
     carregarAnexosDetalhe(atendimentoId, !isUsuario),
     carregarVinculosDetalhe(atendimentoId, !isUsuario),
+    carregarVideosDetalhe(atendimentoId, !isUsuario),
   ]);
 }
 
@@ -3126,6 +3419,18 @@ async function carregarVinculosDetalhe(atendimentoId, podeGerenciar){
       document.getElementById('chatVinculos').appendChild(totalEl);
     }
   }catch(e){ /* silencioso — vínculo é informação complementar */ }
+}
+
+async function carregarVideosDetalhe(atendimentoId, podeGerenciar){
+  const wrap = document.getElementById('chatVideosWrap');
+  document.getElementById('chatVideoVinculoAdd').style.display = podeGerenciar ? '' : 'none';
+  try{
+    const r = await recarregarVideosVinculados(atendimentoId, 'chatVideosVinculo', podeGerenciar);
+    if(!r) { wrap.style.display = podeGerenciar ? '' : 'none'; return; }
+    const temVideos = r.videos && r.videos.length > 0;
+    // sem gerência (usuário) e sem nenhum vídeo, não mostra a seção — pra quem gerencia, mostra sempre (pra poder adicionar)
+    wrap.style.display = (podeGerenciar || temVideos) ? '' : 'none';
+  }catch(e){ /* silencioso — vídeo vinculado é informação complementar */ }
 }
 
 function fecharChat(){
@@ -3229,7 +3534,7 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
   cont.innerHTML = estado.cache.map(m=>{
     const citada = m.respondendoA ? estado.cache.find(x=>x.id===m.respondendoA) : null;
     const tempoTexto = (m.tempoInicio && m.tempoFim) ? movResumoTempo(m.tempoInicio, m.tempoFim) : '';
-    const podeGerenciar = !bloqueado && conta && (conta.perfil === 'ADMIN' || conta.nome === m.autorNome);
+    const podeGerenciar = !bloqueado && conta && (ehAdminEfetivo(conta) || conta.nome === m.autorNome);
     return `<div class="mov-item">
       ${citada ? `<div class="mov-respondendo-item">Em resposta a <b>${escaparHtml(citada.autorNome)}</b>: "${escaparHtml(stripHtml(citada.texto).slice(0,60))}"</div>` : ''}
       <div class="mov-topo">
@@ -3526,9 +3831,11 @@ function goView(name){
   }
   if(name==='videos'){
     const contaVid = contaAtual();
-    const isAdminVid = contaVid && contaVid.perfil === 'ADMIN';
-    document.getElementById('cardNovoVideo').style.display = isAdminVid ? '' : 'none';
-    if(isAdminVid){ popularSelectsVideo(); limparFormVideo(); }
+    const isAdminVid = ehAdminEfetivo(contaVid);
+    const permVid = permissaoMenu(contaVid, 'videos');
+    const podeInserirVid = permVid ? permVid.inserir : isAdminVid;
+    document.getElementById('cardNovoVideo').style.display = podeInserirVid ? '' : 'none';
+    if(podeInserirVid){ popularSelectsVideo(); limparFormVideo(); }
     vidFiltroModulo = 'TODOS';
     carregarVideos();
   }
@@ -3567,6 +3874,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   configurarBuscaVinculo('f_vinculo_busca_detalhe', 'vinculoResultadosDetalhe', ()=>chatAtendimentoId, (outroId)=>{
     adicionarVinculoAgora(chatAtendimentoId, outroId, 'chatVinculos', chatPodeRemoverVinculo);
+  });
+  configurarBuscaVideo('f_video_busca', 'videoVinculoResultados', ()=>videosVinculadosPorContainer['listaVideosVinculo']||[], (videoId)=>{
+    adicionarVideoVinculoAgora(editandoId, videoId, 'listaVideosVinculo', true);
+  });
+  configurarBuscaVideo('f_video_busca_detalhe', 'videoVinculoResultadosDetalhe', ()=>videosVinculadosPorContainer['chatVideosVinculo']||[], (videoId)=>{
+    adicionarVideoVinculoAgora(chatAtendimentoId, videoId, 'chatVideosVinculo', chatPodeRemoverVinculo);
   });
 
   document.getElementById('f_cliente').addEventListener('change', ()=>{ popularUsuariosSolicitantes(); atualizarPreview(); });
@@ -3712,16 +4025,47 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('r_mes').addEventListener('change', renderResumo);
   document.getElementById('r_atendente').addEventListener('change', e=>{ filtroResumoAtendente = e.target.value; renderResumo(); });
 
+  document.getElementById('filtros').addEventListener('mousedown', e=>{
+    // evita que o clique num item/remover tire o foco do input antes da
+    // hora — sem isso, o "focusout" já esconderia o dropdown a cada
+    // seleção, impedindo escolher mais de um cliente em sequência
+    if(e.target.closest('.lookup-dropdown-item') || e.target.closest('[data-remover]')) e.preventDefault();
+  });
   document.getElementById('filtros').addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    if(chip.dataset.cliente === 'TODOS'){ filtroCliente.clear(); }
-    else{ if(filtroCliente.has(chip.dataset.cliente)) filtroCliente.delete(chip.dataset.cliente); else filtroCliente.add(chip.dataset.cliente); }
-    renderFiltros();
-    renderLista();
+    const item = e.target.closest('.lookup-dropdown-item');
+    if(item){
+      const nome = item.dataset.cliente;
+      if(filtroCliente.has(nome)) filtroCliente.delete(nome); else filtroCliente.add(nome);
+      renderFiltroClienteTags();
+      renderFiltroClienteDropdown(document.getElementById('filtroClienteBusca').value);
+      renderLista();
+      return;
+    }
+    const btnRemover = e.target.closest('[data-remover]');
+    if(btnRemover){
+      filtroCliente.delete(btnRemover.dataset.remover);
+      renderFiltroClienteTags();
+      renderFiltroClienteDropdown(document.getElementById('filtroClienteBusca')?.value || '');
+      renderLista();
+    }
+  });
+  document.getElementById('filtros').addEventListener('input', e=>{
+    if(e.target.id === 'filtroClienteBusca') renderFiltroClienteDropdown(e.target.value);
+  });
+  document.getElementById('filtros').addEventListener('focusin', e=>{
+    if(e.target.id !== 'filtroClienteBusca') return;
+    renderFiltroClienteDropdown(e.target.value);
+    document.getElementById('filtroClienteDropdown').classList.add('show');
+  });
+  document.getElementById('filtros').addEventListener('focusout', e=>{
+    if(e.target.id !== 'filtroClienteBusca') return;
+    // atraso pequeno pra dar tempo do clique num item do dropdown ser
+    // processado antes dele sumir (senão o blur esconde antes do click)
+    setTimeout(()=>{ const dd = document.getElementById('filtroClienteDropdown'); if(dd) dd.classList.remove('show'); }, 150);
   });
   document.getElementById('filtrosStatus').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
-    filtroStatus = chip.dataset.status;
+    toggleFiltroMultiplo(filtroStatus, chip.dataset.status);
     renderFiltrosStatus();
     renderLista();
   });
@@ -3811,17 +4155,22 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const senha = document.getElementById('at_senha').value;
     const email = document.getElementById('at_email').value.trim();
     const telefone = document.getElementById('at_telefone').value.trim();
+    const ehAdministrador = document.getElementById('at_administrador').checked;
+    const perfisMarcados = lerPerfisAcessoMarcados('at_perfis_acesso');
     if(!nome || !login){ toast('Preencha nome e login'); return; }
     if(!editandoAtendenteId && !senha){ toast('Informe uma senha'); return; }
 
     let r;
     const editando = !!editandoAtendenteId;
     if(editando){
-      r = await api('atualizarConta', { id: editandoAtendenteId, nome: nome.toUpperCase(), login, senha, email, telefone });
+      r = await api('atualizarConta', { id: editandoAtendenteId, nome: nome.toUpperCase(), login, senha, email, telefone, ehAdministrador });
     }else{
-      r = await api('addAtendente', { nome: nome.toUpperCase(), login, senha, email, telefone });
+      r = await api('addAtendente', { nome: nome.toUpperCase(), login, senha, email, telefone, ehAdministrador });
     }
     if(!r.ok) return;
+    const contaAlvoId = editando ? editandoAtendenteId : r.conta.id;
+    const conta = contaAtual();
+    await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
     cancelarEdicaoAtendente();
     await carregarTudo(); renderListAtendentes(); popularSelects();
     toast(editando ? 'Atendente atualizado' : 'Atendente adicionado');
@@ -3932,6 +4281,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const email = document.getElementById('us_email').value.trim();
     const telefone = document.getElementById('us_telefone').value.trim();
     const adminCliente = document.getElementById('us_admin_cliente').checked;
+    const perfisMarcados = lerPerfisAcessoMarcados('us_perfis_acesso');
     if(!clienteId || !nome || !login){ toast('Preencha todos os campos'); return; }
     if(!editandoUsuarioId && !senha){ toast('Informe uma senha'); return; }
 
@@ -3943,11 +4293,29 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       r = await api('addUsuario', { nome: nome.toUpperCase(), login, senha, clienteId, email, telefone, adminCliente });
     }
     if(!r.ok) return;
+    const contaAlvoId = editando ? editandoUsuarioId : r.conta.id;
+    const conta = contaAtual();
+    await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
     cancelarEdicaoUsuario();
     await carregarTudo(); renderListUsuarios(); popularSelects();
     toast(editando ? 'Usuário atualizado' : 'Usuário adicionado');
   });
   document.getElementById('btnCancelarEdicaoUsuario').addEventListener('click', cancelarEdicaoUsuario);
+
+  limparFormPerfilAcesso();
+  document.getElementById('btnAddPerfilAcesso').addEventListener('click', async ()=>{
+    const nome = document.getElementById('pa_nome').value.trim();
+    if(!nome){ toast('Dê um nome ao perfil'); return; }
+    const permissoes = lerMatrizPerfil();
+    const conta = contaAtual();
+    const editando = !!editandoPerfilAcessoId;
+    const r = await api('salvarPerfilAcesso', { contaId: conta.id, id: editandoPerfilAcessoId, nome, permissoes });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    limparFormPerfilAcesso();
+    await carregarTudo(); renderCadastrosTudo();
+    toast(editando ? 'Perfil atualizado' : 'Perfil criado');
+  });
+  document.getElementById('btnCancelarEdicaoPerfilAcesso').addEventListener('click', limparFormPerfilAcesso);
 
   document.getElementById('modalCancel').addEventListener('click', ()=>{ document.getElementById('modalBg').classList.remove('show'); excluindoAcao=null; });
   document.getElementById('modalConfirm').addEventListener('click', async ()=>{
