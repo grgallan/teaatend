@@ -14,7 +14,7 @@
   :root{
     --bg:#F4F6F8; --panel:#FFFFFF; --panel-2:#EEF1F4; --line:#DCE2E8;
     --text:#1B222A; --muted:#5B6B7A; --accent:#D68A1F; --accent-dim:#FBEBD1;
-    --ok:#2F9E63; --warn:#D68A1F; --bad:#D6473F; --radius:14px;
+    --ok:#2F9E63; --warn:#D68A1F; --bad:#D6473F; --yellow:#D6B01F; --blue:#2F86D6; --radius:14px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -80,6 +80,35 @@
   .chip{white-space:nowrap;padding:7px 13px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-size:12.5px;color:var(--muted);font-weight:600;}
   .chip.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
 
+  /* lookup multi-seleção (ex: filtro de Cliente em Atendimentos) — campo de
+     busca com as opções escolhidas exibidas como tags removíveis */
+  .lookup-multi{position:relative;margin-bottom:12px;}
+  .lookup-tags{display:flex;flex-wrap:wrap;gap:6px;}
+  .lookup-tags:not(:empty){margin-bottom:8px;}
+  .lookup-tag{display:inline-flex;align-items:center;gap:4px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:5px 6px 5px 12px;font-size:12.5px;font-weight:600;}
+  .lookup-tag button{background:none;border:none;color:var(--accent);font-size:15px;line-height:1;cursor:pointer;padding:2px 4px;font-family:inherit;}
+  .lookup-dropdown{position:absolute;top:100%;left:0;right:0;z-index:15;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:0 8px 20px rgba(0,0,0,.18);display:none;}
+  .lookup-dropdown.show{display:block;}
+  .lookup-dropdown-item{padding:10px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line);}
+  .lookup-dropdown-item:last-child{border-bottom:none;}
+  .lookup-dropdown-item:hover{background:var(--panel-2);}
+  .lookup-dropdown-item.sel{color:var(--accent);font-weight:700;background:var(--accent-dim);}
+  .lookup-dropdown-empty{padding:10px 12px;font-size:12.5px;color:var(--muted);}
+
+  /* matriz de permissões dos Perfis de Acesso (menu x V/E/D/I) */
+  .perfil-matriz-wrap{overflow-x:auto;margin-bottom:14px;border:1px solid var(--line);border-radius:10px;}
+  table.perfil-matriz{width:100%;border-collapse:collapse;font-size:12.5px;white-space:nowrap;}
+  table.perfil-matriz th,table.perfil-matriz td{padding:9px 12px;text-align:center;border-bottom:1px solid var(--line);}
+  table.perfil-matriz th{color:var(--muted);font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.05em;background:var(--panel-2);}
+  table.perfil-matriz td:first-child,table.perfil-matriz th:first-child{text-align:left;font-weight:600;color:var(--text);}
+  table.perfil-matriz tr:last-child td{border-bottom:none;}
+  table.perfil-matriz input[type=checkbox]{width:17px;height:17px;}
+
+  /* lista de perfis de acesso marcáveis, dentro do cadastro de atendente/usuário */
+  .perfis-lista{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+  .perfis-lista label{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text);font-weight:400;margin:0;cursor:pointer;}
+  .perfis-lista .empty{padding:8px 0;font-size:12px;color:var(--muted);}
+
   .summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
   .summary .box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;}
   .summary .box .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
@@ -94,6 +123,9 @@
   .tag{font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--muted);font-weight:600;}
   .tag.status-VALIDADO{background:#173425;color:var(--ok);}
   .tag.status-PENDENTE{background:#3A2E12;color:var(--warn);}
+  .tag.status-EM-ANDAMENTO{background:#3A3512;color:var(--yellow);}
+  .tag.status-EM-VALIDACAO{background:#122B3A;color:var(--blue);}
+  .tag.status-CANCELADO{background:#3A1918;color:var(--bad);}
   .tag.status-NÃO\ VALIDADO{background:#3A1918;color:var(--bad);}
   .item .valores{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
   .item .valores .v1{font-size:12px;color:var(--muted);}
@@ -210,6 +242,9 @@
   .gantt-bar{position:absolute;top:2px;height:18px;border-radius:5px;background:var(--accent);cursor:pointer;min-width:6px;}
   .gantt-bar.status-PENDENTE{background:var(--warn);}
   .gantt-bar.status-VALIDADO{background:var(--ok);}
+  .gantt-bar.status-EM-ANDAMENTO{background:var(--yellow);}
+  .gantt-bar.status-EM-VALIDACAO{background:var(--blue);}
+  .gantt-bar.status-CANCELADO{background:var(--bad);}
   .gantt-bar.status-NÃO\ VALIDADO{background:var(--bad);}
   .gantt-bar-sem-previsao{opacity:.55;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.3),rgba(255,255,255,.3) 3px,transparent 3px,transparent 6px);}
   .install-banner{background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:none;align-items:center;gap:10px;justify-content:space-between;}
@@ -564,6 +599,16 @@
       <div class="field" id="campoVinculoNovo" style="display:none;">
         <label>Chamados vinculados</label>
         <p style="color:var(--muted);font-size:11.5px;margin:0;">Depois de salvar, dá pra vincular a outros chamados ao editar este atendimento.</p>
+      </div>
+      <div class="field" id="campoVideosVinculo" style="display:none;">
+        <label>Vídeos vinculados</label>
+        <div id="listaVideosVinculo"></div>
+        <input type="text" id="f_video_busca" placeholder="Buscar vídeo por título pra vincular...">
+        <div id="videoVinculoResultados" style="margin-top:6px;"></div>
+      </div>
+      <div class="field" id="campoVideoVinculoNovo" style="display:none;">
+        <label>Vídeos vinculados</label>
+        <p style="color:var(--muted);font-size:11.5px;margin:0;">Depois de salvar, dá pra vincular vídeos/tutoriais ao editar este atendimento.</p>
       </div>
       <div class="field" id="campoAnexoNovo">
         <label>Anexo (opcional)</label>
@@ -981,6 +1026,7 @@
       <div class="subtab" data-sub="status">Status</div>
       <div class="subtab" data-sub="valores">Valores</div>
       <div class="subtab" data-sub="usuarios">Usuários (login)</div>
+      <div class="subtab" data-sub="perfisacesso">Perfis de Acesso</div>
     </div>
 
     <div class="cad-view active" id="cad-atendentes">
@@ -994,6 +1040,13 @@
         <div class="row">
           <div class="field"><label>E-mail (opcional)</label><input type="text" id="at_email" placeholder="nome@empresa.com"></div>
           <div class="field"><label>Celular (opcional)</label><input type="text" id="at_telefone" placeholder="11 99999-9999"></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer;margin-bottom:14px;">
+          <input type="checkbox" id="at_administrador"> Administrador — tem acesso total ao sistema (Cadastros, Financeiro, Relatórios, etc.), além de continuar disponível como atendente
+        </label>
+        <div class="field">
+          <label>Perfis de acesso vinculados (opcional)</label>
+          <div id="at_perfis_acesso" class="perfis-lista"></div>
         </div>
         <button class="primary" id="btnAddAtendente">Adicionar atendente</button>
         <button class="ghost" id="btnCancelarEdicaoAtendente" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
@@ -1102,6 +1155,10 @@
         <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer;margin-bottom:14px;">
           <input type="checkbox" id="us_admin_cliente"> Administrador do cliente — vê todos os atendimentos do cliente, não só os próprios
         </label>
+        <div class="field">
+          <label>Perfis de acesso vinculados (opcional)</label>
+          <div id="us_perfis_acesso" class="perfis-lista"></div>
+        </div>
         <button class="primary" id="btnAddUsuario">Adicionar usuário</button>
         <button class="ghost" id="btnCancelarEdicaoUsuario" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
@@ -1110,6 +1167,24 @@
         <div id="historicoUsuario"></div>
       </div>
       <div id="listUsuarios"></div>
+    </div>
+
+    <div class="cad-view" id="cad-perfisacesso" style="display:none;">
+      <div class="card">
+        <h2 id="pa_tituloForm">Novo perfil de acesso</h2>
+        <div class="field"><label>Nome do perfil</label><input type="text" id="pa_nome" placeholder="Ex: Atendente Nível 1"></div>
+        <div class="perfil-matriz-wrap">
+          <table class="perfil-matriz" id="pa_matriz">
+            <thead>
+              <tr><th>Menu</th><th>Visualizar</th><th>Editar</th><th>Excluir</th><th>Inserir</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button class="primary" id="btnAddPerfilAcesso">Adicionar perfil</button>
+        <button class="ghost" id="btnCancelarEdicaoPerfilAcesso" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div id="listPerfisAcesso"></div>
     </div>
   </section>
 </main>
@@ -1152,6 +1227,14 @@
       <div id="chatVinculoAdd" style="display:none;margin-top:8px;">
         <input type="text" id="f_vinculo_busca_detalhe" placeholder="Buscar chamado pra vincular...">
         <div id="vinculoResultadosDetalhe" style="margin-top:6px;"></div>
+      </div>
+    </div>
+    <div id="chatVideosWrap" style="display:none;margin-bottom:10px;">
+      <div style="font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;margin-bottom:4px;">Vídeos vinculados</div>
+      <div id="chatVideosVinculo"></div>
+      <div id="chatVideoVinculoAdd" style="display:none;margin-top:8px;">
+        <input type="text" id="f_video_busca_detalhe" placeholder="Buscar vídeo por título pra vincular...">
+        <div id="videoVinculoResultadosDetalhe" style="margin-top:6px;"></div>
       </div>
     </div>
     <div style="margin-bottom:12px;">
