@@ -31,6 +31,7 @@ let editandoClienteId = null;
 let excluindoAcao = null;
 let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = new Set(); // vazio = todos
+let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
 let selecionados = new Set();
 let cadAba = 'atendentes';
 let editandoPerfilAcessoId = null;
@@ -587,6 +588,11 @@ function entrarNoApp(){
   if(!conta){ sair(); return; }
   if(!contas.find(c=>String(c.id)===String(conta.id))){ toast('Sua conta não existe mais.'); sair(); return; }
 
+  // sempre entra na visão em Lista — evita confusão de trocar de conta e
+  // continuar numa visualização (Cards) escolhida pela pessoa anterior
+  visualizacaoAtendimentos = 'lista';
+  document.querySelectorAll('#listaVisualizacaoToggle button').forEach(b=>b.classList.toggle('sel', b.dataset.val==='lista'));
+
   document.getElementById('screen-login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('whoName').textContent = conta.nome;
@@ -991,10 +997,10 @@ function renderFiltrosStatus(){
     statusList.map(s=>`<div class="chip ${filtroStatus.has(s.nome)?'on':''}" data-status="${s.nome}">${s.nome}</div>`).join('');
 }
 
-function renderLista(){
-  const cont = document.getElementById('listaItens');
+// filtros de cliente/status/período aplicados tanto na visão em Lista
+// quanto na visão em Cards (kanban) — mesma base, dois jeitos de mostrar
+function itensAtendimentosFiltrados(){
   const conta = contaAtual();
-  const podeEditar = conta && conta.perfil !== 'USUARIO';
   const isUsuario = conta && conta.perfil === 'USUARIO';
   let itens = atendimentos.slice();
   // usuário: o servidor já manda só o que ele pode ver (os próprios, ou
@@ -1008,6 +1014,15 @@ function renderLista(){
   if(de) itens = itens.filter(r=>String(r.data) >= de);
   if(ate) itens = itens.filter(r=>String(r.data) <= ate);
   itens.sort((a,b)=> String(b.data).localeCompare(String(a.data)));
+  return itens;
+}
+
+function renderLista(){
+  const cont = document.getElementById('listaItens');
+  const conta = contaAtual();
+  const podeEditar = conta && conta.perfil !== 'USUARIO';
+  const isUsuario = conta && conta.perfil === 'USUARIO';
+  const itens = itensAtendimentosFiltrados();
 
   document.getElementById('filtroPeriodo').style.display = 'grid';
   const verValores = podeVerValores();
@@ -1015,6 +1030,14 @@ function renderLista(){
   const permAt = permissaoMenu(conta, 'atendimentos');
   const podeEditarBtn = permAt ? permAt.editar : podeEditar;
   const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
+
+  document.getElementById('listaItens').style.display = visualizacaoAtendimentos==='cards' ? 'none' : '';
+  document.getElementById('kanbanBoard').style.display = visualizacaoAtendimentos==='cards' ? '' : 'none';
+  if(visualizacaoAtendimentos === 'cards'){
+    document.getElementById('linhaSelecionarTodos').style.display = 'none';
+    renderKanbanBoard(itens, { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn });
+    return;
+  }
 
   document.getElementById('linhaSelecionarTodos').style.display = (podeEditarBtn || podeExcluirBtn) ? 'flex' : 'none';
   if(!podeEditarBtn && !podeExcluirBtn){ selecionados.clear(); }
@@ -1066,6 +1089,143 @@ function renderLista(){
       </div>` : '')}
     </div>`;
   }).join('');
+}
+
+/* ---------- Cards (kanban) — mesma lista de Atendimentos, agrupada por status ---------- */
+function corStatusDot(nome){
+  const mapa = { 'VALIDADO':'var(--ok)', 'PENDENTE':'var(--warn)', 'EM-ANDAMENTO':'var(--yellow)', 'EM-VALIDACAO':'var(--blue)', 'CANCELADO':'var(--bad)' };
+  return mapa[statusSlug(nome)] || 'var(--muted)';
+}
+
+function renderKanbanBoard(itens, opts){
+  const board = document.getElementById('kanbanBoard');
+  const porStatus = {};
+  itens.forEach(r=>{ (porStatus[r.status] = porStatus[r.status] || []).push(r); });
+  // colunas na ordem cadastrada em Status; um status "órfão" (removido do
+  // cadastro, mas ainda gravado em algum atendimento antigo) ganha coluna extra
+  const nomesColunas = statusList.map(s=>s.nome);
+  Object.keys(porStatus).forEach(nome=>{ if(!nomesColunas.includes(nome)) nomesColunas.push(nome); });
+
+  if(nomesColunas.length === 0){ board.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum status cadastrado.</div>`; return; }
+
+  board.innerHTML = nomesColunas.map(nome=>{
+    const lista = porStatus[nome] || [];
+    const cards = lista.map(r=>renderKanbanCard(r, opts)).join('');
+    return `
+    <div class="kanban-col">
+      <div class="kanban-col-header">
+        <div class="titulo"><span class="kanban-col-dot" style="background:${corStatusDot(nome)};"></span><span>${escaparHtml(nome)}</span></div>
+        <span class="kanban-col-count">${lista.length}</span>
+      </div>
+      <div class="kanban-col-body" data-status="${escaparHtml(nome)}">
+        ${cards || `<div class="kanban-col-empty">Nenhum atendimento</div>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderKanbanCard(r, opts){
+  const [y,m,d] = String(r.data).split('-');
+  const dataFmt = `${d}/${m}/${y}`;
+  const handle = opts.podeEditarBtn ? `<div class="kanban-card-handle">⠿</div>` : '';
+  return `
+    <div class="kanban-card" data-id="${r.id}" data-status="${escaparHtml(r.status)}">
+      ${handle}
+      <div class="kanban-card-body">
+        <div class="cliente">${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
+        <div class="data">${dataFmt} · ${Number(r.qtd).toFixed(2).replace('.',',')}h</div>
+        ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe))}</div>` : ''}
+        <div class="meta">
+          <span class="tag">${labelTipo(r.tipo)}</span>
+          <span class="tag">${escaparHtml(r.atendente || 'A definir')}</span>
+          ${opts.verValores ? `<span class="tag" style="color:var(--accent);">${fmtMoeda(Number(r.totalReal))}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ---------- arrastar-e-soltar do Kanban (Pointer Events — funciona com mouse e touch) ---------- */
+let kanbanDrag = null; // {id, statusOrigem, cardEl, ghost, offsetX, offsetY, colunaAtual}
+let kanbanAcabouDeArrastar = false; // suprime o click de abrir detalhe logo depois de soltar
+
+function iniciarDragKanban(e, handleEl){
+  const cardEl = handleEl.closest('.kanban-card');
+  if(!cardEl) return;
+  e.preventDefault();
+  const rect = cardEl.getBoundingClientRect();
+
+  const ghost = cardEl.cloneNode(true);
+  ghost.classList.add('kanban-card-ghost');
+  ghost.style.left = rect.left + 'px';
+  ghost.style.top = rect.top + 'px';
+  ghost.style.width = rect.width + 'px';
+  document.body.appendChild(ghost);
+  cardEl.classList.add('dragging');
+
+  kanbanDrag = {
+    id: cardEl.dataset.id, statusOrigem: cardEl.dataset.status, cardEl, ghost,
+    offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top,
+    colunaAtual: null,
+  };
+
+  handleEl.setPointerCapture(e.pointerId);
+  handleEl.addEventListener('pointermove', moverDragKanban);
+  handleEl.addEventListener('pointerup', soltarDragKanban, { once:true });
+  handleEl.addEventListener('pointercancel', cancelarDragKanban, { once:true });
+}
+
+function moverDragKanban(e){
+  if(!kanbanDrag) return;
+  const { ghost, offsetX, offsetY } = kanbanDrag;
+  ghost.style.left = (e.clientX - offsetX) + 'px';
+  ghost.style.top = (e.clientY - offsetY) + 'px';
+
+  ghost.style.display = 'none';
+  const elAlvo = document.elementFromPoint(e.clientX, e.clientY);
+  ghost.style.display = '';
+  const colunaBody = elAlvo ? elAlvo.closest('.kanban-col-body') : null;
+
+  if(kanbanDrag.colunaAtual && kanbanDrag.colunaAtual !== colunaBody) kanbanDrag.colunaAtual.classList.remove('drag-over');
+  if(colunaBody) colunaBody.classList.add('drag-over');
+  kanbanDrag.colunaAtual = colunaBody;
+}
+
+async function soltarDragKanban(e){
+  const handleEl = e.currentTarget;
+  handleEl.removeEventListener('pointermove', moverDragKanban);
+  if(!kanbanDrag) return;
+  const { id, statusOrigem, cardEl, ghost, colunaAtual } = kanbanDrag;
+  document.querySelectorAll('.kanban-col-body.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  cardEl.classList.remove('dragging');
+  ghost.remove();
+  kanbanDrag = null;
+  kanbanAcabouDeArrastar = true;
+  setTimeout(()=>{ kanbanAcabouDeArrastar = false; }, 50);
+
+  const novoStatus = colunaAtual ? colunaAtual.dataset.status : null;
+  if(!novoStatus || novoStatus === statusOrigem) return;
+
+  const conta = contaAtual();
+  try{
+    const r = await api('alterarStatusEmMassa', { ids:[id], novoStatus, contaId: conta.id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível mudar o status.'); return; }
+    await carregarTudo();
+    renderLista();
+    renderResumo();
+    toast(`Status alterado para ${novoStatus}`);
+  }catch(err){
+    toast('Não foi possível mudar o status.');
+  }
+}
+
+function cancelarDragKanban(e){
+  const handleEl = e.currentTarget;
+  handleEl.removeEventListener('pointermove', moverDragKanban);
+  if(!kanbanDrag) return;
+  document.querySelectorAll('.kanban-col-body.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  kanbanDrag.cardEl.classList.remove('dragging');
+  kanbanDrag.ghost.remove();
+  kanbanDrag = null;
 }
 
 async function excluirAtendimento(id){
@@ -4077,6 +4237,22 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('periodo_de').addEventListener('change', renderLista);
   document.getElementById('periodo_ate').addEventListener('change', renderLista);
+
+  segmentedSetup('listaVisualizacaoToggle', ()=>{
+    visualizacaoAtendimentos = getSegSel('listaVisualizacaoToggle');
+    renderLista();
+  });
+  document.getElementById('kanbanBoard').addEventListener('pointerdown', e=>{
+    const handle = e.target.closest('.kanban-card-handle');
+    if(!handle) return;
+    iniciarDragKanban(e, handle);
+  });
+  document.getElementById('kanbanBoard').addEventListener('click', e=>{
+    if(kanbanAcabouDeArrastar) return;
+    const card = e.target.closest('.kanban-card');
+    if(!card) return;
+    abrirDetalhe(card.dataset.id); // a própria função já checa se a conta pode ver esse atendimento
+  });
 
   document.getElementById('ganttFiltroCliente').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
