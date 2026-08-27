@@ -112,9 +112,9 @@
   .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--accent);color:var(--text);padding:10px 18px;border-radius:10px;font-size:13px;z-index:50;opacity:0;pointer-events:none;transition:opacity .25s, transform .25s;font-weight:600;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
 
-  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:none;align-items:flex-end;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:none;align-items:flex-end;overflow-y:auto;}
   .modal-bg.show{display:flex;}
-  .modal{background:var(--panel);border-radius:18px 18px 0 0;padding:20px 18px calc(env(safe-area-inset-bottom) + 20px);width:100%;max-width:640px;margin:0 auto;border:1px solid var(--line);border-bottom:none;}
+  .modal{background:var(--panel);border-radius:18px 18px 0 0;padding:20px 18px calc(env(safe-area-inset-bottom) + 20px);width:100%;max-width:640px;margin:0 auto;border:1px solid var(--line);border-bottom:none;max-height:90vh;overflow-y:auto;}
   .modal h3{margin:0 0 4px;font-size:16px;}
   .modal p{color:var(--muted);font-size:13px;margin:0 0 16px;}
   .modal-actions{display:flex;gap:10px;}
@@ -124,7 +124,7 @@
   .modal-actions .confirm.neutro{background:var(--accent);color:#1A1305;}
 
   /* chat */
-  #chatModal .modal{max-height:82vh;display:flex;flex-direction:column;padding-bottom:calc(env(safe-area-inset-bottom) + 14px);}
+  #chatModal .modal{max-height:82vh;display:flex;flex-direction:column;overflow-y:auto;padding-bottom:calc(env(safe-area-inset-bottom) + 14px);}
   #chatModal h3{margin-bottom:2px;}
   #chatModal .chat-sub{color:var(--muted);font-size:12px;margin-bottom:12px;}
   #chatMensagens{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:4px 2px 10px;min-height:120px;max-height:44vh;}
@@ -157,6 +157,11 @@
   #movRespondendoWrap{background:var(--panel-2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:6px 10px;margin-bottom:8px;font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:8px;}
   #movCancelarResposta{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px;}
   #movBloqueadoAviso{color:var(--muted);font-size:12px;background:var(--panel-2);border-radius:8px;padding:10px;text-align:center;}
+  .vid-embed{width:100%;aspect-ratio:16/9;border-radius:12px;border:none;display:block;}
+  .vid-titulo{font-weight:700;font-size:14px;margin-top:10px;}
+  .vid-descricao{color:var(--muted);font-size:12.5px;margin-top:4px;}
+  .vid-meta{color:var(--muted);font-size:11px;margin-top:6px;}
+  .vid-acoes{display:flex;gap:6px;margin-top:10px;}
   .item-actions .chatbtn{flex:1;}
 
   select#f_status{width:auto;}
@@ -448,6 +453,7 @@
   <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub"><span class="ic">📑</span>Relatórios</div>
   <div class="side-item navbtn" data-view="financeiro" id="sideFinanceiro"><span class="ic">💵</span>Financeiro</div>
   <div class="side-item navbtn" data-view="agenda" id="sideAgenda"><span class="ic">📅</span>Agenda</div>
+  <div class="side-item navbtn" data-view="videos" id="sideVideos"><span class="ic">🎬</span>Vídeos</div>
   <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 
@@ -467,6 +473,7 @@
     <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
     <div class="tab" data-view="financeiro" id="tabFinanceiro">Financeiro</div>
     <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
+    <div class="tab" data-view="videos" id="tabVideos">Vídeos</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
   </div>
 
@@ -924,6 +931,34 @@
     </div>
   </section>
 
+  <!-- VÍDEOS / TUTORIAIS (cadastro só admin; lista pra todo mundo autorizado) -->
+  <section class="view" id="view-videos">
+    <div class="card" id="cardNovoVideo">
+      <h2 id="tituloFormVideo">Novo vídeo/tutorial</h2>
+      <div class="field"><label>Título</label><input type="text" id="vid_titulo" placeholder="Ex: Como solicitar abono"></div>
+      <div class="field"><label>Link do YouTube</label><input type="text" id="vid_url" placeholder="Cole o link do vídeo aqui"></div>
+      <div class="field"><label>Descrição (opcional)</label><textarea id="vid_descricao" placeholder="Uma breve explicação sobre o vídeo"></textarea></div>
+      <div class="row">
+        <div class="field"><label>Cliente</label><select id="vid_cliente"><option value="">Todos os clientes</option></select></div>
+        <div class="field"><label>Módulo (opcional)</label><select id="vid_modulo"><option value="">(nenhum)</option></select></div>
+      </div>
+      <div class="field">
+        <label>Quem pode ver (além do admin)</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" id="vid_perfil_atendente" checked> Atendentes</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="vid_perfil_usuario" checked> Usuários solicitantes</label>
+      </div>
+      <button class="primary" id="btnAddVideo">Adicionar vídeo</button>
+      <button class="ghost" id="btnCancelarEdicaoVideo" style="display:none;width:100%;margin-top:8px;">Cancelar edição</button>
+    </div>
+
+    <div class="card" id="cardFiltroVideoModulo">
+      <h2>Filtrar por módulo</h2>
+      <div class="filters" id="vidFiltroModulo"></div>
+    </div>
+
+    <div id="listaVideos"></div>
+  </section>
+
   <!-- CADASTROS (admin) -->
   <section class="view" id="view-cadastros">
     <div class="subtabs" id="cadSubtabs">
@@ -1077,6 +1112,7 @@
   <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic">📑</span>Relat.</div>
   <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic">💵</span>Financ.</div>
   <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic">📅</span>Agenda</div>
+  <div class="navbtn" data-view="videos" id="navVideos"><span class="ic">🎬</span>Vídeos</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
 </nav>
 </div>

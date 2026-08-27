@@ -2605,6 +2605,158 @@ async function removerCliente(id){
   toast('Cliente removido');
 }
 
+/* ---------- vídeos / tutoriais ---------- */
+let videosCache = [];
+let editandoVideoId = null;
+let vidFiltroModulo = 'TODOS';
+
+function extrairIdYoutube(url){
+  if(!url) return '';
+  const m = String(url).match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : '';
+}
+
+function popularSelectsVideo(){
+  const selCliente = document.getElementById('vid_cliente');
+  const atual = selCliente.value;
+  selCliente.innerHTML = `<option value="">Todos os clientes</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  if([...selCliente.options].some(o=>o.value===atual)) selCliente.value = atual;
+
+  const selModulo = document.getElementById('vid_modulo');
+  const atualMod = selModulo.value;
+  selModulo.innerHTML = `<option value="">(nenhum)</option>` + modulos.map(m=>`<option value="${escaparHtml(m.nome)}">${escaparHtml(m.nome)}</option>`).join('');
+  if([...selModulo.options].some(o=>o.value===atualMod)) selModulo.value = atualMod;
+}
+
+function renderFiltroModuloVideo(){
+  const modulosComVideo = [...new Set(videosCache.map(v=>v.modulo).filter(Boolean))];
+  const cont = document.getElementById('vidFiltroModulo');
+  if(modulosComVideo.length === 0){ document.getElementById('cardFiltroVideoModulo').style.display = 'none'; return; }
+  document.getElementById('cardFiltroVideoModulo').style.display = '';
+  cont.innerHTML = `<div class="chip ${vidFiltroModulo==='TODOS'?'on':''}" data-valor="TODOS">Todos</div>` +
+    modulosComVideo.map(m=>`<div class="chip ${vidFiltroModulo===m?'on':''}" data-valor="${escaparHtml(m)}">${escaparHtml(m)}</div>`).join('');
+}
+
+async function carregarVideos(){
+  const conta = contaAtual();
+  if(!conta) return;
+  const cont = document.getElementById('listaVideos');
+  cont.innerHTML = `<div class="empty" style="padding:14px;">Carregando…</div>`;
+  try{
+    const r = await api('listarVideos', { contaId: conta.id });
+    if(!r.ok){ cont.innerHTML = `<div class="empty">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    videosCache = r.videos || [];
+    renderFiltroModuloVideo();
+    renderListaVideos();
+  }catch(e){
+    cont.innerHTML = `<div class="empty">Não foi possível carregar os vídeos.</div>`;
+  }
+}
+
+function renderListaVideos(){
+  const conta = contaAtual();
+  const isAdmin = conta && conta.perfil === 'ADMIN';
+  const cont = document.getElementById('listaVideos');
+  let itens = videosCache.slice();
+  if(vidFiltroModulo !== 'TODOS') itens = itens.filter(v=>v.modulo === vidFiltroModulo);
+
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">🎬</div>Nenhum vídeo disponível ainda.</div>`; return; }
+
+  cont.innerHTML = itens.map(v=>{
+    const videoId = extrairIdYoutube(v.urlYoutube);
+    const embed = videoId
+      ? `<iframe class="vid-embed" src="https://www.youtube.com/embed/${videoId}" title="${escaparHtml(v.titulo)}" frameborder="0" allowfullscreen loading="lazy"></iframe>`
+      : `<div class="empty" style="padding:10px 0;font-size:12px;">Link do YouTube parece inválido.</div>`;
+    const perfisTexto = (v.visivelPerfis||[]).map(p=>p==='ATENDENTE'?'Atendentes':p==='USUARIO'?'Usuários':p).join(', ');
+    return `<div class="card">
+      ${embed}
+      <div class="vid-titulo">${escaparHtml(v.titulo)}</div>
+      ${v.descricao ? `<div class="vid-descricao">${escaparHtml(v.descricao)}</div>` : ''}
+      <div class="vid-meta">${v.cliente ? escaparHtml(v.cliente) : 'Todos os clientes'}${v.modulo ? ' · '+escaparHtml(v.modulo) : ''}${isAdmin ? ' · Visível pra: '+escaparHtml(perfisTexto) : ''}</div>
+      ${isAdmin ? `<div class="vid-acoes">
+        <button class="ghost" onclick="editarVideoUi('${v.id}')">Editar</button>
+        <button class="ghost" onclick="pedirConfirmacao('Remover vídeo?','Isso não pode ser desfeito.', ()=>removerVideoUi('${v.id}'))">Excluir</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function limparFormVideo(){
+  editandoVideoId = null;
+  document.getElementById('vid_titulo').value = '';
+  document.getElementById('vid_url').value = '';
+  document.getElementById('vid_descricao').value = '';
+  document.getElementById('vid_cliente').value = '';
+  document.getElementById('vid_modulo').value = '';
+  document.getElementById('vid_perfil_atendente').checked = true;
+  document.getElementById('vid_perfil_usuario').checked = true;
+  document.getElementById('tituloFormVideo').textContent = 'Novo vídeo/tutorial';
+  document.getElementById('btnAddVideo').textContent = 'Adicionar vídeo';
+  document.getElementById('btnCancelarEdicaoVideo').style.display = 'none';
+}
+
+function editarVideoUi(id){
+  const v = videosCache.find(x=>x.id===id);
+  if(!v) return;
+  editandoVideoId = id;
+  document.getElementById('vid_titulo').value = v.titulo;
+  document.getElementById('vid_url').value = v.urlYoutube;
+  document.getElementById('vid_descricao').value = v.descricao || '';
+  document.getElementById('vid_cliente').value = v.cliente || '';
+  document.getElementById('vid_modulo').value = v.modulo || '';
+  document.getElementById('vid_perfil_atendente').checked = (v.visivelPerfis||[]).includes('ATENDENTE');
+  document.getElementById('vid_perfil_usuario').checked = (v.visivelPerfis||[]).includes('USUARIO');
+  document.getElementById('tituloFormVideo').textContent = 'Editar vídeo/tutorial';
+  document.getElementById('btnAddVideo').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoVideo').style.display = '';
+  document.getElementById('cardNovoVideo').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+async function salvarVideoUi(){
+  const conta = contaAtual();
+  const titulo = document.getElementById('vid_titulo').value.trim();
+  const urlYoutube = document.getElementById('vid_url').value.trim();
+  if(!titulo || !urlYoutube){ toast('Preencha o título e o link do YouTube'); return; }
+  if(!extrairIdYoutube(urlYoutube)){ toast('Não consegui reconhecer esse link como um vídeo do YouTube'); return; }
+
+  const visivelPerfis = [];
+  if(document.getElementById('vid_perfil_atendente').checked) visivelPerfis.push('ATENDENTE');
+  if(document.getElementById('vid_perfil_usuario').checked) visivelPerfis.push('USUARIO');
+  if(visivelPerfis.length === 0){ toast('Marque pelo menos um perfil que pode ver esse vídeo'); return; }
+
+  const payload = {
+    contaId: conta.id, titulo, urlYoutube,
+    descricao: document.getElementById('vid_descricao').value.trim(),
+    cliente: document.getElementById('vid_cliente').value,
+    modulo: document.getElementById('vid_modulo').value,
+    visivelPerfis,
+  };
+  const editando = !!editandoVideoId;
+  const btn = document.getElementById('btnAddVideo');
+  btn.disabled = true;
+  try{
+    const r = editando
+      ? await api('atualizarVideo', { ...payload, id: editandoVideoId })
+      : await api('criarVideo', payload);
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    limparFormVideo();
+    await carregarVideos();
+    toast(editando ? 'Vídeo atualizado' : 'Vídeo adicionado');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível salvar.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function removerVideoUi(id){
+  const conta = contaAtual();
+  const r = await api('removerVideo', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarVideos();
+  toast('Vídeo removido');
+}
+
 function renderListTipos(){
   const el = document.getElementById('listTipos');
   if(tipos.length===0){ el.innerHTML = `<div class="empty">Nenhum tipo cadastrado.</div>`; return; }
@@ -3297,6 +3449,14 @@ function goView(name){
     renderSeletorCores('ag_cores', document.getElementById('ag_cor_selecionada').value);
     carregarAgendamentos().then(renderAgenda);
   }
+  if(name==='videos'){
+    const contaVid = contaAtual();
+    const isAdminVid = contaVid && contaVid.perfil === 'ADMIN';
+    document.getElementById('cardNovoVideo').style.display = isAdminVid ? '' : 'none';
+    if(isAdminVid){ popularSelectsVideo(); limparFormVideo(); }
+    vidFiltroModulo = 'TODOS';
+    carregarVideos();
+  }
   if(name==='cadastros') goCadSub(cadAba);
 }
 function goCadSub(sub){
@@ -3592,6 +3752,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast(editando ? 'Atendente atualizado' : 'Atendente adicionado');
   });
   document.getElementById('btnCancelarEdicaoAtendente').addEventListener('click', cancelarEdicaoAtendente);
+
+  document.getElementById('btnAddVideo').addEventListener('click', salvarVideoUi);
+  document.getElementById('btnCancelarEdicaoVideo').addEventListener('click', limparFormVideo);
+  document.getElementById('vidFiltroModulo').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    vidFiltroModulo = chip.dataset.valor;
+    renderFiltroModuloVideo();
+    renderListaVideos();
+  });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
