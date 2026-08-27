@@ -14,7 +14,7 @@
   :root{
     --bg:#F4F6F8; --panel:#FFFFFF; --panel-2:#EEF1F4; --line:#DCE2E8;
     --text:#1B222A; --muted:#5B6B7A; --accent:#D68A1F; --accent-dim:#FBEBD1;
-    --ok:#2F9E63; --warn:#D68A1F; --bad:#D6473F; --yellow:#D6B01F; --blue:#2F86D6; --radius:14px;
+    --ok:#2F9E63; --warn:#D68A1F; --bad:#D6473F; --yellow:#D6B01F; --blue:#2F86D6; --purple:#9463D6; --radius:14px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -148,6 +148,8 @@
   .tag.status-EM-ANDAMENTO{background:#3A3512;color:var(--yellow);}
   .tag.status-EM-VALIDACAO{background:#122B3A;color:var(--blue);}
   .tag.status-CANCELADO{background:#3A1918;color:var(--bad);}
+  .tag.status-NAO-VALIDADO{background:#3A1918;color:var(--bad);}
+  .tag.status-AGENDADO{background:#2C1F3A;color:var(--purple);}
   .tag.status-NÃO\ VALIDADO{background:#3A1918;color:var(--bad);}
   .item .valores{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
   .item .valores .v1{font-size:12px;color:var(--muted);}
@@ -267,6 +269,8 @@
   .gantt-bar.status-EM-ANDAMENTO{background:var(--yellow);}
   .gantt-bar.status-EM-VALIDACAO{background:var(--blue);}
   .gantt-bar.status-CANCELADO{background:var(--bad);}
+  .gantt-bar.status-NAO-VALIDADO{background:var(--bad);}
+  .gantt-bar.status-AGENDADO{background:var(--purple);}
   .gantt-bar.status-NÃO\ VALIDADO{background:var(--bad);}
   .gantt-bar-sem-previsao{opacity:.55;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.3),rgba(255,255,255,.3) 3px,transparent 3px,transparent 6px);}
   .install-banner{background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:none;align-items:center;gap:10px;justify-content:space-between;}
