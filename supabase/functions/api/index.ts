@@ -176,6 +176,7 @@ async function rotear(req: any): Promise<any> {
     case 'removerSubModulo': return acaoRemoverSimples('submodulos', req);
     case 'addStatus': return acaoAddSimples('status_list', req);
     case 'removerStatus': return acaoRemoverSimples('status_list', req);
+    case 'reordenarStatus': return acaoReordenarStatus(req);
     case 'salvarValor': return acaoSalvarValor(req);
     case 'removerValor': return acaoRemoverSimples('valores', req);
     case 'recalcularValores': return acaoRecalcularValores(req);
@@ -229,7 +230,7 @@ async function acaoDados(req: any) {
     db.from('tipos').select('*').order('nome'),
     db.from('modulos').select('*').order('nome'),
     db.from('submodulos').select('*').order('nome'),
-    db.from('status_list').select('*').order('nome'),
+    db.from('status_list').select('*').order('ordem').order('nome'),
     db.from('perfis_acesso').select('*').order('nome'),
     db.from('perfil_acesso_permissoes').select('*'),
     db.from('conta_perfis_acesso').select('*'),
@@ -1492,6 +1493,18 @@ async function acaoAtualizarCliente(req: any) {
 async function acaoRemoverTipo(req: any) {
   await db.from('tipos').delete().eq('id', req.id);
   await db.from('valores').delete().eq('tipo_id', req.id);
+  return { ok: true };
+}
+
+// recebe a lista completa de ids de status na nova ordem desejada e regrava
+// o campo "ordem" de cada um (0,1,2...) — usada pelos botões ▲▼ em
+// Cadastros → Status, e reflete direto na ordem das colunas do Kanban
+async function acaoReordenarStatus(req: any) {
+  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode reordenar status.' };
+  const ids: string[] = Array.isArray(req.ids) ? req.ids : [];
+  for (let i = 0; i < ids.length; i++) {
+    await db.from('status_list').update({ ordem: i }).eq('id', ids[i]);
+  }
   return { ok: true };
 }
 

@@ -53,6 +53,8 @@ create table if not exists status_list (
   id text primary key,
   nome text not null
 );
+-- ordem de exibição nos filtros e no quadro Kanban (Cards) — menor primeiro
+alter table status_list add column if not exists ordem integer not null default 0;
 
 create table if not exists valores (
   id text primary key,
@@ -465,12 +467,24 @@ on conflict (id) do nothing;
 
 insert into status_list (id, nome) values
   ('st-pendente', 'PENDENTE'),
+  ('st-agendado', 'AGENDADO'),
   ('st-validado', 'VALIDADO'),
   ('st-naovalidado', 'NÃO VALIDADO'),
   ('st-andamento', 'EM ANDAMENTO'),
   ('st-emvalidacao', 'EM VALIDAÇÃO'),
   ('st-cancelado', 'CANCELADO')
 on conflict (id) do nothing;
+
+-- ordem padrão pedida: PENDENTE, AGENDADO, EM ANDAMENTO, EM VALIDAÇÃO,
+-- NÃO VALIDADO, VALIDADO, CANCELADO — roda de novo sem problema, é só um
+-- valor inicial; a partir daqui dá pra reordenar pela tela de Cadastros
+update status_list set ordem = 1 where id = 'st-pendente' and ordem = 0;
+update status_list set ordem = 2 where id = 'st-agendado' and ordem = 0;
+update status_list set ordem = 3 where id = 'st-andamento' and ordem = 0;
+update status_list set ordem = 4 where id = 'st-emvalidacao' and ordem = 0;
+update status_list set ordem = 5 where id = 'st-naovalidado' and ordem = 0;
+update status_list set ordem = 6 where id = 'st-validado' and ordem = 0;
+update status_list set ordem = 7 where id = 'st-cancelado' and ordem = 0;
 
 insert into contas (id, nome, login, senha, perfil, cliente_id) values
   ('c-admin', 'Administrador', 'admin', 'admin123', 'ADMIN', null),

@@ -1093,7 +1093,7 @@ function renderLista(){
 
 /* ---------- Cards (kanban) — mesma lista de Atendimentos, agrupada por status ---------- */
 function corStatusDot(nome){
-  const mapa = { 'VALIDADO':'var(--ok)', 'PENDENTE':'var(--warn)', 'EM-ANDAMENTO':'var(--yellow)', 'EM-VALIDACAO':'var(--blue)', 'CANCELADO':'var(--bad)' };
+  const mapa = { 'VALIDADO':'var(--ok)', 'PENDENTE':'var(--warn)', 'AGENDADO':'var(--purple)', 'EM-ANDAMENTO':'var(--yellow)', 'EM-VALIDACAO':'var(--blue)', 'CANCELADO':'var(--bad)', 'NAO-VALIDADO':'var(--bad)' };
   return mapa[statusSlug(nome)] || 'var(--muted)';
 }
 
@@ -3325,9 +3325,32 @@ async function removerSubModulo(id){
 function renderListStatus(){
   const el = document.getElementById('listStatus');
   if(statusList.length===0){ el.innerHTML = `<div class="empty">Nenhum status cadastrado.</div>`; return; }
-  el.innerHTML = statusList.map(s=>`
-    <div class="cad-item"><div class="info"><b>${s.nome}</b></div>
-    <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover status?','Remove das opções futuras de lançamento.', ()=>removerStatus('${s.id}'))">Remover</button></div></div>`).join('');
+  el.innerHTML = statusList.map((s,i)=>`
+    <div class="cad-item">
+      <div class="info" style="display:flex;align-items:center;gap:10px;">
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <button class="ghost" style="padding:2px 8px;" ${i===0?'disabled':''} onclick="moverStatus('${s.id}',-1)">▲</button>
+          <button class="ghost" style="padding:2px 8px;" ${i===statusList.length-1?'disabled':''} onclick="moverStatus('${s.id}',1)">▼</button>
+        </div>
+        <b>${escaparHtml(s.nome)}</b>
+      </div>
+      <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover status?','Remove das opções futuras de lançamento.', ()=>removerStatus('${s.id}'))">Remover</button></div>
+    </div>`).join('');
+}
+async function moverStatus(id, direcao){
+  const i = statusList.findIndex(s=>String(s.id)===String(id));
+  const j = i + direcao;
+  if(i<0 || j<0 || j>=statusList.length) return;
+  const novaOrdem = statusList.slice();
+  [novaOrdem[i], novaOrdem[j]] = [novaOrdem[j], novaOrdem[i]];
+  statusList = novaOrdem;
+  renderListStatus(); // resposta visual imediata, antes mesmo do servidor confirmar
+  const conta = contaAtual();
+  const r = await api('reordenarStatus', { contaId: conta.id, ids: novaOrdem.map(s=>s.id) });
+  if(!r.ok){ toast(r.erro || 'Não foi possível reordenar.'); await carregarTudo(); renderListStatus(); return; }
+  await carregarTudo();
+  renderCadastrosTudo();
+  renderFiltrosStatus();
 }
 async function removerStatus(id){
   const r = await api('removerStatus', { id });
