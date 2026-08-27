@@ -2664,12 +2664,18 @@ function renderListaVideos(){
 
   cont.innerHTML = itens.map(v=>{
     const videoId = extrairIdYoutube(v.urlYoutube);
+    // o parâmetro "origin" evita o Erro 153 do player em vários casos —
+    // sem ele, alguns navegadores/domínios têm o embed recusado mesmo
+    // com o vídeo liberado pra incorporação
+    const origem = encodeURIComponent(window.location.origin);
     const embed = videoId
-      ? `<iframe class="vid-embed" src="https://www.youtube.com/embed/${videoId}" title="${escaparHtml(v.titulo)}" frameborder="0" allowfullscreen loading="lazy"></iframe>`
+      ? `<iframe class="vid-embed" src="https://www.youtube.com/embed/${videoId}?rel=0&origin=${origem}" title="${escaparHtml(v.titulo)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`
       : `<div class="empty" style="padding:10px 0;font-size:12px;">Link do YouTube parece inválido.</div>`;
+    const linkOriginal = videoId ? `https://www.youtube.com/watch?v=${videoId}` : v.urlYoutube;
     const perfisTexto = (v.visivelPerfis||[]).map(p=>p==='ATENDENTE'?'Atendentes':p==='USUARIO'?'Usuários':p).join(', ');
     return `<div class="card">
       ${embed}
+      ${videoId ? `<a href="${linkOriginal}" target="_blank" rel="noopener" class="vid-link-alternativo">▶ Não carregou? Assistir direto no YouTube</a>` : ''}
       <div class="vid-titulo">${escaparHtml(v.titulo)}</div>
       ${v.descricao ? `<div class="vid-descricao">${escaparHtml(v.descricao)}</div>` : ''}
       <div class="vid-meta">${v.cliente ? escaparHtml(v.cliente) : 'Todos os clientes'}${v.modulo ? ' · '+escaparHtml(v.modulo) : ''}${isAdmin ? ' · Visível pra: '+escaparHtml(perfisTexto) : ''}</div>
@@ -2677,8 +2683,10 @@ function renderListaVideos(){
         <button class="ghost" onclick="editarVideoUi('${v.id}')">Editar</button>
         <button class="ghost" onclick="pedirConfirmacao('Remover vídeo?','Isso não pode ser desfeito.', ()=>removerVideoUi('${v.id}'))">Excluir</button>
       </div>` : ''}
+      <div class="vid-comentarios" id="vidComentarios_${v.id}"></div>
     </div>`;
   }).join('');
+  itens.forEach(v => carregarComentariosVideo(v.id));
 }
 
 function limparFormVideo(){
@@ -2755,6 +2763,73 @@ async function removerVideoUi(id){
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarVideos();
   toast('Vídeo removido');
+}
+
+/* ---------- comentários de vídeo ---------- */
+let comentariosVideoCache = {}; // videoId -> lista de comentários
+
+function fmtDataComentario(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+}
+
+async function carregarComentariosVideo(videoId){
+  const conta = contaAtual();
+  if(!conta) return;
+  const cont = document.getElementById(`vidComentarios_${videoId}`);
+  if(!cont) return;
+  try{
+    const r = await api('listarComentariosVideo', { contaId: conta.id, videoId });
+    if(!r.ok){ cont.innerHTML = ''; return; }
+    comentariosVideoCache[videoId] = r.comentarios || [];
+    renderComentariosVideo(videoId);
+  }catch(e){ /* silencioso */ }
+}
+
+function renderComentariosVideo(videoId){
+  const conta = contaAtual();
+  const cont = document.getElementById(`vidComentarios_${videoId}`);
+  if(!cont) return;
+  const comentarios = comentariosVideoCache[videoId] || [];
+  const listaHtml = comentarios.length === 0
+    ? `<div style="color:var(--muted);font-size:11.5px;">Nenhum comentário ainda.</div>`
+    : comentarios.map(c=>{
+        const podeExcluir = conta && (conta.perfil === 'ADMIN' || conta.nome === c.autorNome);
+        return `<div class="vid-comentario-item">
+          <div class="vid-comentario-topo">
+            <span class="vid-comentario-nome">${escaparHtml(c.autorNome)}</span>
+            <span class="vid-comentario-data">${fmtDataComentario(c.criadoEm)}</span>
+          </div>
+          <div>${escaparHtml(c.texto)}</div>
+          ${podeExcluir ? `<button type="button" class="vid-comentario-excluir" onclick="removerComentarioVideoUi('${c.id}','${videoId}')">Excluir</button>` : ''}
+        </div>`;
+      }).join('');
+  cont.innerHTML = `
+    <div class="vid-comentarios-titulo">💬 Comentários (${comentarios.length})</div>
+    ${listaHtml}
+    <div class="vid-comentario-add">
+      <textarea id="vidComentarioTexto_${videoId}" placeholder="Escreva um comentário…"></textarea>
+      <button type="button" onclick="enviarComentarioVideo('${videoId}')">Enviar</button>
+    </div>
+  `;
+}
+
+async function enviarComentarioVideo(videoId){
+  const conta = contaAtual();
+  const campo = document.getElementById(`vidComentarioTexto_${videoId}`);
+  const texto = campo.value.trim();
+  if(!texto){ toast('Escreva um comentário'); return; }
+  const r = await api('criarComentarioVideo', { contaId: conta.id, videoId, texto });
+  if(!r.ok){ toast(r.erro || 'Não foi possível comentar.'); return; }
+  await carregarComentariosVideo(videoId);
+}
+
+async function removerComentarioVideoUi(id, videoId){
+  const conta = contaAtual();
+  const r = await api('removerComentarioVideo', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível excluir.'); return; }
+  await carregarComentariosVideo(videoId);
 }
 
 function renderListTipos(){
