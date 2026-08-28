@@ -113,7 +113,7 @@ function permissaoVaziaPorMenu() {
   return obj;
 }
 function valorParaApi(v: any) {
-  return { id: v.id, atendenteId: v.atendente_id, clienteId: v.cliente_id, tipoId: v.tipo_id, real: v.real, ananda: v.ananda };
+  return { id: v.id, atendenteId: v.atendente_id, clienteId: v.cliente_id, tipoId: v.tipo_id, real: v.real, ananda: v.ananda, valorSegundoAtend: v.valor_segundo_atend || 0 };
 }
 function atendimentoParaApi(a: any) {
   return {
@@ -352,10 +352,12 @@ async function acaoSalvarAtendimento(req: any) {
     if (valorEncontrado) { real = Number(valorEncontrado.real); ananda = Number(valorEncontrado.ananda); }
   }
 
-  // o segundo atendente ganha pela mesma taxa "Valor Atendente/h" do
-  // atendente principal (ananda) — não tem uma taxa própria dele; o valor
-  // cobrado do cliente (real/vhr) continua sendo só o do atendente principal
-  const ananda2 = contaAtendente2 ? ananda : 0;
+  // o segundo atendente ganha pela taxa "Valor 2º Atendente/h" cadastrada
+  // na mesma linha de valores do atendente principal (não é uma taxa
+  // própria dele, é "quanto se paga o ajudante" nessa combinação de
+  // atendente principal + cliente + tipo); o valor cobrado do cliente
+  // (real/vhr) continua sendo só o do atendente principal
+  const ananda2 = contaAtendente2 ? Number(valorEncontrado?.valor_segundo_atend || 0) : 0;
   const horasAtendente2 = contaAtendente2 ? (Number(req.horasAtendente2) || 0) : 0;
 
   // diagnóstico: só loga quando tinha atendente mas não achou valor — ajuda a
@@ -1673,7 +1675,7 @@ async function acaoSalvarValor(req: any) {
 
   const id = (existentes && existentes[0]) ? existentes[0].id : gerarId();
   const { error } = await db.from('valores').upsert(
-    { id, atendente_id: req.atendenteId, cliente_id: req.clienteId, tipo_id: req.tipoId, real: req.real, ananda: req.ananda },
+    { id, atendente_id: req.atendenteId, cliente_id: req.clienteId, tipo_id: req.tipoId, real: req.real, ananda: req.ananda, valor_segundo_atend: req.valorSegundoAtend || 0 },
     { onConflict: 'atendente_id,cliente_id,tipo_id' }
   );
   if (error) return { ok: false, erro: error.message };
@@ -1740,11 +1742,23 @@ async function acaoRecalcularValores(req: any) {
     const qtd = Number(a.qtd) || 0;
     const novoTotalReal = qtd * real;
     const novoTotalAnanda = qtd * ananda;
+
+    // segundo atendente (se tiver) — usa a taxa "Valor 2º Atendente/h" da
+    // mesma linha de valores encontrada acima, igual acontece ao salvar
+    const temAtendente2 = a.atendente2 && contasAtendentes.some((c: any) => c.nome === a.atendente2);
+    const ananda2 = temAtendente2 ? Number(valor.valor_segundo_atend || 0) : 0;
+    const horasAtendente2 = temAtendente2 ? (Number(a.horas_atendente2) || 0) : 0;
+    const novoTotalAnanda2 = horasAtendente2 * ananda2;
+
     const mudou = Number(a.vhr) !== real || Number(a.vha) !== ananda ||
-      Number(a.total_real) !== novoTotalReal || Number(a.total_ananda) !== novoTotalAnanda;
+      Number(a.total_real) !== novoTotalReal || Number(a.total_ananda) !== novoTotalAnanda ||
+      Number(a.vha2 || 0) !== ananda2 || Number(a.total_ananda2 || 0) !== novoTotalAnanda2;
 
     if (mudou) {
-      const { error } = await db.from('atendimentos').update({ vhr: real, vha: ananda, total_real: novoTotalReal, total_ananda: novoTotalAnanda }).eq('id', a.id);
+      const { error } = await db.from('atendimentos').update({
+        vhr: real, vha: ananda, total_real: novoTotalReal, total_ananda: novoTotalAnanda,
+        vha2: ananda2, total_ananda2: novoTotalAnanda2,
+      }).eq('id', a.id);
       if (!error) atualizados++;
     }
   }
