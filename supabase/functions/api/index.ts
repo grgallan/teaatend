@@ -813,8 +813,7 @@ async function acaoListarMovimentacoes(req: any) {
     ok: true,
     movimentacoes: (movs || []).map((m: any) => ({
       id: m.id, atendimentoId: m.atendimento_id, autorNome: m.autor_nome, autorPerfil: m.autor_perfil,
-      texto: m.texto, tempoInicio: m.tempo_inicio || '', tempoFim: m.tempo_fim || '',
-      respondendoA: m.respondendo_a || null, criadoEm: m.criado_em,
+      texto: m.texto, respondendoA: m.respondendo_a || null, criadoEm: m.criado_em,
       anexos: anexosPorMov[m.id] || [],
     })),
   };
@@ -831,8 +830,7 @@ async function acaoCriarMovimentacao(req: any) {
 
   const registro = {
     id: gerarId(), atendimento_id: req.atendimentoId, autor_nome: req.autorNome, autor_perfil: req.autorPerfil,
-    texto: texto || '(anexo)', tempo_inicio: req.tempoInicio || null, tempo_fim: req.tempoFim || null,
-    respondendo_a: req.respondendoA || null,
+    texto: texto || '(anexo)', respondendo_a: req.respondendoA || null,
   };
   const { error } = await db.from('movimentacoes').insert(registro);
   if (error) return { ok: false, erro: error.message };
@@ -866,10 +864,7 @@ async function acaoAtualizarMovimentacao(req: any) {
 
   const texto = String(req.texto || '').trim();
   if (!texto) return { ok: false, erro: 'Escreva algo.' };
-  const atualizado: any = { texto };
-  if (req.tempoInicio !== undefined) atualizado.tempo_inicio = req.tempoInicio || null;
-  if (req.tempoFim !== undefined) atualizado.tempo_fim = req.tempoFim || null;
-  const { error } = await db.from('movimentacoes').update(atualizado).eq('id', req.id);
+  const { error } = await db.from('movimentacoes').update({ texto }).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }

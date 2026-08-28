@@ -995,7 +995,6 @@ function editar(id){
   carregarVideosCacheParaVinculo();
   recarregarVideosVinculados(r.id, 'listaVideosVinculo', true);
   document.getElementById('blocoMovimentacoesEdicao').style.display = '';
-  document.getElementById('movTempoWrap_ed').style.display = (contaAtual()?.perfil === 'USUARIO') ? 'none' : '';
   movLimparComposer('_ed');
   carregarMovimentacoes(r.id, '_ed');
   atualizarPreview();
@@ -3713,7 +3712,6 @@ async function abrirDetalhe(atendimentoId){
   document.getElementById('chatHistorico').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   document.getElementById('movLista').innerHTML = `<div class="chat-empty">Carregando…</div>`;
   movLimparComposer('');
-  document.getElementById('movTempoWrap').style.display = (isUsuario) ? 'none' : '';
   document.getElementById('chatModal').classList.add('show');
   if(!isUsuario) carregarVideosCacheParaVinculo();
   await Promise.all([
@@ -3805,13 +3803,11 @@ let movEstado = {
 function movIds(sufixo){
   return sufixo === '_ed' ? {
     lista:'movLista_ed', composer:'movComposerWrap_ed', respWrap:'movRespondendoWrap_ed', respTexto:'movRespondendoTexto_ed',
-    respCancelar:'movCancelarResposta_ed', tempoWrap:'movTempoWrap_ed', tempoInicio:'mov_tempo_inicio_ed', tempoFim:'mov_tempo_fim_ed',
-    tempoResumo:'movTempoResumo_ed', texto:'mov_texto_ed', anexo:'mov_anexo_ed', anexoNome:'mov_anexo_ed_nome',
+    respCancelar:'movCancelarResposta_ed', texto:'mov_texto_ed', anexo:'mov_anexo_ed', anexoNome:'mov_anexo_ed_nome',
     btnEnviar:'btnEnviarMovimentacao_ed', bloqueado:'movBloqueadoAviso_ed',
   } : {
     lista:'movLista', composer:'movComposerWrap', respWrap:'movRespondendoWrap', respTexto:'movRespondendoTexto',
-    respCancelar:'movCancelarResposta', tempoWrap:'movTempoWrap', tempoInicio:'mov_tempo_inicio', tempoFim:'mov_tempo_fim',
-    tempoResumo:'movTempoResumo', texto:'mov_texto', anexo:'mov_anexo', anexoNome:'mov_anexo_nome',
+    respCancelar:'movCancelarResposta', texto:'mov_texto', anexo:'mov_anexo', anexoNome:'mov_anexo_nome',
     btnEnviar:'btnEnviarMovimentacao', bloqueado:'movBloqueadoAviso',
   };
 }
@@ -3828,15 +3824,6 @@ function movFmtDataHora(iso){
   const d = new Date(iso);
   return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
 }
-// mesmo estilo do resumo "26/08/2026 10:38 - 26/08/2026 10:38" + horas
-function movResumoTempo(inicioLocal, fimLocal){
-  if(!inicioLocal || !fimLocal) return '';
-  const di = new Date(inicioLocal), df = new Date(fimLocal);
-  const fmt = d => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  const horas = Math.max(0, (df - di) / 3600000);
-  return `${fmt(di)} - ${fmt(df)} · ${horas.toFixed(2).replace('.',',')}h`;
-}
-
 async function carregarMovimentacoes(atendimentoId, sufixo){
   sufixo = sufixo || '';
   const ids = movIds(sufixo);
@@ -3866,7 +3853,6 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
   const conta = contaAtual();
   cont.innerHTML = estado.cache.map(m=>{
     const citada = m.respondendoA ? estado.cache.find(x=>x.id===m.respondendoA) : null;
-    const tempoTexto = (m.tempoInicio && m.tempoFim) ? movResumoTempo(m.tempoInicio, m.tempoFim) : '';
     const podeGerenciar = !bloqueado && conta && (ehAdminEfetivo(conta) || conta.nome === m.autorNome);
     return `<div class="mov-item">
       ${citada ? `<div class="mov-respondendo-item">Em resposta a <b>${escaparHtml(citada.autorNome)}</b>: "${escaparHtml(stripHtml(citada.texto).slice(0,60))}"</div>` : ''}
@@ -3877,7 +3863,6 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
         </div>
         <div class="mov-data">${movFmtDataHora(m.criadoEm)}</div>
       </div>
-      ${tempoTexto ? `<div class="mov-tempo">⏱ Tempo de trabalho: ${tempoTexto}</div>` : ''}
       <div class="mov-conteudo rt-content">${sanitizarHtml(m.texto)}</div>
       ${(m.anexos && m.anexos.length>0) ? m.anexos.map(a=>`<div class="mov-anexo-item">📎 <a href="${a.url}" target="_blank">${escaparHtml(a.nome)}</a></div>`).join('') : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;">
@@ -3893,9 +3878,6 @@ function movLimparComposer(sufixo){
   const ids = movIds(sufixo);
   const estado = movEstado[sufixo];
   document.getElementById(ids.texto).innerHTML = '';
-  document.getElementById(ids.tempoInicio).value = '';
-  document.getElementById(ids.tempoFim).value = '';
-  document.getElementById(ids.tempoResumo).textContent = '';
   document.getElementById(ids.anexo).value = '';
   document.getElementById(ids.anexoNome).textContent = '';
   document.getElementById(ids.respWrap).style.display = 'none';
@@ -3928,9 +3910,6 @@ function editarMovimentacaoUi(id, sufixo){
   estado.respondendoId = null;
   estado.editandoId = id;
   document.getElementById(ids.texto).innerHTML = sanitizarHtml(m.texto || '');
-  document.getElementById(ids.tempoInicio).value = m.tempoInicio || '';
-  document.getElementById(ids.tempoFim).value = m.tempoFim || '';
-  atualizarResumoTempoMov(sufixo);
   document.getElementById(ids.respTexto).textContent = `Editando a movimentação de ${m.autorNome}`;
   document.getElementById(ids.respWrap).style.display = 'flex';
   document.getElementById(ids.btnEnviar).textContent = 'Salvar edição';
@@ -3959,14 +3938,6 @@ async function excluirMovimentacaoUi(id, sufixo){
   });
 }
 
-function atualizarResumoTempoMov(sufixo){
-  sufixo = sufixo || '';
-  const ids = movIds(sufixo);
-  const ini = document.getElementById(ids.tempoInicio).value;
-  const fim = document.getElementById(ids.tempoFim).value;
-  document.getElementById(ids.tempoResumo).textContent = (ini && fim) ? movResumoTempo(ini, fim) : '';
-}
-
 async function enviarMovimentacao(sufixo){
   sufixo = sufixo || '';
   const ids = movIds(sufixo);
@@ -3977,12 +3948,6 @@ async function enviarMovimentacao(sufixo){
   const textoLimpo = stripHtml(textoHtml).trim();
   if(!textoLimpo && !estado.anexoArquivo){ toast('Escreva algo ou anexe um arquivo'); return; }
 
-  const podeRegistrarTempo = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
-  const tempoInicio = podeRegistrarTempo ? document.getElementById(ids.tempoInicio).value : '';
-  const tempoFim = podeRegistrarTempo ? document.getElementById(ids.tempoFim).value : '';
-  if((tempoInicio && !tempoFim) || (!tempoInicio && tempoFim)){ toast('Preencha início e fim do tempo de trabalho, ou deixe os dois em branco'); return; }
-  if(tempoInicio && tempoFim && tempoFim < tempoInicio){ toast('O fim do tempo de trabalho não pode ser antes do início'); return; }
-
   const btn = document.getElementById(ids.btnEnviar);
   const editando = !!estado.editandoId;
   btn.disabled = true;
@@ -3990,11 +3955,11 @@ async function enviarMovimentacao(sufixo){
   try{
     let r;
     if(editando){
-      r = await api('atualizarMovimentacao', { contaId: conta.id, id: estado.editandoId, texto: textoHtml, tempoInicio, tempoFim });
+      r = await api('atualizarMovimentacao', { contaId: conta.id, id: estado.editandoId, texto: textoHtml });
     }else{
       const payload = {
         atendimentoId: estado.atendimentoId, texto: textoHtml, autorNome: conta.nome, autorPerfil: conta.perfil,
-        tempoInicio, tempoFim, respondendoA: estado.respondendoId,
+        respondendoA: estado.respondendoId,
       };
       if(estado.anexoArquivo){
         payload.anexoBase64 = await lerArquivoBase64(estado.anexoArquivo);
@@ -4483,8 +4448,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('statusMassaConfirmar').addEventListener('click', aplicarStatusMassa);
   document.getElementById('btnEnviarMovimentacao').addEventListener('click', ()=>enviarMovimentacao(''));
   document.getElementById('movCancelarResposta').addEventListener('click', ()=>cancelarRespostaMovimentacao(''));
-  document.getElementById('mov_tempo_inicio').addEventListener('change', ()=>atualizarResumoTempoMov(''));
-  document.getElementById('mov_tempo_fim').addEventListener('change', ()=>atualizarResumoTempoMov(''));
   document.getElementById('mov_anexo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
     movEstado[''].anexoArquivo = arquivo || null;
@@ -4492,8 +4455,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnEnviarMovimentacao_ed').addEventListener('click', ()=>enviarMovimentacao('_ed'));
   document.getElementById('movCancelarResposta_ed').addEventListener('click', ()=>cancelarRespostaMovimentacao('_ed'));
-  document.getElementById('mov_tempo_inicio_ed').addEventListener('change', ()=>atualizarResumoTempoMov('_ed'));
-  document.getElementById('mov_tempo_fim_ed').addEventListener('change', ()=>atualizarResumoTempoMov('_ed'));
   document.getElementById('mov_anexo_ed').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
     movEstado['_ed'].anexoArquivo = arquivo || null;
