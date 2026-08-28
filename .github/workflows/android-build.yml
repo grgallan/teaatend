@@ -2,12 +2,13 @@ name: Build Android APK
 
 # Compila o app Android (Capacitor) e disponibiliza o .apk pra download como
 # artefato do workflow — não precisa de Android Studio local pra testar.
-# Rode manualmente em Actions → Build Android APK → Run workflow, ou deixe
-# disparar sozinho quando algo relevante mudar na branch principal.
+# Roda sozinho em PRs (pra validar antes de mergear) e a cada mudança
+# relevante na branch principal; "workflow_dispatch" só fica disponível pra
+# disparo manual depois que este arquivo existir na branch padrão.
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths_relevantes
       - 'app.js'
       - 'index.html'
       - 'manifest.json'
@@ -19,6 +20,9 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/android-build.yml'
+  pull_request:
+    branches: [main]
+    paths: *paths_relevantes
   workflow_dispatch: {}
 
 jobs:
