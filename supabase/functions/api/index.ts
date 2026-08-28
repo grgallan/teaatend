@@ -29,6 +29,9 @@ const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') || 'mailto:contato@example.c
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 }
+// notificações nativas do app Android (opcional) — veja o LEIA-ME.md pra gerar
+// a chave de conta de serviço do Firebase
+const FCM_SERVICE_ACCOUNT_JSON = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON') || '';
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -147,6 +150,8 @@ async function rotear(req: any): Promise<any> {
     case 'alterarMinhaSenha': return acaoAlterarMinhaSenha(req);
     case 'salvarInscricaoPush': return acaoSalvarInscricaoPush(req);
     case 'removerInscricaoPush': return acaoRemoverInscricaoPush(req);
+    case 'salvarTokenFcm': return acaoSalvarTokenFcm(req);
+    case 'removerTokenFcm': return acaoRemoverTokenFcm(req);
     case 'listarRelatoriosSalvos': return acaoListarRelatoriosSalvos(req);
     case 'salvarRelatorio': return acaoSalvarRelatorio(req);
     case 'removerRelatorio': return acaoRemoverRelatorio(req);
@@ -516,13 +521,22 @@ async function enviarEmailsNovoAtendimento(registro: any) {
 
 /* ---------- notificações push (opcional — veja o LEIA-ME.md pra ativar) ---------- */
 
+// manda pra ambos os canais — Web Push (navegador/PWA) e FCM (app Android
+// nativo) — cada um só faz alguma coisa se estiver configurado
+async function enviarPushParaContas(contaIds: (string | null | undefined)[], titulo: string, corpo: string, urlDestino?: string) {
+  const idsUnicos = [...new Set(contaIds.filter((id): id is string => !!id))];
+  if (idsUnicos.length === 0) { console.log('[push] Nenhuma conta pra notificar neste evento.'); return; }
+  await Promise.all([
+    enviarWebPushParaContas(idsUnicos, titulo, corpo, urlDestino),
+    enviarFcmParaContas(idsUnicos, titulo, corpo, urlDestino),
+  ]);
+}
+
 // manda a notificação de verdade pra cada inscrição (aparelho) das contas
 // informadas; se uma inscrição estiver morta (410/404 — usuário desinstalou
 // o app, trocou de aparelho, etc.), apaga ela sozinho pra não tentar de novo
-async function enviarPushParaContas(contaIds: (string | null | undefined)[], titulo: string, corpo: string, urlDestino?: string) {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) { console.log('[push] Chaves VAPID não configuradas — pulando envio de notificação.'); return; }
-  const idsUnicos = [...new Set(contaIds.filter((id): id is string => !!id))];
-  if (idsUnicos.length === 0) { console.log('[push] Nenhuma conta pra notificar neste evento.'); return; }
+async function enviarWebPushParaContas(idsUnicos: string[], titulo: string, corpo: string, urlDestino?: string) {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) { console.log('[push] Chaves VAPID não configuradas — pulando envio de notificação web.'); return; }
   try {
     const { data: inscricoes, error: erroInscricoes } = await db.from('push_inscricoes').select('*').in('conta_id', idsUnicos);
     if (erroInscricoes) { console.error('[push] Erro ao buscar inscrições:', erroInscricoes.message); return; }
@@ -542,7 +556,111 @@ async function enviarPushParaContas(contaIds: (string | null | undefined)[], tit
       }
     }));
   } catch (_e: any) {
-    console.error('[push] Erro inesperado ao enviar notificações:', _e && _e.message);
+    console.error('[push] Erro inesperado ao enviar notificações web:', _e && _e.message);
+  }
+}
+
+/* ---------- notificações nativas do app Android (FCM) ---------- */
+
+let fcmAccessTokenCache: { token: string; expiraEm: number } | null = null;
+
+function base64urlDeBytes(bytes: Uint8Array): string {
+  let binario = '';
+  for (const b of bytes) binario += String.fromCharCode(b);
+  return btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function base64urlDeJson(obj: any): string {
+  return base64urlDeBytes(new TextEncoder().encode(JSON.stringify(obj)));
+}
+function pemParaArrayBuffer(pem: string): ArrayBuffer {
+  const base64 = pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\s+/g, '');
+  const binario = atob(base64);
+  const bytes = new Uint8Array(binario.length);
+  for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// gera (e cacheia até quase expirar) um access token OAuth2 pra chamar a API
+// do Firebase Cloud Messaging, assinando um JWT com a chave privada da conta
+// de serviço — só com Web Crypto (já vem no Deno), sem lib nenhuma
+async function obterAccessTokenFcm(contaServico: any): Promise<string | null> {
+  const agora = Math.floor(Date.now() / 1000);
+  if (fcmAccessTokenCache && fcmAccessTokenCache.expiraEm > agora + 60) return fcmAccessTokenCache.token;
+
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const claims = {
+    iss: contaServico.client_email,
+    scope: 'https://www.googleapis.com/auth/firebase.messaging',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: agora,
+    exp: agora + 3600,
+  };
+  const semAssinar = `${base64urlDeJson(header)}.${base64urlDeJson(claims)}`;
+
+  try {
+    const chavePrivada = await crypto.subtle.importKey(
+      'pkcs8', pemParaArrayBuffer(contaServico.private_key),
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']
+    );
+    const assinatura = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', chavePrivada, new TextEncoder().encode(semAssinar));
+    const jwt = `${semAssinar}.${base64urlDeBytes(new Uint8Array(assinatura))}`;
+
+    const resp = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }),
+    });
+    const dados = await resp.json();
+    if (!resp.ok || !dados.access_token) { console.error('[push-fcm] Erro ao obter access token:', dados); return null; }
+    fcmAccessTokenCache = { token: dados.access_token, expiraEm: agora + (dados.expires_in || 3600) };
+    return dados.access_token;
+  } catch (e: any) {
+    console.error('[push-fcm] Erro inesperado ao gerar access token:', e && e.message);
+    return null;
+  }
+}
+
+async function enviarFcmParaContas(idsUnicos: string[], titulo: string, corpo: string, urlDestino?: string) {
+  if (!FCM_SERVICE_ACCOUNT_JSON) { console.log('[push-fcm] Conta de serviço não configurada — pulando envio de notificação nativa (Android).'); return; }
+  let contaServico: any;
+  try { contaServico = JSON.parse(FCM_SERVICE_ACCOUNT_JSON); } catch { console.error('[push-fcm] FCM_SERVICE_ACCOUNT_JSON não é um JSON válido.'); return; }
+
+  try {
+    const { data: tokens, error } = await db.from('push_fcm_tokens').select('*').in('conta_id', idsUnicos);
+    if (error) { console.error('[push-fcm] Erro ao buscar tokens:', error.message); return; }
+    if (!tokens || tokens.length === 0) { console.log(`[push-fcm] Nenhum aparelho Android registrado pras contas ${idsUnicos.join(', ')}.`); return; }
+
+    const accessToken = await obterAccessTokenFcm(contaServico);
+    if (!accessToken) return;
+
+    console.log(`[push-fcm] Enviando pra ${tokens.length} aparelho(s) Android.`);
+    await Promise.all(tokens.map(async (t: any) => {
+      try {
+        const resp = await fetch(`https://fcm.googleapis.com/v1/projects/${contaServico.project_id}/messages:send`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: {
+              token: t.token,
+              notification: { title: titulo, body: corpo },
+              data: { url: urlDestino || URL_APP },
+            },
+          }),
+        });
+        if (resp.ok) { console.log(`[push-fcm] Enviado com sucesso pro token ${t.id}`); return; }
+        const erroResp = await resp.json().catch(() => ({}));
+        console.error(`[push-fcm] Falha ao enviar pro token ${t.id}:`, erroResp);
+        const status = erroResp && erroResp.error && erroResp.error.status;
+        if (status === 'UNREGISTERED' || status === 'NOT_FOUND' || status === 'INVALID_ARGUMENT') {
+          await db.from('push_fcm_tokens').delete().eq('id', t.id);
+          console.log(`[push-fcm] Token ${t.id} removido (expirado/inválido).`);
+        }
+      } catch (e: any) {
+        console.error(`[push-fcm] Erro inesperado ao enviar pro token ${t.id}:`, e && e.message);
+      }
+    }));
+  } catch (_e: any) {
+    console.error('[push-fcm] Erro inesperado ao enviar notificações nativas:', _e && _e.message);
   }
 }
 
@@ -933,6 +1051,23 @@ async function acaoSalvarInscricaoPush(req: any) {
 
 async function acaoRemoverInscricaoPush(req: any) {
   if (req.endpoint) await db.from('push_inscricoes').delete().eq('endpoint', req.endpoint);
+  return { ok: true };
+}
+
+// token de push nativo (FCM) do app Android — mesma ideia da inscrição web
+// acima, mas guardado à parte porque não tem p256dh/auth, só o token
+async function acaoSalvarTokenFcm(req: any) {
+  if (!req.contaId || !req.token) return { ok: false, erro: 'Dados de inscrição incompletos.' };
+  const { error } = await db.from('push_fcm_tokens').upsert(
+    { id: gerarId(), conta_id: req.contaId, token: req.token },
+    { onConflict: 'token' }
+  );
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+
+async function acaoRemoverTokenFcm(req: any) {
+  if (req.token) await db.from('push_fcm_tokens').delete().eq('token', req.token);
   return { ok: true };
 }
 

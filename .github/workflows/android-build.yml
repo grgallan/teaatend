@@ -43,6 +43,10 @@ jobs:
       - name: Instalar dependências
         run: npm install
 
+      - name: Configurar Firebase (FCM) pras notificações push, se o secret existir
+        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
+        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+
       - name: Sincronizar site (www/) e assets nativos
         run: npm run cap:sync
 
