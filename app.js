@@ -829,9 +829,10 @@ function atualizarPreview(){
   const atendente2Nome = getSegSel('f_atendente2');
   const statAnanda2 = document.getElementById('stat_ananda2');
   if(atendente2Nome && atendente2Nome !== 'Nenhum'){
+    // o 2º atendente ganha pela mesma taxa "Valor Atendente/h" do
+    // atendente principal (vals.ananda) — não tem taxa própria dele
     const horas2 = Number(document.getElementById('f_horas_atendente2').value) || 0;
-    const vals2 = valoresPara(clienteNome, tipoNome, atendente2Nome);
-    document.getElementById('p_ananda2').textContent = fmtMoeda(horas2 * vals2.ananda);
+    document.getElementById('p_ananda2').textContent = fmtMoeda(horas2 * vals.ananda);
     statAnanda2.style.display = '';
   } else {
     statAnanda2.style.display = 'none';
