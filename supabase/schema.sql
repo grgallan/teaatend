@@ -238,6 +238,18 @@ create table if not exists push_inscricoes (
 alter table push_inscricoes enable row level security;
 create index if not exists idx_push_conta on push_inscricoes (conta_id);
 
+-- tokens de notificação nativa (FCM) do app Android — mesma ideia da tabela
+-- acima, mas pro app empacotado (Capacitor), que usa Firebase em vez do
+-- PushManager do navegador
+create table if not exists push_fcm_tokens (
+  id text primary key,
+  conta_id text not null,
+  token text not null unique,
+  criado_em timestamptz default now()
+);
+alter table push_fcm_tokens enable row level security;
+create index if not exists idx_push_fcm_conta on push_fcm_tokens (conta_id);
+
 -- relatórios personalizados que o admin monta, salva e publica — quem
 -- pode ver cada um é controlado por "visivel_perfis" (lista de perfis:
 -- ADMIN/ATENDENTE/USUARIO). "config" guarda tudo que define o relatório

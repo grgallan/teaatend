@@ -92,7 +92,71 @@ tinha. Pra manter essa funcionalidade, use o [Resend](https://resend.com)
    ```
 4. Sem configurar isso, o app funciona normalmente — só não manda e-mail.
 
-## Passo 7 — publicar o site
+## Passo 7 (opcional) — notificações push
+
+Sem configurar nada disso o app funciona normalmente — só não manda avisos
+quando abre um chamado, muda o status ou chega mensagem nova. Tem dois
+canais independentes; pode ativar um, os dois, ou nenhum.
+
+### Web Push (navegador / PWA instalado)
+
+Usado quando alguém clica em "🔔 Avisos" pelo navegador (Chrome/Edge no
+computador ou celular, ou o site instalado como PWA).
+
+1. Gere um par de chaves VAPID. O jeito mais fácil é rodar, com o Node
+   instalado:
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+2. Cole a **chave pública** em `CONFIG.VAPID_PUBLIC_KEY`, no topo do
+   `app.js`.
+3. Configure as duas chaves como secrets da Edge Function:
+   ```bash
+   supabase secrets set VAPID_PUBLIC_KEY=sua-chave-publica
+   supabase secrets set VAPID_PRIVATE_KEY=sua-chave-privada
+   supabase secrets set VAPID_SUBJECT=mailto:seu-email@exemplo.com
+   ```
+4. Reimplante a função (`supabase functions deploy api`).
+
+### Notificações nativas no app Android (FCM)
+
+O app Android é uma casca Capacitor que abre o site publicado — Web Push
+não é confiável dentro dela (sem um app rodando em segundo plano de verdade
+não há garantia de entrega com o app fechado). Por isso o app usa o
+Firebase Cloud Messaging (FCM) nativo, através do plugin
+`@capacitor/push-notifications`, em paralelo ao Web Push acima.
+
+1. Crie um projeto no [Firebase Console](https://console.firebase.google.com/)
+   (pode ser gratuito, plano Spark).
+2. Adicione um app Android ao projeto com o pacote
+   **`com.teaatend.atendimentos`** (tem que ser exatamente esse, é o
+   `applicationId` do `android/app/build.gradle`).
+3. Baixe o arquivo `google-services.json` gerado e coloque em
+   `android/app/google-services.json` (a build do Gradle já detecta esse
+   arquivo sozinha e ativa o plugin do Google Services — sem ele, o app
+   compila normalmente, só que sem push nativo).
+4. No Firebase Console, vá em **Configurações do projeto → Contas de
+   serviço** e clique em **Gerar nova chave privada** — isso baixa um JSON
+   com a credencial da conta de serviço.
+5. Configure esse JSON inteiro (o arquivo baixado, sem editar nada) como
+   secret da Edge Function:
+   ```bash
+   supabase secrets set FCM_SERVICE_ACCOUNT_JSON="$(cat caminho/do/arquivo-baixado.json)"
+   ```
+6. Reimplante a função (`supabase functions deploy api`).
+7. (Opcional, só se compilar o APK pelo GitHub Actions) cadastre o conteúdo
+   do `google-services.json` como secret do repositório
+   **`GOOGLE_SERVICES_JSON`** (Settings → Secrets and variables → Actions) —
+   o workflow `.github/workflows/android-build.yml` escreve esse secret no
+   arquivo automaticamente antes de compilar, se ele existir.
+8. Rode `npm run cap:sync` e recompile o app (`npm run android:open` ou
+   pelo GitHub Actions) pra levar o `google-services.json` pro APK.
+
+Depois de configurado, o botão "🔔 Avisos" dentro do app Android pede a
+permissão do sistema (Android 13+ exige isso explicitamente) e registra o
+aparelho sozinho — não precisa mexer em mais nada no site.
+
+## Passo 8 — publicar o site
 
 Igual à versão anterior: suba `index.html`, `app.js`, `manifest.json`,
 `sw.js` e a pasta `icons/` pro seu repositório GitHub (pode ser o mesmo
@@ -134,3 +198,12 @@ Igual à versão anterior: suba `index.html`, `app.js`, `manifest.json`,
   sobrando no final, por exemplo).
 - Pra ver logs de erro do backend: painel do Supabase → **Edge Functions**
   → clique na função → aba **Logs**.
+- **Notificação não chega no navegador/PWA** — confira se `VAPID_PUBLIC_KEY`
+  está preenchida no `app.js` e se as duas chaves VAPID foram configuradas
+  como secrets da função (passo 7); veja os logs `[push]` na Edge Function.
+- **Notificação não chega no app Android** — confira, nessa ordem: (1) se
+  `android/app/google-services.json` existe e é do projeto Firebase certo
+  (pacote `com.teaatend.atendimentos`); (2) se o secret
+  `FCM_SERVICE_ACCOUNT_JSON` foi configurado na Edge Function; (3) se a
+  pessoa concedeu a permissão de notificação pelo botão "🔔 Avisos" dentro
+  do app; (4) os logs `[push-fcm]` na Edge Function.

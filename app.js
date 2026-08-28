@@ -490,6 +490,53 @@ async function salvarNovaSenha(){
 function contaAtual(){ return sessaoConta; }
 
 /* ---------- notificações push ---------- */
+
+// dentro do app Android (Capacitor) usamos push nativo via FCM em vez do
+// PushManager do navegador — Web Push não é confiável dentro de uma WebView
+// empacotada (sem Firebase por trás não há entrega garantida com o app em
+// segundo plano ou fechado)
+function emAppNativo(){
+  return !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+}
+function pushNotificationsPlugin(){
+  return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications;
+}
+
+let fcmTokenAtual = null;
+let fcmListenersProntos = false;
+
+async function iniciarPushNativo(){
+  const PN = pushNotificationsPlugin();
+  if(!PN) return;
+  if(!fcmListenersProntos){
+    fcmListenersProntos = true;
+    PN.addListener('registration', async (token) => {
+      fcmTokenAtual = token.value;
+      const conta = contaAtual();
+      if(conta){
+        try{ await api('salvarTokenFcm', { contaId: conta.id, token: token.value }); }
+        catch(e){ console.error('[push] Erro ao salvar token FCM:', e); }
+      }
+      atualizarBotaoNotificacoes();
+    });
+    PN.addListener('registrationError', (erro) => {
+      console.error('[push] Erro ao registrar pra notificações (FCM):', erro);
+    });
+    PN.addListener('pushNotificationReceived', (notif) => {
+      // com o app aberto o Android não mostra a notificação sozinho — avisa por toast
+      if(notif && (notif.title || notif.body)) toast([notif.title, notif.body].filter(Boolean).join(' — '));
+    });
+  }
+  // se a permissão já tinha sido concedida numa sessão anterior, re-registra
+  // sozinho (o token pode mudar) sem precisar pedir de novo pra pessoa
+  try{
+    const status = await PN.checkPermissions();
+    if(status.receive === 'granted') await PN.register();
+  }catch(e){
+    console.error('[push] Erro ao checar permissão de notificações:', e);
+  }
+}
+
 function urlBase64ToUint8Array(base64String){
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -507,6 +554,11 @@ async function inscricaoPushAtual(){
 
 async function atualizarBotaoNotificacoes(){
   const btn = document.getElementById('btnNotificacoes');
+  if(emAppNativo()){
+    btn.style.display = '';
+    btn.textContent = fcmTokenAtual ? '🔕 Desativar avisos' : '🔔 Avisos';
+    return;
+  }
   if(!CONFIG.VAPID_PUBLIC_KEY || !('serviceWorker' in navigator) || !('PushManager' in window)){
     btn.style.display = 'none';
     return;
@@ -518,6 +570,32 @@ async function atualizarBotaoNotificacoes(){
 
 async function alternarNotificacoes(){
   const btn = document.getElementById('btnNotificacoes');
+
+  if(emAppNativo()){
+    const PN = pushNotificationsPlugin();
+    if(!PN) return;
+    btn.disabled = true;
+    try{
+      if(fcmTokenAtual){
+        try{ await api('removerTokenFcm', { token: fcmTokenAtual }); }catch(e){ console.error('[push] Erro ao remover token FCM:', e); }
+        fcmTokenAtual = null;
+        toast('Notificações desativadas');
+      } else {
+        const status = await PN.requestPermissions();
+        if(status.receive !== 'granted'){ toast('Permissão de notificação não concedida'); return; }
+        await PN.register();
+        toast('Notificações ativadas');
+      }
+    }catch(e){
+      console.error('[push] Erro inesperado ao alternar notificações nativas:', e);
+      toast('Não foi possível alterar as notificações — veja o console (F12) pra detalhes');
+    } finally {
+      btn.disabled = false;
+      atualizarBotaoNotificacoes();
+    }
+    return;
+  }
+
   const inscricaoExistente = await inscricaoPushAtual();
 
   if(inscricaoExistente){
@@ -598,6 +676,7 @@ function entrarNoApp(){
   document.getElementById('whoName').textContent = conta.nome;
   document.getElementById('avatarIni').textContent = conta.nome.slice(0,2).toUpperCase();
   atualizarBotaoNotificacoes();
+  if(emAppNativo()) iniciarPushNativo();
 
   const isAdmin = ehAdminEfetivo(conta);
   const isUsuario = conta.perfil === 'USUARIO';
