@@ -352,16 +352,10 @@ async function acaoSalvarAtendimento(req: any) {
     if (valorEncontrado) { real = Number(valorEncontrado.real); ananda = Number(valorEncontrado.ananda); }
   }
 
-  // mesma busca de taxa acima, agora pro segundo atendente — só o lado
-  // "ananda" (quanto ele ganha) importa aqui; o valor cobrado do cliente
-  // (real/vhr) continua sendo só o do atendente principal
-  let ananda2 = 0;
-  if (cliente && tipo && contaAtendente2) {
-    const rValor2 = await db.from('valores').select('*')
-      .eq('atendente_id', contaAtendente2.id).eq('cliente_id', cliente.id).eq('tipo_id', tipo.id).limit(1);
-    const valorEncontrado2 = rValor2.data && rValor2.data[0] ? rValor2.data[0] : null;
-    if (valorEncontrado2) ananda2 = Number(valorEncontrado2.ananda);
-  }
+  // o segundo atendente ganha pela mesma taxa "Valor Atendente/h" do
+  // atendente principal (ananda) — não tem uma taxa própria dele; o valor
+  // cobrado do cliente (real/vhr) continua sendo só o do atendente principal
+  const ananda2 = contaAtendente2 ? ananda : 0;
   const horasAtendente2 = contaAtendente2 ? (Number(req.horasAtendente2) || 0) : 0;
 
   // diagnóstico: só loga quando tinha atendente mas não achou valor — ajuda a
