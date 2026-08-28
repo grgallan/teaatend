@@ -1,0 +1,12 @@
+{
+  "appId": "com.teaatend.atendimentos",
+  "appName": "Atendimentos",
+  "webDir": "www",
+  "server": {
+    "url": "https://grgallan.github.io/teaatend/",
+    "cleartext": false
+  },
+  "android": {
+    "backgroundColor": "#151A1F"
+  }
+}

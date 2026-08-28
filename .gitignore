@@ -1,0 +1,17 @@
+# Node / npm
+node_modules/
+
+# www/ é gerado a partir da raiz por "npm run sync-www" — não versionar
+# duas cópias dos mesmos arquivos
+/www/
+
+# Android (Capacitor / Gradle) — artefatos de build, nunca o código-fonte
+android/.gradle/
+android/local.properties
+android/**/build/
+android/captures/
+android/.cxx/
+*.apk
+*.aab
+*.keystore
+*.jks
