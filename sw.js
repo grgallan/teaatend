@@ -1,4 +1,4 @@
-const CACHE = 'atendimentos-supabase-v1';
+const CACHE = 'atendimentos-supabase-v2';
 const ASSETS = ['./index.html', './app.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e=>{
@@ -13,16 +13,18 @@ self.addEventListener('activate', e=>{
   self.clients.claim();
 });
 
+// network-first: sempre busca a versão nova quando tem internet (esse app
+// muda com frequência — cache-first já deixou gente vendo tela antiga por
+// dias) e só usa o cache como fallback quando estiver offline de verdade.
+// POST (chamadas da API) nem passa por aqui — Cache API só aceita GET.
 self.addEventListener('fetch', e=>{
+  if(e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then(cached=>{
-      return cached || fetch(e.request).then(res=>{
-        return caches.open(CACHE).then(c=>{
-          c.put(e.request, res.clone());
-          return res;
-        });
-      }).catch(()=>cached);
-    })
+    fetch(e.request).then(res=>{
+      const copia = res.clone();
+      caches.open(CACHE).then(c=>c.put(e.request, copia));
+      return res;
+    }).catch(()=>caches.match(e.request))
   );
 });
 
