@@ -144,13 +144,9 @@ Firebase Cloud Messaging (FCM) nativo, através do plugin
    supabase secrets set FCM_SERVICE_ACCOUNT_JSON="$(cat caminho/do/arquivo-baixado.json)"
    ```
 6. Reimplante a função (`supabase functions deploy api`).
-7. (Opcional, só se compilar o APK pelo GitHub Actions) cadastre o conteúdo
-   do `google-services.json` como secret do repositório
-   **`GOOGLE_SERVICES_JSON`** (Settings → Secrets and variables → Actions) —
-   o workflow `.github/workflows/android-build.yml` escreve esse secret no
-   arquivo automaticamente antes de compilar, se ele existir.
-8. Rode `npm run cap:sync` e recompile o app (`npm run android:open` ou
-   pelo GitHub Actions) pra levar o `google-services.json` pro APK.
+7. Rode `npm run cap:sync` e recompile o app (`npm run android:open` ou
+   pelo GitHub Actions) pra levar o `google-services.json` (já commitado
+   em `android/app/google-services.json`) pro APK.
 
 Depois de configurado, o botão "🔔 Avisos" dentro do app Android pede a
 permissão do sistema (Android 13+ exige isso explicitamente) e registra o
