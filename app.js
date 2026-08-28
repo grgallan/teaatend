@@ -799,9 +799,9 @@ function valoresPara(clienteNome, tipoNome, atendenteNome){
   const cliente = clientes.find(c=>c.nome===clienteNome);
   const tipo = tipos.find(t=>t.nome===tipoNome);
   const atendenteConta = atendenteNome ? contas.find(c=>c.perfil==='ATENDENTE' && c.nome===atendenteNome) : null;
-  if(!cliente || !tipo || !atendenteConta) return {real:0, ananda:0};
+  if(!cliente || !tipo || !atendenteConta) return {real:0, ananda:0, valorSegundoAtend:0};
   const v = valores.find(v=>String(v.atendenteId)===String(atendenteConta.id) && String(v.clienteId)===String(cliente.id) && String(v.tipoId)===String(tipo.id));
-  return v ? {real:Number(v.real), ananda:Number(v.ananda)} : {real:0, ananda:0};
+  return v ? {real:Number(v.real), ananda:Number(v.ananda), valorSegundoAtend:Number(v.valorSegundoAtend)||0} : {real:0, ananda:0, valorSegundoAtend:0};
 }
 
 function atualizarVisibilidadeHoras2(){
@@ -829,10 +829,10 @@ function atualizarPreview(){
   const atendente2Nome = getSegSel('f_atendente2');
   const statAnanda2 = document.getElementById('stat_ananda2');
   if(atendente2Nome && atendente2Nome !== 'Nenhum'){
-    // o 2º atendente ganha pela mesma taxa "Valor Atendente/h" do
-    // atendente principal (vals.ananda) — não tem taxa própria dele
+    // o 2º atendente ganha pela taxa "Valor 2º Atendente/h" cadastrada na
+    // mesma linha de valores do atendente principal (vals.valorSegundoAtend)
     const horas2 = Number(document.getElementById('f_horas_atendente2').value) || 0;
-    document.getElementById('p_ananda2').textContent = fmtMoeda(horas2 * vals.ananda);
+    document.getElementById('p_ananda2').textContent = fmtMoeda(horas2 * vals.valorSegundoAtend);
     statAnanda2.style.display = '';
   } else {
     statAnanda2.style.display = 'none';
@@ -3569,10 +3569,10 @@ function renderTabelaValores(){
     const atendente = contas.find(c=>String(c.id)===String(v.atendenteId))?.nome || '—';
     const cliente = clientes.find(c=>String(c.id)===String(v.clienteId))?.nome || '—';
     const tipo = tipos.find(t=>String(t.id)===String(v.tipoId))?.nome || '—';
-    return `<tr><td>${atendente}</td><td>${cliente}</td><td>${labelTipo(tipo)}</td><td>${fmtMoeda(Number(v.real))}</td><td>${fmtMoeda(Number(v.ananda))}</td>
+    return `<tr><td>${atendente}</td><td>${cliente}</td><td>${labelTipo(tipo)}</td><td>${fmtMoeda(Number(v.real))}</td><td>${fmtMoeda(Number(v.ananda))}</td><td>${fmtMoeda(Number(v.valorSegundoAtend)||0)}</td>
       <td><button class="danger" onclick="pedirConfirmacao('Remover valor?','', ()=>removerValor('${v.id}'))">✕</button></td></tr>`;
   }).join('');
-  el.innerHTML = `<tr><th>Atendente</th><th>Cliente</th><th>Tipo</th><th>Real/h</th><th>Valor Atendente/h</th><th></th></tr>${linhas}`;
+  el.innerHTML = `<tr><th>Atendente</th><th>Cliente</th><th>Tipo</th><th>Real/h</th><th>Valor Atendente/h</th><th>Valor 2º Atendente/h</th><th></th></tr>${linhas}`;
 }
 async function removerValor(id){
   const r = await api('removerValor', { id });
@@ -4599,10 +4599,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const tipoId = document.getElementById('vl_tipo').value;
     const real = parseFloat(document.getElementById('vl_real').value);
     const ananda = parseFloat(document.getElementById('vl_ananda').value);
+    const valorSegundoAtendStr = document.getElementById('vl_valor_segundo_atend').value;
+    const valorSegundoAtend = valorSegundoAtendStr !== '' ? parseFloat(valorSegundoAtendStr) : 0;
     if(!atendenteId || !clienteId || !tipoId || isNaN(real) || isNaN(ananda)){ toast('Preencha todos os campos, incluindo o atendente'); return; }
-    const r = await api('salvarValor', { atendenteId, clienteId, tipoId, real, ananda });
+    const r = await api('salvarValor', { atendenteId, clienteId, tipoId, real, ananda, valorSegundoAtend });
     if(!r.ok) return;
-    document.getElementById('vl_real').value=''; document.getElementById('vl_ananda').value='';
+    document.getElementById('vl_real').value=''; document.getElementById('vl_ananda').value=''; document.getElementById('vl_valor_segundo_atend').value='';
     await carregarTudo(); renderTabelaValores();
     toast('Valores salvos');
   });

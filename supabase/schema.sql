@@ -129,6 +129,14 @@ where a.ctid < b.ctid
 alter table valores drop constraint if exists valores_unico;
 alter table valores add constraint valores_unico unique (atendente_id, cliente_id, tipo_id);
 
+-- taxa paga a QUEM AJUDAR como segundo atendente nessa mesma combinação
+-- de atendente principal + cliente + tipo (não é uma taxa própria de um
+-- atendente específico atuando como segundo — é "quanto se paga o
+-- ajudante" nesse contexto). Antes o segundo atendente ganhava o mesmo
+-- "Valor Atendente/h" do principal; agora cada linha carrega os três
+-- valores lado a lado: real (cliente), ananda (principal) e este aqui.
+alter table valores add column if not exists valor_segundo_atend numeric not null default 0;
+
 -- múltiplos anexos por atendimento (antes só cabia um, guardado em
 -- atendimentos.anexo_url/anexo_nome — essas duas colunas continuam
 -- existindo por compatibilidade, mas os anexos novos vão pra cá)
