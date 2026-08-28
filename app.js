@@ -4148,12 +4148,68 @@ function goCadSub(sub){
 /* ---------- relógio ---------- */
 function tickClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); }
 
+/* ---------- puxar do topo pra atualizar (tipo o F5 do navegador) — o app
+   Android roda numa WebView que não tem esse gesto nativo ---------- */
+function configurarPullParaAtualizar(){
+  const indicador = document.getElementById('pullRefreshIndicator');
+  const texto = document.getElementById('pullRefreshTexto');
+  const spinner = document.getElementById('pullRefreshSpinner');
+  const LIMITE = 70;
+  let inicioY = 0, puxando = false, distancia = 0, disparado = false;
+
+  function podeComecar(alvo){
+    if(disparado) return false;
+    if(document.getElementById('app').style.display === 'none') return false; // ainda na tela de login
+    if(document.querySelector('.modal-bg.show')) return false; // não atrapalha quem está usando um modal
+    if(alvo && alvo.closest('.rt-editor, .lookup-dropdown, table')) return false; // tem rolagem própria — não brigar com ela
+    return window.scrollY <= 0;
+  }
+  function atualizarVisual(d){
+    indicador.style.height = Math.min(d, LIMITE + 20) + 'px';
+    indicador.classList.toggle('com-borda', d > 4);
+    spinner.style.display = 'none';
+    texto.style.display = '';
+    texto.textContent = d >= LIMITE ? '↑ Solte para atualizar' : '↓ Puxe para atualizar';
+  }
+
+  document.addEventListener('touchstart', e=>{
+    if(!podeComecar(e.target)){ puxando = false; return; }
+    inicioY = e.touches[0].clientY;
+    puxando = true;
+    distancia = 0;
+  }, {passive:true});
+
+  document.addEventListener('touchmove', e=>{
+    if(!puxando || disparado) return;
+    const dy = e.touches[0].clientY - inicioY;
+    if(dy <= 0 || window.scrollY > 0){ puxando = false; atualizarVisual(0); return; }
+    distancia = Math.min(dy * 0.5, LIMITE + 20); // resistência, igual apps nativos
+    atualizarVisual(distancia);
+    e.preventDefault(); // evita o overscroll/pull-to-refresh nativo do navegador brigando com o nosso
+  }, {passive:false});
+
+  document.addEventListener('touchend', ()=>{
+    if(puxando && distancia >= LIMITE){
+      disparado = true;
+      indicador.style.height = LIMITE + 'px';
+      indicador.classList.add('com-borda');
+      spinner.style.display = '';
+      texto.textContent = 'Atualizando…';
+      setTimeout(()=>location.reload(), 200);
+    } else if(puxando){
+      atualizarVisual(0);
+    }
+    puxando = false;
+  });
+}
+
 /* ---------- init ---------- */
 window.addEventListener('DOMContentLoaded', async ()=>{
   segmentedSetup('f_tipo', atualizarPreview);
   segmentedSetup('f_atendente', atualizarPreview);
   segmentedSetup('f_atendente2', ()=>{ atualizarVisibilidadeHoras2(); atualizarPreview(); });
   configurarEditorRico();
+  configurarPullParaAtualizar();
 
   document.getElementById('f_novo_anexo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];

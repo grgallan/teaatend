@@ -334,6 +334,16 @@
   @keyframes spin{to{transform:rotate(360deg);}}
   #loadingOverlay span{color:var(--muted);font-size:13px;}
 
+  /* puxar do topo pra atualizar (tipo o F5 do navegador), pro app dentro
+     do WebView do Android — que não tem esse gesto nativo */
+  html{overscroll-behavior-y:contain;}
+  #pullRefreshIndicator{
+    height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;gap:8px;
+    background:var(--panel);color:var(--muted);font-size:12.5px;font-weight:600;
+    border-bottom:1px solid transparent;transition:height .12s ease;
+  }
+  #pullRefreshIndicator.com-borda{border-bottom-color:var(--line);}
+
   /* login */
   #screen-login{position:fixed;inset:0;background:var(--bg);z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;}
   .login-box{width:100%;max-width:360px;}
@@ -498,6 +508,7 @@
 </div>
 
 <div id="app" style="display:none;">
+<div id="pullRefreshIndicator"><span id="pullRefreshSpinner" class="spinner" style="width:16px;height:16px;border-width:2px;"></span><span id="pullRefreshTexto">↓ Puxe para atualizar</span></div>
 <header class="top">
   <div class="brand">
     <h1>Atendimentos</h1>
