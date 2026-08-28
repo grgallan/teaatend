@@ -743,10 +743,12 @@ function popularSelects(){
     renderSegmentado('f_tipo', tipos.map(t=>t.nome), tipos[0]?.nome);
   }
   renderSegmentado('f_atendente', contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome), null);
+  renderSegmentado('f_atendente2', ['Nenhum', ...contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome)], 'Nenhum');
 
   // usuário solicitante não escolhe o atendente — um atendente qualquer assume o chamado
   document.getElementById('campoAtendente').style.display = isUsuario ? 'none' : '';
   document.getElementById('campoAtendenteInfo').style.display = isUsuario ? '' : 'none';
+  document.getElementById('campoAtendente2').style.display = isUsuario ? 'none' : '';
 
   // usuário não preenche horário trabalhado — isso é registrado por quem atende
   document.getElementById('campoHorarios').style.display = isUsuario ? 'none' : '';
@@ -802,6 +804,13 @@ function valoresPara(clienteNome, tipoNome, atendenteNome){
   return v ? {real:Number(v.real), ananda:Number(v.ananda)} : {real:0, ananda:0};
 }
 
+function atualizarVisibilidadeHoras2(){
+  const atendente2Nome = getSegSel('f_atendente2');
+  const tem2 = atendente2Nome && atendente2Nome !== 'Nenhum';
+  document.getElementById('campoHorasAtendente2').style.display = tem2 ? '' : 'none';
+  if(!tem2) document.getElementById('f_horas_atendente2').value = '';
+}
+
 function atualizarPreview(){
   const clienteId = document.getElementById('f_cliente').value;
   const clienteNome = clientes.find(c=>String(c.id)===String(clienteId))?.nome;
@@ -816,6 +825,17 @@ function atualizarPreview(){
   document.getElementById('p_qtd').textContent = qtd.toFixed(2).replace('.',',') + 'h';
   document.getElementById('p_ananda').textContent = fmtMoeda(qtd * vals.ananda);
   document.getElementById('p_real').textContent = fmtMoeda(qtd * vals.real);
+
+  const atendente2Nome = getSegSel('f_atendente2');
+  const statAnanda2 = document.getElementById('stat_ananda2');
+  if(atendente2Nome && atendente2Nome !== 'Nenhum'){
+    const horas2 = Number(document.getElementById('f_horas_atendente2').value) || 0;
+    const vals2 = valoresPara(clienteNome, tipoNome, atendente2Nome);
+    document.getElementById('p_ananda2').textContent = fmtMoeda(horas2 * vals2.ananda);
+    statAnanda2.style.display = '';
+  } else {
+    statAnanda2.style.display = 'none';
+  }
 }
 
 function resetForm(){
@@ -859,6 +879,9 @@ function resetForm(){
     const btn = document.querySelector(`#f_atendente button[data-val="${conta.nome}"]`);
     if(btn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); btn.classList.add('sel'); }
   }
+  const at2Btn = document.querySelector(`#f_atendente2 button[data-val="Nenhum"]`);
+  if(at2Btn){ document.querySelectorAll('#f_atendente2 button').forEach(b=>b.classList.remove('sel')); at2Btn.classList.add('sel'); }
+  atualizarVisibilidadeHoras2();
   atualizarPreview();
 }
 
@@ -875,6 +898,10 @@ async function salvarRegistro(){
   const isUsuario = conta && conta.perfil === 'USUARIO';
   const atendente = isUsuario ? '' : getSegSel('f_atendente');
   if(!tipo || (!isUsuario && !atendente)){ toast('Cadastre ao menos um tipo e um atendente'); return; }
+  const at2Sel = isUsuario ? 'Nenhum' : getSegSel('f_atendente2');
+  const atendente2 = at2Sel && at2Sel !== 'Nenhum' ? at2Sel : '';
+  if(atendente2 && atendente2 === atendente){ toast('O segundo atendente não pode ser o mesmo que o atendente principal'); return; }
+  const horasAtendente2 = atendente2 ? (Number(document.getElementById('f_horas_atendente2').value) || 0) : 0;
   const detalhe = sanitizarHtml(document.getElementById('f_detalhe').innerHTML.trim());
   const solucao = sanitizarHtml(document.getElementById('f_solucao').innerHTML.trim());
   const hi = document.getElementById('f_hi').value;
@@ -890,7 +917,7 @@ async function salvarRegistro(){
   try{
     const dataPrevista = isUsuario ? '' : document.getElementById('f_data_prevista').value;
     const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
-      dataPrevista,
+      dataPrevista, atendente2, horasAtendente2,
       qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
     // anexo inicial (só existe esse campo na criação — depois de salvo, usa a lista de múltiplos anexos)
@@ -936,6 +963,12 @@ function editar(id){
   if(tipoBtn){ document.querySelectorAll('#f_tipo button').forEach(b=>b.classList.remove('sel')); tipoBtn.classList.add('sel'); }
   const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
   if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
+  const at2Val = r.atendente2 || 'Nenhum';
+  const at2Btn = document.querySelector(`#f_atendente2 button[data-val="${at2Val}"]`);
+  document.querySelectorAll('#f_atendente2 button').forEach(b=>b.classList.remove('sel'));
+  (at2Btn || document.querySelector(`#f_atendente2 button[data-val="Nenhum"]`))?.classList.add('sel');
+  document.getElementById('f_horas_atendente2').value = r.atendente2 ? Number(r.horasAtendente2||0) : '';
+  atualizarVisibilidadeHoras2();
   document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
   document.getElementById('f_solucao').innerHTML = sanitizarHtml(r.solucao || '');
   document.getElementById('f_hi').value = r.hi;
@@ -989,6 +1022,12 @@ function copiarAtendimento(id){
   if(tipoBtn){ document.querySelectorAll('#f_tipo button').forEach(b=>b.classList.remove('sel')); tipoBtn.classList.add('sel'); }
   const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
   if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
+  const at2Val = r.atendente2 || 'Nenhum';
+  const at2Btn = document.querySelector(`#f_atendente2 button[data-val="${at2Val}"]`);
+  document.querySelectorAll('#f_atendente2 button').forEach(b=>b.classList.remove('sel'));
+  (at2Btn || document.querySelector(`#f_atendente2 button[data-val="Nenhum"]`))?.classList.add('sel');
+  document.getElementById('f_horas_atendente2').value = r.atendente2 ? Number(r.horasAtendente2||0) : '';
+  atualizarVisibilidadeHoras2();
   document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
   document.getElementById('f_solucao').innerHTML = '';
   document.getElementById('f_hi').value = r.hi;
@@ -1147,13 +1186,14 @@ function renderLista(){
         <span class="tag">${labelTipo(r.tipo)}</span>
         <span class="tag">${r.atendente || 'A definir'}</span>
         <span class="tag">${qtdNum.toFixed(2).replace('.',',')}h</span>
+        ${r.atendente2 ? `<span class="tag">+2º: ${r.atendente2} (${Number(r.horasAtendente2||0).toFixed(2).replace('.',',')}h)</span>` : ''}
         ${r.solucao ? `<span class="tag" style="color:var(--ok);">✓ Solucionado</span>` : ''}
         ${r.anexoUrl ? `<a class="tag" style="color:var(--accent);" href="${r.anexoUrl}" target="_blank" onclick="event.stopPropagation();">📎 ${r.anexoNome||'anexo'}</a>` : ''}
       </div>
       ${contatoAtendente ? `<div style="margin-top:8px;font-size:12px;" onclick="event.stopPropagation();">Contato do atendente: ${contatoAtendente}</div>` : ''}
       ${verValores ? `
       <div class="valores">
-        <span class="v1">Atendente: ${fmtMoeda(Number(r.totalAnanda))}</span>
+        <span class="v1">Atendente: ${fmtMoeda(Number(r.totalAnanda))}${r.atendente2 ? ` + ${fmtMoeda(Number(r.totalAnanda2))} (2º)` : ''}</span>
         <span class="v2">${fmtMoeda(Number(r.totalReal))}</span>
       </div>` : ''}
       ${(podeEditarBtn || podeExcluirBtn) ? `
@@ -1331,6 +1371,16 @@ function popularMeses(){
 let filtroResumoAtendente = 'TODOS';
 let filtroResumoCliente = new Set(); // vazio = todos
 
+// quanto uma pessoa ganhou (e quantas horas ela trabalhou) num atendimento
+// específico — considera tanto o papel de atendente principal quanto o de
+// segundo atendente (o normal é só um dos dois valer pra cada pessoa)
+function ganhoAtendente(r, nome){
+  let valor = 0, horas = 0;
+  if(r.atendente === nome){ valor += Number(r.totalAnanda)||0; horas += Number(r.qtd)||0; }
+  if(r.atendente2 === nome){ valor += Number(r.totalAnanda2)||0; horas += Number(r.horasAtendente2)||0; }
+  return { valor, horas };
+}
+
 function renderResumo(){
   popularMeses();
   const mes = document.getElementById('r_mes').value;
@@ -1339,7 +1389,11 @@ function renderResumo(){
   const isAtendente = conta && conta.perfil === 'ATENDENTE';
   let itens = atendimentos.filter(r=>r.mes===mes);
 
-  // admin pode filtrar o resumo por um atendente específico; atendente só vê o próprio
+  // pessoa cujas horas/ganhos queremos isolar (conta os atendimentos em que
+  // ela é atendente principal OU segundo atendente); null = visão geral,
+  // com todo mundo somado. Admin pode escolher qualquer atendente;
+  // atendente só vê o próprio resumo.
+  let nomeAlvo = null;
   const campoFiltro = document.getElementById('campoFiltroAtendenteResumo');
   if(isAdmin){
     campoFiltro.style.display = '';
@@ -1347,13 +1401,12 @@ function renderResumo(){
     const nomesAtendentes = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome);
     selAt.innerHTML = `<option value="TODOS">Todos os atendentes</option>` + nomesAtendentes.map(n=>`<option value="${n}">${n}</option>`).join('');
     selAt.value = filtroResumoAtendente;
-    if(filtroResumoAtendente !== 'TODOS') itens = itens.filter(r=>r.atendente === filtroResumoAtendente);
+    if(filtroResumoAtendente !== 'TODOS') nomeAlvo = filtroResumoAtendente;
   }else{
     campoFiltro.style.display = 'none';
-    if(isAtendente){
-      itens = itens.filter(r=>r.atendente === conta.nome);
-    }
+    if(isAtendente) nomeAlvo = conta.nome;
   }
+  if(nomeAlvo) itens = itens.filter(r=>r.atendente === nomeAlvo || r.atendente2 === nomeAlvo);
 
   // filtro por cliente — disponível pro admin e pro atendente
   const campoFiltroCliente = document.getElementById('campoFiltroClienteResumo');
@@ -1367,12 +1420,19 @@ function renderResumo(){
     campoFiltroCliente.style.display = 'none';
   }
 
-  const totalHoras = itens.reduce((s,r)=>s+Number(r.qtd),0);
+  // com uma pessoa específica selecionada, horas/ganho contam só a parte
+  // dela (principal ou 2º); na visão geral, somam tudo — inclusive o que
+  // cada segundo atendente ganhou em cada chamado
+  const totalHoras = nomeAlvo
+    ? itens.reduce((s,r)=>s+ganhoAtendente(r,nomeAlvo).horas,0)
+    : itens.reduce((s,r)=>s+Number(r.qtd),0);
   const verValoresReal = isAdmin || (conta && conta.perfil === 'USUARIO' && conta.adminCliente); // Valor Real — admin e o usuário administrador do cliente
   const verValorAtendente = isAdmin || (conta && conta.perfil === 'ATENDENTE'); // Valor Atendente — admin e o próprio atendente
 
   if(verValoresReal || verValorAtendente){
-    const totalAnanda = itens.reduce((s,r)=>s+Number(r.totalAnanda||0),0);
+    const totalAnanda = nomeAlvo
+      ? itens.reduce((s,r)=>s+ganhoAtendente(r,nomeAlvo).valor,0)
+      : itens.reduce((s,r)=>s+(Number(r.totalAnanda)||0)+(Number(r.totalAnanda2)||0),0);
     const boxesExtra = [
       verValoresReal ? `<div class="box"><div class="k">Total real</div><div class="v" style="color:var(--accent)">${fmtMoeda(itens.reduce((s,r)=>s+Number(r.totalReal||0),0))}</div></div>` : '',
       verValorAtendente ? `<div class="box"><div class="k">Total Atendente</div><div class="v"${verValoresReal?'':' style="color:var(--accent)"'}>${fmtMoeda(totalAnanda)}</div></div>` : '',
@@ -1394,9 +1454,15 @@ function renderResumo(){
     const porCliente = {};
     itens.forEach(r=>{
       if(!porCliente[r.cliente]) porCliente[r.cliente] = { horas:0, real:0, ananda:0, qtd:0 };
-      porCliente[r.cliente].horas += Number(r.qtd);
+      if(nomeAlvo){
+        const g = ganhoAtendente(r, nomeAlvo);
+        porCliente[r.cliente].horas += g.horas;
+        porCliente[r.cliente].ananda += g.valor;
+      }else{
+        porCliente[r.cliente].horas += Number(r.qtd);
+        porCliente[r.cliente].ananda += (Number(r.totalAnanda)||0) + (Number(r.totalAnanda2)||0);
+      }
       porCliente[r.cliente].real += Number(r.totalReal)||0;
-      porCliente[r.cliente].ananda += Number(r.totalAnanda)||0;
       porCliente[r.cliente].qtd += 1;
     });
     const colunasExtra = (v) => [
@@ -2923,19 +2989,19 @@ function exportarCsv(){
   // ignorando o que a pessoa filtrou antes de exportar
   let itens = atendimentos.filter(r=>r.mes===mes);
   if(isAdmin){
-    if(filtroResumoAtendente !== 'TODOS') itens = itens.filter(r=>r.atendente === filtroResumoAtendente);
+    if(filtroResumoAtendente !== 'TODOS') itens = itens.filter(r=>r.atendente === filtroResumoAtendente || r.atendente2 === filtroResumoAtendente);
   }else if(isAtendente){
-    itens = itens.filter(r=>r.atendente === conta.nome);
+    itens = itens.filter(r=>r.atendente === conta.nome || r.atendente2 === conta.nome);
   }
   if((isAdmin || isAtendente) && filtroResumoCliente.size > 0) itens = itens.filter(r=>filtroResumoCliente.has(r.cliente));
 
   itens = itens.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data)));
   if(itens.length===0){ toast('Nada para exportar com esse filtro'); return; }
-  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
+  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','2º ATENDENTE','HORAS 2º ATENDENTE','VALOR 2º ATENDENTE/H','TOTAL 2º ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
   const rows = itens.map(r=>{
     const [y,m,d]=String(r.data).split('-');
     return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, stripHtml(r.detalhe).replace(/;/g,','), stripHtml(r.solucao).replace(/;/g,','), r.hi, r.inter, r.hf,
-      Number(r.qtd).toFixed(2), r.vha, Number(r.totalAnanda).toFixed(2), r.status, r.vhr, Number(r.totalReal).toFixed(2), r.anexoUrl||''];
+      Number(r.qtd).toFixed(2), r.vha, Number(r.totalAnanda).toFixed(2), r.atendente2||'', Number(r.horasAtendente2||0).toFixed(2), r.vha2||0, Number(r.totalAnanda2||0).toFixed(2), r.status, r.vhr, Number(r.totalReal).toFixed(2), r.anexoUrl||''];
   });
   const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
   const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
@@ -3476,6 +3542,10 @@ const COLUNAS_RELATORIO = [
   { key:'totalReal', label:'Total Real', formatar:r=>fmtMoeda(Number(r.totalReal)||0), numerica:true, valorBruto:r=>Number(r.totalReal)||0 },
   { key:'vha', label:'Valor Atendente/h', formatar:r=>fmtMoeda(Number(r.vha)||0) },
   { key:'totalAnanda', label:'Total Atendente', formatar:r=>fmtMoeda(Number(r.totalAnanda)||0), numerica:true, valorBruto:r=>Number(r.totalAnanda)||0 },
+  { key:'atendente2', label:'2º Atendente', formatar:r=>r.atendente2 || '' },
+  { key:'horasAtendente2', label:'Horas (2º Atendente)', formatar:r=>Number(r.horasAtendente2||0).toFixed(2).replace('.',',')+'h', numerica:true, valorBruto:r=>Number(r.horasAtendente2)||0, ehHoras:true },
+  { key:'vha2', label:'Valor 2º Atendente/h', formatar:r=>fmtMoeda(Number(r.vha2)||0) },
+  { key:'totalAnanda2', label:'Total 2º Atendente', formatar:r=>fmtMoeda(Number(r.totalAnanda2)||0), numerica:true, valorBruto:r=>Number(r.totalAnanda2)||0 },
 ];
 function colunaInfo(key){ return COLUNAS_RELATORIO.find(c=>c.key===key); }
 
@@ -3619,7 +3689,7 @@ async function abrirDetalhe(atendimentoId){
   const isUsuario = conta && conta.perfil === 'USUARIO';
 
   document.getElementById('chatTitulo').textContent = `${r.cliente} · ${r.usuario}`;
-  document.getElementById('chatSub').textContent = `Atendente: ${r.atendente || '(a definir)'} · ${d}/${m}/${y} · ${r.status}`;
+  document.getElementById('chatSub').textContent = `Atendente: ${r.atendente || '(a definir)'}${r.atendente2 ? ' + '+r.atendente2+' (2º)' : ''} · ${d}/${m}/${y} · ${r.status}`;
   const horario = `${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (intervalo '+r.inter+')' : ''}`;
   let dataPrevistaTexto = '';
   if(r.dataPrevista){
@@ -4116,6 +4186,7 @@ function tickClock(){ document.getElementById('clock').textContent = new Date().
 window.addEventListener('DOMContentLoaded', async ()=>{
   segmentedSetup('f_tipo', atualizarPreview);
   segmentedSetup('f_atendente', atualizarPreview);
+  segmentedSetup('f_atendente2', ()=>{ atualizarVisibilidadeHoras2(); atualizarPreview(); });
   configurarEditorRico();
 
   document.getElementById('f_novo_anexo').addEventListener('change', e=>{
@@ -4149,6 +4220,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('f_hf').addEventListener('change', atualizarPreview);
   document.getElementById('f_inter').addEventListener('change', atualizarPreview);
   document.getElementById('f_qtd_manual').addEventListener('input', atualizarPreview);
+  document.getElementById('f_horas_atendente2').addEventListener('input', atualizarPreview);
   document.getElementById('btnSalvar').addEventListener('click', salvarRegistro);
   document.getElementById('btnExportar').addEventListener('click', exportarCsv);
   document.getElementById('btnExportarGantt').addEventListener('click', exportarCsvGantt);
