@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "304656759472",
+    "project_id": "atendimento-5f6ad",
+    "storage_bucket": "atendimento-5f6ad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:304656759472:android:bbc847036e039675895975",
+        "android_client_info": {
+          "package_name": "com.teaatend.atendimentos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCWAR9ovAIoX1Q-IMN1oVEdJM5nMwwGd7g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
