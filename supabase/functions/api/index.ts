@@ -121,7 +121,9 @@ function atendimentoParaApi(a: any) {
     modulo: a.modulo, submodulo: a.submodulo, atendente: a.atendente, detalhe: a.detalhe,
     hi: a.hi, inter: a.inter, hf: a.hf, qtd: a.qtd, vha: a.vha, totalAnanda: a.total_ananda,
     vhr: a.vhr, totalReal: a.total_real, status: a.status, anexoUrl: a.anexo_url, anexoNome: a.anexo_nome,
-    solucao: a.solucao || '', dataPrevista: a.data_prevista || ''
+    solucao: a.solucao || '', dataPrevista: a.data_prevista || '',
+    atendente2: a.atendente2 || '', horasAtendente2: a.horas_atendente2 || 0,
+    vha2: a.vha2 || 0, totalAnanda2: a.total_ananda2 || 0
   };
 }
 function mensagemParaApi(m: any) {
@@ -288,9 +290,9 @@ async function acaoDados(req: any) {
   // é o quanto ele ganha, faz sentido pra ele acompanhar no resumo dele.
   if (contaAtual && contaAtual.perfil === 'USUARIO') {
     if (contaAtual.admin_cliente) {
-      atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '' }));
+      atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '' }));
     } else {
-      atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '', vhr: '', totalReal: '' }));
+      atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '', vhr: '', totalReal: '' }));
     }
   } else if (contaAtual && contaAtual.perfil === 'ATENDENTE' && !isAdmin) {
     atendimentos = atendimentos.map((a: any) => ({ ...a, vhr: '', totalReal: '' }));
@@ -327,6 +329,15 @@ async function acaoSalvarAtendimento(req: any) {
     rAtendenteErro = rAtendente.error;
   }
 
+  // segundo atendente (opcional) — mesma busca de conta acima, mas nunca
+  // igual ao atendente principal (não faz sentido a mesma pessoa nos dois papéis)
+  const atendente2Nome = (req.atendente2 && req.atendente2 !== req.atendente) ? req.atendente2 : '';
+  let contaAtendente2 = null;
+  if (atendente2Nome) {
+    const rAtendente2 = await db.from('contas').select('*').eq('perfil', 'ATENDENTE').eq('nome', atendente2Nome).maybeSingle();
+    contaAtendente2 = rAtendente2.data;
+  }
+
   let real = 0, ananda = 0;
   let rValorErro: any = null;
   let valorEncontrado = null;
@@ -340,6 +351,18 @@ async function acaoSalvarAtendimento(req: any) {
     rValorErro = rValor.error;
     if (valorEncontrado) { real = Number(valorEncontrado.real); ananda = Number(valorEncontrado.ananda); }
   }
+
+  // mesma busca de taxa acima, agora pro segundo atendente — só o lado
+  // "ananda" (quanto ele ganha) importa aqui; o valor cobrado do cliente
+  // (real/vhr) continua sendo só o do atendente principal
+  let ananda2 = 0;
+  if (cliente && tipo && contaAtendente2) {
+    const rValor2 = await db.from('valores').select('*')
+      .eq('atendente_id', contaAtendente2.id).eq('cliente_id', cliente.id).eq('tipo_id', tipo.id).limit(1);
+    const valorEncontrado2 = rValor2.data && rValor2.data[0] ? rValor2.data[0] : null;
+    if (valorEncontrado2) ananda2 = Number(valorEncontrado2.ananda);
+  }
+  const horasAtendente2 = contaAtendente2 ? (Number(req.horasAtendente2) || 0) : 0;
 
   // diagnóstico: só loga quando tinha atendente mas não achou valor — ajuda a
   // identificar exatamente qual passo falhou, sem poluir o log em uso normal
@@ -392,6 +415,8 @@ async function acaoSalvarAtendimento(req: any) {
     qtd, vha: ananda, total_ananda: qtd * ananda, vhr: real, total_real: qtd * real, status: statusFinal,
     anexo_url: anexoUrl, anexo_nome: anexoNome, solucao: req.solucao || '',
     data_prevista: req.dataPrevista || '',
+    atendente2: contaAtendente2 ? atendente2Nome : '', horas_atendente2: horasAtendente2,
+    vha2: ananda2, total_ananda2: horasAtendente2 * ananda2,
   };
 
   if (ehNovo) {

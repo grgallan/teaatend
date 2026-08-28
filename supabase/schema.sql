@@ -250,6 +250,16 @@ create table if not exists push_fcm_tokens (
 alter table push_fcm_tokens enable row level security;
 create index if not exists idx_push_fcm_conta on push_fcm_tokens (conta_id);
 
+-- segundo atendente (opcional) — quando mais de uma pessoa trabalha no
+-- mesmo chamado, registra as horas dela à parte e calcula o quanto ela
+-- ganha, do mesmo jeito que já é feito pro atendente principal (vha/
+-- total_ananda). Não afeta o valor cobrado do cliente (vhr/total_real
+-- continuam baseados só no atendente principal).
+alter table atendimentos add column if not exists atendente2 text default '';
+alter table atendimentos add column if not exists horas_atendente2 numeric default 0;
+alter table atendimentos add column if not exists vha2 numeric default 0;
+alter table atendimentos add column if not exists total_ananda2 numeric default 0;
+
 -- relatórios personalizados que o admin monta, salva e publica — quem
 -- pode ver cada um é controlado por "visivel_perfis" (lista de perfis:
 -- ADMIN/ATENDENTE/USUARIO). "config" guarda tudo que define o relatório
