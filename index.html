@@ -273,8 +273,9 @@
   .rt-content ul,.rt-content ol{padding-left:20px;margin:4px 0;}
 
   /* lista de anexos múltiplos */
-  .anexo-item{display:flex;justify-content:space-between;align-items:center;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 11px;margin-bottom:6px;font-size:12.5px;}
-  .anexo-item a{color:var(--accent);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%;}
+  .anexo-item{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 11px;margin-bottom:6px;font-size:12.5px;}
+  .anexo-item a{color:var(--accent);text-decoration:none;flex-shrink:0;}
+  .anexo-item a:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;flex-shrink:1;}
   .anexo-item button{background:none;border:none;color:var(--bad);font-size:12px;font-family:inherit;padding:2px 6px;}
 
   /* resultados de busca de vínculo entre chamados */
