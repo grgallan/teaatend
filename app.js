@@ -1184,11 +1184,8 @@ function renderFiltros(){
   const conta = contaAtual();
   aplicarPeriodoPadraoSeVazio();
   // usuário não filtra por cliente (só vê o próprio cliente mesmo) — mas
-  // status e período são liberados abaixo; sem o filtro de cliente, o
-  // status ocupa a linha toda em vez de dividir com uma coluna vazia
-  const isUsuario = conta && conta.perfil === 'USUARIO';
-  document.getElementById('linhaFiltrosClienteStatus').style.gridTemplateColumns = isUsuario ? '1fr' : '1fr 1fr';
-  if(isUsuario){ el.innerHTML=''; renderFiltrosStatus(); return; }
+  // status e período são liberados abaixo
+  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; renderFiltrosStatus(); return; }
   el.innerHTML = `
     <div class="lookup-multi">
       <div class="lookup-tags" id="filtroClienteTags"></div>
