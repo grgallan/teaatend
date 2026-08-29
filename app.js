@@ -4202,9 +4202,18 @@ function configurarEditorRico(){
           const r = await api('uploadImagem', { base64, tipo: arquivo.type, nome: arquivo.name });
           if(!r.ok){ toast(r.erro || 'Não foi possível enviar a imagem.'); return; }
           document.getElementById(editorId).focus();
-          document.execCommand('insertHTML', false, `<img src="${r.url}" alt="${escaparHtml(r.nome||'')}">`);
+          document.execCommand('insertHTML', false, `<img src="${r.url}" alt="${escaparHtml(r.nome||'')}" title="Arraste a borda direita para redimensionar. Duplo clique para restaurar o tamanho original.">`);
         }catch(err){
           toast(err && err.message ? err.message : 'Não foi possível enviar a imagem.');
+        }
+      });
+    }
+    const editorEl = document.getElementById(editorId);
+    if(editorEl){
+      editorEl.addEventListener('dblclick', (e)=>{
+        if(e.target.tagName === 'IMG'){
+          e.preventDefault();
+          e.target.removeAttribute('style');
         }
       });
     }
