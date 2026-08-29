@@ -282,6 +282,16 @@ async function acaoDados(req: any) {
     valores = (data || []).map(valorParaApi);
   }
 
+  // vínculos entre chamados — traz tudo de uma vez (em vez de uma consulta
+  // por card) pro app conseguir montar a árvore de vínculos na lista/Kanban
+  // sem chamada extra nenhuma; só os que apontam pra atendimentos que essa
+  // conta já pode ver (os outros ficariam "soltos", sem card correspondente)
+  const idsVisiveis = new Set((atendimentosRaw || []).map((a: any) => a.id));
+  const { data: vinculosRaw } = await db.from('vinculos').select('id,atendimento_a,atendimento_b');
+  const vinculos = (vinculosRaw || [])
+    .filter((v: any) => idsVisiveis.has(v.atendimento_a) && idsVisiveis.has(v.atendimento_b))
+    .map((v: any) => ({ id: v.id, atendimentoA: v.atendimento_a, atendimentoB: v.atendimento_b }));
+
   let atendimentos = (atendimentosRaw || []).map(atendimentoParaApi);
   // Valor Real (cobrado do cliente) é do admin, e também do usuário
   // marcado como "administrador do cliente" (vê o valor cobrado do
@@ -308,6 +318,7 @@ async function acaoDados(req: any) {
     statusList: (statusList || []).map(simplesParaApi),
     valores,
     atendimentos,
+    vinculos,
     perfisAcesso,
   };
 }

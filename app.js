@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], perfisAcesso = [];
+let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [];
 let sessaoConta = null; // conta logada (sem senha), guardada após login
 let editandoId = null;
 let anexoAtendimentoId = null; // atendimento cujos anexos múltiplos estão sendo geridos ao editar
@@ -246,6 +246,55 @@ function renderVinculosLista(containerId, lista, atendimentoId, podeRemover){
   }).join('');
 }
 
+/* ---------- árvore de vínculos (lista + Kanban) — usa o array "vinculos"
+   já carregado por inteiro em carregarTudo, sem chamada nenhuma por card ---------- */
+// ids diretamente vinculados a um atendimento (vínculo vale pros dois lados)
+function idsVinculadosDe(atendimentoId){
+  const ids = [];
+  vinculos.forEach(v=>{
+    if(String(v.atendimentoA)===String(atendimentoId)) ids.push(v.atendimentoB);
+    else if(String(v.atendimentoB)===String(atendimentoId)) ids.push(v.atendimentoA);
+  });
+  return ids;
+}
+// monta a árvore até `profundidade` níveis; nunca repete um id que já
+// apareceu em algum nível acima (vínculo não tem hierarquia — evita ciclo
+// tipo A vinculado a B vinculado de volta a A)
+function montarArvoreVinculos(atendimentoId, profundidade, visitados){
+  if(profundidade <= 0) return [];
+  visitados = visitados || new Set([String(atendimentoId)]);
+  const diretos = idsVinculadosDe(atendimentoId).filter(id=>!visitados.has(String(id)));
+  return diretos.map(id=>{
+    const r = atendimentos.find(x=>String(x.id)===String(id));
+    if(!r) return null; // vínculo aponta pra um atendimento que essa conta não vê
+    const visitadosFilho = new Set(visitados); visitadosFilho.add(String(id));
+    return { atendimento: r, filhos: montarArvoreVinculos(id, profundidade-1, visitadosFilho) };
+  }).filter(Boolean);
+}
+function renderArvoreVinculosHtml(nos, nivel){
+  nivel = nivel || 1;
+  return nos.map((no,i)=>{
+    const galho = (i === nos.length-1) ? '└─' : '├─';
+    const [y,m,d] = String(no.atendimento.data).split('-');
+    const filhosHtml = (no.filhos && no.filhos.length) ? renderArvoreVinculosHtml(no.filhos, nivel+1) : '';
+    return `<div class="arv-linha${nivel>1?' n2':''}" onclick="event.stopPropagation();abrirDetalhe('${no.atendimento.id}')">
+      <span class="galho">${galho}</span><span class="pt" style="background:${corStatusDot(no.atendimento.status)};"></span>
+      <span class="arv-cli">${escaparHtml(no.atendimento.cliente)}</span> · ${d}/${m} · ${escaparHtml(no.atendimento.status)}
+    </div>${filhosHtml}`;
+  }).join('');
+}
+// bloco completo (título + árvore), pronto pra encaixar num card/item —
+// devolve string vazia quando o atendimento não tem vínculo nenhum
+function blocoArvoreVinculos(atendimentoId){
+  const arvore = montarArvoreVinculos(atendimentoId, 2);
+  if(arvore.length === 0) return '';
+  const total = idsVinculadosDe(atendimentoId).length;
+  return `<div class="arv-wrap" onclick="event.stopPropagation();">
+    <div class="arv-titulo">🔗 ${total} vínculo${total>1?'s':''}</div>
+    ${renderArvoreVinculosHtml(arvore)}
+  </div>`;
+}
+
 /* ---------- vínculo entre atendimento e vídeos/tutoriais ---------- */
 // ids dos vídeos já vinculados, por container (form de edição x modal de
 // detalhe) — usado só pra não sugerir de novo, na busca, um vídeo que já
@@ -407,6 +456,7 @@ async function carregarTudo(){
   const r = await api('dados', { contaId });
   if(!r.ok) return false;
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
+  vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
   // a sessão foi salva no login (antes de existir "perfisAcesso") — depois
   // do primeiro carregamento de dados, sincroniza com a versão mais
@@ -1211,6 +1261,7 @@ function renderLista(){
         ${r.solucao ? `<span class="tag" style="color:var(--ok);">✓ Solucionado</span>` : ''}
         ${r.anexoUrl ? `<a class="tag" style="color:var(--accent);" href="${r.anexoUrl}" target="_blank" onclick="event.stopPropagation();">📎 ${r.anexoNome||'anexo'}</a>` : ''}
       </div>
+      ${blocoArvoreVinculos(r.id)}
       ${contatoAtendente ? `<div style="margin-top:8px;font-size:12px;" onclick="event.stopPropagation();">Contato do atendente: ${contatoAtendente}</div>` : ''}
       ${verValores ? `
       <div class="valores">
@@ -1281,6 +1332,7 @@ function renderKanbanCard(r, opts){
           ${opts.verValores ? `<span class="tag" style="color:var(--accent);">${fmtMoeda(Number(r.totalReal))}</span>` : ''}
           ${flagPrazo(r)}
         </div>
+        ${blocoArvoreVinculos(r.id)}
       </div>
     </div>`;
 }

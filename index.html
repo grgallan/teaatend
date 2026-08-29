@@ -131,6 +131,19 @@
   .kanban-card .meta .tag{font-size:9.5px;padding:2px 6px;}
   .kanban-card-ghost{position:fixed;z-index:80;pointer-events:none;opacity:.92;box-shadow:0 10px 24px rgba(0,0,0,.3);width:230px;}
 
+  /* árvore de vínculos — usada tanto no card do Kanban quanto no item da Lista */
+  .arv-wrap{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
+  .arv-titulo{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin-bottom:5px;}
+  .arv-linha{position:relative;padding-left:15px;font-size:10.5px;line-height:1.6;color:var(--text);cursor:pointer;}
+  .arv-linha:hover{color:var(--accent);}
+  .arv-linha .galho{position:absolute;left:0;top:0;color:var(--muted);font-family:monospace;font-size:10px;}
+  .arv-linha .pt{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px;}
+  .arv-linha.n2{padding-left:30px;color:var(--muted);font-size:10px;}
+  .arv-linha.n2 .galho{left:15px;}
+  .arv-cli{font-weight:600;}
+  .item .arv-linha{font-size:12px;}
+  .item .arv-linha.n2{font-size:11px;}
+
   .summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
   .summary .box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;}
   .summary .box .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
