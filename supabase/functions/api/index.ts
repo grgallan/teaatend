@@ -70,8 +70,9 @@ function textoSimples(html: string | null | undefined, limite = 500): string {
 }
 
 function formatarDataHora(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  // usa getHours()/etc, que refletem o fuso do servidor (UTC no Deno Deploy) — não o de
+  // Fortaleza. Fixando o fuso aqui em vez de depender do relógio local do servidor.
+  return d.toLocaleString('sv-SE', { timeZone: 'America/Fortaleza' });
 }
 
 function calcularQtd(hi: string, hf: string, inter?: string): number {
