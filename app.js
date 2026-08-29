@@ -32,7 +32,7 @@ let excluindoAcao = null;
 let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = new Set(); // vazio = todos
 let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
-let vinculosColapsados = new Set(); // ids de atendimento com as linhas-filha de vínculo escondidas
+let vinculosExpandidos = new Set(); // ids de atendimento com as linhas-filha de vínculo visíveis — vazio por padrão (tudo recolhido)
 let selecionados = new Set();
 let cadAba = 'atendentes';
 let editandoPerfilAcessoId = null;
@@ -1151,11 +1151,11 @@ function toggleAcoesMenu(id){
   if(!jaAberto) menu.classList.add('show');
 }
 
-/* ---------- recolher/expandir as linhas de vínculo, na Lista ---------- */
-function toggleVinculosColapsados(id){
+/* ---------- recolher/expandir as linhas de vínculo, na Lista (qualquer nível) ---------- */
+function toggleVinculosExpandidos(id){
   id = String(id);
-  if(vinculosColapsados.has(id)) vinculosColapsados.delete(id);
-  else vinculosColapsados.add(id);
+  if(vinculosExpandidos.has(id)) vinculosExpandidos.delete(id);
+  else vinculosExpandidos.add(id);
   renderLista();
 }
 
@@ -1277,11 +1277,12 @@ function renderLinhaAtendimento(r, ctx, opts){
   const checkbox = (!ehFilho && (podeEditarBtn || podeExcluirBtn)) ? `<input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="event.stopPropagation();toggleSelecao('${r.id}', this.checked)" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">` : '';
   const galho = ehFilho ? `<span class="linha-galho">${opts.ultimo ? '└─' : '├─'}</span>` : '';
   const clienteTexto = `${ehFilho ? '🔗 ' : ''}${r.cliente} · ${r.usuario}`;
-  // seta pra recolher/expandir as linhas de vínculo — só no atendimento
-  // principal, e só quando ele realmente tem algum vínculo
-  const colapsado = vinculosColapsados.has(String(r.id));
-  const toggleVinculos = (!ehFilho && opts.temVinculos)
-    ? `<button type="button" class="btn-colapsar-vinculos" onclick="event.stopPropagation();toggleVinculosColapsados('${r.id}')" title="${colapsado ? 'Mostrar vínculos' : 'Esconder vínculos'}">${colapsado ? '▸' : '▾'}</button>`
+  // seta pra recolher/expandir as linhas de vínculo — em qualquer nível,
+  // sempre que aquele atendimento (principal ou já filho de outro) também
+  // tiver vínculo próprio; recolhido por padrão
+  const expandido = vinculosExpandidos.has(String(r.id));
+  const toggleVinculos = opts.temVinculos
+    ? `<button type="button" class="btn-colapsar-vinculos" onclick="event.stopPropagation();toggleVinculosExpandidos('${r.id}')" title="${expandido ? 'Esconder vínculos' : 'Mostrar vínculos'}">${expandido ? '▾' : '▸'}</button>`
     : '';
 
   // vínculo, sendo bem menos usado, ganha só o botão de Detalhes — abrir o
@@ -1339,20 +1340,23 @@ function renderLinhaAtendimento(r, ctx, opts){
 
 // atendimento principal + suas linhas de vínculo (até 2 níveis), uma
 // abaixo da outra — igual uma ferramenta de projeto mostra subtarefas.
-// A seta de recolher some com as linhas-filha, mas continua visível pra
-// poder expandir de novo.
+// Cada nível tem sua própria seta de recolher/expandir, começando tudo
+// recolhido por padrão.
 function renderLinhaComVinculos(r, ctx){
   const arvore = montarArvoreVinculos(r.id, 2);
   let html = renderLinhaAtendimento(r, ctx, { filho: false, temVinculos: arvore.length > 0 });
-  if(arvore.length > 0 && !vinculosColapsados.has(String(r.id))){
+  if(arvore.length > 0 && vinculosExpandidos.has(String(r.id))){
     html += renderLinhasVinculosFilhos(arvore, ctx, 1);
   }
   return html;
 }
 function renderLinhasVinculosFilhos(nos, ctx, nivel){
   return nos.map((no,i)=>{
-    let html = renderLinhaAtendimento(no.atendimento, ctx, { filho: true, nivel, ultimo: i === nos.length-1 });
-    if(no.filhos && no.filhos.length) html += renderLinhasVinculosFilhos(no.filhos, ctx, nivel+1);
+    const temFilhos = !!(no.filhos && no.filhos.length);
+    let html = renderLinhaAtendimento(no.atendimento, ctx, { filho: true, nivel, ultimo: i === nos.length-1, temVinculos: temFilhos });
+    if(temFilhos && vinculosExpandidos.has(String(no.atendimento.id))){
+      html += renderLinhasVinculosFilhos(no.filhos, ctx, nivel+1);
+    }
     return html;
   }).join('');
 }
