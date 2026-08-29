@@ -77,11 +77,11 @@
   button.danger{background:transparent;border:1px solid #4a2624;color:var(--bad);padding:7px 11px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600;}
 
   .filters{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px;}
-  /* #filtros só tem o campo de busca de cliente (lookup-multi), sem linha de chips
-     pra rolar horizontalmente — overflow-x:auto aqui força overflow-y:auto também
-     (regra do CSS: um eixo non-visible "puxa" o outro), cortando o dropdown de
-     sugestões que precisa aparecer abaixo do campo */
-  #filtros{overflow:visible;}
+  /* #filtros e #filtrosStatus só têm o campo de busca (lookup-multi), sem linha
+     de chips pra rolar horizontalmente — overflow-x:auto aqui força overflow-y:auto
+     também (regra do CSS: um eixo non-visible "puxa" o outro), cortando o dropdown
+     de sugestões que precisa aparecer abaixo do campo */
+  #filtros, #filtrosStatus{overflow:visible;}
   .chip{white-space:nowrap;padding:7px 13px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-size:12.5px;color:var(--muted);font-weight:600;}
   .chip.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
 
@@ -748,8 +748,10 @@
       <button data-val="lista" class="sel">☰ Lista</button>
       <button data-val="cards">📋 Cards</button>
     </div>
-    <div class="filters" id="filtros"></div>
-    <div class="filters" id="filtrosStatus" style="margin-bottom:10px;"></div>
+    <div class="row" id="linhaFiltrosClienteStatus" style="margin-bottom:12px;">
+      <div class="filters" id="filtros" style="margin-bottom:0;"></div>
+      <div class="filters" id="filtrosStatus" style="margin-bottom:0;"></div>
+    </div>
     <div class="row" id="filtroPeriodo" style="display:none;margin-bottom:10px;">
       <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="periodo_de"></div>
       <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="periodo_ate"></div>
