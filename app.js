@@ -258,18 +258,23 @@ function idsVinculadosDe(atendimentoId){
   return ids;
 }
 // monta a árvore até `profundidade` níveis; nunca repete um id que já
-// apareceu em algum nível acima (vínculo não tem hierarquia — evita ciclo
-// tipo A vinculado a B vinculado de volta a A)
+// apareceu em QUALQUER lugar da mesma árvore (vínculo não tem hierarquia —
+// evita ciclo tipo A-B-A e também um mesmo C aparecer duas vezes quando A
+// está vinculado tanto a B quanto a C, e B também está vinculado a C).
+// `visitados` é o mesmo Set em toda a árvore, de propósito — vai sendo
+// preenchido conforme os irmãos são processados, não é clonado por galho
 function montarArvoreVinculos(atendimentoId, profundidade, visitados){
   if(profundidade <= 0) return [];
   visitados = visitados || new Set([String(atendimentoId)]);
-  const diretos = idsVinculadosDe(atendimentoId).filter(id=>!visitados.has(String(id)));
-  return diretos.map(id=>{
+  const nos = [];
+  for(const id of idsVinculadosDe(atendimentoId)){
+    if(visitados.has(String(id))) continue;
     const r = atendimentos.find(x=>String(x.id)===String(id));
-    if(!r) return null; // vínculo aponta pra um atendimento que essa conta não vê
-    const visitadosFilho = new Set(visitados); visitadosFilho.add(String(id));
-    return { atendimento: r, filhos: montarArvoreVinculos(id, profundidade-1, visitadosFilho) };
-  }).filter(Boolean);
+    if(!r) continue; // vínculo aponta pra um atendimento que essa conta não vê
+    visitados.add(String(id));
+    nos.push({ atendimento: r, filhos: montarArvoreVinculos(id, profundidade-1, visitados) });
+  }
+  return nos;
 }
 function renderArvoreVinculosHtml(nos, nivel){
   nivel = nivel || 1;
@@ -1243,19 +1248,53 @@ function renderLista(){
 
   if(itens.length===0){ cont.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum atendimento encontrado.</div>`; return; }
 
-  cont.innerHTML = itens.map(r=>{
-    const [y,m,d] = String(r.data).split('-');
-    const dataFmt = `${d}/${m}/${y}`;
-    const qtdNum = Number(r.qtd);
-    const modSub = [r.modulo, r.submodulo].filter(Boolean).join(' · ');
-    const contatoAtendente = isUsuario ? contatoDoAtendente(r.atendente) : '';
-    const clicavel = podeUsarChat(r);
-    const checkbox = (podeEditarBtn || podeExcluirBtn) ? `<input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="event.stopPropagation();toggleSelecao('${r.id}', this.checked)" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">` : '';
-    return `
-    <div class="item" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''}>
+  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn };
+  cont.innerHTML = itens.map(r => renderLinhaComVinculos(r, ctx)).join('');
+}
+
+// uma linha (atendimento normal ou "filho" de vínculo) — extraído de
+// renderLista pra poder ser chamado tanto pro atendimento principal quanto
+// pros vínculos dele, que aparecem como linhas próprias logo abaixo
+function renderLinhaAtendimento(r, ctx, opts){
+  opts = opts || {};
+  const ehFilho = !!opts.filho;
+  const { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn } = ctx;
+  const [y,m,d] = String(r.data).split('-');
+  const dataFmt = `${d}/${m}/${y}`;
+  const qtdNum = Number(r.qtd);
+  const modSub = [r.modulo, r.submodulo].filter(Boolean).join(' · ');
+  const contatoAtendente = (isUsuario && !ehFilho) ? contatoDoAtendente(r.atendente) : '';
+  const clicavel = podeUsarChat(r);
+  const checkbox = (!ehFilho && (podeEditarBtn || podeExcluirBtn)) ? `<input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="event.stopPropagation();toggleSelecao('${r.id}', this.checked)" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;">` : '';
+  const galho = ehFilho ? `<span class="linha-galho">${opts.ultimo ? '└─' : '├─'}</span>` : '';
+  const clienteTexto = `${ehFilho ? '🔗 ' : ''}${r.cliente} · ${r.usuario}`;
+
+  // vínculo, sendo bem menos usado, ganha só o botão de Detalhes — abrir o
+  // atendimento é sempre o primeiro passo antes de editar/excluir mesmo
+  const acoes = ehFilho
+    ? (clicavel ? `<div class="item-actions"><button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button></div>` : '')
+    : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
+      <div class="item-actions">
+        <div class="acoes-wrap">
+          <button class="ghost" onclick="event.stopPropagation();toggleAcoesMenu('${r.id}')">⋮ Ações</button>
+          <div class="acoes-menu" id="acoesMenu-${r.id}">
+            ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();editar('${r.id}')">✎ Editar</div>` : ''}
+            ${isAdmin ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();copiarAtendimento('${r.id}')">⧉ Copiar</div>` : ''}
+            ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="event.stopPropagation();fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">🗑 Excluir</div>` : ''}
+          </div>
+        </div>
+        ${clicavel ? `<button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button>` : ''}
+      </div>` : (clicavel ? `
+      <div class="item-actions">
+        <button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Ver atendimento</button>
+      </div>` : ''));
+
+  return `
+    <div class="item${ehFilho ? ' filho nivel'+(opts.nivel||1) : ''}" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''}>
+      ${galho}
       <div class="top">
         ${checkbox ? `<div style="display:flex;gap:10px;">${checkbox}<div>` : '<div>'}
-        <div><div class="cliente">${r.cliente} · ${r.usuario}</div>
+        <div><div class="cliente">${clienteTexto}</div>
         <div class="data">${dataFmt} · ${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (int. '+r.inter+')' : ''}</div></div>
         ${checkbox ? `</div></div>` : '</div>'}
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
@@ -1273,29 +1312,28 @@ function renderLista(){
         ${r.solucao ? `<span class="tag" style="color:var(--ok);">✓ Solucionado</span>` : ''}
         ${r.anexoUrl ? `<a class="tag" style="color:var(--accent);" href="${r.anexoUrl}" target="_blank" onclick="event.stopPropagation();">📎 ${r.anexoNome||'anexo'}</a>` : ''}
       </div>
-      ${blocoArvoreVinculos(r.id)}
       ${contatoAtendente ? `<div style="margin-top:8px;font-size:12px;" onclick="event.stopPropagation();">Contato do atendente: ${contatoAtendente}</div>` : ''}
       ${verValores ? `
       <div class="valores">
         <span class="v1">Atendente: ${fmtMoeda(Number(r.totalAnanda))}${r.atendente2 ? ` + ${fmtMoeda(Number(r.totalAnanda2))} (2º)` : ''}</span>
         <span class="v2">${fmtMoeda(Number(r.totalReal))}</span>
       </div>` : ''}
-      ${(podeEditarBtn || podeExcluirBtn || isAdmin) ? `
-      <div class="item-actions">
-        <div class="acoes-wrap">
-          <button class="ghost" onclick="event.stopPropagation();toggleAcoesMenu('${r.id}')">⋮ Ações</button>
-          <div class="acoes-menu" id="acoesMenu-${r.id}">
-            ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();editar('${r.id}')">✎ Editar</div>` : ''}
-            ${isAdmin ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();copiarAtendimento('${r.id}')">⧉ Copiar</div>` : ''}
-            ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="event.stopPropagation();fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">🗑 Excluir</div>` : ''}
-          </div>
-        </div>
-        ${clicavel ? `<button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button>` : ''}
-      </div>` : (clicavel ? `
-      <div class="item-actions">
-        <button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Ver atendimento</button>
-      </div>` : '')}
+      ${acoes}
     </div>`;
+}
+
+// atendimento principal + suas linhas de vínculo (até 2 níveis), uma
+// abaixo da outra — igual uma ferramenta de projeto mostra subtarefas
+function renderLinhaComVinculos(r, ctx){
+  let html = renderLinhaAtendimento(r, ctx, { filho: false });
+  html += renderLinhasVinculosFilhos(montarArvoreVinculos(r.id, 2), ctx, 1);
+  return html;
+}
+function renderLinhasVinculosFilhos(nos, ctx, nivel){
+  return nos.map((no,i)=>{
+    let html = renderLinhaAtendimento(no.atendimento, ctx, { filho: true, nivel, ultimo: i === nos.length-1 });
+    if(no.filhos && no.filhos.length) html += renderLinhasVinculosFilhos(no.filhos, ctx, nivel+1);
+    return html;
   }).join('');
 }
 
