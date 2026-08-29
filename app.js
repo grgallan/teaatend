@@ -112,10 +112,12 @@ function hojeLocalISO(){
 // se tiver previsão cadastrada
 function flagPrazo(r){
   if(!r.dataPrevista || r.status === 'VALIDADO') return '';
+  const [,pm,pd] = String(r.dataPrevista).split('-');
+  const previstaFmt = `${pd}/${pm}`;
   const atrasado = hojeLocalISO() > r.dataPrevista;
   return atrasado
-    ? `<span class="tag" style="background:var(--bad);color:#fff;">🔴 Atrasado</span>`
-    : `<span class="tag" style="background:var(--ok);color:#fff;">🟢 Em dia</span>`;
+    ? `<span class="tag" style="background:var(--bad);color:#fff;">🔴 Atrasado desde ${previstaFmt}</span>`
+    : `<span class="tag" style="background:var(--ok);color:#fff;">🟢 Prazo: ${previstaFmt}</span>`;
 }
 function primeiroDiaMes(d){ return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10); }
 function ultimoDiaMes(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10); }
