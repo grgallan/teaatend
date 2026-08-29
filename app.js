@@ -1184,8 +1184,11 @@ function renderFiltros(){
   const conta = contaAtual();
   aplicarPeriodoPadraoSeVazio();
   // usuário não filtra por cliente (só vê o próprio cliente mesmo) — mas
-  // status e período são liberados abaixo
-  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; renderFiltrosStatus(); return; }
+  // status e período são liberados abaixo; sem o filtro de cliente, o
+  // status ocupa a linha toda em vez de dividir com uma coluna vazia
+  const isUsuario = conta && conta.perfil === 'USUARIO';
+  document.getElementById('linhaFiltrosClienteStatus').style.gridTemplateColumns = isUsuario ? '1fr' : '1fr 1fr';
+  if(isUsuario){ el.innerHTML=''; renderFiltrosStatus(); return; }
   el.innerHTML = `
     <div class="lookup-multi">
       <div class="lookup-tags" id="filtroClienteTags"></div>
@@ -1212,10 +1215,32 @@ function renderFiltroClienteDropdown(termo){
   el.innerHTML = opcoes.map(c=>`<div class="lookup-dropdown-item ${filtroCliente.has(c.nome)?'sel':''}" data-cliente="${escaparHtml(c.nome)}">${filtroCliente.has(c.nome)?'✓ ':''}${escaparHtml(c.nome)}</div>`).join('');
 }
 
+// mesmo padrão do filtro de cliente (busca + dropdown + tags), só que pra status
 function renderFiltrosStatus(){
   const el = document.getElementById('filtrosStatus');
-  el.innerHTML = `<div class="chip ${filtroStatus.size===0?'on':''}" data-status="TODOS">Todos status</div>` +
-    statusList.map(s=>`<div class="chip ${filtroStatus.has(s.nome)?'on':''}" data-status="${s.nome}">${s.nome}</div>`).join('');
+  el.innerHTML = `
+    <div class="lookup-multi">
+      <div class="lookup-tags" id="filtroStatusTags"></div>
+      <input type="text" id="filtroStatusBusca" placeholder="Filtrar por status…" autocomplete="off">
+      <div class="lookup-dropdown" id="filtroStatusDropdown"></div>
+    </div>`;
+  renderFiltroStatusTags();
+  renderFiltroStatusDropdown('');
+}
+
+function renderFiltroStatusTags(){
+  const el = document.getElementById('filtroStatusTags');
+  if(!el) return;
+  el.innerHTML = [...filtroStatus].map(nome=>`<div class="lookup-tag">${escaparHtml(nome)}<button type="button" data-remover-status="${escaparHtml(nome)}">×</button></div>`).join('');
+}
+
+function renderFiltroStatusDropdown(termo){
+  const el = document.getElementById('filtroStatusDropdown');
+  if(!el) return;
+  const t = String(termo||'').trim().toLowerCase();
+  const opcoes = statusList.filter(s=> !t || s.nome.toLowerCase().includes(t));
+  if(opcoes.length === 0){ el.innerHTML = `<div class="lookup-dropdown-empty">Nenhum status encontrado.</div>`; return; }
+  el.innerHTML = opcoes.map(s=>`<div class="lookup-dropdown-item ${filtroStatus.has(s.nome)?'sel':''}" data-status-opcao="${escaparHtml(s.nome)}">${filtroStatus.has(s.nome)?'✓ ':''}${escaparHtml(s.nome)}</div>`).join('');
 }
 
 // filtros de cliente/status/período aplicados tanto na visão em Lista
@@ -4684,11 +4709,38 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     // processado antes dele sumir (senão o blur esconde antes do click)
     setTimeout(()=>{ const dd = document.getElementById('filtroClienteDropdown'); if(dd) dd.classList.remove('show'); }, 150);
   });
+  document.getElementById('filtrosStatus').addEventListener('mousedown', e=>{
+    if(e.target.closest('.lookup-dropdown-item') || e.target.closest('[data-remover-status]')) e.preventDefault();
+  });
   document.getElementById('filtrosStatus').addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    toggleFiltroMultiplo(filtroStatus, chip.dataset.status);
-    renderFiltrosStatus();
-    renderLista();
+    const item = e.target.closest('.lookup-dropdown-item');
+    if(item){
+      const nome = item.dataset.statusOpcao;
+      if(filtroStatus.has(nome)) filtroStatus.delete(nome); else filtroStatus.add(nome);
+      renderFiltroStatusTags();
+      renderFiltroStatusDropdown(document.getElementById('filtroStatusBusca').value);
+      renderLista();
+      return;
+    }
+    const btnRemover = e.target.closest('[data-remover-status]');
+    if(btnRemover){
+      filtroStatus.delete(btnRemover.dataset.removerStatus);
+      renderFiltroStatusTags();
+      renderFiltroStatusDropdown(document.getElementById('filtroStatusBusca')?.value || '');
+      renderLista();
+    }
+  });
+  document.getElementById('filtrosStatus').addEventListener('input', e=>{
+    if(e.target.id === 'filtroStatusBusca') renderFiltroStatusDropdown(e.target.value);
+  });
+  document.getElementById('filtrosStatus').addEventListener('focusin', e=>{
+    if(e.target.id !== 'filtroStatusBusca') return;
+    renderFiltroStatusDropdown(e.target.value);
+    document.getElementById('filtroStatusDropdown').classList.add('show');
+  });
+  document.getElementById('filtrosStatus').addEventListener('focusout', e=>{
+    if(e.target.id !== 'filtroStatusBusca') return;
+    setTimeout(()=>{ const dd = document.getElementById('filtroStatusDropdown'); if(dd) dd.classList.remove('show'); }, 150);
   });
   document.getElementById('r_cliente_chips').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
