@@ -3989,7 +3989,9 @@ function movIniciais(nome){
 function movFmtDataHora(iso){
   if(!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+  // fixa o fuso de Fortaleza em vez de confiar no fuso do aparelho —
+  // um dispositivo com fuso mal configurado mostrava o horário em UTC (3h adiantado)
+  return d.toLocaleDateString('pt-BR', {timeZone:'America/Fortaleza'}) + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Fortaleza'});
 }
 async function carregarMovimentacoes(atendimentoId, sufixo){
   sufixo = sufixo || '';
