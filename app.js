@@ -1133,6 +1133,18 @@ function pedirConfirmacao(titulo, texto, acao, labelBotao){
   document.getElementById('modalBg').classList.add('show');
 }
 
+/* ---------- menu de ações (Editar/Copiar/Excluir) do item da lista ---------- */
+function fecharAcoesMenu(){
+  document.querySelectorAll('.acoes-menu.show').forEach(m=>m.classList.remove('show'));
+}
+function toggleAcoesMenu(id){
+  const menu = document.getElementById(`acoesMenu-${id}`);
+  if(!menu) return;
+  const jaAberto = menu.classList.contains('show');
+  fecharAcoesMenu();
+  if(!jaAberto) menu.classList.add('show');
+}
+
 /* ---------- lista de lançamentos ---------- */
 function aplicarPeriodoPadraoSeVazio(){
   const de = document.getElementById('periodo_de');
@@ -1268,11 +1280,16 @@ function renderLista(){
         <span class="v1">Atendente: ${fmtMoeda(Number(r.totalAnanda))}${r.atendente2 ? ` + ${fmtMoeda(Number(r.totalAnanda2))} (2º)` : ''}</span>
         <span class="v2">${fmtMoeda(Number(r.totalReal))}</span>
       </div>` : ''}
-      ${(podeEditarBtn || podeExcluirBtn) ? `
+      ${(podeEditarBtn || podeExcluirBtn || isAdmin) ? `
       <div class="item-actions">
-        ${podeEditarBtn ? `<button class="ghost" onclick="event.stopPropagation();editar('${r.id}')">Editar</button>` : ''}
-        ${podeExcluirBtn ? `<button class="ghost" onclick="event.stopPropagation();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">Excluir</button>` : ''}
-        ${isAdmin ? `<button class="ghost" onclick="event.stopPropagation();copiarAtendimento('${r.id}')">Copiar</button>` : ''}
+        <div class="acoes-wrap">
+          <button class="ghost" onclick="event.stopPropagation();toggleAcoesMenu('${r.id}')">⋮ Ações</button>
+          <div class="acoes-menu" id="acoesMenu-${r.id}">
+            ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();editar('${r.id}')">✎ Editar</div>` : ''}
+            ${isAdmin ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();copiarAtendimento('${r.id}')">⧉ Copiar</div>` : ''}
+            ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="event.stopPropagation();fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">🗑 Excluir</div>` : ''}
+          </div>
+        </div>
         ${clicavel ? `<button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button>` : ''}
       </div>` : (clicavel ? `
       <div class="item-actions">
@@ -4288,6 +4305,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   segmentedSetup('f_atendente2', ()=>{ atualizarVisibilidadeHoras2(); atualizarPreview(); });
   configurarEditorRico();
   configurarPullParaAtualizar();
+  document.addEventListener('click', e=>{ if(!e.target.closest('.acoes-wrap')) fecharAcoesMenu(); });
 
   document.getElementById('f_novo_anexo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];

@@ -169,6 +169,14 @@
   .item .valores .v2{font-size:14px;font-weight:700;color:var(--accent);}
   .item-actions{display:flex;gap:8px;margin-top:10px;}
   .item-actions button{flex:1;}
+  .acoes-wrap{position:relative;flex:1;}
+  .acoes-wrap button{width:100%;}
+  .acoes-menu{position:absolute;bottom:100%;right:0;z-index:15;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:4px;min-width:150px;box-shadow:0 8px 20px rgba(0,0,0,.18);display:none;overflow:hidden;}
+  .acoes-menu.show{display:block;}
+  .acoes-menu-item{padding:10px 12px;font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer;}
+  .acoes-menu-item:hover{background:var(--panel-2);}
+  .acoes-menu-item.danger{color:var(--bad);}
+  .acoes-menu-item + .acoes-menu-item{border-top:1px solid var(--line);}
 
   .empty{text-align:center;padding:50px 20px;color:var(--muted);}
   .empty .big{font-size:34px;margin-bottom:8px;}
