@@ -4176,6 +4176,72 @@ function stripHtml(html){
   return (d.textContent || d.innerText || '').replace(/\s+/g,' ').trim();
 }
 
+// redimensionar imagem dentro dos editores de texto rico — via um "puxador" fixo
+// que segue a imagem selecionada, funciona tanto no mouse quanto no toque (app Android),
+// diferente do resize nativo do CSS que não responde a toque
+let rtImgSelecionada = null;
+let rtImgHandle = null;
+function rtImgHandleEl(){
+  if(!rtImgHandle){
+    rtImgHandle = document.createElement('div');
+    rtImgHandle.className = 'rt-img-handle';
+    document.body.appendChild(rtImgHandle);
+    rtImgHandle.addEventListener('pointerdown', rtIniciarRedimensionamento);
+  }
+  return rtImgHandle;
+}
+function rtPosicionarHandle(){
+  if(!rtImgSelecionada) return;
+  const r = rtImgSelecionada.getBoundingClientRect();
+  const h = rtImgHandleEl();
+  h.style.left = (r.right - 10) + 'px';
+  h.style.top = (r.bottom - 10) + 'px';
+}
+function rtSelecionarImagem(img){
+  if(rtImgSelecionada && rtImgSelecionada !== img) rtImgSelecionada.classList.remove('rt-img-sel');
+  rtImgSelecionada = img;
+  img.classList.add('rt-img-sel');
+  rtImgHandleEl().style.display = 'block';
+  rtPosicionarHandle();
+}
+function rtDeselecionarImagem(){
+  if(rtImgSelecionada) rtImgSelecionada.classList.remove('rt-img-sel');
+  rtImgSelecionada = null;
+  if(rtImgHandle) rtImgHandle.style.display = 'none';
+}
+function rtIniciarRedimensionamento(e){
+  if(!rtImgSelecionada) return;
+  e.preventDefault();
+  const handle = e.currentTarget;
+  const img = rtImgSelecionada;
+  const editor = img.closest('.rt-editor');
+  const larguraMax = editor ? editor.clientWidth - 20 : 2000;
+  const startX = e.clientX;
+  const startWidth = img.getBoundingClientRect().width;
+  if(handle.setPointerCapture) handle.setPointerCapture(e.pointerId);
+  function mover(ev){
+    const delta = ev.clientX - startX;
+    let nova = Math.round(startWidth + delta);
+    nova = Math.max(40, Math.min(nova, larguraMax));
+    img.style.width = nova + 'px';
+    img.style.height = 'auto';
+    rtPosicionarHandle();
+  }
+  function soltar(ev){
+    handle.removeEventListener('pointermove', mover);
+    handle.removeEventListener('pointerup', soltar);
+    handle.removeEventListener('pointercancel', soltar);
+    if(handle.releasePointerCapture) handle.releasePointerCapture(ev.pointerId);
+  }
+  handle.addEventListener('pointermove', mover);
+  handle.addEventListener('pointerup', soltar);
+  handle.addEventListener('pointercancel', soltar);
+}
+document.addEventListener('click', (e)=>{
+  if(rtImgSelecionada && e.target !== rtImgSelecionada && e.target !== rtImgHandle) rtDeselecionarImagem();
+});
+window.addEventListener('resize', rtPosicionarHandle);
+
 // funciona pra qualquer editor de texto rico da tela (Detalhe, Solução...) —
 // cada toolbar sabe qual editor controla via data-editor no próprio toolbar
 function configurarEditorRico(){
@@ -4202,11 +4268,25 @@ function configurarEditorRico(){
           const r = await api('uploadImagem', { base64, tipo: arquivo.type, nome: arquivo.name });
           if(!r.ok){ toast(r.erro || 'Não foi possível enviar a imagem.'); return; }
           document.getElementById(editorId).focus();
-          document.execCommand('insertHTML', false, `<img src="${r.url}" alt="${escaparHtml(r.nome||'')}">`);
+          document.execCommand('insertHTML', false, `<img src="${r.url}" alt="${escaparHtml(r.nome||'')}" title="Toque na imagem e arraste o puxador para redimensionar. Duplo toque para restaurar o tamanho original.">`);
         }catch(err){
           toast(err && err.message ? err.message : 'Não foi possível enviar a imagem.');
         }
       });
+    }
+    const editorEl = document.getElementById(editorId);
+    if(editorEl){
+      editorEl.addEventListener('click', (e)=>{
+        if(e.target.tagName === 'IMG') rtSelecionarImagem(e.target);
+      });
+      editorEl.addEventListener('dblclick', (e)=>{
+        if(e.target.tagName === 'IMG'){
+          e.preventDefault();
+          e.target.removeAttribute('style');
+          if(rtImgSelecionada === e.target) rtPosicionarHandle();
+        }
+      });
+      editorEl.addEventListener('scroll', rtPosicionarHandle);
     }
   });
 }
