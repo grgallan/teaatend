@@ -1762,6 +1762,20 @@ function renderGantt(){
 
 /* ---------- gerar PDF (usa o "Salvar como PDF" do próprio navegador) ---------- */
 function prepararImpressao(titulo, filtrosTexto){
+  // dentro do app Android (Capacitor) a WebView não tem window.print() — não existe
+  // diálogo de impressão nativo nela. Abrimos a mesma página no navegador do aparelho,
+  // onde "Salvar como PDF" já funciona normalmente.
+  if(emAppNativo()){
+    document.body.classList.remove('print-modo-atendimento'); // sem window.print(), o afterprint que tiraria essa classe nunca dispara
+    const browser = window.Capacitor.Plugins && window.Capacitor.Plugins.Browser;
+    if(browser){
+      toast('Abrindo no navegador — repita a navegação e toque em "Gerar PDF" por lá.');
+      browser.open({ url: window.location.href });
+    } else {
+      toast('Gerar PDF não funciona dentro do app — abra o site pelo navegador do celular.');
+    }
+    return;
+  }
   const agora = new Date();
   const dataHora = agora.toLocaleDateString('pt-BR') + ' às ' + agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('printHeader').innerHTML = `
