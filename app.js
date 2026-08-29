@@ -1783,21 +1783,82 @@ function renderGantt(){
 }
 
 /* ---------- gerar PDF (usa o "Salvar como PDF" do próprio navegador) ---------- */
-function prepararImpressao(titulo, filtrosTexto){
-  // dentro do app Android (Capacitor) a WebView não tem window.print() — não existe
-  // diálogo de impressão nativo nela. Abrimos a mesma página no navegador do aparelho,
-  // onde "Salvar como PDF" já funciona normalmente.
-  if(emAppNativo()){
-    document.body.classList.remove('print-modo-atendimento'); // sem window.print(), o afterprint que tiraria essa classe nunca dispara
-    const browser = window.Capacitor.Plugins && window.Capacitor.Plugins.Browser;
-    if(browser){
-      toast('Abrindo no navegador — repita a navegação e toque em "Gerar PDF" por lá.');
-      browser.open({ url: window.location.href });
-    } else {
-      toast('Gerar PDF não funciona dentro do app — abra o site pelo navegador do celular.');
+let html2pdfCarregado = null;
+// carrega a lib só quando alguém realmente pede um PDF dentro do app —
+// não faz sentido baixar isso pra quem acessa pelo navegador (usa window.print())
+function carregarHtml2Pdf(){
+  if(window.html2pdf) return Promise.resolve();
+  if(html2pdfCarregado) return html2pdfCarregado;
+  html2pdfCarregado = new Promise((resolve, reject)=>{
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.14.0/dist/html2pdf.bundle.min.js';
+    script.onload = ()=> resolve();
+    script.onerror = ()=> reject(new Error('Não foi possível carregar a biblioteca de PDF.'));
+    document.head.appendChild(script);
+  });
+  return html2pdfCarregado;
+}
+
+// troca temporariamente a regra @media print pra "all" — assim reaproveita o
+// mesmo CSS que já esconde sidebar/nav/outras telas na hora de imprimir, sem
+// precisar duplicar aquele bloco de CSS só pra geração nativa de PDF
+async function comEstiloDeImpressaoAtivo(fn){
+  let regra = null;
+  for(const sheet of document.styleSheets){
+    let regras;
+    try{ regras = sheet.cssRules; }catch(e){ continue; } // folha de outra origem — não dá pra inspecionar, ignora
+    for(const r of regras){
+      if(r.media && /\bprint\b/.test(r.media.mediaText)){ regra = r; break; }
     }
+    if(regra) break;
+  }
+  if(!regra) return fn();
+  const original = regra.media.mediaText;
+  regra.media.mediaText = 'all';
+  try{
+    return await fn();
+  } finally {
+    regra.media.mediaText = original;
+  }
+}
+
+function slugArquivo(texto){
+  return String(texto||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-zA-Z0-9]+/g,'-').replace(/^-+|-+$/g,'').toLowerCase() || 'documento';
+}
+
+// dentro do app Android (Capacitor) a WebView não tem window.print() — gera o
+// PDF no próprio JS (html2pdf) e abre o menu de compartilhar nativo do Android
+async function gerarPdfNativo(titulo){
+  const plugins = window.Capacitor.Plugins || {};
+  const { Filesystem, Share } = plugins;
+  if(!Filesystem || !Share){
+    toast('Gerar PDF não está disponível nessa versão do app — atualize o aplicativo.');
+    document.body.classList.remove('print-modo-atendimento');
     return;
   }
+  toast('Gerando PDF…');
+  try{
+    await carregarHtml2Pdf();
+    const blob = await comEstiloDeImpressaoAtivo(()=>
+      window.html2pdf().set({
+        margin: 10,
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak: { mode: ['css', 'legacy'] },
+      }).from(document.body).outputPdf('blob')
+    );
+    const base64 = await lerArquivoBase64(blob);
+    const nomeArquivo = `${slugArquivo(titulo)}.pdf`;
+    const gravado = await Filesystem.writeFile({ path: nomeArquivo, data: base64, directory: 'CACHE' });
+    await Share.share({ title: titulo, dialogTitle: 'Compartilhar PDF', files: [gravado.uri] });
+  }catch(err){
+    toast(err && err.message ? err.message : 'Não foi possível gerar o PDF.');
+  } finally {
+    document.body.classList.remove('print-modo-atendimento'); // sem window.print(), o afterprint que tiraria essa classe nunca dispara
+  }
+}
+
+function prepararImpressao(titulo, filtrosTexto){
   const agora = new Date();
   const dataHora = agora.toLocaleDateString('pt-BR') + ' às ' + agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('printHeader').innerHTML = `
@@ -1806,6 +1867,7 @@ function prepararImpressao(titulo, filtrosTexto){
     ${filtrosTexto ? `<div class="print-filtros">${escaparHtml(filtrosTexto)}</div>` : ''}
     <div class="print-data">Gerado em ${dataHora}</div>
   `;
+  if(emAppNativo()){ gerarPdfNativo(titulo); return; }
   window.print();
 }
 
