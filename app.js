@@ -50,6 +50,15 @@ const MENUS_PERFIL_ACESSO = [
 
 /* ---------- utilidades ---------- */
 function fmtMoeda(v){ return 'R$ ' + (v||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+// o link normal do anexo (Supabase Storage) abre o arquivo dentro do
+// navegador (PDF/imagem em vez de baixar) — acrescentando ?download=nome
+// na URL, o próprio Supabase Storage manda o cabeçalho que força o
+// download do arquivo original, com o nome certo
+function urlDownloadAnexo(url, nome){
+  if(!url) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}download=${encodeURIComponent(nome || 'anexo')}`;
+}
 function timeToHours(t){ if(!t) return 0; const [h,m]=t.split(':').map(Number); return h + m/60; }
 function calcQtd(hi,hf,inter){ let q = timeToHours(hf) - timeToHours(hi); if(q<0) q += 24; q -= timeToHours(inter); return Math.max(0, q); }
 function mesFromData(dataStr){ if(!dataStr) return ''; const [y,m]=dataStr.split('-'); return `${m}/${y}`; }
@@ -1326,7 +1335,8 @@ function renderLinhaAtendimento(r, ctx, opts){
         <span class="tag">${qtdNum.toFixed(2).replace('.',',')}h</span>
         ${r.atendente2 ? `<span class="tag">+2º: ${r.atendente2} (${Number(r.horasAtendente2||0).toFixed(2).replace('.',',')}h)</span>` : ''}
         ${r.solucao ? `<span class="tag" style="color:var(--ok);">✓ Solucionado</span>` : ''}
-        ${r.anexoUrl ? `<a class="tag" style="color:var(--accent);" href="${r.anexoUrl}" target="_blank" onclick="event.stopPropagation();">📎 ${r.anexoNome||'anexo'}</a>` : ''}
+        ${r.anexoUrl ? `<a class="tag" style="color:var(--accent);" href="${r.anexoUrl}" target="_blank" onclick="event.stopPropagation();">📎 ${r.anexoNome||'anexo'}</a>
+        <a class="tag" style="color:var(--accent);" href="${urlDownloadAnexo(r.anexoUrl, r.anexoNome)}" onclick="event.stopPropagation();" title="Baixar arquivo original">⬇ Baixar</a>` : ''}
       </div>
       ${contatoAtendente ? `<div style="margin-top:8px;font-size:12px;" onclick="event.stopPropagation();">Contato do atendente: ${contatoAtendente}</div>` : ''}
       ${verValores ? `
@@ -4021,7 +4031,7 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
         <div class="mov-data">${movFmtDataHora(m.criadoEm)}</div>
       </div>
       <div class="mov-conteudo rt-content">${sanitizarHtml(m.texto)}</div>
-      ${(m.anexos && m.anexos.length>0) ? m.anexos.map(a=>`<div class="mov-anexo-item">📎 <a href="${a.url}" target="_blank">${escaparHtml(a.nome)}</a></div>`).join('') : ''}
+      ${(m.anexos && m.anexos.length>0) ? m.anexos.map(a=>`<div class="mov-anexo-item">📎 <a href="${a.url}" target="_blank">${escaparHtml(a.nome)}</a> · <a href="${urlDownloadAnexo(a.url, a.nome)}" title="Baixar arquivo original">⬇ Baixar</a></div>`).join('') : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;">
         ${!bloqueado ? `<button type="button" class="mov-btn-responder" onclick="responderMovimentacao('${m.id}','${sufixo}')">↩ Responder</button>` : ''}
         ${podeGerenciar ? `<button type="button" class="mov-btn-responder" onclick="editarMovimentacaoUi('${m.id}','${sufixo}')">✎ Editar</button>` : ''}
@@ -4221,6 +4231,7 @@ function renderAnexosGenerico(containerId, lista, atendimentoId, podeRemover){
   cont.innerHTML = lista.map(a=>`
     <div class="anexo-item">
       <a href="${a.url}" target="_blank">📎 ${escaparHtml(a.nome||'anexo')}</a>
+      <a href="${urlDownloadAnexo(a.url, a.nome)}" title="Baixar arquivo original">⬇ Baixar</a>
       ${podeRemover ? `<button type="button" onclick="removerAnexoGenerico('${a.id}','${containerId}','${atendimentoId}',${podeRemover})">remover</button>` : ''}
     </div>`).join('');
 }
