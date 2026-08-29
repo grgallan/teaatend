@@ -101,6 +101,22 @@ function aplicarVisibilidadeMenu(viewName, visivel){
 function statusSlug(nome){
   return String(nome||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,'-').toUpperCase();
 }
+// data de hoje no fuso do aparelho, formato yyyy-mm-dd — igual ao formato
+// já usado em data/dataPrevista, dá pra comparar direto como texto
+function hojeLocalISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// flag de prazo (🔴 atrasado / 🟢 em dia) comparando hoje com a Data Final
+// Prevista — só faz sentido enquanto o chamado ainda não foi validado, e só
+// se tiver previsão cadastrada
+function flagPrazo(r){
+  if(!r.dataPrevista || r.status === 'VALIDADO') return '';
+  const atrasado = hojeLocalISO() > r.dataPrevista;
+  return atrasado
+    ? `<span class="tag" style="background:var(--bad);color:#fff;">🔴 Atrasado</span>`
+    : `<span class="tag" style="background:var(--ok);color:#fff;">🟢 Em dia</span>`;
+}
 function primeiroDiaMes(d){ return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10); }
 function ultimoDiaMes(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10); }
 /* ---------- seleção múltipla / alteração de status em massa ---------- */
@@ -1178,7 +1194,10 @@ function renderLista(){
         <div><div class="cliente">${r.cliente} · ${r.usuario}</div>
         <div class="data">${dataFmt} · ${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (int. '+r.inter+')' : ''}</div></div>
         ${checkbox ? `</div></div>` : '</div>'}
-        <span class="tag status-${statusSlug(r.status)}">${r.status}</span>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+          <span class="tag status-${statusSlug(r.status)}">${r.status}</span>
+          ${flagPrazo(r)}
+        </div>
       </div>
       ${modSub ? `<div class="detalhe" style="color:var(--accent);font-weight:600;">${modSub}</div>` : ''}
       ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe).slice(0,140))}${stripHtml(r.detalhe).length>140?'…':''}</div>` : ''}
@@ -1258,6 +1277,7 @@ function renderKanbanCard(r, opts){
           <span class="tag">${labelTipo(r.tipo)}</span>
           <span class="tag">${escaparHtml(r.atendente || 'A definir')}</span>
           ${opts.verValores ? `<span class="tag" style="color:var(--accent);">${fmtMoeda(Number(r.totalReal))}</span>` : ''}
+          ${flagPrazo(r)}
         </div>
       </div>
     </div>`;
@@ -3537,6 +3557,10 @@ const COLUNAS_RELATORIO = [
   { key:'qtd', label:'Qtd Horas', formatar:r=>Number(r.qtd).toFixed(2).replace('.',',')+'h', numerica:true, valorBruto:r=>Number(r.qtd)||0, ehHoras:true },
   { key:'status', label:'Status', formatar:r=>r.status },
   { key:'dataPrevista', label:'Data Prevista', formatar:r=>{ if(!r.dataPrevista) return ''; const [y,m,d]=String(r.dataPrevista).split('-'); return `${d}/${m}/${y}`; } },
+  { key:'situacaoPrazo', label:'Situação do Prazo', formatar:r=>{
+      if(!r.dataPrevista || r.status === 'VALIDADO') return '';
+      return hojeLocalISO() > r.dataPrevista ? 'Atrasado' : 'Em dia';
+    } },
   { key:'anexo', label:'Anexo', formatar:r=>r.anexoNome || '' },
   { key:'vhr', label:'Valor Real/h', formatar:r=>fmtMoeda(Number(r.vhr)||0) },
   { key:'totalReal', label:'Total Real', formatar:r=>fmtMoeda(Number(r.totalReal)||0), numerica:true, valorBruto:r=>Number(r.totalReal)||0 },
@@ -3700,7 +3724,7 @@ async function abrirDetalhe(atendimentoId){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12.5px;margin-bottom:10px;">
       <div><span style="color:var(--muted);">Tipo</span><br>${labelTipo(r.tipo)}</div>
       <div><span style="color:var(--muted);">Horário</span><br>${horario}</div>
-      ${dataPrevistaTexto ? `<div><span style="color:var(--muted);">Previsão de conclusão</span><br>${dataPrevistaTexto}</div>` : ''}
+      ${dataPrevistaTexto ? `<div><span style="color:var(--muted);">Previsão de conclusão</span><br>${dataPrevistaTexto} ${flagPrazo(r)}</div>` : ''}
     </div>
     ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;margin-bottom:4px;">${modSub}</div>` : ''}
     ${r.detalhe ? `<div class="rt-content" style="font-size:12.5px;color:var(--muted);margin-top:2px;">${sanitizarHtml(r.detalhe)}</div>` : ''}
