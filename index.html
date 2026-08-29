@@ -150,6 +150,11 @@
   .summary .box .v{font-size:20px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;}
 
   .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px;}
+  /* linha de vínculo — mesmas colunas do item normal, só mais leve e recuada,
+     igual subtarefa numa ferramenta de projeto */
+  .item.filho{background:var(--panel-2);border-style:dashed;position:relative;margin-left:26px;}
+  .item.filho.nivel2{margin-left:52px;}
+  .item.filho .linha-galho{position:absolute;left:-18px;top:14px;color:var(--muted);font-family:monospace;font-size:13px;line-height:1;}
   .item .top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
   .item .cliente{font-weight:700;font-size:14.5px;}
   .item .data{font-size:12px;color:var(--muted);margin-top:1px;}
@@ -345,6 +350,9 @@
     .item-actions{flex:0 0 auto;margin:0 !important;gap:5px;}
     .item-actions button{flex:none;padding:5px 8px;font-size:11px;}
     #listaItens .empty{grid-column:unset;}
+    /* na linha única do PC, centraliza o "└─" verticalmente em vez de
+       fixar no topo (que fazia sentido só no card empilhado do celular) */
+    .item.filho .linha-galho{top:50%;transform:translateY(-50%);}
   }
   @media (min-width: 1180px){
     main{max-width:1120px;}
