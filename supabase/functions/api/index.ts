@@ -97,8 +97,8 @@ function ehAdminEfetivo(conta: any): boolean {
 }
 
 /* ---------- conversores linha (snake_case do banco) -> objeto da API (camelCase) ---------- */
-function contaParaApi(c: any, comSenha = false, perfisAcessoIds: string[] = []) {
-  const base: any = { id: c.id, nome: c.nome, login: c.login, perfil: c.perfil, clienteId: c.cliente_id, email: c.email || '', telefone: c.telefone || '', adminCliente: c.admin_cliente || false, ehAdministrador: c.eh_administrador || false, perfisAcessoIds };
+function contaParaApi(c: any, comSenha = false, perfisAcessoIds: string[] = [], empresaIds: string[] = []) {
+  const base: any = { id: c.id, nome: c.nome, login: c.login, perfil: c.perfil, clienteId: c.cliente_id, email: c.email || '', telefone: c.telefone || '', adminCliente: c.admin_cliente || false, ehAdministrador: c.eh_administrador || false, perfisAcessoIds, empresaIds };
   if (comSenha) base.senha = c.senha;
   return base;
 }
@@ -137,7 +137,15 @@ function simplesParaApi(x: any) {
   return { id: x.id, nome: x.nome };
 }
 function clienteParaApi(c: any) {
-  return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '' };
+  return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '' };
+}
+function empresaParaApi(e: any) {
+  return {
+    id: e.id, nome: e.nome, nomeFantasia: e.nome_fantasia || '', cnpj: e.cnpj || '',
+    endereco: e.endereco || '', telefone: e.telefone || '', email: e.email || '',
+    cnae: e.cnae || '', inscricaoMunicipal: e.inscricao_municipal || '', inscricaoEstadual: e.inscricao_estadual || '',
+    logoUrl: e.logo_url || '', padrao: !!e.padrao,
+  };
 }
 
 /* ---------- roteador ---------- */
@@ -217,24 +225,79 @@ async function rotear(req: any): Promise<any> {
     case 'salvarPerfilAcesso': return acaoSalvarPerfilAcesso(req);
     case 'removerPerfilAcesso': return acaoRemoverPerfilAcesso(req);
     case 'vincularPerfisConta': return acaoVincularPerfisConta(req);
+    case 'empresaPadrao': return acaoEmpresaPadrao(req);
+    case 'minhasEmpresas': return acaoMinhasEmpresas(req);
+    case 'salvarEmpresa': return acaoSalvarEmpresa(req);
+    case 'removerEmpresa': return acaoRemoverEmpresa(req);
+    case 'vincularEmpresasConta': return acaoVincularEmpresasConta(req);
     default: return { erro: 'ação desconhecida: ' + req.action };
   }
 }
 
 /* ---------- login / dados ---------- */
+// ADMIN "de verdade" sempre vê todas as empresas (mesmo bypass que ele já
+// tem em qualquer outra permissão); ATENDENTE só as que foram vinculadas a
+// ele em Cadastros → Atendentes; USUARIO fica preso à empresa do próprio
+// cliente dele, sem escolha nenhuma. Usado no login e na troca de empresa
+// dentro do app (mesma conta, sem precisar digitar a senha de novo).
+async function resolverEmpresasDaConta(contaRow: any): Promise<{ empresas?: any[]; empresa?: any }> {
+  if (ehAdminEfetivo(contaRow)) {
+    const { data: todasEmpresas } = await db.from('empresas').select('*').order('nome');
+    return { empresas: (todasEmpresas || []).map(empresaParaApi) };
+  }
+  if (contaRow.perfil === 'ATENDENTE') {
+    const { data: vinculosEmpresa } = await db.from('conta_empresas').select('empresa_id').eq('conta_id', contaRow.id);
+    const ids = (vinculosEmpresa || []).map((v: any) => v.empresa_id);
+    const { data: empresasLigadas } = ids.length
+      ? await db.from('empresas').select('*').in('id', ids).order('nome')
+      : { data: [] as any[] };
+    return { empresas: (empresasLigadas || []).map(empresaParaApi) };
+  }
+  if (contaRow.cliente_id) {
+    const { data: clienteConta } = await db.from('clientes').select('empresa_id').eq('id', contaRow.cliente_id).maybeSingle();
+    if (clienteConta && clienteConta.empresa_id) {
+      const { data: empresaUsuario } = await db.from('empresas').select('*').eq('id', clienteConta.empresa_id).maybeSingle();
+      if (empresaUsuario) return { empresa: empresaParaApi(empresaUsuario) };
+    }
+  }
+  return {};
+}
+
 async function acaoLogin(req: any) {
   const login = String(req.login || '').trim().toLowerCase();
   const { data, error } = await db.from('contas').select('*').ilike('login', login).eq('senha', req.senha).maybeSingle();
   if (error || !data) return { ok: false, erro: 'Usuário ou senha inválidos.' };
   const { data: vinculos } = await db.from('conta_perfis_acesso').select('perfil_id').eq('conta_id', data.id);
-  return { ok: true, conta: contaParaApi(data, false, (vinculos || []).map((v: any) => v.perfil_id)) };
+  const conta = contaParaApi(data, false, (vinculos || []).map((v: any) => v.perfil_id));
+  const resultadoEmpresas = await resolverEmpresasDaConta(data);
+  return { ok: true, conta, ...resultadoEmpresas };
+}
+
+// re-resolve as empresas disponíveis pra conta já logada, sem pedir senha
+// de novo — usado pelo botão "trocar empresa" dentro do app (só faz
+// sentido pra ADMIN/ATENDENTE, que podem estar em mais de uma)
+async function acaoMinhasEmpresas(req: any) {
+  const { data } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
+  if (!data) return { ok: false, erro: 'Conta não encontrada.' };
+  const resultadoEmpresas = await resolverEmpresasDaConta(data);
+  return { ok: true, ...resultadoEmpresas };
+}
+
+// empresa exibida na tela de login, antes de qualquer autenticação — só
+// nome e logo, informação pública mesmo (aparece pra qualquer visitante)
+async function acaoEmpresaPadrao(_req: any) {
+  const { data } = await db.from('empresas').select('*').eq('padrao', true).limit(1).maybeSingle();
+  return { ok: true, empresa: data ? empresaParaApi(data) : null };
 }
 
 async function acaoDados(req: any) {
   const contaId = req.contaId;
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }] = await Promise.all([
+  const empresaId = req.empresaId || null;
+  let clientesQuery = db.from('clientes').select('*').order('nome');
+  if (empresaId) clientesQuery = clientesQuery.eq('empresa_id', empresaId);
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }] = await Promise.all([
     db.from('contas').select('*'),
-    db.from('clientes').select('*').order('nome'),
+    clientesQuery,
     db.from('tipos').select('*').order('nome'),
     db.from('modulos').select('*').order('nome'),
     db.from('submodulos').select('*').order('nome'),
@@ -242,7 +305,14 @@ async function acaoDados(req: any) {
     db.from('perfis_acesso').select('*').order('nome'),
     db.from('perfil_acesso_permissoes').select('*'),
     db.from('conta_perfis_acesso').select('*'),
+    db.from('empresas').select('*').order('nome'),
+    db.from('conta_empresas').select('*'),
   ]);
+  const empresaIdsPorConta: Record<string, string[]> = {};
+  (contaEmpresasRaw || []).forEach((v: any) => {
+    if (!empresaIdsPorConta[v.conta_id]) empresaIdsPorConta[v.conta_id] = [];
+    empresaIdsPorConta[v.conta_id].push(v.empresa_id);
+  });
 
   const perfisAcesso = (perfisAcessoRaw || []).map((p: any) => {
     const permissoes = permissaoVaziaPorMenu();
@@ -261,6 +331,7 @@ async function acaoDados(req: any) {
   const isAdmin = ehAdminEfetivo(contaAtual);
 
   let atendimentosQuery = db.from('atendimentos').select('*').order('data', { ascending: false });
+  if (empresaId) atendimentosQuery = atendimentosQuery.eq('empresa_id', empresaId);
   if (contaAtual && contaAtual.perfil === 'USUARIO') {
     // usuário marcado como "administrador do cliente" vê TODOS os
     // atendimentos daquele cliente, não só os que ele mesmo abriu
@@ -279,7 +350,9 @@ async function acaoDados(req: any) {
 
   let valores: any[] = [];
   if (isAdmin) {
-    const { data } = await db.from('valores').select('*');
+    let valoresQuery = db.from('valores').select('*');
+    if (empresaId) valoresQuery = valoresQuery.eq('empresa_id', empresaId);
+    const { data } = await valoresQuery;
     valores = (data || []).map(valorParaApi);
   }
 
@@ -311,7 +384,7 @@ async function acaoDados(req: any) {
 
   return {
     ok: true,
-    contas: (contas || []).map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [])),
+    contas: (contas || []).map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [], empresaIdsPorConta[c.id] || [])),
     clientes: (clientes || []).map(clienteParaApi),
     tipos: (tipos || []).map(simplesParaApi),
     modulos: (modulos || []).map(simplesParaApi),
@@ -321,13 +394,16 @@ async function acaoDados(req: any) {
     atendimentos,
     vinculos,
     perfisAcesso,
+    empresas: isAdmin ? (empresasRaw || []).map(empresaParaApi) : [],
   };
 }
 
 /* ---------- atendimento ---------- */
 async function acaoSalvarAtendimento(req: any) {
+  let clienteQuery = db.from('clientes').select('*').eq('nome', req.cliente);
+  if (req.empresaId) clienteQuery = clienteQuery.eq('empresa_id', req.empresaId);
   const [rCliente, rTipo] = await Promise.all([
-    db.from('clientes').select('*').eq('nome', req.cliente).maybeSingle(),
+    clienteQuery.maybeSingle(),
     db.from('tipos').select('*').eq('nome', req.tipo).maybeSingle(),
   ]);
   const cliente = rCliente.data;
@@ -428,7 +504,7 @@ async function acaoSalvarAtendimento(req: any) {
   };
 
   if (ehNovo) {
-    const { error: erroInsert } = await db.from('atendimentos').insert(registro);
+    const { error: erroInsert } = await db.from('atendimentos').insert({ ...registro, empresa_id: req.empresaId || (cliente ? cliente.empresa_id : null) });
     if (erroInsert) return { ok: false, erro: 'Erro ao salvar: ' + erroInsert.message };
     await registrarHistorico(registro.id, `Chamado aberto por ${req.usuario} (status: ${registro.status})`);
     if (anexoUrl) {
@@ -1620,6 +1696,59 @@ async function acaoVincularPerfisConta(req: any) {
   return { ok: true };
 }
 
+/* ---------- empresas (multi-empresa) ---------- */
+async function acaoSalvarEmpresa(req: any) {
+  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar empresas.' };
+  const nome = String(req.nome || '').trim();
+  if (!nome) return { ok: false, erro: 'Dê um nome à empresa.' };
+
+  const registro = {
+    nome, nome_fantasia: req.nomeFantasia || '', cnpj: req.cnpj || '', endereco: req.endereco || '',
+    telefone: req.telefone || '', email: req.email || '', cnae: req.cnae || '',
+    inscricao_municipal: req.inscricaoMunicipal || '', inscricao_estadual: req.inscricaoEstadual || '',
+    logo_url: req.logoUrl || '',
+  };
+
+  const id = req.id || gerarId();
+  // só uma empresa pode ser a padrão (aparece na tela de login) — marcar
+  // uma nova como padrão tira a marca de quem era antes
+  if (req.padrao) await db.from('empresas').update({ padrao: false }).neq('id', id);
+
+  if (req.id) {
+    const { error } = await db.from('empresas').update({ ...registro, padrao: !!req.padrao }).eq('id', id);
+    if (error) return { ok: false, erro: error.message };
+  } else {
+    const { error } = await db.from('empresas').insert({ id, ...registro, padrao: !!req.padrao });
+    if (error) return { ok: false, erro: error.message };
+  }
+  return { ok: true, id };
+}
+
+async function acaoRemoverEmpresa(req: any) {
+  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar empresas.' };
+  const { data: emUso } = await db.from('clientes').select('id').eq('empresa_id', req.id).limit(1);
+  if (emUso && emUso.length) return { ok: false, erro: 'Essa empresa tem clientes vinculados — mova ou remova os clientes antes.' };
+  await db.from('empresas').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+// mesmo padrão de acaoVincularPerfisConta: substitui por completo a lista
+// de empresas vinculadas à conta alvo (atendente/admin)
+async function acaoVincularEmpresasConta(req: any) {
+  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode vincular empresas.' };
+  if (!req.contaAlvoId) return { ok: false, erro: 'Conta não informada.' };
+  const empresaIds: string[] = Array.isArray(req.empresaIds) ? req.empresaIds : [];
+
+  const { error: erroDelete } = await db.from('conta_empresas').delete().eq('conta_id', req.contaAlvoId);
+  if (erroDelete) return { ok: false, erro: erroDelete.message };
+  if (empresaIds.length > 0) {
+    const linhas = empresaIds.map((empresaId) => ({ id: gerarId(), conta_id: req.contaAlvoId, empresa_id: empresaId }));
+    const { error: erroInsert } = await db.from('conta_empresas').insert(linhas);
+    if (erroInsert) return { ok: false, erro: erroInsert.message };
+  }
+  return { ok: true };
+}
+
 /* ---------- cadastros simples (clientes, tipos, módulos, sub módulos, status) ---------- */
 async function acaoAddSimples(tabela: string, req: any) {
   const registro = { id: gerarId(), nome: req.nome };
@@ -1638,7 +1767,8 @@ async function acaoRemoverCliente(req: any) {
   return { ok: true };
 }
 async function acaoAddCliente(req: any) {
-  const registro = { id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '' };
+  if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um cliente.' };
+  const registro = { id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '', empresa_id: req.empresaId };
   const { error } = await db.from('clientes').insert(registro);
   if (error) return { ok: false, erro: error.message };
   return { ok: true, registro: clienteParaApi(registro) };
@@ -1676,13 +1806,14 @@ async function acaoSalvarValor(req: any) {
   // sem .maybeSingle(): se por acaso já existir mais de uma linha duplicada
   // pra essa combinação (era o que causava valor zerado ao salvar
   // atendimento), isso não quebra — junta tudo numa lista e limpa o excesso.
-  const { data: existentes, error: erroSelect } = await db.from('valores').select('id')
+  const { data: existentes, error: erroSelect } = await db.from('valores').select('id,empresa_id')
     .eq('atendente_id', req.atendenteId).eq('cliente_id', req.clienteId).eq('tipo_id', req.tipoId);
   if (erroSelect) return { ok: false, erro: erroSelect.message };
 
   const id = (existentes && existentes[0]) ? existentes[0].id : gerarId();
+  const empresaId = req.empresaId || (existentes && existentes[0] ? existentes[0].empresa_id : null);
   const { error } = await db.from('valores').upsert(
-    { id, atendente_id: req.atendenteId, cliente_id: req.clienteId, tipo_id: req.tipoId, real: req.real, ananda: req.ananda, valor_segundo_atend: req.valorSegundoAtend || 0 },
+    { id, atendente_id: req.atendenteId, cliente_id: req.clienteId, tipo_id: req.tipoId, real: req.real, ananda: req.ananda, valor_segundo_atend: req.valorSegundoAtend || 0, empresa_id: empresaId },
     { onConflict: 'atendente_id,cliente_id,tipo_id' }
   );
   if (error) return { ok: false, erro: error.message };
@@ -1709,10 +1840,15 @@ async function acaoRecalcularValores(req: any) {
   if (erroConta) return { ok: false, erro: 'Erro ao verificar permissão: ' + erroConta.message };
   if (!conta || !ehAdminEfetivo(conta)) return { ok: false, erro: 'Só o admin pode recalcular valores.' };
 
+  const empresaId = req.empresaId || null;
+  let qAtendimentos = db.from('atendimentos').select('*');
+  let qValores = db.from('valores').select('*');
+  let qClientes = db.from('clientes').select('*');
+  if (empresaId) { qAtendimentos = qAtendimentos.eq('empresa_id', empresaId); qValores = qValores.eq('empresa_id', empresaId); qClientes = qClientes.eq('empresa_id', empresaId); }
   const [rAtendimentos, rValores, rClientes, rTipos, rContas] = await Promise.all([
-    db.from('atendimentos').select('*'),
-    db.from('valores').select('*'),
-    db.from('clientes').select('*'),
+    qAtendimentos,
+    qValores,
+    qClientes,
     db.from('tipos').select('*'),
     db.from('contas').select('*').eq('perfil', 'ATENDENTE'),
   ]);

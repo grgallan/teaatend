@@ -551,3 +551,69 @@ insert into valores (id, atendente_id, cliente_id, tipo_id, real, ananda) values
   ('v-ananda-reg-on', 'c-ananda', 'cli-regina', 'tp-online', 85, 30),
   ('v-ananda-reg-vi', 'c-ananda', 'cli-regina', 'tp-visita', 85, 10)
 on conflict (id) do nothing;
+
+-- =========================================================
+-- Empresas (multi-empresa) — cada Cliente/Atendimento/Valor passa a
+-- pertencer a uma Empresa. Um admin/atendente pode estar vinculado a
+-- quantas empresas fizer sentido (conta_empresas, N:N, mesmo padrão de
+-- conta_perfis_acesso) e escolhe qual usar a cada login — só faz sentido
+-- pra ADMIN/ATENDENTE; uma conta USUARIO fica na empresa do próprio
+-- cliente dela (clientes.empresa_id), sem precisar escolher nada. Uma
+-- conta ADMIN "de verdade" (perfil = ADMIN) sempre enxerga todas as
+-- empresas, vinculada ou não — é o mesmo bypass que ela já tem em
+-- qualquer outra permissão do sistema.
+create table if not exists empresas (
+  id text primary key,
+  nome text not null,
+  nome_fantasia text default '',
+  cnpj text default '',
+  endereco text default '',
+  telefone text default '',
+  email text default '',
+  cnae text default '',
+  inscricao_municipal text default '',
+  inscricao_estadual text default '',
+  logo_url text default '',
+  -- empresa exibida na tela de login antes de autenticar (marca do próprio
+  -- sistema) — só uma pode ser a padrão; a app garante isso ao salvar
+  padrao boolean not null default false,
+  criado_em timestamptz default now()
+);
+alter table empresas enable row level security;
+
+create table if not exists conta_empresas (
+  id text primary key,
+  conta_id text not null references contas(id) on delete cascade,
+  empresa_id text not null references empresas(id) on delete cascade
+);
+alter table conta_empresas enable row level security;
+alter table conta_empresas drop constraint if exists conta_empresas_unico;
+alter table conta_empresas add constraint conta_empresas_unico unique (conta_id, empresa_id);
+
+alter table clientes add column if not exists empresa_id text references empresas(id);
+alter table atendimentos add column if not exists empresa_id text references empresas(id);
+alter table valores add column if not exists empresa_id text references empresas(id);
+create index if not exists idx_clientes_empresa on clientes (empresa_id);
+create index if not exists idx_atendimentos_empresa on atendimentos (empresa_id);
+create index if not exists idx_valores_empresa on valores (empresa_id);
+
+-- dados reais da T&A (a primeira empresa do sistema) — nome_fantasia fica
+-- em branco porque o CNPJ foi informado no lugar dela; ajuste pela tela de
+-- Cadastros → Empresas se quiser preencher com o nome fantasia de verdade
+insert into empresas (id, nome, nome_fantasia, cnpj, endereco, telefone, email, cnae, inscricao_municipal, inscricao_estadual, padrao)
+values ('emp-ta', 'T & A TECNOLOGIA LTDA', '', '42.998.481/0001-16', 'TV MARROCOS, 309, CASA 2, LAGOA REDONDA', '85 97175328', 'teaconsultoriati@gmail.com', '080201', '6668755', '', true)
+on conflict (id) do nothing;
+
+-- tudo que já existia (banco novo ou já em produção) fica na T&A —
+-- idempotente: só toca quem ainda não tinha empresa nenhuma
+update clientes set empresa_id = 'emp-ta' where empresa_id is null;
+update atendimentos set empresa_id = 'emp-ta' where empresa_id is null;
+update valores set empresa_id = 'emp-ta' where empresa_id is null;
+
+-- todo ADMIN/ATENDENTE que já existia fica vinculado à T&A por padrão —
+-- pela tela de Cadastros → Atendentes dá pra vincular a outras empresas
+-- (ou tirar essa) depois que existir mais de uma
+insert into conta_empresas (id, conta_id, empresa_id)
+select 'ce-' || contas.id, contas.id, 'emp-ta' from contas
+where contas.perfil in ('ADMIN', 'ATENDENTE')
+on conflict (conta_id, empresa_id) do nothing;
