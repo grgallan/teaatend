@@ -39,6 +39,7 @@ let editandoPerfilAcessoId = null;
 const MENUS_PERFIL_ACESSO = [
   { chave:'atendimentos', label:'Atendimentos' },
   { chave:'resumo', label:'Resumo' },
+  { chave:'dashboard', label:'Dashboard' },
   { chave:'cronograma', label:'Cronograma' },
   { chave:'construtor_relatorios', label:'Construtor de Relatórios' },
   { chave:'relatorios', label:'Relatórios' },
@@ -773,6 +774,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('lista', menuVisivel(conta, 'atendimentos', true));
   aplicarVisibilidadeMenu('novo', menuVisivel(conta, 'atendimentos', true) && (permissaoMenu(conta,'atendimentos')?.inserir ?? true));
   aplicarVisibilidadeMenu('resumo', menuVisivel(conta, 'resumo', podeVerResumo));
+  aplicarVisibilidadeMenu('dashboard', menuVisivel(conta, 'dashboard', podeVerResumo));
   aplicarVisibilidadeMenu('gantt', menuVisivel(conta, 'cronograma', true));
   aplicarVisibilidadeMenu('relatorio', menuVisivel(conta, 'construtor_relatorios', isAdmin));
   aplicarVisibilidadeMenu('relatoriospub', menuVisivel(conta, 'relatorios', true));
@@ -1675,6 +1677,472 @@ function renderResumo(){
     return `<tr><td><span class="tag status-${statusSlug(k)}">${k}</span></td><td>${v}</td><td>${pct}%</td></tr>`;
   }).join('');
   document.getElementById('resumoStatus').innerHTML = `<tr><th>Status</th><th>Qtd.</th><th>%</th></tr>${linhasStatus}`;
+}
+
+/* ================= DASHBOARD ================= */
+let dashFiltroCliente = new Set();
+let dashFiltroAtendente = new Set();
+let dashFiltroStatus = new Set();
+let dashAba = 'geral';
+let dashSujo = { geral:true, operacional:true, comparativo:true };
+// "concluído" (não fica mais na fila de abertos) — mesmos status que já
+// tiram o card do fluxo normal no resto do app
+const DASH_STATUS_TERMINAIS = new Set(['VALIDADO','CANCELADO','NAO-VALIDADO']);
+function dashEhTerminal(status){ return DASH_STATUS_TERMINAIS.has(statusSlug(status)); }
+// dias corridos desde a Data do atendimento — só faz sentido pra quem
+// ainda está em aberto (não tem "data de conclusão" separada no sistema)
+function dashDiasEmAberto(r){
+  if(!r.data) return 0;
+  const ini = new Date(r.data+'T00:00:00'), hoje = new Date(hojeLocalISO()+'T00:00:00');
+  return Math.max(0, Math.round((hoje-ini)/86400000));
+}
+// mesma regra do flagPrazo() (só conta atraso enquanto ainda está aberto)
+function dashEstaAtrasado(r){
+  return !dashEhTerminal(r.status) && !!r.dataPrevista && hojeLocalISO() > r.dataPrevista;
+}
+
+function calcularItensDashboard(){
+  const conta = contaAtual();
+  let de = document.getElementById('dash_de').value;
+  let ate = document.getElementById('dash_ate').value;
+  if(!de || !ate){
+    // padrão: últimos 3 meses (inclui o atual) — o gráfico de tendência
+    // por mês não diz muita coisa com um mês só
+    const hoje = new Date();
+    const primeiro = new Date(hoje.getFullYear(), hoje.getMonth()-2, 1);
+    const ultimo = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0);
+    de = primeiro.toISOString().slice(0,10);
+    ate = ultimo.toISOString().slice(0,10);
+    document.getElementById('dash_de').value = de;
+    document.getElementById('dash_ate').value = ate;
+  }
+  let itens = atendimentos.filter(r=>r.data && r.data>=de && r.data<=ate);
+  // ADMIN e USUARIO já vêm pré-filtrados do backend; ATENDENTE recebe tudo
+  // e precisa se restringir aos próprios atendimentos, igual ao Resumo
+  if(conta && conta.perfil === 'ATENDENTE'){
+    itens = itens.filter(r=>r.atendente === conta.nome || r.atendente2 === conta.nome);
+  }
+  if(dashFiltroCliente.size > 0) itens = itens.filter(r=>dashFiltroCliente.has(r.cliente));
+  if(dashFiltroAtendente.size > 0) itens = itens.filter(r=>dashFiltroAtendente.has(r.atendente) || dashFiltroAtendente.has(r.atendente2));
+  if(dashFiltroStatus.size > 0) itens = itens.filter(r=>dashFiltroStatus.has(r.status));
+  return { itens, de, ate };
+}
+
+function renderFiltrosDashboard(){
+  const conta = contaAtual();
+  const isAtendente = conta && conta.perfil === 'ATENDENTE';
+
+  document.getElementById('dashFiltroCliente').innerHTML = `<div class="chip ${dashFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    clientes.map(c=>`<div class="chip ${dashFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
+
+  const cardAt = document.getElementById('dashCardFiltroAtendente');
+  cardAt.style.display = isAtendente ? 'none' : '';
+  if(!isAtendente){
+    const nomesAtendentes = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome);
+    document.getElementById('dashFiltroAtendente').innerHTML = `<div class="chip ${dashFiltroAtendente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+      nomesAtendentes.map(n=>`<div class="chip ${dashFiltroAtendente.has(n)?'on':''}" data-valor="${n}">${n}</div>`).join('');
+  }
+
+  document.getElementById('dashFiltroStatus').innerHTML = `<div class="chip ${dashFiltroStatus.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    statusList.map(s=>`<div class="chip ${dashFiltroStatus.has(s.nome)?'on':''}" data-valor="${s.nome}">${s.nome}</div>`).join('');
+}
+
+function goDashSub(sub){
+  dashAba = sub;
+  document.querySelectorAll('#dashSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.dashsub===sub));
+  document.querySelectorAll('.dash-view').forEach(v=>v.classList.toggle('active', v.id==='dash-'+sub));
+  // desenha só a aba visível (e só quando precisa) — os gráficos usam a
+  // largura real do card, e um card escondido (display:none) mede 0
+  if(sub==='geral' && dashSujo.geral){ renderDashboardGeral(); dashSujo.geral = false; }
+  if(sub==='operacional' && dashSujo.operacional){ renderDashboardOperacional(); dashSujo.operacional = false; }
+  if(sub==='comparativo' && dashSujo.comparativo){ renderDashboardComparativo(); dashSujo.comparativo = false; }
+}
+
+function renderDashboard(){
+  renderFiltrosDashboard();
+  dashSujo = { geral:true, operacional:true, comparativo:true };
+  goDashSub(dashAba);
+}
+
+/* ---------- gráficos (SVG simples, sem biblioteca) ---------- */
+function dashCss(nome){ return getComputedStyle(document.body).getPropertyValue(nome).trim(); }
+function dashSvgEl(tag, attrs){
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for(const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+function dashFmtValor(v, unit){
+  if(unit==='R$') return fmtMoeda(v);
+  if(unit==='h') return v.toFixed(1).replace('.',',')+'h';
+  return String(v);
+}
+function dashTooltipEl(){
+  let tt = document.getElementById('dashTooltip');
+  if(!tt){ tt = document.createElement('div'); tt.id = 'dashTooltip'; tt.className = 'dash-tooltip'; document.body.appendChild(tt); }
+  return tt;
+}
+function dashShowTip(evt, html){
+  const tt = dashTooltipEl();
+  tt.innerHTML = html; tt.style.left = evt.clientX+'px'; tt.style.top = (evt.clientY-10)+'px';
+  tt.classList.add('show');
+}
+function dashMoveTip(evt){ const tt = dashTooltipEl(); tt.style.left = evt.clientX+'px'; tt.style.top = (evt.clientY-10)+'px'; }
+function dashHideTip(){ dashTooltipEl().classList.remove('show'); }
+function dashLegendHtml(items){
+  return items.map(i=>`<span><span class="sw" style="background:${i.cor}"></span>${escaparHtml(i.label)}</span>`).join('');
+}
+
+function dashBarChart(container, {data, height=180, horizontal=false, rotateLabels=false, unit=''}){
+  container.innerHTML = '';
+  if(!data.length || !data.some(d=>d.value>0)){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const w = container.clientWidth || 300;
+  if(horizontal){
+    const rowH=26, padL=Math.min(150, Math.max(80, w*0.34)), padR=44;
+    const max = Math.max(...data.map(d=>d.value)) || 1;
+    const svg = dashSvgEl('svg', {width:w, height:data.length*rowH+6, viewBox:`0 0 ${w} ${data.length*rowH+6}`});
+    data.forEach((d,i)=>{
+      const y=i*rowH+4, barW=(d.value/max)*(w-padL-padR);
+      const lbl = dashSvgEl('text', {x:0, y:y+13, style:`font-size:10.5px;fill:${dashCss('--muted')}`}); lbl.textContent = d.label; svg.appendChild(lbl);
+      svg.appendChild(dashSvgEl('rect', {x:padL, y, width:w-padL-padR, height:14, rx:5, fill:dashCss('--panel-2')}));
+      const bar = dashSvgEl('rect', {x:padL, y, width:Math.max(barW,3), height:14, rx:5, fill:dashCss(d.tok||'--blue')});
+      bar.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${dashFmtValor(d.value,unit)}</b> · ${d.label}`));
+      bar.addEventListener('mousemove', dashMoveTip); bar.addEventListener('mouseleave', dashHideTip);
+      svg.appendChild(bar);
+      const val = dashSvgEl('text', {x:padL+barW+6, y:y+11, style:`font-size:10.5px;fill:${dashCss('--muted')}`}); val.textContent = dashFmtValor(d.value,unit); svg.appendChild(val);
+    });
+    container.appendChild(svg);
+    return;
+  }
+  const padL=8, padB=rotateLabels?38:20, padT=8;
+  const innerW=w-padL-8, innerH=height-padT-padB;
+  const max = (Math.max(...data.map(d=>d.value)) || 1) * 1.15;
+  const gap = innerW/data.length, bw = Math.min(gap*0.56, 46);
+  const svg = dashSvgEl('svg', {width:w, height, viewBox:`0 0 ${w} ${height}`});
+  for(let i=0;i<=3;i++){ const y=padT+innerH-i/3*innerH; svg.appendChild(dashSvgEl('line',{x1:padL,x2:w,y1:y,y2:y,stroke:dashCss('--line'),'stroke-width':1})); }
+  data.forEach((d,i)=>{
+    const x=padL+gap*i+(gap-bw)/2, h=(d.value/max)*innerH, y=padT+innerH-h;
+    const bar = dashSvgEl('rect', {x, y, width:bw, height:Math.max(h,0), rx:4, fill:dashCss(d.tok||'--blue')});
+    bar.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${dashFmtValor(d.value,unit)}</b> · ${d.label}`));
+    bar.addEventListener('mousemove', dashMoveTip); bar.addEventListener('mouseleave', dashHideTip);
+    svg.appendChild(bar);
+    const t = dashSvgEl('text', {x:x+bw/2, y:height-(rotateLabels?24:6), 'text-anchor':rotateLabels?'end':'middle', style:`font-size:10.5px;fill:${dashCss('--muted')}`, transform: rotateLabels?`rotate(-28 ${x+bw/2} ${height-24})`:''});
+    t.textContent = d.label; svg.appendChild(t);
+  });
+  container.appendChild(svg);
+}
+
+function dashStackedBar(container, {labels, series, height=180}){
+  container.innerHTML = '';
+  if(!labels.length){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const w = container.clientWidth || 300, padL=8, padB=20, padT=8;
+  const innerW=w-padL-8, innerH=height-padT-padB;
+  const totals = labels.map((_,i)=>series.reduce((s,ser)=>s+ser.data[i],0));
+  const max = (Math.max(...totals) || 1) * 1.15;
+  const gap = innerW/labels.length, bw = Math.min(gap*0.56, 46);
+  const svg = dashSvgEl('svg', {width:w, height, viewBox:`0 0 ${w} ${height}`});
+  for(let i=0;i<=3;i++){ const y=padT+innerH-i/3*innerH; svg.appendChild(dashSvgEl('line',{x1:padL,x2:w,y1:y,y2:y,stroke:dashCss('--line'),'stroke-width':1})); }
+  labels.forEach((l,i)=>{
+    let acc=0; const x=padL+gap*i+(gap-bw)/2;
+    series.forEach(ser=>{
+      const v=ser.data[i], h=(v/max)*innerH;
+      const yTop = padT+innerH-(acc+v)*(innerH/max);
+      const rect = dashSvgEl('rect', {x, y:yTop, width:bw, height:Math.max(h,0), fill:dashCss(ser.tok)});
+      rect.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${fmtMoeda(v)}</b> · ${ser.label}<br>${l}`));
+      rect.addEventListener('mousemove', dashMoveTip); rect.addEventListener('mouseleave', dashHideTip);
+      svg.appendChild(rect);
+      acc += v;
+    });
+    const t = dashSvgEl('text', {x:x+bw/2, y:height-6, 'text-anchor':'middle', style:`font-size:10.5px;fill:${dashCss('--muted')}`}); t.textContent = l; svg.appendChild(t);
+  });
+  container.appendChild(svg);
+}
+
+function dashDonut(container, data, {size=140, thickness=18}={}){
+  container.innerHTML = '';
+  const total = data.reduce((s,d)=>s+d.value,0);
+  if(total===0){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const r=size/2, ir=r-thickness, cx=r, cy=r;
+  const svg = dashSvgEl('svg', {width:size, height:size, viewBox:`0 0 ${size} ${size}`});
+  let ang = -Math.PI/2;
+  data.forEach(d=>{
+    const frac=d.value/total, a1=ang, a2=ang+frac*Math.PI*2;
+    ang = a2;
+    const large = a2-a1>Math.PI ? 1 : 0;
+    const x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1), x2=cx+r*Math.cos(a2), y2=cy+r*Math.sin(a2);
+    const xi1=cx+ir*Math.cos(a2), yi1=cy+ir*Math.sin(a2), xi2=cx+ir*Math.cos(a1), yi2=cy+ir*Math.sin(a1);
+    const dd = `M${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} L${xi1},${yi1} A${ir},${ir} 0 ${large} 0 ${xi2},${yi2} Z`;
+    const path = dashSvgEl('path', {d:dd, fill:d.cor, stroke:dashCss('--panel'), 'stroke-width':2});
+    path.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${d.value}</b> · ${d.label} (${Math.round(frac*100)}%)`));
+    path.addEventListener('mousemove', dashMoveTip); path.addEventListener('mouseleave', dashHideTip);
+    svg.appendChild(path);
+  });
+  const t1 = dashSvgEl('text', {x:cx, y:cy-2, 'text-anchor':'middle', style:`font-weight:800;font-size:18px;fill:${dashCss('--text')}`}); t1.textContent = total;
+  const t2 = dashSvgEl('text', {x:cx, y:cy+15, 'text-anchor':'middle', style:`font-size:10px;fill:${dashCss('--muted')}`}); t2.textContent = 'total';
+  svg.appendChild(t1); svg.appendChild(t2);
+  container.appendChild(svg);
+}
+
+function dashRanking(container, data){
+  container.innerHTML = '';
+  if(!data.length){ container.innerHTML = '<div class="dash-empty">Sem atendentes com movimento no período.</div>'; return; }
+  const max = Math.max(...data.map(d=>d.valor)) || 1;
+  data.forEach(d=>{
+    const row = document.createElement('div'); row.className = 'dash-rank-row';
+    row.innerHTML = `<div class="name">${escaparHtml(d.label)}</div><div class="track"><div class="fill" style="width:${(d.valor/max*100).toFixed(1)}%"></div></div><div class="val">${fmtMoeda(d.valor)} · ${d.concluidos}✓</div>`;
+    container.appendChild(row);
+  });
+}
+
+function dashLineChart(container, {labels, series, height=180}){
+  container.innerHTML = '';
+  if(!labels.length){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const w = container.clientWidth || 300, padL=22, padB=20, padT=8, padR=22;
+  const innerW=w-padL-padR, innerH=height-padT-padB;
+  const allVals = series.flatMap(s=>s.data);
+  const max = (Math.max(...allVals, 0)) * 1.15 || 1;
+  const svg = dashSvgEl('svg', {width:w, height, viewBox:`0 0 ${w} ${height}`});
+  for(let i=0;i<=3;i++){ const y=padT+innerH-i/3*innerH; svg.appendChild(dashSvgEl('line',{x1:padL,x2:w-padR,y1:y,y2:y,stroke:dashCss('--line'),'stroke-width':1})); }
+  const xs = labels.length>1 ? labels.map((_,i)=>padL+i/(labels.length-1)*innerW) : [padL+innerW/2];
+  labels.forEach((l,i)=>{ const t=dashSvgEl('text',{x:xs[i],y:height-4,'text-anchor':'middle',style:`font-size:10px;fill:${dashCss('--muted')}`}); t.textContent=l; svg.appendChild(t); });
+  const dots = [];
+  series.forEach(s=>{
+    const ys = s.data.map(v=>padT+innerH-(v/max)*innerH);
+    if(labels.length>1){
+      const d = xs.map((x,i)=>(i?'L':'M')+x.toFixed(1)+','+ys[i].toFixed(1)).join(' ');
+      svg.appendChild(dashSvgEl('path', {d, fill:'none', stroke:dashCss(s.tok), 'stroke-width':2, 'stroke-linecap':'round', 'stroke-linejoin':'round'}));
+    }
+    xs.forEach((x,i)=>dots.push({x, y:ys[i], v:s.data[i], label:s.label, tok:s.tok, mes:labels[i]}));
+  });
+  dots.forEach(pt=>{
+    svg.appendChild(dashSvgEl('circle', {cx:pt.x, cy:pt.y, r:2.8, fill:dashCss(pt.tok)}));
+    const c = dashSvgEl('circle', {cx:pt.x, cy:pt.y, r:9, fill:'transparent'});
+    c.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${pt.v}</b> · ${pt.label}<br>${pt.mes}`));
+    c.addEventListener('mousemove', dashMoveTip); c.addEventListener('mouseleave', dashHideTip);
+    svg.appendChild(c);
+  });
+  container.appendChild(svg);
+}
+
+function dashMatrixHeatmap(container, rows, cols, m){
+  container.innerHTML = '';
+  if(!rows.length || !cols.length){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const cell=40, gap=3, padL=Math.min(120, Math.max(70, Math.max(...rows.map(r=>r.length))*6+24)), padT=50;
+  const padRLabel = Math.max(...cols.map(c=>c.length))*5; // espaço extra pro rótulo rotacionado da última coluna não cortar
+  const w = padL+cols.length*(cell+gap)+padRLabel, h = padT+rows.length*(cell+gap);
+  const svg = dashSvgEl('svg', {width:w, height:h, viewBox:`0 0 ${w} ${h}`});
+  const max = Math.max(...m.flat(), 1);
+  cols.forEach((c,j)=>{
+    const x=padL+j*(cell+gap)+cell/2, y=padT-8;
+    const t = dashSvgEl('text', {x, y, 'text-anchor':'start', style:`font-size:10.5px;fill:${dashCss('--muted')}`, transform:`rotate(-32 ${x} ${y})`}); t.textContent=c; svg.appendChild(t);
+  });
+  rows.forEach((rLabel,i)=>{
+    const t = dashSvgEl('text', {x:0, y:padT+i*(cell+gap)+cell/2+4, style:`font-size:10.5px;fill:${dashCss('--muted')}`}); t.textContent=rLabel; svg.appendChild(t);
+    cols.forEach((c,j)=>{
+      const v=m[i][j], x=padL+j*(cell+gap), y=padT+i*(cell+gap);
+      const frac=v/max;
+      const rect = dashSvgEl('rect', {x, y, width:cell, height:cell, rx:6, fill:`color-mix(in srgb, ${dashCss('--blue')} ${Math.round(10+frac*85)}%, ${dashCss('--panel-2')})`});
+      rect.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${v}</b> atendimentos<br>${rLabel} · ${c}`));
+      rect.addEventListener('mousemove', dashMoveTip); rect.addEventListener('mouseleave', dashHideTip);
+      svg.appendChild(rect);
+      const lbl = dashSvgEl('text', {x:x+cell/2, y:y+cell/2+4, 'text-anchor':'middle', style:`font-size:11px;font-weight:700;fill:${frac>.55?dashCss('--panel'):dashCss('--text')}`}); lbl.textContent=v;
+      svg.appendChild(lbl);
+    });
+  });
+  container.appendChild(svg);
+}
+
+/* ---------- aba Visão Geral ---------- */
+function renderDashboardGeral(){
+  const { itens } = calcularItensDashboard();
+  const conta = contaAtual();
+  const isAdmin = ehAdminEfetivo(conta);
+  const isAtendente = conta && conta.perfil === 'ATENDENTE';
+  const verValoresReal = isAdmin || (conta && conta.perfil === 'USUARIO' && conta.adminCliente);
+  const verValorAtendente = isAdmin || isAtendente;
+
+  const validados = itens.filter(r=>statusSlug(r.status)==='VALIDADO').length;
+  const abertos = itens.filter(r=>!dashEhTerminal(r.status)).length;
+  const boxesExtra = [
+    verValoresReal ? `<div class="box"><div class="k">Faturado (Total Real)</div><div class="v" style="color:var(--accent)">${fmtMoeda(itens.reduce((s,r)=>s+(Number(r.totalReal)||0),0))}</div></div>` : '',
+    verValorAtendente ? `<div class="box"><div class="k">Total Atendente</div><div class="v"${verValoresReal?'':' style="color:var(--accent)"'}>${fmtMoeda(itens.reduce((s,r)=>s+(Number(r.totalAnanda)||0)+(Number(r.totalAnanda2)||0),0))}</div></div>` : '',
+  ].join('');
+  document.getElementById('dashBoxesGeral').innerHTML = `
+    <div class="box"><div class="k">Atendimentos no período</div><div class="v">${itens.length}</div></div>
+    <div class="box"><div class="k">Validados</div><div class="v">${validados}${itens.length ? ' · '+Math.round(validados/itens.length*100)+'%' : ''}</div></div>
+    <div class="box"><div class="k">Em aberto</div><div class="v">${abertos}</div></div>
+    ${boxesExtra}`;
+
+  const meses = [...new Set(itens.map(r=>r.mes))].sort((a,b)=>{
+    const [ma,ya]=a.split('/'); const [mb,yb]=b.split('/');
+    return (ya+ma).localeCompare(yb+mb);
+  });
+  dashLineChart(document.getElementById('dashGraficoMeses'), {
+    labels: meses,
+    series: [
+      { label:'Total', tok:'--blue', data: meses.map(m=>itens.filter(r=>r.mes===m).length) },
+      { label:'Validados', tok:'--ok', data: meses.map(m=>itens.filter(r=>r.mes===m && statusSlug(r.status)==='VALIDADO').length) },
+    ],
+  });
+  document.getElementById('dashLegendaMeses').innerHTML = dashLegendHtml([{label:'Total',cor:'var(--blue)'},{label:'Validados',cor:'var(--ok)'}]);
+
+  const statusCount = {};
+  statusList.forEach(s=>statusCount[s.nome]=0);
+  itens.forEach(r=>{ statusCount[r.status] = (statusCount[r.status]||0)+1; });
+  const statusData = Object.entries(statusCount).filter(([,v])=>v>0).map(([label,value])=>({label, value, cor:corStatusDot(label)}));
+  dashDonut(document.getElementById('dashDonutStatus'), statusData);
+  document.getElementById('dashLegendaStatus').innerHTML = dashLegendHtml(statusData);
+
+  const porCliente = {};
+  itens.forEach(r=>{ porCliente[r.cliente] = (porCliente[r.cliente]||0)+1; });
+  const listaClientes = Object.entries(porCliente).sort((a,b)=>b[1]-a[1]);
+  const coresClientes = ['--blue','--ok','--purple','--bad','--yellow'];
+  const topClientes = listaClientes.slice(0,5).map(([label,value],i)=>({label, value, tok:coresClientes[i%coresClientes.length]}));
+  const outrosClientes = listaClientes.slice(5).reduce((s,[,v])=>s+v,0);
+  if(outrosClientes>0) topClientes.push({label:'Outros clientes', value:outrosClientes, tok:'--yellow'});
+  dashBarChart(document.getElementById('dashTopClientes'), {data:topClientes, horizontal:true});
+
+  const cardRank = document.getElementById('dashCardRankingAtendentes');
+  if(verValorAtendente){
+    cardRank.style.display = '';
+    const nomesAtendentes = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome);
+    const ranking = nomesAtendentes.map(nome=>{
+      const seus = itens.filter(r=>r.atendente===nome || r.atendente2===nome);
+      return {
+        label: nome,
+        valor: seus.reduce((s,r)=>s+ganhoAtendente(r,nome).valor,0),
+        concluidos: seus.filter(r=>statusSlug(r.status)==='VALIDADO').length,
+      };
+    }).filter(d=>d.valor>0 || d.concluidos>0).sort((a,b)=>b.valor-a.valor);
+    dashRanking(document.getElementById('dashRankingAtendentes'), ranking);
+  }else{
+    cardRank.style.display = 'none';
+  }
+}
+
+/* ---------- aba Operacional ---------- */
+function renderDashboardOperacional(){
+  const { itens } = calcularItensDashboard();
+  const conta = contaAtual();
+  const isAdmin = ehAdminEfetivo(conta);
+  const isAtendente = conta && conta.perfil === 'ATENDENTE';
+  const verValoresReal = isAdmin || (conta && conta.perfil === 'USUARIO' && conta.adminCliente);
+  const verValorAtendente = isAdmin || isAtendente;
+
+  const abertosItens = itens.filter(r=>!dashEhTerminal(r.status));
+  const atrasadosItens = abertosItens.filter(dashEstaAtrasado);
+
+  let boxesValor = '';
+  if(verValoresReal){
+    boxesValor = `
+      <div class="box"><div class="k">Valor em aberto</div><div class="v" style="color:var(--accent)">${fmtMoeda(abertosItens.reduce((s,r)=>s+(Number(r.totalReal)||0),0))}</div></div>
+      <div class="box"><div class="k">Valor atrasado</div><div class="v" style="color:var(--bad)">${fmtMoeda(atrasadosItens.reduce((s,r)=>s+(Number(r.totalReal)||0),0))}</div></div>`;
+  }else if(verValorAtendente){
+    boxesValor = `
+      <div class="box"><div class="k">Valor Atendente em aberto</div><div class="v" style="color:var(--accent)">${fmtMoeda(abertosItens.reduce((s,r)=>s+(Number(r.totalAnanda)||0)+(Number(r.totalAnanda2)||0),0))}</div></div>
+      <div class="box"><div class="k">Valor Atendente atrasado</div><div class="v" style="color:var(--bad)">${fmtMoeda(atrasadosItens.reduce((s,r)=>s+(Number(r.totalAnanda)||0)+(Number(r.totalAnanda2)||0),0))}</div></div>`;
+  }
+  document.getElementById('dashBoxesOperacional').innerHTML = `
+    <div class="box"><div class="k">Em aberto</div><div class="v">${abertosItens.length}</div></div>
+    <div class="box"><div class="k">Atrasados</div><div class="v"${atrasadosItens.length?' style="color:var(--bad)"':''}>${atrasadosItens.length}</div></div>
+    ${boxesValor}`;
+
+  const buckets = [
+    { label:'0–2 dias', min:0, max:2, tok:'--ok' },
+    { label:'3–5 dias', min:3, max:5, tok:'--warn' },
+    { label:'6–10 dias', min:6, max:10, tok:'--yellow' },
+    { label:'+10 dias', min:11, max:Infinity, tok:'--bad' },
+  ].map(b=>({ label:b.label, tok:b.tok, value: abertosItens.filter(r=>{ const d=dashDiasEmAberto(r); return d>=b.min && d<=b.max; }).length }));
+  dashBarChart(document.getElementById('dashAging'), {data:buckets});
+
+  const DIAS_SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const porDia = new Array(7).fill(0);
+  itens.forEach(r=>{ if(r.data) porDia[new Date(r.data+'T00:00:00').getDay()]++; });
+  dashBarChart(document.getElementById('dashDiaSemana'), {data: DIAS_SEMANA.map((label,i)=>({label, value:porDia[i], tok:'--blue'}))});
+
+  const pendentesOrdenados = abertosItens.slice().sort((a,b)=>dashDiasEmAberto(b)-dashDiasEmAberto(a)).slice(0,8);
+  const mostrarValor = verValoresReal || verValorAtendente;
+  const colValor = r=>{
+    if(verValoresReal) return `<td>${fmtMoeda(Number(r.totalReal)||0)}</td>`;
+    if(verValorAtendente) return `<td>${fmtMoeda((Number(r.totalAnanda)||0)+(Number(r.totalAnanda2)||0))}</td>`;
+    return '';
+  };
+  const linhas = pendentesOrdenados.map(r=>{
+    const dias = dashDiasEmAberto(r);
+    const tagCor = dias>10 ? '--bad' : dias>5 ? '--warn' : '--ok';
+    return `<tr><td>${escaparHtml(r.cliente)}</td><td>${escaparHtml(labelTipo(r.tipo))}</td><td>${escaparHtml(r.atendente||'—')}</td><td><span class="tag" style="background:var(${tagCor});color:#fff;">${dias}d</span></td>${colValor(r)}</tr>`;
+  }).join('');
+  document.getElementById('dashTabelaPendentes').innerHTML = pendentesOrdenados.length
+    ? `<tr><th>Cliente</th><th>Tipo</th><th>Atendente</th><th>Dias</th>${mostrarValor?'<th>Valor</th>':''}</tr>${linhas}`
+    : `<tr><td class="dash-empty">Nenhum atendimento em aberto no período.</td></tr>`;
+}
+
+/* ---------- aba Comparativo ---------- */
+function renderDashboardComparativo(){
+  const { itens } = calcularItensDashboard();
+  const conta = contaAtual();
+  const isAdmin = ehAdminEfetivo(conta);
+  const isAtendente = conta && conta.perfil === 'ATENDENTE';
+  const verValoresReal = isAdmin || (conta && conta.perfil === 'USUARIO' && conta.adminCliente);
+  const verValorAtendente = isAdmin || isAtendente;
+  const unidadeTipo = (verValoresReal || verValorAtendente) ? 'R$' : '';
+
+  const porTipo = {};
+  itens.forEach(r=>{
+    if(!(r.tipo in porTipo)) porTipo[r.tipo] = 0;
+    if(verValoresReal) porTipo[r.tipo] += Number(r.totalReal)||0;
+    else if(verValorAtendente) porTipo[r.tipo] += (Number(r.totalAnanda)||0)+(Number(r.totalAnanda2)||0);
+    else porTipo[r.tipo] += 1;
+  });
+  document.getElementById('dashTituloPorTipo').textContent = verValoresReal ? 'Faturado por tipo de atendimento' : verValorAtendente ? 'Valor Atendente por tipo de atendimento' : 'Atendimentos por tipo';
+  const coresTipo = ['--purple','--blue','--ok','--yellow','--bad'];
+  const dadosTipo = Object.entries(porTipo).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1])
+    .map(([label,value],i)=>({label:labelTipo(label), value, tok:coresTipo[i%coresTipo.length]}));
+  dashBarChart(document.getElementById('dashPorTipo'), {data:dadosTipo, rotateLabels:true, height:200, unit:unidadeTipo});
+
+  const cardHoras = document.getElementById('dashCardHorasAtendente');
+  if(verValorAtendente){
+    cardHoras.style.display = '';
+    const nomesAtendentes = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome);
+    const horasData = nomesAtendentes.map(nome=>({
+      label: nome,
+      value: itens.reduce((s,r)=>s+ganhoAtendente(r,nome).horas,0),
+      tok: '--blue',
+    })).filter(d=>d.value>0).sort((a,b)=>a.value-b.value);
+    dashBarChart(document.getElementById('dashHorasAtendente'), {data:horasData, unit:'h', rotateLabels:true, height:200});
+  }else{
+    cardHoras.style.display = 'none';
+  }
+
+  const clientesUsados = [...new Set(itens.map(r=>r.cliente))];
+  const tiposUsados = [...new Set(itens.map(r=>r.tipo))];
+  const topClientesMatriz = clientesUsados
+    .map(c=>({c, n:itens.filter(r=>r.cliente===c).length}))
+    .sort((a,b)=>b.n-a.n).slice(0,8).map(x=>x.c);
+  const matriz = topClientesMatriz.map(c=>tiposUsados.map(t=>itens.filter(r=>r.cliente===c && r.tipo===t).length));
+  dashMatrixHeatmap(document.getElementById('dashMatrizClienteTipo'), topClientesMatriz, tiposUsados.map(labelTipo), matriz);
+
+  const cardFat = document.getElementById('dashCardFaturadoCliente');
+  if(verValoresReal){
+    cardFat.style.display = '';
+    const meses = [...new Set(itens.map(r=>r.mes))].sort((a,b)=>{
+      const [ma,ya]=a.split('/'); const [mb,yb]=b.split('/');
+      return (ya+ma).localeCompare(yb+mb);
+    });
+    const totalPorCliente = {};
+    itens.forEach(r=>{ totalPorCliente[r.cliente] = (totalPorCliente[r.cliente]||0)+(Number(r.totalReal)||0); });
+    const topN = Object.entries(totalPorCliente).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([c])=>c);
+    const cores = ['--blue','--ok','--purple','--bad'];
+    const series = topN.map((c,i)=>({
+      label: c, tok: cores[i%cores.length],
+      data: meses.map(m=>itens.filter(r=>r.cliente===c && r.mes===m).reduce((s,r)=>s+(Number(r.totalReal)||0),0)),
+    }));
+    const outrosData = meses.map(m=>itens.filter(r=>r.mes===m && !topN.includes(r.cliente)).reduce((s,r)=>s+(Number(r.totalReal)||0),0));
+    if(outrosData.some(v=>v>0)) series.push({label:'Outros', tok:'--yellow', data:outrosData});
+    dashStackedBar(document.getElementById('dashFaturadoCliente'), {labels:meses, series});
+    document.getElementById('dashLegendaFaturado').innerHTML = dashLegendHtml(series.map(s=>({label:s.label, cor:`var(${s.tok})`})));
+  }else{
+    cardFat.style.display = 'none';
+  }
 }
 
 /* ---------- cronograma (Gantt) ---------- */
@@ -5433,6 +5901,7 @@ function goView(name){
   document.querySelectorAll('.navbtn').forEach(t=>t.classList.toggle('active', t.dataset.view===name));
   if(name==='lista') renderLista();
   if(name==='resumo') renderResumo();
+  if(name==='dashboard') renderDashboard();
   if(name==='gantt'){ renderFiltrosGantt(); renderGantt(); }
   if(name==='relatorio'){
     renderRelatorioFiltros(); renderRelatorioColunas(); renderRelatorioPreview();
@@ -5900,6 +6369,28 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('gantt_de').addEventListener('change', renderGantt);
   document.getElementById('gantt_ate').addEventListener('change', renderGantt);
+
+  document.getElementById('dash_de').addEventListener('change', renderDashboard);
+  document.getElementById('dash_ate').addEventListener('change', renderDashboard);
+  document.getElementById('dashFiltroCliente').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(dashFiltroCliente, chip.dataset.valor);
+    renderDashboard();
+  });
+  document.getElementById('dashFiltroAtendente').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(dashFiltroAtendente, chip.dataset.valor);
+    renderDashboard();
+  });
+  document.getElementById('dashFiltroStatus').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(dashFiltroStatus, chip.dataset.valor);
+    renderDashboard();
+  });
+  document.getElementById('dashSubtabs').addEventListener('click', e=>{
+    const t = e.target.closest('.subtab'); if(!t) return;
+    goDashSub(t.dataset.dashsub);
+  });
 
   document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>{
     if(t.dataset.view === 'novo') resetForm(); // clicar em "Novo" sempre começa um formulário limpo — sem isso, editandoId ficava "grudado" no último atendimento editado e o Salvar sobrescrevia ele em vez de criar um novo

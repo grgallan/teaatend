@@ -103,10 +103,10 @@ function contaParaApi(c: any, comSenha = false, perfisAcessoIds: string[] = []) 
   return base;
 }
 
-// menus válidos pra Perfis de Acesso — precisa bater com os 10 itens de
-// menu do app (Atendimentos, Resumo, Cronograma, Construtor de
+// menus válidos pra Perfis de Acesso — precisa bater com os 11 itens de
+// menu do app (Atendimentos, Resumo, Dashboard, Cronograma, Construtor de
 // Relatórios, Relatórios, Financeiro, Agenda, Vídeos, Cadastros, Utilitários)
-const MENUS_PERFIL_ACESSO = ['atendimentos', 'resumo', 'cronograma', 'construtor_relatorios', 'relatorios', 'financeiro', 'agenda', 'videos', 'cadastros', 'utilitarios'];
+const MENUS_PERFIL_ACESSO = ['atendimentos', 'resumo', 'dashboard', 'cronograma', 'construtor_relatorios', 'relatorios', 'financeiro', 'agenda', 'videos', 'cadastros', 'utilitarios'];
 
 function permissaoVaziaPorMenu() {
   const obj: Record<string, any> = {};
