@@ -396,7 +396,8 @@ create table if not exists perfis_acesso (
 alter table perfis_acesso enable row level security;
 
 -- um menu válido por linha: atendimentos, resumo, cronograma,
--- construtor_relatorios, relatorios, financeiro, agenda, videos, cadastros
+-- construtor_relatorios, relatorios, financeiro, agenda, videos, cadastros,
+-- utilitarios
 create table if not exists perfil_acesso_permissoes (
   id text primary key,
   perfil_id text not null references perfis_acesso(id) on delete cascade,
