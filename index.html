@@ -1299,6 +1299,10 @@
         <b>Evento 1200 — Remuneração</b>
         <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Confronta o XML do evento com a planilha de rubricas e gera a conferência por trabalhador</p>
       </div>
+      <div class="item util-clicavel" data-util-ferr="evento1200retorno" style="cursor:pointer;">
+        <b>Evento 1200 — Retorno</b>
+        <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Extrai os campos do XML de retorno (protocolo, recibo, rubricas confirmadas e bases de INSS/FGTS) pro Excel</p>
+      </div>
     </div>
 
     <div class="card" id="utilEvento1200" style="display:none;">
@@ -1315,6 +1319,18 @@
       </div>
       <button type="button" class="primary" id="btnGerarEvento1200">Gerar planilha de conferência</button>
       <div id="util1200_status" style="margin-top:10px;font-size:12.5px;color:var(--muted);white-space:pre-line;"></div>
+    </div>
+
+    <div class="card" id="utilEvento1200Retorno" style="display:none;">
+      <button type="button" class="ghost" id="btnUtilEvento1200RetornoVoltar" style="width:auto;padding:8px 14px;margin-bottom:12px;">← Voltar</button>
+      <h2>Evento 1200 — Retorno</h2>
+      <p style="font-size:12.5px;color:var(--muted);margin-top:0;">Envie um ou mais XMLs de retorno do evento 1200 — o Excel sai com o protocolo/recibo, as rubricas confirmadas e as bases de INSS (S-5001) e FGTS (S-5003), de acordo com o leiaute do eSocial.</p>
+      <div class="field">
+        <label>Arquivo(s) XML de Retorno do Evento 1200</label>
+        <input type="file" id="util1200ret_xmls" accept=".xml" multiple>
+      </div>
+      <button type="button" class="primary" id="btnGerarEvento1200Retorno">Gerar planilha de retorno</button>
+      <div id="util1200ret_status" style="margin-top:10px;font-size:12.5px;color:var(--muted);white-space:pre-line;"></div>
     </div>
   </section>
 </main>

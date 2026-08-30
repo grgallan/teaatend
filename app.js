@@ -2132,6 +2132,9 @@ function resetUtilitarios(){
   document.getElementById('util1200_xmls').value = '';
   document.getElementById('util1200_rubricas').value = '';
   document.getElementById('util1200_status').textContent = '';
+  document.getElementById('utilEvento1200Retorno').style.display = 'none';
+  document.getElementById('util1200ret_xmls').value = '';
+  document.getElementById('util1200ret_status').textContent = '';
 }
 
 function textoTag(el, tag){
@@ -2303,6 +2306,193 @@ async function gerarConferenciaEvento1200(){
     statusEl.textContent = `Pronto! ${detalhe.length} rubrica(s) de ${qtdCpf} trabalhador(es) processadas.` +
       (naoMapeadas > 0 ? `\n⚠ ${naoMapeadas} rubrica(s) sem cadastro na planilha de Rubricas — confira a coluna "Situação" na aba Detalhe.` : '');
     toast('Planilha de conferência gerada!');
+  }catch(err){
+    statusEl.textContent = '';
+    toast(err && err.message ? err.message : 'Não foi possível gerar a planilha.');
+  }
+}
+
+/* ---------- Utilitários › eSocial › Evento 1200 (Retorno) ----------
+   O XML de retorno traz o protocolo/recibo do envio, as rubricas confirmadas
+   (com o número de recibo de cada uma) e, anexados, os totalizadores S-5001
+   (bases de INSS) e S-5003 (bases de FGTS) gerados pelo próprio eSocial */
+function parseEvtBasesTrab(evt, nomeArquivo){
+  const ideEvento = evt.getElementsByTagName('ideEvento')[0];
+  const ideEmpregador = evt.getElementsByTagName('ideEmpregador')[0];
+  const cpfTrab = textoTag(evt.getElementsByTagName('ideTrabalhador')[0], 'cpfTrab');
+  const nrRecArqBase = textoTag(ideEvento, 'nrRecArqBase');
+  const indApuracao = textoTag(ideEvento, 'indApuracao');
+  const perApur = textoTag(ideEvento, 'perApur');
+  const nrInscEmpregador = textoTag(ideEmpregador, 'nrInsc');
+  const infoCpCalc = evt.getElementsByTagName('infoCpCalc')[0];
+  const tpCR = textoTag(infoCpCalc, 'tpCR');
+  const vrCpSeg = textoTag(infoCpCalc, 'vrCpSeg');
+  const vrDescSeg = textoTag(infoCpCalc, 'vrDescSeg');
+
+  const linhas = [];
+  [...evt.getElementsByTagName('infoCp')].forEach(infoCp=>{
+    const classTrib = textoTag(infoCp, 'classTrib');
+    [...infoCp.getElementsByTagName('ideEstabLot')].forEach(estabLot=>{
+      const nrInscEstab = textoTag(estabLot, 'nrInsc');
+      const codLotacao = textoTag(estabLot, 'codLotacao');
+      [...estabLot.getElementsByTagName('infoCategIncid')].forEach(cat=>{
+        const matricula = textoTag(cat, 'matricula');
+        const codCateg = textoTag(cat, 'codCateg');
+        const baseComum = { arquivo: nomeArquivo, nrRecArqBase, indApuracao, perApur, nrInscEmpregador, cpfTrab, tpCR, vrCpSeg, vrDescSeg, classTrib, nrInscEstab, codLotacao, matricula, codCateg };
+        [...cat.getElementsByTagName('infoBaseCS')].forEach(base=>{
+          linhas.push({ ...baseComum, origem: 'infoBaseCS', perRef: perApur,
+            ind13: textoTag(base,'ind13'), tpValor: textoTag(base,'tpValor'), valor: textoTag(base,'valor') });
+        });
+        [...cat.getElementsByTagName('infoPerRef')].forEach(perRefEl=>{
+          const perRef = textoTag(perRefEl, 'perRef');
+          [...perRefEl.getElementsByTagName('detInfoPerRef')].forEach(det=>{
+            linhas.push({ ...baseComum, origem: 'detInfoPerRef', perRef,
+              ind13: textoTag(det,'ind13'), tpValor: textoTag(det,'tpVrPerRef'), valor: textoTag(det,'vrPerRef') });
+          });
+        });
+      });
+    });
+  });
+  return linhas;
+}
+
+function parseEvtBasesFGTS(evt, nomeArquivo){
+  const ideEvento = evt.getElementsByTagName('ideEvento')[0];
+  const ideEmpregador = evt.getElementsByTagName('ideEmpregador')[0];
+  const cpfTrab = textoTag(evt.getElementsByTagName('ideTrabalhador')[0], 'cpfTrab');
+  const nrRecArqBase = textoTag(ideEvento, 'nrRecArqBase');
+  const indApuracao = textoTag(ideEvento, 'indApuracao');
+  const perApur = textoTag(ideEvento, 'perApur');
+  const nrInscEmpregador = textoTag(ideEmpregador, 'nrInsc');
+
+  const linhas = [];
+  [...evt.getElementsByTagName('ideEstab')].forEach(estab=>{
+    const nrInscEstab = textoTag(estab, 'nrInsc');
+    [...estab.getElementsByTagName('ideLotacao')].forEach(lot=>{
+      const codLotacao = textoTag(lot, 'codLotacao');
+      const tpLotacao = textoTag(lot, 'tpLotacao');
+      [...lot.getElementsByTagName('infoTrabFGTS')].forEach(trab=>{
+        const matricula = textoTag(trab, 'matricula');
+        const codCateg = textoTag(trab, 'codCateg');
+        const tpRegTrab = textoTag(trab, 'tpRegTrab');
+        const baseComum = { arquivo: nomeArquivo, nrRecArqBase, indApuracao, perApur, nrInscEmpregador, cpfTrab, nrInscEstab, codLotacao, tpLotacao, matricula, codCateg, tpRegTrab };
+        [...trab.getElementsByTagName('basePerApur')].forEach(base=>{
+          linhas.push({ ...baseComum,
+            tpValor: textoTag(base,'tpValor'), indIncid: textoTag(base,'indIncid'),
+            remFGTS: textoTag(base,'remFGTS'), dpsFGTS: textoTag(base,'dpsFGTS') });
+        });
+      });
+    });
+  });
+  return linhas;
+}
+
+// o XML de retorno repete a tag "retornoEvento" duas vezes (um container sem
+// atributos e, dentro do primeiro <eSocial>, o de verdade com Id) — pegando
+// o primeiro <eSocial> do documento e procurando dentro dele evita ambiguidade
+function parseRetornoEvento1200Xml(xmlText, nomeArquivo){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  if(doc.querySelector('parsererror')) throw new Error(`${nomeArquivo}: XML inválido ou corrompido.`);
+
+  const resultado = { retorno: null, rubricas: [], basesInss: [], basesFgts: [] };
+
+  const esocialRetorno = doc.getElementsByTagName('eSocial')[0];
+  const retornoEvento = esocialRetorno ? esocialRetorno.getElementsByTagName('retornoEvento')[0] : null;
+  if(retornoEvento){
+    const ideEmpregador = retornoEvento.getElementsByTagName('ideEmpregador')[0];
+    const recepcao = retornoEvento.getElementsByTagName('recepcao')[0];
+    const processamento = retornoEvento.getElementsByTagName('processamento')[0];
+    const recibo = retornoEvento.getElementsByTagName('recibo')[0];
+    resultado.retorno = {
+      arquivo: nomeArquivo,
+      nrInscEmpregador: textoTag(ideEmpregador, 'nrInsc'),
+      tpAmb: textoTag(recepcao, 'tpAmb'),
+      dhRecepcao: textoTag(recepcao, 'dhRecepcao'),
+      versaoAppRecepcao: textoTag(recepcao, 'versaoAppRecepcao'),
+      protocoloEnvioLote: textoTag(recepcao, 'protocoloEnvioLote'),
+      cdResposta: textoTag(processamento, 'cdResposta'),
+      descResposta: textoTag(processamento, 'descResposta'),
+      versaoAppProcessamento: textoTag(processamento, 'versaoAppProcessamento'),
+      dhProcessamento: textoTag(processamento, 'dhProcessamento'),
+      nrRecibo: textoTag(recibo, 'nrRecibo'),
+      hash: textoTag(recibo, 'hash'),
+    };
+    if(recibo){
+      [...recibo.getElementsByTagName('rubrica')].forEach(r=>{
+        resultado.rubricas.push({
+          arquivo: nomeArquivo, nrRecibo: resultado.retorno.nrRecibo,
+          ntR: r.getAttribute('ntR')||'', nrR: r.getAttribute('nrR')||'',
+          tpR: r.getAttribute('tpR')||'', prA: r.getAttribute('prA')||'',
+          inFGTS: r.getAttribute('inFGTS')||'', idE: r.getAttribute('idE')||'',
+          cdR: r.getAttribute('cdR')||'', inCP: r.getAttribute('inCP')||'',
+          idT: r.getAttribute('idT')||'',
+        });
+      });
+    }
+  }
+
+  // totalizadores anexados ao retorno (cada <tot> traz um evtBasesTrab/evtBasesFGTS completo)
+  [...doc.getElementsByTagName('tot')].forEach(tot=>{
+    const tipo = tot.getAttribute('tipo') || '';
+    const esoc = tot.getElementsByTagName('eSocial')[0];
+    if(!esoc) return;
+    if(tipo === 'S5001'){
+      const evt = esoc.getElementsByTagName('evtBasesTrab')[0];
+      if(evt) resultado.basesInss = resultado.basesInss.concat(parseEvtBasesTrab(evt, nomeArquivo));
+    } else if(tipo === 'S5003'){
+      const evt = esoc.getElementsByTagName('evtBasesFGTS')[0];
+      if(evt) resultado.basesFgts = resultado.basesFgts.concat(parseEvtBasesFGTS(evt, nomeArquivo));
+    }
+  });
+
+  return resultado;
+}
+
+function montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss, todasBasesFgts){
+  const cabRetorno = ['Arquivo','Insc. Empregador','Ambiente','Data/Hora Recepção','Versão App Recepção','Protocolo Envio Lote','Cód. Resposta','Descrição Resposta','Versão App Processamento','Data/Hora Processamento','Nº Recibo','Hash'];
+  const linhasRetorno = retornos.map(r=>[r.arquivo, r.nrInscEmpregador, r.tpAmb, r.dhRecepcao, r.versaoAppRecepcao, r.protocoloEnvioLote, r.cdResposta, r.descResposta, r.versaoAppProcessamento, r.dhProcessamento, r.nrRecibo, r.hash]);
+
+  const cabRubricas = ['Arquivo','Nº Recibo','Natureza Rubrica (ntR)','Nº Recibo Rubrica (nrR)','Tipo Rubrica (tpR)','Período Apuração (prA)','Incidência FGTS (inFGTS)','ID Evento Origem (idE)','Código Rubrica (cdR)','Incidência CP (inCP)','ID Tabela (idT)'];
+  const linhasRubricas = todasRubricas.map(r=>[r.arquivo, r.nrRecibo, r.ntR, r.nrR, r.tpR, r.prA, r.inFGTS, r.idE, r.cdR, r.inCP, r.idT]);
+
+  const cabInss = ['Arquivo','Nº Recibo Base','Indicador Apuração','Período Apuração','Insc. Empregador','CPF Trabalhador','Tipo Contrib. (tpCR)','Vr. Contrib. Segurado','Vr. Desc. Segurado','Class. Tributária','Insc. Estabelecimento','Cód. Lotação','Matrícula','Categoria','Origem','Período Referência','Indicador 13º','Tipo Valor','Valor'];
+  const linhasInss = todasBasesInss.map(r=>[r.arquivo, r.nrRecArqBase, r.indApuracao, r.perApur, r.nrInscEmpregador, r.cpfTrab, r.tpCR, r.vrCpSeg, r.vrDescSeg, r.classTrib, r.nrInscEstab, r.codLotacao, r.matricula, r.codCateg, r.origem, r.perRef, r.ind13, r.tpValor, Number(r.valor)||0]);
+
+  const cabFgts = ['Arquivo','Nº Recibo Base','Indicador Apuração','Período Apuração','Insc. Empregador','CPF Trabalhador','Insc. Estabelecimento','Cód. Lotação','Tipo Lotação','Matrícula','Categoria','Tipo Regime Trab.','Tipo Valor','Indicador Incidência','Remuneração FGTS','Depósito FGTS'];
+  const linhasFgts = todasBasesFgts.map(r=>[r.arquivo, r.nrRecArqBase, r.indApuracao, r.perApur, r.nrInscEmpregador, r.cpfTrab, r.nrInscEstab, r.codLotacao, r.tpLotacao, r.matricula, r.codCateg, r.tpRegTrab, r.tpValor, r.indIncid, Number(r.remFGTS)||0, Number(r.dpsFGTS)||0]);
+
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabRetorno, ...linhasRetorno]), 'Retorno');
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabRubricas, ...linhasRubricas]), 'Rubricas do Recibo');
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabInss, ...linhasInss]), 'S-5001 Bases INSS');
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabFgts, ...linhasFgts]), 'S-5003 Bases FGTS');
+  XLSX.writeFile(livro, `retorno-evento-1200-${hojeLocalISO()}.xlsx`);
+}
+
+async function gerarRetornoEvento1200(){
+  const inputXmls = document.getElementById('util1200ret_xmls');
+  const statusEl = document.getElementById('util1200ret_status');
+  const arquivos = [...(inputXmls.files||[])];
+  if(arquivos.length === 0){ toast('Selecione ao menos um XML de retorno do evento 1200.'); return; }
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+
+  statusEl.textContent = 'Lendo arquivos…';
+  try{
+    const retornos = [];
+    let todasRubricas = [], todasBasesInss = [], todasBasesFgts = [];
+    for(const arquivo of arquivos){
+      const r = parseRetornoEvento1200Xml(await arquivo.text(), arquivo.name);
+      if(r.retorno) retornos.push(r.retorno);
+      todasRubricas = todasRubricas.concat(r.rubricas);
+      todasBasesInss = todasBasesInss.concat(r.basesInss);
+      todasBasesFgts = todasBasesFgts.concat(r.basesFgts);
+    }
+    if(retornos.length === 0 && todasRubricas.length === 0 && todasBasesInss.length === 0 && todasBasesFgts.length === 0){
+      throw new Error('Nenhum dado reconhecido nesses arquivos — confira se são XMLs de retorno do evento 1200.');
+    }
+    montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss, todasBasesFgts);
+    statusEl.textContent = `Pronto! ${retornos.length} retorno(s), ${todasRubricas.length} rubrica(s), ${todasBasesInss.length} linha(s) de base INSS e ${todasBasesFgts.length} linha(s) de base FGTS.`;
+    toast('Planilha de retorno gerada!');
   }catch(err){
     statusEl.textContent = '';
     toast(err && err.message ? err.message : 'Não foi possível gerar a planilha.');
@@ -4805,6 +4995,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('utilEsocial').style.display = '';
   });
   document.getElementById('btnGerarEvento1200').addEventListener('click', gerarConferenciaEvento1200);
+
+  document.querySelector('[data-util-ferr="evento1200retorno"]').addEventListener('click', ()=>{
+    document.getElementById('utilEsocial').style.display = 'none';
+    document.getElementById('utilEvento1200Retorno').style.display = '';
+  });
+  document.getElementById('btnUtilEvento1200RetornoVoltar').addEventListener('click', ()=>{
+    document.getElementById('utilEvento1200Retorno').style.display = 'none';
+    document.getElementById('utilEsocial').style.display = '';
+  });
+  document.getElementById('btnGerarEvento1200Retorno').addEventListener('click', gerarRetornoEvento1200);
 
   document.getElementById('btnPresetAtendimentos').addEventListener('click', ()=>aplicarPresetRelatorio('atendimentos'));
   document.getElementById('btnPresetFinanceiro').addEventListener('click', ()=>aplicarPresetRelatorio('financeiro'));
