@@ -2135,6 +2135,9 @@ function resetUtilitarios(){
   document.getElementById('utilEvento1200Retorno').style.display = 'none';
   document.getElementById('util1200ret_xmls').value = '';
   document.getElementById('util1200ret_status').textContent = '';
+  document.getElementById('utilXmlGenerico').style.display = 'none';
+  document.getElementById('utilXmlGenerico_xmls').value = '';
+  document.getElementById('utilXmlGenerico_status').textContent = '';
 }
 
 function textoTag(el, tag){
@@ -2493,6 +2496,591 @@ async function gerarRetornoEvento1200(){
     montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss, todasBasesFgts);
     statusEl.textContent = `Pronto! ${retornos.length} retorno(s), ${todasRubricas.length} rubrica(s), ${todasBasesInss.length} linha(s) de base INSS e ${todasBasesFgts.length} linha(s) de base FGTS.`;
     toast('Planilha de retorno gerada!');
+  }catch(err){
+    statusEl.textContent = '';
+    toast(err && err.message ? err.message : 'Não foi possível gerar a planilha.');
+  }
+}
+
+const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+/* ---------- Utilitários › eSocial › Evento 1210 (Pagamentos) ---------- */
+function parseEvento1210Xml(xmlText, nomeArquivo){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  if(doc.querySelector('parsererror')) throw new Error(`${nomeArquivo}: XML inválido ou corrompido.`);
+  const evt = doc.getElementsByTagName('evtPgtos')[0];
+  if(!evt) throw new Error(`${nomeArquivo}: não parece ser um XML do evento 1210 (evtPgtos não encontrado).`);
+  const ideEvento = evt.getElementsByTagName('ideEvento')[0];
+  const indRetif = textoTag(ideEvento, 'indRetif');
+  const perApur = textoTag(ideEvento, 'perApur');
+  const nrInscEmpregador = textoTag(evt.getElementsByTagName('ideEmpregador')[0], 'nrInsc');
+
+  const linhas = [];
+  [...evt.getElementsByTagName('ideBenef')].forEach(benef=>{
+    const cpfBenef = textoTag(benef, 'cpfBenef');
+    [...benef.getElementsByTagName('infoPgto')].forEach(pg=>{
+      linhas.push({
+        arquivo: nomeArquivo, indRetif, perApur, nrInscEmpregador, cpfBenef,
+        dtPgto: textoTag(pg, 'dtPgto'), tpPgto: textoTag(pg, 'tpPgto'),
+        perRef: textoTag(pg, 'perRef'), ideDmDev: textoTag(pg, 'ideDmDev'),
+        vrLiq: textoTag(pg, 'vrLiq'),
+      });
+    });
+  });
+  if(linhas.length === 0) throw new Error(`${nomeArquivo}: nenhum pagamento encontrado no XML.`);
+  return linhas;
+}
+
+async function gerarEvento1210Pagamentos(arquivos){
+  let todasLinhas = [];
+  for(const arquivo of arquivos){
+    todasLinhas = todasLinhas.concat(parseEvento1210Xml(await arquivo.text(), arquivo.name));
+  }
+  const cabecalho = ['Arquivo','Indicador Retificação','Período Apuração','Insc. Empregador','CPF Beneficiário','Data Pagamento','Tipo Pagamento','Período Referência','ID Demonstrativo','Valor Líquido'];
+  const linhas = todasLinhas.map(l=>[l.arquivo, l.indRetif, l.perApur, l.nrInscEmpregador, l.cpfBenef, l.dtPgto, l.tpPgto, l.perRef, l.ideDmDev, Number(l.vrLiq)||0]);
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalho, ...linhas]), 'Pagamentos');
+  XLSX.writeFile(livro, `s1210-pagamentos-${hojeLocalISO()}.xlsx`);
+  return `Pronto! ${todasLinhas.length} pagamento(s) processado(s).`;
+}
+
+/* ---------- Utilitários › eSocial › Evento 1210 (Retorno / S-5002) ---------- */
+const CAMPOS_APURACAO_IR = ['CRMen','vlrRendTrib','vlrRendTrib13','vlrPrevOficial','vlrPrevOficial13','vlrCRMen','vlrCR13Men','vlrParcIsenta65','vlrParcIsenta65Dec','vlrDiarias','vlrAjudaCusto','vlrIndResContrato','vlrAbonoPec','vlrRendMoleGrave','vlrRendMoleGrave13','vlrAuxMoradia','vlrBolsaMedico','vlrBolsaMedico13','vlrJurosMora','vlrIsenOutros'];
+function lerCamposApuracaoIR(el){
+  const obj = {};
+  CAMPOS_APURACAO_IR.forEach(campo=>{ obj[campo] = textoTag(el, campo); });
+  return obj;
+}
+function parseEvtIrrfBenef(evt, nomeArquivo){
+  const nrRecArqBase = textoTag(evt.getElementsByTagName('ideEvento')[0], 'nrRecArqBase');
+  const perApur = textoTag(evt.getElementsByTagName('ideEvento')[0], 'perApur');
+  const nrInscEmpregador = textoTag(evt.getElementsByTagName('ideEmpregador')[0], 'nrInsc');
+  const ideTrabalhador = evt.getElementsByTagName('ideTrabalhador')[0];
+  const cpfBenef = textoTag(ideTrabalhador, 'cpfBenef');
+
+  const infoIR = [], apuracaoMensal = [], consolidado = [];
+  [...ideTrabalhador.getElementsByTagName('dmDev')].forEach(dm=>{
+    const base = {
+      arquivo: nomeArquivo, nrRecArqBase, perApur, nrInscEmpregador, cpfBenef,
+      perRef: textoTag(dm, 'perRef'), ideDmDev: textoTag(dm, 'ideDmDev'),
+      tpPgto: textoTag(dm, 'tpPgto'), dtPgto: textoTag(dm, 'dtPgto'), codCateg: textoTag(dm, 'codCateg'),
+    };
+    [...dm.getElementsByTagName('infoIR')].forEach(ir=>{
+      infoIR.push({ ...base, tpInfoIR: textoTag(ir,'tpInfoIR'), valor: textoTag(ir,'valor') });
+    });
+    const totApur = dm.getElementsByTagName('totApurMen')[0];
+    if(totApur) apuracaoMensal.push({ ...base, ...lerCamposApuracaoIR(totApur) });
+  });
+  const totInfoIR = ideTrabalhador.getElementsByTagName('totInfoIR')[0];
+  if(totInfoIR){
+    [...totInfoIR.getElementsByTagName('consolidApurMen')].forEach(cons=>{
+      consolidado.push({ arquivo: nomeArquivo, nrRecArqBase, perApur, nrInscEmpregador, cpfBenef, ...lerCamposApuracaoIR(cons) });
+    });
+  }
+  return { infoIR, apuracaoMensal, consolidado };
+}
+// mesma forma do retorno do evento 1200 (retornoEvento + rubricas), mas os
+// atributos de <rubrica> mudam (aqui vem inIR, não inFGTS/inCP) e o
+// totalizador anexado é o S-5002 (evtIrrfBenef), não S-5001/S-5003
+function parseRetorno1210Xml(xmlText, nomeArquivo){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  if(doc.querySelector('parsererror')) throw new Error(`${nomeArquivo}: XML inválido ou corrompido.`);
+
+  const resultado = { retorno: null, rubricas: [], infoIR: [], apuracaoMensal: [], consolidado: [] };
+
+  const esocialRetorno = doc.getElementsByTagName('eSocial')[0];
+  const retornoEvento = esocialRetorno ? esocialRetorno.getElementsByTagName('retornoEvento')[0] : null;
+  if(retornoEvento){
+    const ideEmpregador = retornoEvento.getElementsByTagName('ideEmpregador')[0];
+    const recepcao = retornoEvento.getElementsByTagName('recepcao')[0];
+    const processamento = retornoEvento.getElementsByTagName('processamento')[0];
+    const recibo = retornoEvento.getElementsByTagName('recibo')[0];
+    resultado.retorno = {
+      arquivo: nomeArquivo,
+      nrInscEmpregador: textoTag(ideEmpregador, 'nrInsc'),
+      tpAmb: textoTag(recepcao, 'tpAmb'),
+      dhRecepcao: textoTag(recepcao, 'dhRecepcao'),
+      versaoAppRecepcao: textoTag(recepcao, 'versaoAppRecepcao'),
+      protocoloEnvioLote: textoTag(recepcao, 'protocoloEnvioLote'),
+      cdResposta: textoTag(processamento, 'cdResposta'),
+      descResposta: textoTag(processamento, 'descResposta'),
+      versaoAppProcessamento: textoTag(processamento, 'versaoAppProcessamento'),
+      dhProcessamento: textoTag(processamento, 'dhProcessamento'),
+      nrRecibo: textoTag(recibo, 'nrRecibo'),
+      hash: textoTag(recibo, 'hash'),
+    };
+    if(recibo){
+      [...recibo.getElementsByTagName('rubrica')].forEach(r=>{
+        resultado.rubricas.push({
+          arquivo: nomeArquivo, nrRecibo: resultado.retorno.nrRecibo,
+          ntR: r.getAttribute('ntR')||'', nrR: r.getAttribute('nrR')||'',
+          tpR: r.getAttribute('tpR')||'', prA: r.getAttribute('prA')||'',
+          idE: r.getAttribute('idE')||'', cdR: r.getAttribute('cdR')||'',
+          inIR: r.getAttribute('inIR')||'', idT: r.getAttribute('idT')||'',
+        });
+      });
+    }
+  }
+
+  [...doc.getElementsByTagName('tot')].forEach(tot=>{
+    if((tot.getAttribute('tipo')||'') !== 'S5002') return;
+    const esoc = tot.getElementsByTagName('eSocial')[0];
+    const evt = esoc ? esoc.getElementsByTagName('evtIrrfBenef')[0] : null;
+    if(!evt) return;
+    const partes = parseEvtIrrfBenef(evt, nomeArquivo);
+    resultado.infoIR = resultado.infoIR.concat(partes.infoIR);
+    resultado.apuracaoMensal = resultado.apuracaoMensal.concat(partes.apuracaoMensal);
+    resultado.consolidado = resultado.consolidado.concat(partes.consolidado);
+  });
+
+  return resultado;
+}
+
+async function gerarEvento1210Retorno(arquivos){
+  const retornos = [];
+  let todasRubricas = [], todoInfoIR = [], todaApuracaoMensal = [], todoConsolidado = [];
+  for(const arquivo of arquivos){
+    const r = parseRetorno1210Xml(await arquivo.text(), arquivo.name);
+    if(r.retorno) retornos.push(r.retorno);
+    todasRubricas = todasRubricas.concat(r.rubricas);
+    todoInfoIR = todoInfoIR.concat(r.infoIR);
+    todaApuracaoMensal = todaApuracaoMensal.concat(r.apuracaoMensal);
+    todoConsolidado = todoConsolidado.concat(r.consolidado);
+  }
+  if(retornos.length === 0 && todasRubricas.length === 0 && todoInfoIR.length === 0){
+    throw new Error('Nenhum dado reconhecido nesses arquivos — confira se são XMLs de retorno do evento 1210.');
+  }
+
+  const livro = XLSX.utils.book_new();
+
+  const cabRetorno = ['Arquivo','Insc. Empregador','Ambiente','Data/Hora Recepção','Versão App Recepção','Protocolo Envio Lote','Cód. Resposta','Descrição Resposta','Versão App Processamento','Data/Hora Processamento','Nº Recibo','Hash'];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabRetorno, ...retornos.map(r=>[r.arquivo, r.nrInscEmpregador, r.tpAmb, r.dhRecepcao, r.versaoAppRecepcao, r.protocoloEnvioLote, r.cdResposta, r.descResposta, r.versaoAppProcessamento, r.dhProcessamento, r.nrRecibo, r.hash])]), 'Retorno');
+
+  const cabRubricas = ['Arquivo','Nº Recibo','Natureza Rubrica (ntR)','Nº Recibo Rubrica (nrR)','Tipo Rubrica (tpR)','Período Apuração (prA)','ID Evento Origem (idE)','Código Rubrica (cdR)','Incidência IR (inIR)','ID Tabela (idT)'];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabRubricas, ...todasRubricas.map(r=>[r.arquivo, r.nrRecibo, r.ntR, r.nrR, r.tpR, r.prA, r.idE, r.cdR, r.inIR, r.idT])]), 'Rubricas do Recibo');
+
+  const cabInfoIR = ['Arquivo','Nº Recibo Base','Período Apuração','Insc. Empregador','CPF Beneficiário','Período Referência','ID Demonstrativo','Tipo Pagamento','Data Pagamento','Categoria','Tipo Info IR','Valor'];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabInfoIR, ...todoInfoIR.map(l=>[l.arquivo, l.nrRecArqBase, l.perApur, l.nrInscEmpregador, l.cpfBenef, l.perRef, l.ideDmDev, l.tpPgto, l.dtPgto, l.codCateg, l.tpInfoIR, Number(l.valor)||0])]), 'IRRF por Pagamento');
+
+  const cabApuracao = ['Arquivo','Nº Recibo Base','Período Apuração','Insc. Empregador','CPF Beneficiário','Período Referência','ID Demonstrativo', ...CAMPOS_APURACAO_IR];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabApuracao, ...todaApuracaoMensal.map(l=>[l.arquivo, l.nrRecArqBase, l.perApur, l.nrInscEmpregador, l.cpfBenef, l.perRef, l.ideDmDev, ...CAMPOS_APURACAO_IR.map(c=>l[c]!=='' && !isNaN(Number(l[c])) ? Number(l[c]) : l[c])])]), 'Apuração Mensal (IR)');
+
+  const cabConsolidado = ['Arquivo','Nº Recibo Base','Período Apuração','Insc. Empregador','CPF Beneficiário', ...CAMPOS_APURACAO_IR];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabConsolidado, ...todoConsolidado.map(l=>[l.arquivo, l.nrRecArqBase, l.perApur, l.nrInscEmpregador, l.cpfBenef, ...CAMPOS_APURACAO_IR.map(c=>l[c]!=='' && !isNaN(Number(l[c])) ? Number(l[c]) : l[c])])]), 'Consolidado (IR)');
+
+  XLSX.writeFile(livro, `s1210-retorno-${hojeLocalISO()}.xlsx`);
+  return `Pronto! ${retornos.length} retorno(s), ${todasRubricas.length} rubrica(s) e ${todoInfoIR.length} linha(s) de IRRF processadas.`;
+}
+
+/* ---------- Utilitários › eSocial › S-5011 (Contribuições Sociais Consolidadas) ----------
+   Consolida vários XMLs de retorno do evento evtCS (S-5011) num resumo mensal, por categoria
+   de trabalhador, anual (13º) e por estabelecimento — mesmas abas/colunas do modelo de Excel
+   usado pela contabilidade. Deduplica por Id do evento (arquivos repetidos não contam 2x). */
+const CR_MENSAL_CS = [
+  ['108201', 'CP Segurados - Empregados/Avulso'],
+  ['109901', 'CP Segurados - Contrib. Individuais 11%'],
+  ['113801', 'CP Patronal - Empregados/Avulsos'],
+  ['113804', 'CP Patronal - Contrib. Individuais'],
+  ['117001', 'CP Terceiros - Salário Educação'],
+  ['117601', 'CP Terceiros - INCRA'],
+  ['119601', 'CP Terceiros - SESC'],
+  ['120002', 'CP Terceiros - SEBRAE'],
+  ['164601', 'CP Patronal - GILRAT Ajustado'],
+];
+const CR_ANUAL_CS = [
+  ['108221', 'CP Segurados - Empregados/Avulso'],
+  ['113821', 'CP Patronal - Empregados/Avulsos'],
+  ['117021', 'CP Terceiros - Salário Educação'],
+  ['117621', 'CP Terceiros - INCRA'],
+  ['119621', 'CP Terceiros - SESC'],
+  ['120022', 'CP Terceiros - SEBRAE'],
+  ['164621', 'CP Patronal - GILRAT Ajustado'],
+];
+const CATEGORIAS_CONHECIDAS_CS = {
+  '101': 'Empregado - Geral',
+  '103': 'Empregado - Categoria Especial',
+  '701': 'Contribuinte Individual - Autônomo em Geral',
+  '722': 'Contribuinte Individual - Diretor Não Empregado, sem FGTS',
+  '901': 'Bolsista / Sem Vínculo de Emprego',
+};
+function labelCategoriaCS(codigo){
+  return CATEGORIAS_CONHECIDAS_CS[codigo] ? `${CATEGORIAS_CONHECIDAS_CS[codigo]}\n(${codigo})` : `Categoria ${codigo}`;
+}
+
+function parseEvtCS(evt, nomeArquivo){
+  const id = evt.getAttribute('Id') || '';
+  const ideEvento = evt.getElementsByTagName('ideEvento')[0];
+  const indApuracao = textoTag(ideEvento, 'indApuracao') || '1';
+  const perApur = textoTag(ideEvento, 'perApur');
+  const nrInscEmpregador = textoTag(evt.getElementsByTagName('ideEmpregador')[0], 'nrInsc');
+  const infoCS = evt.getElementsByTagName('infoCS')[0];
+  const infoCPSeg = infoCS.getElementsByTagName('infoCPSeg')[0];
+  const vrDescCP = Number(textoTag(infoCPSeg, 'vrDescCP')) || 0;
+  const vrCpSeg = Number(textoTag(infoCPSeg, 'vrCpSeg')) || 0;
+
+  let vrBcCp00 = 0, vrSuspBcCp00 = 0, vrSalFam = 0, vrSalMat = 0;
+  const porCategoria = {};
+  const porEstabelecimento = {};
+
+  [...infoCS.getElementsByTagName('ideEstab')].forEach(estab=>{
+    const nrInscEstab = textoTag(estab, 'nrInsc');
+    if(!porEstabelecimento[nrInscEstab]) porEstabelecimento[nrInscEstab] = { vrBcCp00: 0, totalCR: 0 };
+    [...estab.getElementsByTagName('basesRemun')].forEach(br=>{
+      const codCateg = textoTag(br, 'codCateg');
+      const basesCp = br.getElementsByTagName('basesCp')[0];
+      const bc00 = Number(textoTag(basesCp, 'vrBcCp00')) || 0;
+      const susp00 = Number(textoTag(basesCp, 'vrSuspBcCp00')) || 0;
+      const salFam = Number(textoTag(basesCp, 'vrSalFam')) || 0;
+      const salMat = Number(textoTag(basesCp, 'vrSalMat')) || 0;
+      vrBcCp00 += bc00; vrSuspBcCp00 += susp00; vrSalFam += salFam; vrSalMat += salMat;
+      porCategoria[codCateg] = (porCategoria[codCateg]||0) + bc00;
+      porEstabelecimento[nrInscEstab].vrBcCp00 += bc00;
+    });
+    [...estab.getElementsByTagName('infoCREstab')].forEach(cr=>{
+      porEstabelecimento[nrInscEstab].totalCR += Number(textoTag(cr,'vrCR')) || 0;
+    });
+  });
+
+  const crContrib = {};
+  [...infoCS.getElementsByTagName('infoCRContrib')].forEach(cr=>{
+    crContrib[textoTag(cr,'tpCR')] = Number(textoTag(cr,'vrCR')) || 0;
+  });
+
+  return { arquivo: nomeArquivo, id, indApuracao, perApur, nrInscEmpregador, vrBcCp00, vrSuspBcCp00, vrSalFam, vrSalMat, vrDescCP, vrCpSeg, crContrib, porCategoria, porEstabelecimento };
+}
+
+// deduplica por Id (o mesmo evento pode chegar em 2 arquivos com nomes diferentes)
+function deduplicarPorId(lista){
+  const vistos = new Set();
+  return lista.filter(e=>{
+    if(!e.id) return true;
+    if(vistos.has(e.id)) return false;
+    vistos.add(e.id);
+    return true;
+  });
+}
+
+function agregarEvtCS(todosEvt){
+  const unicos = deduplicarPorId(todosEvt);
+  const porCompetencia = {}, porAno = {}, porEstabCompetencia = {};
+  const categoriasEncontradas = new Set();
+
+  unicos.forEach(e=>{
+    Object.keys(e.porCategoria).forEach(c=>categoriasEncontradas.add(c));
+    if(e.indApuracao === '2'){
+      const ano = String(e.perApur||'').slice(0,4);
+      if(!porAno[ano]) porAno[ano] = { vrBcCp00:0, vrSalFam:0, vrSalMat:0, vrDescCP:0, vrCpSeg:0, crContrib:{} };
+      const acc = porAno[ano];
+      acc.vrBcCp00 += e.vrBcCp00; acc.vrSalFam += e.vrSalFam; acc.vrSalMat += e.vrSalMat;
+      acc.vrDescCP += e.vrDescCP; acc.vrCpSeg += e.vrCpSeg;
+      Object.entries(e.crContrib).forEach(([cod,val])=>{ acc.crContrib[cod] = (acc.crContrib[cod]||0) + val; });
+    } else {
+      const comp = e.perApur;
+      if(!porCompetencia[comp]) porCompetencia[comp] = { vrBcCp00:0, vrSuspBcCp00:0, vrSalFam:0, vrSalMat:0, vrDescCP:0, vrCpSeg:0, crContrib:{}, porCategoria:{} };
+      const acc = porCompetencia[comp];
+      acc.vrBcCp00 += e.vrBcCp00; acc.vrSuspBcCp00 += e.vrSuspBcCp00; acc.vrSalFam += e.vrSalFam; acc.vrSalMat += e.vrSalMat;
+      acc.vrDescCP += e.vrDescCP; acc.vrCpSeg += e.vrCpSeg;
+      Object.entries(e.crContrib).forEach(([cod,val])=>{ acc.crContrib[cod] = (acc.crContrib[cod]||0) + val; });
+      Object.entries(e.porCategoria).forEach(([cod,val])=>{ acc.porCategoria[cod] = (acc.porCategoria[cod]||0) + val; });
+      Object.entries(e.porEstabelecimento).forEach(([nrInsc, dados])=>{
+        const chave = comp + '|' + nrInsc;
+        if(!porEstabCompetencia[chave]) porEstabCompetencia[chave] = { perApur: comp, nrInsc, vrBcCp00:0, totalCR:0 };
+        porEstabCompetencia[chave].vrBcCp00 += dados.vrBcCp00;
+        porEstabCompetencia[chave].totalCR += dados.totalCR;
+      });
+    }
+  });
+
+  return { porCompetencia, porAno, porEstabCompetencia, categoriasEncontradas, totalArquivos: todosEvt.length, totalUnicos: unicos.length };
+}
+
+function montarWorkbookS5011(agregado){
+  const livro = XLSX.utils.book_new();
+  const competencias = Object.keys(agregado.porCompetencia).sort();
+
+  const cabResumo = ['Competência','Ano','Mês','Base de Cálculo Total (vrBcCp00)','Base de Cálculo Suspensa','Valor Total Salário-Família','Valor Total Salário-Maternidade',
+    ...CR_MENSAL_CS.map(([cod,label])=>`${label}\n(${cod})`), 'Total do Mês','Valor Declarado (segurados)','Valor Calculado (segurados)','Diferença'];
+  const linhasResumo = competencias.map(comp=>{
+    const a = agregado.porCompetencia[comp];
+    const [ano, mes] = comp.split('-');
+    const crValores = CR_MENSAL_CS.map(([cod])=> a.crContrib[cod]||0);
+    const totalMes = crValores.reduce((s,v)=>s+v,0);
+    return [comp, Number(ano), MESES_ABREV[Number(mes)-1]||mes, a.vrBcCp00, a.vrSuspBcCp00, a.vrSalFam, a.vrSalMat,
+      ...crValores, totalMes, a.vrDescCP, a.vrCpSeg, a.vrDescCP - a.vrCpSeg];
+  });
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabResumo, ...linhasResumo]), 'Resumo Mensal');
+
+  const categorias = [...agregado.categoriasEncontradas].sort();
+  const cabCateg = ['Competência','Ano','Mês', ...categorias.map(labelCategoriaCS), 'Total do Mês'];
+  const linhasCateg = competencias.map(comp=>{
+    const a = agregado.porCompetencia[comp];
+    const [ano, mes] = comp.split('-');
+    const valores = categorias.map(c=>a.porCategoria[c]||0);
+    return [comp, Number(ano), MESES_ABREV[Number(mes)-1]||mes, ...valores, valores.reduce((s,v)=>s+v,0)];
+  });
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabCateg, ...linhasCateg]), 'Base de Cálculo por Categoria');
+
+  const anos = Object.keys(agregado.porAno).sort();
+  const cabAnual = ['Ano','Base de Cálculo Total (vrBcCp00)','Valor Total Salário-Família','Valor Total Salário-Maternidade',
+    ...CR_ANUAL_CS.map(([cod,label])=>`${label}\n(${cod})`), 'Total do Ano','Valor Declarado (segurados)','Valor Calculado (segurados)'];
+  const linhasAnual = anos.map(ano=>{
+    const a = agregado.porAno[ano];
+    const crValores = CR_ANUAL_CS.map(([cod])=> a.crContrib[cod]||0);
+    return [Number(ano), a.vrBcCp00, a.vrSalFam, a.vrSalMat, ...crValores, crValores.reduce((s,v)=>s+v,0), a.vrDescCP, a.vrCpSeg];
+  });
+  if(linhasAnual.length){
+    linhasAnual.push(['TOTAL GERAL',
+      anos.reduce((s,a)=>s+agregado.porAno[a].vrBcCp00,0),
+      anos.reduce((s,a)=>s+agregado.porAno[a].vrSalFam,0),
+      anos.reduce((s,a)=>s+agregado.porAno[a].vrSalMat,0),
+      ...CR_ANUAL_CS.map(([cod])=> anos.reduce((s,a)=>s+(agregado.porAno[a].crContrib[cod]||0),0)),
+      anos.reduce((s,a)=>CR_ANUAL_CS.reduce((x,[cod])=>x+(agregado.porAno[a].crContrib[cod]||0),0)+s,0),
+      anos.reduce((s,a)=>s+agregado.porAno[a].vrDescCP,0),
+      anos.reduce((s,a)=>s+agregado.porAno[a].vrCpSeg,0),
+    ]);
+  }
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabAnual, ...linhasAnual]), '13º Salário (Anual)');
+
+  const chavesEstab = Object.keys(agregado.porEstabCompetencia).sort();
+  const cabEstab = ['Competência','CNPJ do Estabelecimento','Base de Cálculo (categ. 00)','Total Contribuições do Estabelecimento'];
+  const linhasEstab = chavesEstab.map(k=>{
+    const d = agregado.porEstabCompetencia[k];
+    return [d.perApur, d.nrInsc, d.vrBcCp00, d.totalCR];
+  });
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabEstab, ...linhasEstab]), 'Por Estabelecimento');
+
+  return livro;
+}
+
+async function gerarS5011(arquivos){
+  const todosEvt = [];
+  for(const arquivo of arquivos){
+    const doc = new DOMParser().parseFromString(await arquivo.text(), 'text/xml');
+    const evt = doc.getElementsByTagName('evtCS')[0];
+    if(!evt){ throw new Error(`${arquivo.name}: não parece ser um XML de retorno do evento S-5011 (evtCS não encontrado).`); }
+    todosEvt.push(parseEvtCS(evt, arquivo.name));
+  }
+  const agregado = agregarEvtCS(todosEvt);
+  const livro = montarWorkbookS5011(agregado);
+  XLSX.writeFile(livro, `s5011-contribuicoes-sociais-${hojeLocalISO()}.xlsx`);
+  const duplicados = agregado.totalArquivos - agregado.totalUnicos;
+  return `Pronto! ${agregado.totalUnicos} evento(s) processado(s) (${Object.keys(agregado.porCompetencia).length} competência(s), ${Object.keys(agregado.porAno).length} ano(s) com 13º).` +
+    (duplicados > 0 ? `\n${duplicados} arquivo(s) duplicado(s) (mesmo Id) foram ignorados.` : '');
+}
+
+/* ---------- Utilitários › eSocial › S-5012 (IRRF Consolidado) ---------- */
+const CRMEN_CONHECIDOS = {
+  '056107': 'IRRF - Rendimento do Trabalho Assalariado',
+  '058806': 'IRRF - Rendimento do Trabalho sem Vínculo Empregatício',
+  '356201': 'IRRF - Participação nos Lucros ou Resultados (PLR)',
+};
+function labelCRMen(codigo){
+  return CRMEN_CONHECIDOS[codigo] ? `${CRMEN_CONHECIDOS[codigo]}\n(${codigo})` : `IRRF - código ${codigo}`;
+}
+function parseEvtIrrf(evt, nomeArquivo){
+  const id = evt.getAttribute('Id') || '';
+  const perApur = textoTag(evt.getElementsByTagName('ideEvento')[0], 'perApur');
+  const infoIRRF = evt.getElementsByTagName('infoIRRF')[0];
+  const crMen = {};
+  [...infoIRRF.getElementsByTagName('infoCRMen')].forEach(cr=>{
+    crMen[textoTag(cr,'CRMen')] = Number(textoTag(cr,'vrCRMen')) || 0;
+  });
+  return { arquivo: nomeArquivo, id, perApur, crMen };
+}
+function agregarEvtIrrf(todosEvt){
+  const unicos = deduplicarPorId(todosEvt);
+  const porCompetencia = {};
+  const codigosEncontrados = new Set();
+  unicos.forEach(e=>{
+    Object.keys(e.crMen).forEach(c=>codigosEncontrados.add(c));
+    if(!porCompetencia[e.perApur]) porCompetencia[e.perApur] = { crMen: {} };
+    Object.entries(e.crMen).forEach(([cod,val])=>{
+      porCompetencia[e.perApur].crMen[cod] = (porCompetencia[e.perApur].crMen[cod]||0) + val;
+    });
+  });
+  return { porCompetencia, codigosEncontrados, totalArquivos: todosEvt.length, totalUnicos: unicos.length };
+}
+function montarWorkbookS5012(agregado){
+  const livro = XLSX.utils.book_new();
+  const competencias = Object.keys(agregado.porCompetencia).sort();
+  const codigos = [...agregado.codigosEncontrados].sort();
+  const cabResumo = ['Competência','Ano','Mês', ...codigos.map(labelCRMen), 'Total do Mês'];
+  const linhas = competencias.map(comp=>{
+    const a = agregado.porCompetencia[comp];
+    const [ano,mes] = comp.split('-');
+    const valores = codigos.map(c=>a.crMen[c]||0);
+    return [comp, Number(ano), MESES_ABREV[Number(mes)-1]||mes, ...valores, valores.reduce((s,v)=>s+v,0)];
+  });
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabResumo, ...linhas]), 'Resumo Mensal');
+  return livro;
+}
+
+async function gerarS5012(arquivos){
+  const todosEvt = [];
+  for(const arquivo of arquivos){
+    const doc = new DOMParser().parseFromString(await arquivo.text(), 'text/xml');
+    const evt = doc.getElementsByTagName('evtIrrf')[0];
+    if(!evt){ throw new Error(`${arquivo.name}: não parece ser um XML de retorno do evento S-5012 (evtIrrf não encontrado).`); }
+    todosEvt.push(parseEvtIrrf(evt, arquivo.name));
+  }
+  const agregado = agregarEvtIrrf(todosEvt);
+  const livro = montarWorkbookS5012(agregado);
+  XLSX.writeFile(livro, `s5012-irrf-consolidado-${hojeLocalISO()}.xlsx`);
+  const duplicados = agregado.totalArquivos - agregado.totalUnicos;
+  return `Pronto! ${agregado.totalUnicos} evento(s) processado(s) (${Object.keys(agregado.porCompetencia).length} competência(s)).` +
+    (duplicados > 0 ? `\n${duplicados} arquivo(s) duplicado(s) (mesmo Id) foram ignorados.` : '');
+}
+
+/* ---------- Utilitários › eSocial › S-5013 (FGTS Consolidado) ---------- */
+const FGTS_GRUPOS = [
+  { nome: 'Mensal (normal)', codigos: [11,13,15,17,19] },
+  { nome: '13º Salário', codigos: [12,14,16,18] },
+  { nome: 'Mês da Rescisão', codigos: [21,24,27,30] },
+  { nome: '13º Salário Rescisório', codigos: [22,25,28,31] },
+  { nome: 'Aviso Prévio Indenizado', codigos: [23,26,29,32] },
+];
+const FGTS_GRUPOS_NOMES = ['Mensal (normal)','13º Salário','Mês da Rescisão','13º Salário Rescisório','Aviso Prévio Indenizado','Outros Códigos'];
+function grupoFgts(tpValor){
+  const n = Number(tpValor);
+  const g = FGTS_GRUPOS.find(g=>g.codigos.includes(n));
+  return g ? g.nome : 'Outros Códigos';
+}
+function parseEvtFGTS(evt, nomeArquivo){
+  const id = evt.getAttribute('Id') || '';
+  const ideEvento = evt.getElementsByTagName('ideEvento')[0];
+  const indApuracao = textoTag(ideEvento, 'indApuracao') || '1';
+  const perApur = textoTag(ideEvento, 'perApur');
+  const infoFGTS = evt.getElementsByTagName('infoFGTS')[0];
+
+  const porGrupo = {};
+  let baseTotal = 0, valorTotal = 0;
+  const porEstab = {};
+
+  [...infoFGTS.getElementsByTagName('ideEstab')].forEach(estab=>{
+    const nrInscEstab = textoTag(estab, 'nrInsc');
+    if(!porEstab[nrInscEstab]) porEstab[nrInscEstab] = { base:0, valor:0 };
+    [...estab.getElementsByTagName('basePerApur')].forEach(base=>{
+      const tpValor = textoTag(base, 'tpValor');
+      const baseFGTS = Number(textoTag(base,'baseFGTS')) || 0;
+      const vrFGTS = Number(textoTag(base,'vrFGTS')) || 0;
+      const grupo = grupoFgts(tpValor);
+      if(!porGrupo[grupo]) porGrupo[grupo] = { base:0, valor:0 };
+      porGrupo[grupo].base += baseFGTS; porGrupo[grupo].valor += vrFGTS;
+      baseTotal += baseFGTS; valorTotal += vrFGTS;
+      porEstab[nrInscEstab].base += baseFGTS; porEstab[nrInscEstab].valor += vrFGTS;
+    });
+  });
+
+  return { arquivo: nomeArquivo, id, indApuracao, perApur, porGrupo, baseTotal, valorTotal, porEstab };
+}
+function agregarEvtFGTS(todosEvt){
+  const unicos = deduplicarPorId(todosEvt);
+  const porCompetencia = {}, porAno = {}, porEstabCompetencia = {};
+
+  unicos.forEach(e=>{
+    if(e.indApuracao === '2'){
+      const ano = String(e.perApur||'').slice(0,4);
+      if(!porAno[ano]) porAno[ano] = { base:0, valor:0 };
+      porAno[ano].base += e.baseTotal; porAno[ano].valor += e.valorTotal;
+    } else {
+      const comp = e.perApur;
+      if(!porCompetencia[comp]) porCompetencia[comp] = { porGrupo:{} };
+      const acc = porCompetencia[comp];
+      Object.entries(e.porGrupo).forEach(([grupo,dados])=>{
+        if(!acc.porGrupo[grupo]) acc.porGrupo[grupo] = { base:0, valor:0 };
+        acc.porGrupo[grupo].base += dados.base; acc.porGrupo[grupo].valor += dados.valor;
+      });
+      Object.entries(e.porEstab).forEach(([nrInsc,dados])=>{
+        const chave = comp+'|'+nrInsc;
+        if(!porEstabCompetencia[chave]) porEstabCompetencia[chave] = { perApur:comp, nrInsc, base:0, valor:0 };
+        porEstabCompetencia[chave].base += dados.base;
+        porEstabCompetencia[chave].valor += dados.valor;
+      });
+    }
+  });
+
+  return { porCompetencia, porAno, porEstabCompetencia, totalArquivos: todosEvt.length, totalUnicos: unicos.length };
+}
+function montarWorkbookS5013(agregado){
+  const livro = XLSX.utils.book_new();
+  const competencias = Object.keys(agregado.porCompetencia).sort();
+
+  const cabResumo = ['Competência','Ano','Mês'];
+  FGTS_GRUPOS_NOMES.forEach(nome=>{ cabResumo.push(`Base FGTS ${nome}`, `Valor FGTS ${nome}`); });
+  cabResumo.push('Total FGTS do Mês');
+  const linhasResumo = competencias.map(comp=>{
+    const a = agregado.porCompetencia[comp];
+    const [ano,mes] = comp.split('-');
+    const linha = [comp, Number(ano), MESES_ABREV[Number(mes)-1]||mes];
+    let total = 0;
+    FGTS_GRUPOS_NOMES.forEach(nome=>{
+      const d = a.porGrupo[nome] || {base:0,valor:0};
+      linha.push(d.base, d.valor);
+      total += d.valor;
+    });
+    linha.push(total);
+    return linha;
+  });
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabResumo, ...linhasResumo]), 'Resumo Mensal');
+
+  const anos = Object.keys(agregado.porAno).sort();
+  const cabAnual = ['Ano','Base de Cálculo (declarada)','Valor do Depósito FGTS'];
+  const linhasAnual = anos.map(ano=>[Number(ano), agregado.porAno[ano].base, agregado.porAno[ano].valor]);
+  if(linhasAnual.length){
+    linhasAnual.push(['TOTAL GERAL', anos.reduce((s,a)=>s+agregado.porAno[a].base,0), anos.reduce((s,a)=>s+agregado.porAno[a].valor,0)]);
+  }
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabAnual, ...linhasAnual]), 'Apuração Anual (13º)');
+
+  const chavesEstab = Object.keys(agregado.porEstabCompetencia).sort();
+  const cabEstab = ['Competência','CNPJ do Estabelecimento','Base de Cálculo (total)','Valor FGTS (total)'];
+  const linhasEstab = chavesEstab.map(k=>{
+    const d = agregado.porEstabCompetencia[k];
+    return [d.perApur, d.nrInsc, d.base, d.valor];
+  });
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabEstab, ...linhasEstab]), 'Por Estabelecimento');
+
+  return livro;
+}
+
+async function gerarS5013(arquivos){
+  const todosEvt = [];
+  for(const arquivo of arquivos){
+    const doc = new DOMParser().parseFromString(await arquivo.text(), 'text/xml');
+    const evt = doc.getElementsByTagName('evtFGTS')[0];
+    if(!evt){ throw new Error(`${arquivo.name}: não parece ser um XML de retorno do evento S-5013 (evtFGTS não encontrado).`); }
+    todosEvt.push(parseEvtFGTS(evt, arquivo.name));
+  }
+  const agregado = agregarEvtFGTS(todosEvt);
+  const livro = montarWorkbookS5013(agregado);
+  XLSX.writeFile(livro, `s5013-fgts-${hojeLocalISO()}.xlsx`);
+  const duplicados = agregado.totalArquivos - agregado.totalUnicos;
+  return `Pronto! ${agregado.totalUnicos} evento(s) processado(s) (${Object.keys(agregado.porCompetencia).length} competência(s), ${Object.keys(agregado.porAno).length} ano(s) com 13º).` +
+    (duplicados > 0 ? `\n${duplicados} arquivo(s) duplicado(s) (mesmo Id) foram ignorados.` : '');
+}
+
+/* ---------- card genérico "envie XML(s) e gere a planilha", reaproveitado pelas
+   ferramentas que não precisam de nenhum arquivo extra além do(s) XML(s) ---------- */
+let utilXmlGenericoProcessar = null;
+function abrirUtilXmlGenerico({ titulo, descricao, processar }){
+  document.getElementById('utilXmlGenericoTitulo').textContent = titulo;
+  document.getElementById('utilXmlGenericoDescricao').textContent = descricao;
+  document.getElementById('utilXmlGenerico_xmls').value = '';
+  document.getElementById('utilXmlGenerico_status').textContent = '';
+  utilXmlGenericoProcessar = processar;
+  document.getElementById('utilEsocial').style.display = 'none';
+  document.getElementById('utilXmlGenerico').style.display = '';
+}
+async function gerarUtilXmlGenerico(){
+  const inputXmls = document.getElementById('utilXmlGenerico_xmls');
+  const statusEl = document.getElementById('utilXmlGenerico_status');
+  const arquivos = [...(inputXmls.files||[])];
+  if(arquivos.length === 0){ toast('Selecione ao menos um arquivo XML.'); return; }
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+  if(!utilXmlGenericoProcessar) return;
+  statusEl.textContent = 'Lendo arquivos…';
+  try{
+    statusEl.textContent = await utilXmlGenericoProcessar(arquivos);
+    toast('Planilha gerada!');
   }catch(err){
     statusEl.textContent = '';
     toast(err && err.message ? err.message : 'Não foi possível gerar a planilha.');
@@ -5005,6 +5593,47 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('utilEsocial').style.display = '';
   });
   document.getElementById('btnGerarEvento1200Retorno').addEventListener('click', gerarRetornoEvento1200);
+
+  document.querySelector('[data-util-ferr="evento1210"]').addEventListener('click', ()=>{
+    abrirUtilXmlGenerico({
+      titulo: 'Evento 1210 — Pagamentos',
+      descricao: 'Envie um ou mais XMLs do evento 1210 (evtPgtos) — sai um Excel com todos os pagamentos de rendimentos do trabalho.',
+      processar: gerarEvento1210Pagamentos,
+    });
+  });
+  document.querySelector('[data-util-ferr="evento1210retorno"]').addEventListener('click', ()=>{
+    abrirUtilXmlGenerico({
+      titulo: 'Evento 1210 — Retorno',
+      descricao: 'Envie um ou mais XMLs de retorno do evento 1210 — o Excel sai com o protocolo/recibo, as rubricas confirmadas e o IRRF por trabalhador (S-5002).',
+      processar: gerarEvento1210Retorno,
+    });
+  });
+  document.querySelector('[data-util-ferr="s5011"]').addEventListener('click', ()=>{
+    abrirUtilXmlGenerico({
+      titulo: 'S-5011 — Contribuições Sociais Consolidadas',
+      descricao: 'Envie vários XMLs de retorno do evento evtCS (S-5011) — o Excel sai com o resumo mensal, a base por categoria de trabalhador, o 13º salário anual e o total por estabelecimento. Arquivos repetidos (mesmo Id) não contam em dobro.',
+      processar: gerarS5011,
+    });
+  });
+  document.querySelector('[data-util-ferr="s5012"]').addEventListener('click', ()=>{
+    abrirUtilXmlGenerico({
+      titulo: 'S-5012 — IRRF Consolidado',
+      descricao: 'Envie vários XMLs de retorno do evento evtIrrf (S-5012) — o Excel sai com o resumo mensal de IRRF por código de receita. Arquivos repetidos (mesmo Id) não contam em dobro.',
+      processar: gerarS5012,
+    });
+  });
+  document.querySelector('[data-util-ferr="s5013"]').addEventListener('click', ()=>{
+    abrirUtilXmlGenerico({
+      titulo: 'S-5013 — FGTS Consolidado',
+      descricao: 'Envie vários XMLs de retorno do evento evtFGTS (S-5013) — o Excel sai com o resumo mensal por tipo de base, o 13º salário anual e o total por estabelecimento. Arquivos repetidos (mesmo Id) não contam em dobro.',
+      processar: gerarS5013,
+    });
+  });
+  document.getElementById('btnUtilXmlGenericoVoltar').addEventListener('click', ()=>{
+    document.getElementById('utilXmlGenerico').style.display = 'none';
+    document.getElementById('utilEsocial').style.display = '';
+  });
+  document.getElementById('btnUtilXmlGenericoGerar').addEventListener('click', gerarUtilXmlGenerico);
 
   document.getElementById('btnPresetAtendimentos').addEventListener('click', ()=>aplicarPresetRelatorio('atendimentos'));
   document.getElementById('btnPresetFinanceiro').addEventListener('click', ()=>aplicarPresetRelatorio('financeiro'));

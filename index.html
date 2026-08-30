@@ -155,6 +155,7 @@
   .summary .box .v{font-size:20px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;}
 
   .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px;}
+  .util-clicavel{cursor:pointer;}
   .util-clicavel:hover{border-color:var(--accent);}
   /* linha de vínculo — mesmas colunas do item normal, só mais leve e recuada,
      igual subtarefa numa ferramenta de projeto */
@@ -1303,6 +1304,38 @@
         <b>Evento 1200 — Retorno</b>
         <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Extrai os campos do XML de retorno (protocolo, recibo, rubricas confirmadas e bases de INSS/FGTS) pro Excel</p>
       </div>
+      <div class="item util-clicavel" data-util-ferr="evento1210">
+        <b>Evento 1210 — Pagamentos</b>
+        <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Extrai os pagamentos de rendimentos do trabalho (evtPgtos) pro Excel</p>
+      </div>
+      <div class="item util-clicavel" data-util-ferr="evento1210retorno">
+        <b>Evento 1210 — Retorno</b>
+        <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Extrai o protocolo/recibo e o IRRF por trabalhador (S-5002) do XML de retorno</p>
+      </div>
+      <div class="item util-clicavel" data-util-ferr="s5011">
+        <b>S-5011 — Contribuições Sociais Consolidadas</b>
+        <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Consolida vários XMLs de retorno (evtCS) num resumo mensal, por categoria, anual (13º) e por estabelecimento</p>
+      </div>
+      <div class="item util-clicavel" data-util-ferr="s5012">
+        <b>S-5012 — IRRF Consolidado</b>
+        <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Consolida vários XMLs de retorno (evtIrrf) num resumo mensal de IRRF por código de receita</p>
+      </div>
+      <div class="item util-clicavel" data-util-ferr="s5013">
+        <b>S-5013 — FGTS Consolidado</b>
+        <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Consolida vários XMLs de retorno (evtFGTS) num resumo mensal, anual (13º) e por estabelecimento</p>
+      </div>
+    </div>
+
+    <div class="card" id="utilXmlGenerico" style="display:none;">
+      <button type="button" class="ghost" id="btnUtilXmlGenericoVoltar" style="width:auto;padding:8px 14px;margin-bottom:12px;">← Voltar</button>
+      <h2 id="utilXmlGenericoTitulo"></h2>
+      <p id="utilXmlGenericoDescricao" style="font-size:12.5px;color:var(--muted);margin-top:0;"></p>
+      <div class="field">
+        <label>Arquivo(s) XML</label>
+        <input type="file" id="utilXmlGenerico_xmls" accept=".xml" multiple>
+      </div>
+      <button type="button" class="primary" id="btnUtilXmlGenericoGerar">Gerar planilha</button>
+      <div id="utilXmlGenerico_status" style="margin-top:10px;font-size:12.5px;color:var(--muted);white-space:pre-line;"></div>
     </div>
 
     <div class="card" id="utilEvento1200" style="display:none;">
