@@ -157,6 +157,21 @@
   .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px;}
   .util-clicavel{cursor:pointer;}
   .util-clicavel:hover{border-color:var(--accent);}
+
+  /* Dashboard */
+  .dash-view{display:none;}
+  .dash-view.active{display:block;}
+  .dash-sub{font-size:11px;color:var(--muted);margin:-4px 0 10px;}
+  .dash-legend{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-top:8px;}
+  .dash-legend .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;}
+  .dash-rank-row{display:flex;align-items:center;gap:8px;padding:6px 0;}
+  .dash-rank-row .name{width:84px;flex:none;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .dash-rank-row .track{flex:1;height:9px;background:var(--panel-2);border-radius:5px;overflow:hidden;}
+  .dash-rank-row .fill{height:100%;border-radius:5px;background:var(--blue);}
+  .dash-rank-row .val{flex:none;text-align:right;font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap;}
+  .dash-tooltip{position:fixed;pointer-events:none;background:var(--text);color:var(--panel);font-size:11.5px;font-weight:600;padding:6px 9px;border-radius:8px;z-index:99;opacity:0;transform:translate(-50%,-100%);transition:opacity .08s;white-space:nowrap;}
+  .dash-tooltip.show{opacity:1;}
+  .dash-empty{font-size:12.5px;color:var(--muted);padding:6px 0;}
   /* linha de vínculo — mesmas colunas do item normal, só mais leve e recuada,
      igual subtarefa numa ferramenta de projeto */
   .item.filho{background:var(--panel-2);border-style:dashed;position:relative;margin-left:26px;}
@@ -573,6 +588,7 @@
   <div class="side-item navbtn active" data-view="novo"><span class="ic">＋</span>Novo</div>
   <div class="side-item navbtn" data-view="lista"><span class="ic">☰</span>Atendimentos</div>
   <div class="side-item navbtn" data-view="resumo" id="sideResumo"><span class="ic">◧</span>Resumo</div>
+  <div class="side-item navbtn" data-view="dashboard" id="sideDashboard"><span class="ic">📈</span>Dashboard</div>
   <div class="side-item navbtn" data-view="gantt"><span class="ic">📊</span>Cronograma</div>
   <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio"><span class="ic">📄</span>Construtor</div>
   <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub"><span class="ic">📑</span>Relatórios</div>
@@ -594,6 +610,7 @@
     <div class="tab active" data-view="novo">Novo</div>
     <div class="tab" data-view="lista">Atendimentos</div>
     <div class="tab" data-view="resumo">Resumo</div>
+    <div class="tab" data-view="dashboard" id="tabDashboard">Dashboard</div>
     <div class="tab" data-view="gantt" id="tabGantt">Cronograma</div>
     <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
     <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
@@ -799,6 +816,89 @@
     <div class="card"><h2>Por status</h2><table class="valores-table" id="resumoStatus"></table></div>
     <button class="primary" id="btnExportar" style="margin-bottom:14px;">Exportar CSV do mês</button>
     <button class="ghost" id="btnPdfResumo" style="margin-bottom:14px;width:100%;">🖨 Gerar PDF do Resumo</button>
+  </section>
+
+  <!-- DASHBOARD -->
+  <section class="view" id="view-dashboard">
+    <div class="card">
+      <h2>Período</h2>
+      <div class="row">
+        <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="dash_de"></div>
+        <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="dash_ate"></div>
+      </div>
+    </div>
+    <div class="card"><h2>Cliente</h2><div class="filters" id="dashFiltroCliente"></div></div>
+    <div class="card" id="dashCardFiltroAtendente"><h2>Atendente</h2><div class="filters" id="dashFiltroAtendente"></div></div>
+    <div class="card"><h2>Status</h2><div class="filters" id="dashFiltroStatus"></div></div>
+
+    <div class="subtabs" id="dashSubtabs">
+      <div class="subtab active" data-dashsub="geral">Visão Geral</div>
+      <div class="subtab" data-dashsub="operacional">Operacional</div>
+      <div class="subtab" data-dashsub="comparativo">Comparativo</div>
+    </div>
+
+    <div class="dash-view active" id="dash-geral">
+      <div class="summary" id="dashBoxesGeral"></div>
+      <div class="card">
+        <h2>Atendimentos por mês</h2>
+        <div class="dash-sub">total e validados, meses do período selecionado</div>
+        <div id="dashGraficoMeses"></div>
+        <div class="dash-legend" id="dashLegendaMeses"></div>
+      </div>
+      <div class="card">
+        <h2>Por status</h2>
+        <div id="dashDonutStatus" style="display:flex;justify-content:center;"></div>
+        <div class="dash-legend" id="dashLegendaStatus"></div>
+      </div>
+      <div class="card">
+        <h2>Top clientes</h2>
+        <div class="dash-sub">contagem de atendimentos no período</div>
+        <div id="dashTopClientes"></div>
+      </div>
+      <div class="card" id="dashCardRankingAtendentes">
+        <h2>Ranking de atendentes</h2>
+        <div class="dash-sub">valor no período (barra) e atendimentos validados</div>
+        <div id="dashRankingAtendentes"></div>
+      </div>
+    </div>
+
+    <div class="dash-view" id="dash-operacional">
+      <div class="summary" id="dashBoxesOperacional"></div>
+      <div class="card">
+        <h2>Pendentes por tempo em aberto</h2>
+        <div class="dash-sub">dias desde a data do atendimento</div>
+        <div id="dashAging"></div>
+      </div>
+      <div class="card">
+        <h2>Abertura por dia da semana</h2>
+        <div id="dashDiaSemana"></div>
+      </div>
+      <div class="card">
+        <h2>Pendentes há mais tempo</h2>
+        <table class="valores-table" id="dashTabelaPendentes"></table>
+      </div>
+    </div>
+
+    <div class="dash-view" id="dash-comparativo">
+      <div class="card" id="dashCardPorTipo">
+        <h2 id="dashTituloPorTipo">Por tipo de atendimento</h2>
+        <div id="dashPorTipo"></div>
+      </div>
+      <div class="card" id="dashCardHorasAtendente">
+        <h2>Horas trabalhadas por atendente</h2>
+        <div id="dashHorasAtendente"></div>
+      </div>
+      <div class="card" style="overflow-x:auto;">
+        <h2>Cliente × tipo de atendimento</h2>
+        <div class="dash-sub">concentração de volume</div>
+        <div id="dashMatrizClienteTipo"></div>
+      </div>
+      <div class="card" id="dashCardFaturadoCliente" style="overflow-x:auto;">
+        <h2>Faturado por cliente ao longo do tempo</h2>
+        <div id="dashFaturadoCliente"></div>
+        <div class="dash-legend" id="dashLegendaFaturado"></div>
+      </div>
+    </div>
   </section>
 
   <!-- CRONOGRAMA (Gantt) -->
@@ -1372,6 +1472,7 @@
   <div class="navbtn active" data-view="novo"><span class="ic">＋</span>Novo</div>
   <div class="navbtn" data-view="lista"><span class="ic">☰</span>Atend.</div>
   <div class="navbtn" data-view="resumo"><span class="ic">◧</span>Resumo</div>
+  <div class="navbtn" data-view="dashboard" id="navDashboard"><span class="ic">📈</span>Dashb.</div>
   <div class="navbtn" data-view="gantt" id="navGantt"><span class="ic">📊</span>Cronog.</div>
   <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic">📄</span>Constr.</div>
   <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic">📑</span>Relat.</div>

@@ -395,7 +395,7 @@ create table if not exists perfis_acesso (
 );
 alter table perfis_acesso enable row level security;
 
--- um menu válido por linha: atendimentos, resumo, cronograma,
+-- um menu válido por linha: atendimentos, resumo, dashboard, cronograma,
 -- construtor_relatorios, relatorios, financeiro, agenda, videos, cadastros,
 -- utilitarios
 create table if not exists perfil_acesso_permissoes (
