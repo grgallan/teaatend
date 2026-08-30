@@ -155,6 +155,7 @@
   .summary .box .v{font-size:20px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;}
 
   .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px;}
+  .util-clicavel:hover{border-color:var(--accent);}
   /* linha de vínculo — mesmas colunas do item normal, só mais leve e recuada,
      igual subtarefa numa ferramenta de projeto */
   .item.filho{background:var(--panel-2);border-style:dashed;position:relative;margin-left:26px;}
@@ -578,6 +579,7 @@
   <div class="side-item navbtn" data-view="agenda" id="sideAgenda"><span class="ic">📅</span>Agenda</div>
   <div class="side-item navbtn" data-view="videos" id="sideVideos"><span class="ic">🎬</span>Vídeos</div>
   <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic">⚙</span>Cadastros</div>
+  <div class="side-item navbtn" data-view="utilitarios" id="sideUtilitarios"><span class="ic">🧰</span>Utilitários</div>
 </nav>
 
 <main>
@@ -598,6 +600,7 @@
     <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
     <div class="tab" data-view="videos" id="tabVideos">Vídeos</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
+    <div class="tab" data-view="utilitarios" id="tabUtilitarios">Utilitários</div>
   </div>
 
   <!-- NOVO -->
@@ -1275,6 +1278,45 @@
       <div id="listPerfisAcesso"></div>
     </div>
   </section>
+
+  <!-- UTILITÁRIOS -->
+  <section class="view" id="view-utilitarios">
+    <div class="card" id="utilCategorias">
+      <h2>Utilitários</h2>
+      <div class="item util-clicavel" data-util-cat="esocial" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+        <span style="font-size:22px;">🧾</span>
+        <div>
+          <b>eSocial</b>
+          <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Ferramentas de conferência dos eventos do eSocial</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="utilEsocial" style="display:none;">
+      <button type="button" class="ghost" id="btnUtilEsocialVoltar" style="width:auto;padding:8px 14px;margin-bottom:12px;">← Voltar</button>
+      <h2>eSocial</h2>
+      <div class="item util-clicavel" data-util-ferr="evento1200" style="cursor:pointer;">
+        <b>Evento 1200 — Remuneração</b>
+        <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Confronta o XML do evento com a planilha de rubricas e gera a conferência por trabalhador</p>
+      </div>
+    </div>
+
+    <div class="card" id="utilEvento1200" style="display:none;">
+      <button type="button" class="ghost" id="btnUtilEvento1200Voltar" style="width:auto;padding:8px 14px;margin-bottom:12px;">← Voltar</button>
+      <h2>Evento 1200 — Remuneração</h2>
+      <p style="font-size:12.5px;color:var(--muted);margin-top:0;">Envie um ou mais XMLs do evento 1200 (um por trabalhador ou vários) e a planilha de Rubricas — a conferência sai num único Excel, com o detalhe de cada rubrica e o resumo de proventos/descontos/saldo por CPF.</p>
+      <div class="field">
+        <label>Arquivo(s) XML do Evento 1200</label>
+        <input type="file" id="util1200_xmls" accept=".xml" multiple>
+      </div>
+      <div class="field">
+        <label>Arquivo de Rubricas (Excel)</label>
+        <input type="file" id="util1200_rubricas" accept=".xlsx,.xls">
+      </div>
+      <button type="button" class="primary" id="btnGerarEvento1200">Gerar planilha de conferência</button>
+      <div id="util1200_status" style="margin-top:10px;font-size:12.5px;color:var(--muted);white-space:pre-line;"></div>
+    </div>
+  </section>
 </main>
 
 <nav class="bottom" id="bottomNav">
@@ -1288,6 +1330,7 @@
   <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic">📅</span>Agenda</div>
   <div class="navbtn" data-view="videos" id="navVideos"><span class="ic">🎬</span>Vídeos</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
+  <div class="navbtn" data-view="utilitarios" id="navUtilitarios"><span class="ic">🧰</span>Util.</div>
 </nav>
 </div>
 
