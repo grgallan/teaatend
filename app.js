@@ -46,6 +46,7 @@ const MENUS_PERFIL_ACESSO = [
   { chave:'agenda', label:'Agenda' },
   { chave:'videos', label:'Vídeos' },
   { chave:'cadastros', label:'Cadastros' },
+  { chave:'utilitarios', label:'Utilitários' },
 ];
 
 /* ---------- utilidades ---------- */
@@ -779,6 +780,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('agenda', menuVisivel(conta, 'agenda', podeVerAgenda));
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
+  aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
   // Cronograma: usuário e atendente veem só os próprios atendimentos (ou
   // os do cliente, se marcado como admin do cliente) — filtro feito dentro
   // de renderGantt()
@@ -2120,7 +2122,192 @@ function gerarExcelRelatorio(){
   toast('Excel gerado');
 }
 
+/* ---------- Utilitários › eSocial › Evento 1200 (Remuneração) ----------
+   Confronta o(s) XML(s) do evento 1200 com a planilha de Rubricas cadastrada
+   e gera um Excel de conferência — tudo no navegador, sem passar pelo backend */
+function resetUtilitarios(){
+  document.getElementById('utilCategorias').style.display = '';
+  document.getElementById('utilEsocial').style.display = 'none';
+  document.getElementById('utilEvento1200').style.display = 'none';
+  document.getElementById('util1200_xmls').value = '';
+  document.getElementById('util1200_rubricas').value = '';
+  document.getElementById('util1200_status').textContent = '';
+}
 
+function textoTag(el, tag){
+  if(!el) return '';
+  const f = el.getElementsByTagName(tag)[0];
+  return f ? (f.textContent||'').trim() : '';
+}
+
+// o código da rubrica pode vir com zeros à esquerda tanto no XML quanto na
+// planilha (ou não, se o Excel converteu "0002" pra número 2) — gera as
+// variações possíveis pra casar dos dois jeitos
+function chavesRubrica(valor){
+  const bruto = String(valor==null ? '' : valor).trim();
+  const chaves = new Set([bruto]);
+  const n = Number(bruto);
+  if(bruto !== '' && !isNaN(n)){
+    chaves.add(String(n));
+    chaves.add(String(n).padStart(4,'0'));
+  }
+  return [...chaves];
+}
+
+function parseEvento1200Xml(xmlText, nomeArquivo){
+  const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+  if(doc.querySelector('parsererror')) throw new Error(`${nomeArquivo}: XML inválido ou corrompido.`);
+  const evt = doc.getElementsByTagName('evtRemun')[0];
+  if(!evt) throw new Error(`${nomeArquivo}: não parece ser um XML do evento 1200 (evtRemun não encontrado).`);
+  const perApur = textoTag(evt.getElementsByTagName('ideEvento')[0], 'perApur');
+  const nrInscEmpregador = textoTag(evt.getElementsByTagName('ideEmpregador')[0], 'nrInsc');
+  const cpfTrab = textoTag(evt.getElementsByTagName('ideTrabalhador')[0], 'cpfTrab');
+
+  const linhas = [];
+  [...evt.getElementsByTagName('dmDev')].forEach(dmDev=>{
+    const ideDmDev = textoTag(dmDev, 'ideDmDev');
+    const codCateg = textoTag(dmDev, 'codCateg');
+    [...dmDev.getElementsByTagName('ideEstabLot')].forEach(estabLot=>{
+      const nrInscEstab = textoTag(estabLot, 'nrInsc');
+      const codLotacao = textoTag(estabLot, 'codLotacao');
+      [...estabLot.getElementsByTagName('remunPerApur')].forEach(remun=>{
+        const matricula = textoTag(remun, 'matricula');
+        [...remun.getElementsByTagName('itensRemun')].forEach(item=>{
+          linhas.push({
+            arquivo: nomeArquivo, cpfTrab, perApur, nrInscEmpregador,
+            ideDmDev, codCateg, nrInscEstab, codLotacao, matricula,
+            codRubr: textoTag(item, 'codRubr'),
+            ideTabRubr: textoTag(item, 'ideTabRubr'),
+            qtdRubr: textoTag(item, 'qtdRubr'),
+            vrRubr: textoTag(item, 'vrRubr'),
+            indApurIR: textoTag(item, 'indApurIR'),
+          });
+        });
+      });
+    });
+  });
+  if(linhas.length === 0) throw new Error(`${nomeArquivo}: nenhuma rubrica encontrada no XML.`);
+  return linhas;
+}
+
+function normalizarCabecalho(s){
+  return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+
+function lerRubricasXlsx(arrayBuffer){
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const linhas = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  if(linhas.length < 2) throw new Error('Planilha de Rubricas vazia ou sem dados.');
+  const cabecalho = linhas[0].map(normalizarCabecalho);
+  const idx = nome => cabecalho.indexOf(normalizarCabecalho(nome));
+  const iCodigo = idx('Código');
+  const iDescricao = idx('Descrição');
+  const iNatureza = idx('Natureza da Rubrica (eSocial)');
+  const iCodCalculo = idx('Código de Cálculo');
+  const iClassificacao = idx('Prov/Desc/Base');
+  const iUnidade = idx('Val/Hor/Dia/Ref');
+  if(iCodigo < 0 || iClassificacao < 0){
+    throw new Error('A planilha de Rubricas precisa ter, no mínimo, as colunas "Código" e "Prov/Desc/Base".');
+  }
+  const mapa = {};
+  for(let i=1;i<linhas.length;i++){
+    const linha = linhas[i];
+    const codigo = linha[iCodigo];
+    if(codigo === '' || codigo == null) continue;
+    const registro = {
+      codigo: String(codigo).trim(),
+      descricao: iDescricao>=0 ? String(linha[iDescricao]||'').trim() : '',
+      natureza: iNatureza>=0 ? String(linha[iNatureza]||'').trim() : '',
+      codigoCalculo: iCodCalculo>=0 ? linha[iCodCalculo] : '',
+      classificacao: iClassificacao>=0 ? String(linha[iClassificacao]||'').trim() : '',
+      unidade: iUnidade>=0 ? String(linha[iUnidade]||'').trim() : '',
+    };
+    chavesRubrica(codigo).forEach(k=>{ mapa[k] = registro; });
+  }
+  return mapa;
+}
+
+function montarWorkbookConferenciaEvento1200(detalhe, porCpf){
+  const cabecalhoResumo = ['CPF Trabalhador','Matrícula','Total Proventos','Total Descontos','Saldo Final','Rubricas não cadastradas'];
+  const listaCpf = Object.values(porCpf);
+  const linhasResumo = listaCpf.map(r=>[r.cpf, r.matricula, r.proventos, r.descontos, r.proventos - r.descontos, r.naoMapeadas]);
+  const totalProventos = listaCpf.reduce((s,r)=>s+r.proventos, 0);
+  const totalDescontos = listaCpf.reduce((s,r)=>s+r.descontos, 0);
+  linhasResumo.push(['TOTAL GERAL', '', totalProventos, totalDescontos, totalProventos - totalDescontos, listaCpf.reduce((s,r)=>s+r.naoMapeadas, 0)]);
+
+  const cabecalhoDetalhe = [
+    'Arquivo','CPF Trabalhador','Matrícula','Categoria','Período Apuração',
+    'Insc. Empregador','Insc. Estabelecimento','Cód. Lotação','ID Demonstrativo',
+    'Código Rubrica','ID Tabela Rubrica','Quantidade','Valor','Ind. Apuração IR',
+    'Descrição (cadastro)','Natureza da Rubrica (eSocial)','Código de Cálculo',
+    'Prov/Desc/Base','Val/Hor/Dia/Ref','Situação',
+  ];
+  const linhasDetalhe = detalhe.map(l=>[
+    l.arquivo, l.cpfTrab, l.matricula, l.codCateg, l.perApur,
+    l.nrInscEmpregador, l.nrInscEstab, l.codLotacao, l.ideDmDev,
+    l.codRubr, l.ideTabRubr, l.qtdRubr ? Number(l.qtdRubr) : '', Number(l.vrRubr)||0, l.indApurIR,
+    l.rubrica ? l.rubrica.descricao : '', l.rubrica ? l.rubrica.natureza : '', l.rubrica ? l.rubrica.codigoCalculo : '',
+    l.rubrica ? l.rubrica.classificacao : '', l.rubrica ? l.rubrica.unidade : '',
+    l.rubrica ? 'OK' : 'RUBRICA NÃO CADASTRADA',
+  ]);
+
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalhoResumo, ...linhasResumo]), 'Resumo por CPF');
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalhoDetalhe, ...linhasDetalhe]), 'Detalhe');
+  XLSX.writeFile(livro, `conferencia-evento-1200-${hojeLocalISO()}.xlsx`);
+}
+
+async function gerarConferenciaEvento1200(){
+  const inputXmls = document.getElementById('util1200_xmls');
+  const inputRubricas = document.getElementById('util1200_rubricas');
+  const statusEl = document.getElementById('util1200_status');
+  const arquivosXml = [...(inputXmls.files||[])];
+  const arquivoRubricas = inputRubricas.files && inputRubricas.files[0];
+  if(arquivosXml.length === 0){ toast('Selecione ao menos um XML do evento 1200.'); return; }
+  if(!arquivoRubricas){ toast('Selecione o arquivo de Rubricas (Excel).'); return; }
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+
+  statusEl.textContent = 'Lendo arquivos…';
+  try{
+    const mapaRubricas = lerRubricasXlsx(await arquivoRubricas.arrayBuffer());
+
+    let todasLinhas = [];
+    for(const arquivo of arquivosXml){
+      const linhas = parseEvento1200Xml(await arquivo.text(), arquivo.name);
+      todasLinhas = todasLinhas.concat(linhas);
+    }
+
+    let naoMapeadas = 0;
+    const detalhe = todasLinhas.map(l=>{
+      let rubrica = null;
+      for(const k of chavesRubrica(l.codRubr)){ if(mapaRubricas[k]){ rubrica = mapaRubricas[k]; break; } }
+      if(!rubrica) naoMapeadas++;
+      return { ...l, rubrica };
+    });
+
+    const porCpf = {};
+    detalhe.forEach(l=>{
+      const cpf = l.cpfTrab || '(sem CPF)';
+      if(!porCpf[cpf]) porCpf[cpf] = { cpf, matricula: l.matricula, proventos: 0, descontos: 0, naoMapeadas: 0 };
+      const valor = Number(l.vrRubr) || 0;
+      const classificacao = l.rubrica ? l.rubrica.classificacao : '';
+      if(/provento/i.test(classificacao)) porCpf[cpf].proventos += valor;
+      else if(/desconto/i.test(classificacao)) porCpf[cpf].descontos += valor;
+      // "Base de cálculo" não soma em nada — é só referência de cálculo, não movimenta dinheiro
+      if(!l.rubrica) porCpf[cpf].naoMapeadas++;
+    });
+
+    montarWorkbookConferenciaEvento1200(detalhe, porCpf);
+    const qtdCpf = Object.keys(porCpf).length;
+    statusEl.textContent = `Pronto! ${detalhe.length} rubrica(s) de ${qtdCpf} trabalhador(es) processadas.` +
+      (naoMapeadas > 0 ? `\n⚠ ${naoMapeadas} rubrica(s) sem cadastro na planilha de Rubricas — confira a coluna "Situação" na aba Detalhe.` : '');
+    toast('Planilha de conferência gerada!');
+  }catch(err){
+    statusEl.textContent = '';
+    toast(err && err.message ? err.message : 'Não foi possível gerar a planilha.');
+  }
+}
 
 function exportarCsvGantt(){
   const { itens, de, ate, invalido } = calcularItensGantt();
@@ -4486,6 +4673,7 @@ function goView(name){
     carregarVideos();
   }
   if(name==='cadastros') goCadSub(cadAba);
+  if(name==='utilitarios') resetUtilitarios();
 }
 function goCadSub(sub){
   cadAba = sub;
@@ -4599,6 +4787,24 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPdfLista').addEventListener('click', gerarPdfLista);
   document.getElementById('btnPdfGantt').addEventListener('click', gerarPdfGantt);
   document.getElementById('btnPdfAtendimento').addEventListener('click', gerarPdfAtendimento);
+
+  document.querySelector('[data-util-cat="esocial"]').addEventListener('click', ()=>{
+    document.getElementById('utilCategorias').style.display = 'none';
+    document.getElementById('utilEsocial').style.display = '';
+  });
+  document.getElementById('btnUtilEsocialVoltar').addEventListener('click', ()=>{
+    document.getElementById('utilEsocial').style.display = 'none';
+    document.getElementById('utilCategorias').style.display = '';
+  });
+  document.querySelector('[data-util-ferr="evento1200"]').addEventListener('click', ()=>{
+    document.getElementById('utilEsocial').style.display = 'none';
+    document.getElementById('utilEvento1200').style.display = '';
+  });
+  document.getElementById('btnUtilEvento1200Voltar').addEventListener('click', ()=>{
+    document.getElementById('utilEvento1200').style.display = 'none';
+    document.getElementById('utilEsocial').style.display = '';
+  });
+  document.getElementById('btnGerarEvento1200').addEventListener('click', gerarConferenciaEvento1200);
 
   document.getElementById('btnPresetAtendimentos').addEventListener('click', ()=>aplicarPresetRelatorio('atendimentos'));
   document.getElementById('btnPresetFinanceiro').addEventListener('click', ()=>aplicarPresetRelatorio('financeiro'));
