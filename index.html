@@ -1332,7 +1332,7 @@
       <p id="utilXmlGenericoDescricao" style="font-size:12.5px;color:var(--muted);margin-top:0;"></p>
       <div class="field">
         <label>Arquivo(s) XML</label>
-        <input type="file" id="utilXmlGenerico_xmls" accept=".xml" multiple>
+        <input type="file" id="utilXmlGenerico_xmls" accept=".xml,text/xml,application/xml" multiple>
       </div>
       <button type="button" class="primary" id="btnUtilXmlGenericoGerar">Gerar planilha</button>
       <div id="utilXmlGenerico_status" style="margin-top:10px;font-size:12.5px;color:var(--muted);white-space:pre-line;"></div>
@@ -1344,11 +1344,11 @@
       <p style="font-size:12.5px;color:var(--muted);margin-top:0;">Envie um ou mais XMLs do evento 1200 (um por trabalhador ou vários) e a planilha de Rubricas — a conferência sai num único Excel, com o detalhe de cada rubrica e o resumo de proventos/descontos/saldo por CPF.</p>
       <div class="field">
         <label>Arquivo(s) XML do Evento 1200</label>
-        <input type="file" id="util1200_xmls" accept=".xml" multiple>
+        <input type="file" id="util1200_xmls" accept=".xml,text/xml,application/xml" multiple>
       </div>
       <div class="field">
         <label>Arquivo de Rubricas (Excel)</label>
-        <input type="file" id="util1200_rubricas" accept=".xlsx,.xls">
+        <input type="file" id="util1200_rubricas" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
       </div>
       <button type="button" class="primary" id="btnGerarEvento1200">Gerar planilha de conferência</button>
       <div id="util1200_status" style="margin-top:10px;font-size:12.5px;color:var(--muted);white-space:pre-line;"></div>
@@ -1360,7 +1360,7 @@
       <p style="font-size:12.5px;color:var(--muted);margin-top:0;">Envie um ou mais XMLs de retorno do evento 1200 — o Excel sai com o protocolo/recibo, as rubricas confirmadas e as bases de INSS (S-5001) e FGTS (S-5003), de acordo com o leiaute do eSocial.</p>
       <div class="field">
         <label>Arquivo(s) XML de Retorno do Evento 1200</label>
-        <input type="file" id="util1200ret_xmls" accept=".xml" multiple>
+        <input type="file" id="util1200ret_xmls" accept=".xml,text/xml,application/xml" multiple>
       </div>
       <button type="button" class="primary" id="btnGerarEvento1200Retorno">Gerar planilha de retorno</button>
       <div id="util1200ret_status" style="margin-top:10px;font-size:12.5px;color:var(--muted);white-space:pre-line;"></div>
