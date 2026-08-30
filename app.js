@@ -1860,6 +1860,28 @@ async function gerarPdfNativo(titulo){
   }
 }
 
+// substitui o XLSX.writeFile(livro, nome) direto — mesmo problema do PDF: a
+// WebView do app Android não salva um blob: sozinha, então a mensagem de
+// sucesso aparecia mas nenhum arquivo era gerado de verdade. Fora do app,
+// continua exatamente igual (baixa o arquivo pelo navegador).
+async function salvarWorkbook(livro, nomeArquivo){
+  if(!emAppNativo()){
+    XLSX.writeFile(livro, nomeArquivo);
+    return;
+  }
+  const plugins = window.Capacitor.Plugins || {};
+  const { Filesystem, Share } = plugins;
+  if(!Filesystem || !Share){
+    toast('Gerar planilha não está disponível nessa versão do app — atualize o aplicativo.');
+    return;
+  }
+  const arrayBuffer = XLSX.write(livro, { type: 'array', bookType: 'xlsx' });
+  const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const base64 = await lerArquivoBase64(blob);
+  const gravado = await Filesystem.writeFile({ path: nomeArquivo, data: base64, directory: 'CACHE' });
+  await Share.share({ title: nomeArquivo, dialogTitle: 'Compartilhar planilha', files: [gravado.uri] });
+}
+
 function prepararImpressao(titulo, filtrosTexto){
   const agora = new Date();
   const dataHora = agora.toLocaleDateString('pt-BR') + ' às ' + agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -2085,7 +2107,7 @@ function gerarPdfRelatorio(){
   prepararImpressao(titulo, filtrosTexto);
 }
 
-function gerarExcelRelatorio(){
+async function gerarExcelRelatorio(){
   if(relTipoVisualizacao === 'ficha'){ toast('O modelo "Detalhado" não sai em Excel — use o PDF.'); return; }
   const itens = calcularItensRelatorio();
   const colunasAtivas = relColunas.map(colunaInfo).filter(Boolean);
@@ -2118,7 +2140,7 @@ function gerarExcelRelatorio(){
   const planilha = XLSX.utils.aoa_to_sheet(linhas);
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, planilha, 'Relatório');
-  XLSX.writeFile(livro, `${titulo.replace(/[^a-zA-Z0-9 ]/g,'').trim() || 'relatorio'}.xlsx`);
+  await salvarWorkbook(livro, `${titulo.replace(/[^a-zA-Z0-9 ]/g,'').trim() || 'relatorio'}.xlsx`);
   toast('Excel gerado');
 }
 
@@ -2234,7 +2256,7 @@ function lerRubricasXlsx(arrayBuffer){
   return mapa;
 }
 
-function montarWorkbookConferenciaEvento1200(detalhe, porCpf){
+async function montarWorkbookConferenciaEvento1200(detalhe, porCpf){
   const cabecalhoResumo = ['CPF Trabalhador','Matrícula','Total Proventos','Total Descontos','Saldo Final','Rubricas não cadastradas'];
   const listaCpf = Object.values(porCpf);
   const linhasResumo = listaCpf.map(r=>[r.cpf, r.matricula, r.proventos, r.descontos, r.proventos - r.descontos, r.naoMapeadas]);
@@ -2261,7 +2283,7 @@ function montarWorkbookConferenciaEvento1200(detalhe, porCpf){
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalhoResumo, ...linhasResumo]), 'Resumo por CPF');
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalhoDetalhe, ...linhasDetalhe]), 'Detalhe');
-  XLSX.writeFile(livro, `conferencia-evento-1200-${hojeLocalISO()}.xlsx`);
+  await salvarWorkbook(livro, `conferencia-evento-1200-${hojeLocalISO()}.xlsx`);
 }
 
 async function gerarConferenciaEvento1200(){
@@ -2304,7 +2326,7 @@ async function gerarConferenciaEvento1200(){
       if(!l.rubrica) porCpf[cpf].naoMapeadas++;
     });
 
-    montarWorkbookConferenciaEvento1200(detalhe, porCpf);
+    await montarWorkbookConferenciaEvento1200(detalhe, porCpf);
     const qtdCpf = Object.keys(porCpf).length;
     statusEl.textContent = `Pronto! ${detalhe.length} rubrica(s) de ${qtdCpf} trabalhador(es) processadas.` +
       (naoMapeadas > 0 ? `\n⚠ ${naoMapeadas} rubrica(s) sem cadastro na planilha de Rubricas — confira a coluna "Situação" na aba Detalhe.` : '');
@@ -2451,7 +2473,7 @@ function parseRetornoEvento1200Xml(xmlText, nomeArquivo){
   return resultado;
 }
 
-function montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss, todasBasesFgts){
+async function montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss, todasBasesFgts){
   const cabRetorno = ['Arquivo','Insc. Empregador','Ambiente','Data/Hora Recepção','Versão App Recepção','Protocolo Envio Lote','Cód. Resposta','Descrição Resposta','Versão App Processamento','Data/Hora Processamento','Nº Recibo','Hash'];
   const linhasRetorno = retornos.map(r=>[r.arquivo, r.nrInscEmpregador, r.tpAmb, r.dhRecepcao, r.versaoAppRecepcao, r.protocoloEnvioLote, r.cdResposta, r.descResposta, r.versaoAppProcessamento, r.dhProcessamento, r.nrRecibo, r.hash]);
 
@@ -2469,7 +2491,7 @@ function montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabRubricas, ...linhasRubricas]), 'Rubricas do Recibo');
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabInss, ...linhasInss]), 'S-5001 Bases INSS');
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabFgts, ...linhasFgts]), 'S-5003 Bases FGTS');
-  XLSX.writeFile(livro, `retorno-evento-1200-${hojeLocalISO()}.xlsx`);
+  await salvarWorkbook(livro, `retorno-evento-1200-${hojeLocalISO()}.xlsx`);
 }
 
 async function gerarRetornoEvento1200(){
@@ -2493,7 +2515,7 @@ async function gerarRetornoEvento1200(){
     if(retornos.length === 0 && todasRubricas.length === 0 && todasBasesInss.length === 0 && todasBasesFgts.length === 0){
       throw new Error('Nenhum dado reconhecido nesses arquivos — confira se são XMLs de retorno do evento 1200.');
     }
-    montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss, todasBasesFgts);
+    await montarWorkbookRetornoEvento1200(retornos, todasRubricas, todasBasesInss, todasBasesFgts);
     statusEl.textContent = `Pronto! ${retornos.length} retorno(s), ${todasRubricas.length} rubrica(s), ${todasBasesInss.length} linha(s) de base INSS e ${todasBasesFgts.length} linha(s) de base FGTS.`;
     toast('Planilha de retorno gerada!');
   }catch(err){
@@ -2540,7 +2562,7 @@ async function gerarEvento1210Pagamentos(arquivos){
   const linhas = todasLinhas.map(l=>[l.arquivo, l.indRetif, l.perApur, l.nrInscEmpregador, l.cpfBenef, l.dtPgto, l.tpPgto, l.perRef, l.ideDmDev, Number(l.vrLiq)||0]);
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalho, ...linhas]), 'Pagamentos');
-  XLSX.writeFile(livro, `s1210-pagamentos-${hojeLocalISO()}.xlsx`);
+  await salvarWorkbook(livro, `s1210-pagamentos-${hojeLocalISO()}.xlsx`);
   return `Pronto! ${todasLinhas.length} pagamento(s) processado(s).`;
 }
 
@@ -2668,7 +2690,7 @@ async function gerarEvento1210Retorno(arquivos){
   const cabConsolidado = ['Arquivo','Nº Recibo Base','Período Apuração','Insc. Empregador','CPF Beneficiário', ...CAMPOS_APURACAO_IR];
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabConsolidado, ...todoConsolidado.map(l=>[l.arquivo, l.nrRecArqBase, l.perApur, l.nrInscEmpregador, l.cpfBenef, ...CAMPOS_APURACAO_IR.map(c=>l[c]!=='' && !isNaN(Number(l[c])) ? Number(l[c]) : l[c])])]), 'Consolidado (IR)');
 
-  XLSX.writeFile(livro, `s1210-retorno-${hojeLocalISO()}.xlsx`);
+  await salvarWorkbook(livro, `s1210-retorno-${hojeLocalISO()}.xlsx`);
   return `Pronto! ${retornos.length} retorno(s), ${todasRubricas.length} rubrica(s) e ${todoInfoIR.length} linha(s) de IRRF processadas.`;
 }
 
@@ -2862,7 +2884,7 @@ async function gerarS5011(arquivos){
   }
   const agregado = agregarEvtCS(todosEvt);
   const livro = montarWorkbookS5011(agregado);
-  XLSX.writeFile(livro, `s5011-contribuicoes-sociais-${hojeLocalISO()}.xlsx`);
+  await salvarWorkbook(livro, `s5011-contribuicoes-sociais-${hojeLocalISO()}.xlsx`);
   const duplicados = agregado.totalArquivos - agregado.totalUnicos;
   return `Pronto! ${agregado.totalUnicos} evento(s) processado(s) (${Object.keys(agregado.porCompetencia).length} competência(s), ${Object.keys(agregado.porAno).length} ano(s) com 13º).` +
     (duplicados > 0 ? `\n${duplicados} arquivo(s) duplicado(s) (mesmo Id) foram ignorados.` : '');
@@ -2925,7 +2947,7 @@ async function gerarS5012(arquivos){
   }
   const agregado = agregarEvtIrrf(todosEvt);
   const livro = montarWorkbookS5012(agregado);
-  XLSX.writeFile(livro, `s5012-irrf-consolidado-${hojeLocalISO()}.xlsx`);
+  await salvarWorkbook(livro, `s5012-irrf-consolidado-${hojeLocalISO()}.xlsx`);
   const duplicados = agregado.totalArquivos - agregado.totalUnicos;
   return `Pronto! ${agregado.totalUnicos} evento(s) processado(s) (${Object.keys(agregado.porCompetencia).length} competência(s)).` +
     (duplicados > 0 ? `\n${duplicados} arquivo(s) duplicado(s) (mesmo Id) foram ignorados.` : '');
@@ -3052,7 +3074,7 @@ async function gerarS5013(arquivos){
   }
   const agregado = agregarEvtFGTS(todosEvt);
   const livro = montarWorkbookS5013(agregado);
-  XLSX.writeFile(livro, `s5013-fgts-${hojeLocalISO()}.xlsx`);
+  await salvarWorkbook(livro, `s5013-fgts-${hojeLocalISO()}.xlsx`);
   const duplicados = agregado.totalArquivos - agregado.totalUnicos;
   return `Pronto! ${agregado.totalUnicos} evento(s) processado(s) (${Object.keys(agregado.porCompetencia).length} competência(s), ${Object.keys(agregado.porAno).length} ano(s) com 13º).` +
     (duplicados > 0 ? `\n${duplicados} arquivo(s) duplicado(s) (mesmo Id) foram ignorados.` : '');
