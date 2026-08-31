@@ -31,6 +31,7 @@ const TOMTICKET_WEBHOOK_SECRET = Deno.env.get('TOMTICKET_WEBHOOK_SECRET') || '';
 const TOMTICKET_EMPRESA_ID = Deno.env.get('TOMTICKET_EMPRESA_ID') || '';
 const TIPO_TOMTICKET = 'TOMTICKET';
 const CLIENTE_PADRAO = 'CORAL';
+const ATENDENTE_PADRAO = 'ALLAN';
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -103,6 +104,14 @@ async function garantirClientePadrao(): Promise<{ nome: string }> {
   return { nome: CLIENTE_PADRAO };
 }
 
+// mesma ideia, mas pro atendente: quando o técnico do TomTicket não bate
+// com ninguém cadastrado, usa esse atendente fixo (que precisa já existir
+// como conta ATENDENTE — diferente do cliente, não cria conta nova aqui)
+async function buscarAtendentePadrao(): Promise<{ nome: string } | null> {
+  const { data } = await db.from('contas').select('nome').eq('perfil', 'ATENDENTE').ilike('nome', ATENDENTE_PADRAO).maybeSingle();
+  return data;
+}
+
 async function processarChamado(ticketId: string) {
   if (!TOMTICKET_API_TOKEN || !TOMTICKET_EMPRESA_ID) {
     console.error('[tomticket] TOMTICKET_API_TOKEN ou TOMTICKET_EMPRESA_ID não configurados — não é possível processar.');
@@ -130,10 +139,11 @@ async function processarChamado(ticketId: string) {
     db.from('contas').select('*').eq('perfil', 'ATENDENTE').ilike('nome', operatorNome).maybeSingle(),
   ]);
 
-  // sem atendente cadastrado, não dá pra saber quem fez o atendimento —
-  // continua exigindo isso, só o cliente tem um valor padrão de reserva
-  if (!atendenteEncontrado) {
-    await registrarErro(ticketId, `Não encontrei atendente "${operatorNome}" cadastrado no sistema — atendimento não foi criado.`, chamado);
+  const atendente = atendenteEncontrado || await buscarAtendentePadrao();
+  if (!atendente) {
+    // só acontece se nem o atendente padrão existir cadastrado — situação
+    // de configuração errada, não dá mesmo pra criar o atendimento
+    await registrarErro(ticketId, `Não encontrei atendente "${operatorNome}" nem o atendente padrão "${ATENDENTE_PADRAO}" cadastrados no sistema — atendimento não foi criado.`, chamado);
     return;
   }
 
@@ -153,7 +163,7 @@ async function processarChamado(ticketId: string) {
     id: gerarId(), data, mes,
     cliente: cliente.nome, usuario: usuarioNome || cliente.nome,
     tipo: TIPO_TOMTICKET, modulo: '', submodulo: '',
-    atendente: atendenteEncontrado.nome, assunto: chamado.subject || '', detalhe,
+    atendente: atendente.nome, assunto: chamado.subject || '', detalhe,
     hi: '00:00', inter: '00:00', hf: '00:00', qtd: 0, vha: 0, total_ananda: 0, vhr: 0, total_real: 0,
     status: 'PENDENTE', anexo_url: '', anexo_nome: '', solucao: '', data_prevista: '',
     atendente2: '', horas_atendente2: 0, vha2: 0, total_ananda2: 0,
