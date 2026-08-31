@@ -890,14 +890,15 @@ function popularSelects(){
   if(isUsuario && tipoOnline){
     document.getElementById('campoTipo').style.display = 'none';
     document.getElementById('campoTipoFixo').style.display = '';
-    renderSegmentado('f_tipo', tipos.map(t=>t.nome), tipoOnline.nome);
+    renderLookupSingle('f_tipo', tipos.map(t=>t.nome), tipoOnline.nome, 'Buscar tipo de atendimento…', labelTipo);
   }else{
     document.getElementById('campoTipo').style.display = '';
     document.getElementById('campoTipoFixo').style.display = 'none';
-    renderSegmentado('f_tipo', tipos.map(t=>t.nome), tipos[0]?.nome);
+    renderLookupSingle('f_tipo', tipos.map(t=>t.nome), tipos[0]?.nome, 'Buscar tipo de atendimento…', labelTipo);
   }
-  renderSegmentado('f_atendente', contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome), null);
-  renderSegmentado('f_atendente2', ['Nenhum', ...contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome)], 'Nenhum');
+  const nomesAtendentesForm = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>a.nome);
+  renderLookupSingle('f_atendente', nomesAtendentesForm, nomesAtendentesForm[0] || null, 'Buscar atendente…');
+  renderLookupSingle('f_atendente2', ['Nenhum', ...nomesAtendentesForm], 'Nenhum', 'Buscar segundo atendente…');
 
   // usuário solicitante não escolhe o atendente — um atendente qualquer assume o chamado
   document.getElementById('campoAtendente').style.display = isUsuario ? 'none' : '';
@@ -948,6 +949,88 @@ function segmentedSetup(containerId, onChange){
   });
 }
 
+/* ---------- lookup de seleção única (campo de busca + dropdown) — usado em
+   Tipo de atendimento/Atendente/Segundo atendente, que com muitas opções
+   cadastradas ficavam ilegíveis como botões em linha (segmentado) ---------- */
+let lookupSingleOpcoes = {};   // containerId -> lista de valores brutos disponíveis
+let lookupSingleValores = {};  // containerId -> valor bruto selecionado (ou null)
+let lookupSingleOnChange = {}; // containerId -> callback chamado ao confirmar uma escolha
+let lookupSingleLabelFn = {};  // containerId -> função opcional valor bruto -> texto exibido
+function lookupSingleLabel(containerId, valor){
+  if(!valor) return '';
+  const fn = lookupSingleLabelFn[containerId];
+  return fn ? fn(valor) : valor;
+}
+function renderLookupSingle(containerId, opcoes, valorAtual, placeholder, labelFn){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  lookupSingleOpcoes[containerId] = opcoes;
+  lookupSingleValores[containerId] = valorAtual || null;
+  if(labelFn) lookupSingleLabelFn[containerId] = labelFn;
+  el.innerHTML = `<input type="text" class="lookup-single-input" autocomplete="off" placeholder="${escaparHtml(placeholder||'Buscar…')}">
+    <div class="lookup-dropdown"></div>`;
+  el.querySelector('.lookup-single-input').value = lookupSingleLabel(containerId, valorAtual);
+}
+function getLookupSingleValor(containerId){ return lookupSingleValores[containerId] || null; }
+function setLookupSingleValor(containerId, valor){
+  lookupSingleValores[containerId] = valor || null;
+  const el = document.getElementById(containerId);
+  const input = el && el.querySelector('.lookup-single-input');
+  if(input) input.value = lookupSingleLabel(containerId, valor);
+}
+function renderLookupSingleDropdown(containerId, termo){
+  const el = document.getElementById(containerId);
+  const dd = el && el.querySelector('.lookup-dropdown');
+  if(!dd) return;
+  const opcoes = lookupSingleOpcoes[containerId] || [];
+  const t = String(termo||'').trim().toLowerCase();
+  const filtradas = opcoes.filter(o => !t || lookupSingleLabel(containerId,o).toLowerCase().includes(t));
+  if(filtradas.length === 0){ dd.innerHTML = `<div class="lookup-dropdown-empty">Nada encontrado.</div>`; return; }
+  const atual = lookupSingleValores[containerId];
+  dd.innerHTML = filtradas.map(o=>`<div class="lookup-dropdown-item ${o===atual?'sel':''}" data-lookup-valor="${escaparHtml(o)}">${o===atual?'✓ ':''}${escaparHtml(lookupSingleLabel(containerId,o))}</div>`).join('');
+}
+// registra os eventos uma única vez por container (o innerHTML é
+// recriado a cada renderLookupSingle, mas o próprio container não, então
+// o listener continua funcionando por delegação)
+function wireLookupSingle(containerId, onChange){
+  const el = document.getElementById(containerId);
+  if(!el || el.dataset.lookupWired) return;
+  el.dataset.lookupWired = '1';
+  if(onChange) lookupSingleOnChange[containerId] = onChange;
+  el.addEventListener('mousedown', e=>{ if(e.target.closest('.lookup-dropdown-item')) e.preventDefault(); });
+  el.addEventListener('click', e=>{
+    const item = e.target.closest('.lookup-dropdown-item');
+    if(!item) return;
+    const valor = item.dataset.lookupValor;
+    setLookupSingleValor(containerId, valor);
+    el.querySelector('.lookup-dropdown').classList.remove('show');
+    const cb = lookupSingleOnChange[containerId];
+    if(cb) cb();
+  });
+  el.addEventListener('input', e=>{
+    if(!e.target.classList.contains('lookup-single-input')) return;
+    renderLookupSingleDropdown(containerId, e.target.value);
+    el.querySelector('.lookup-dropdown').classList.add('show');
+  });
+  el.addEventListener('focusin', e=>{
+    if(!e.target.classList.contains('lookup-single-input')) return;
+    renderLookupSingleDropdown(containerId, '');
+    el.querySelector('.lookup-dropdown').classList.add('show');
+    e.target.select();
+  });
+  el.addEventListener('focusout', e=>{
+    if(!e.target.classList.contains('lookup-single-input')) return;
+    // atraso pequeno pra dar tempo do clique num item do dropdown ser
+    // processado antes dele sumir (senão o blur esconde antes do click)
+    setTimeout(()=>{
+      const dd = el.querySelector('.lookup-dropdown');
+      if(dd) dd.classList.remove('show');
+      const input = el.querySelector('.lookup-single-input');
+      if(input) input.value = lookupSingleLabel(containerId, lookupSingleValores[containerId]);
+    }, 150);
+  });
+}
+
 /* ---------- valores por atendente+cliente+tipo (para o preview local) ---------- */
 function valoresPara(clienteNome, tipoNome, atendenteNome){
   const cliente = clientes.find(c=>c.nome===clienteNome);
@@ -959,7 +1042,7 @@ function valoresPara(clienteNome, tipoNome, atendenteNome){
 }
 
 function atualizarVisibilidadeHoras2(){
-  const atendente2Nome = getSegSel('f_atendente2');
+  const atendente2Nome = getLookupSingleValor('f_atendente2');
   const tem2 = atendente2Nome && atendente2Nome !== 'Nenhum';
   document.getElementById('campoHorasAtendente2').style.display = tem2 ? '' : 'none';
   if(!tem2) document.getElementById('f_horas_atendente2').value = '';
@@ -968,8 +1051,8 @@ function atualizarVisibilidadeHoras2(){
 function atualizarPreview(){
   const clienteId = document.getElementById('f_cliente').value;
   const clienteNome = clientes.find(c=>String(c.id)===String(clienteId))?.nome;
-  const tipoNome = getSegSel('f_tipo');
-  const atendenteNome = getSegSel('f_atendente');
+  const tipoNome = getLookupSingleValor('f_tipo');
+  const atendenteNome = getLookupSingleValor('f_atendente');
   const hi = document.getElementById('f_hi').value;
   const hf = document.getElementById('f_hf').value;
   const inter = document.getElementById('f_inter').value;
@@ -980,7 +1063,7 @@ function atualizarPreview(){
   document.getElementById('p_ananda').textContent = fmtMoeda(qtd * vals.ananda);
   document.getElementById('p_real').textContent = fmtMoeda(qtd * vals.real);
 
-  const atendente2Nome = getSegSel('f_atendente2');
+  const atendente2Nome = getLookupSingleValor('f_atendente2');
   const statAnanda2 = document.getElementById('stat_ananda2');
   if(atendente2Nome && atendente2Nome !== 'Nenhum'){
     // o 2º atendente ganha pela taxa "Valor 2º Atendente/h" cadastrada na
@@ -1031,11 +1114,9 @@ function resetForm(){
   document.getElementById('blocoMovimentacoesEdicao').style.display = 'none';
 
   if(conta && conta.perfil === 'ATENDENTE'){
-    const btn = document.querySelector(`#f_atendente button[data-val="${conta.nome}"]`);
-    if(btn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); btn.classList.add('sel'); }
+    setLookupSingleValor('f_atendente', conta.nome);
   }
-  const at2Btn = document.querySelector(`#f_atendente2 button[data-val="Nenhum"]`);
-  if(at2Btn){ document.querySelectorAll('#f_atendente2 button').forEach(b=>b.classList.remove('sel')); at2Btn.classList.add('sel'); }
+  setLookupSingleValor('f_atendente2', 'Nenhum');
   atualizarVisibilidadeHoras2();
   atualizarPreview();
 }
@@ -1048,12 +1129,12 @@ async function salvarRegistro(){
   const usuario = document.getElementById('f_usuario').value;
   const modulo = document.getElementById('f_modulo').value;
   const submodulo = document.getElementById('f_submodulo').value;
-  const tipo = getSegSel('f_tipo');
+  const tipo = getLookupSingleValor('f_tipo');
   const conta = contaAtual();
   const isUsuario = conta && conta.perfil === 'USUARIO';
-  const atendente = isUsuario ? '' : getSegSel('f_atendente');
+  const atendente = isUsuario ? '' : getLookupSingleValor('f_atendente');
   if(!tipo || (!isUsuario && !atendente)){ toast('Cadastre ao menos um tipo e um atendente'); return; }
-  const at2Sel = isUsuario ? 'Nenhum' : getSegSel('f_atendente2');
+  const at2Sel = isUsuario ? 'Nenhum' : getLookupSingleValor('f_atendente2');
   const atendente2 = at2Sel && at2Sel !== 'Nenhum' ? at2Sel : '';
   if(atendente2 && atendente2 === atendente){ toast('O segundo atendente não pode ser o mesmo que o atendente principal'); return; }
   const horasAtendente2 = atendente2 ? (Number(document.getElementById('f_horas_atendente2').value) || 0) : 0;
@@ -1114,14 +1195,9 @@ function editar(id){
   document.getElementById('f_usuario').value = r.usuario;
   document.getElementById('f_modulo').value = r.modulo || '';
   document.getElementById('f_submodulo').value = r.submodulo || '';
-  const tipoBtn = document.querySelector(`#f_tipo button[data-val="${r.tipo}"]`);
-  if(tipoBtn){ document.querySelectorAll('#f_tipo button').forEach(b=>b.classList.remove('sel')); tipoBtn.classList.add('sel'); }
-  const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
-  if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
-  const at2Val = r.atendente2 || 'Nenhum';
-  const at2Btn = document.querySelector(`#f_atendente2 button[data-val="${at2Val}"]`);
-  document.querySelectorAll('#f_atendente2 button').forEach(b=>b.classList.remove('sel'));
-  (at2Btn || document.querySelector(`#f_atendente2 button[data-val="Nenhum"]`))?.classList.add('sel');
+  setLookupSingleValor('f_tipo', r.tipo);
+  setLookupSingleValor('f_atendente', r.atendente);
+  setLookupSingleValor('f_atendente2', r.atendente2 || 'Nenhum');
   document.getElementById('f_horas_atendente2').value = r.atendente2 ? Number(r.horasAtendente2||0) : '';
   atualizarVisibilidadeHoras2();
   document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
@@ -1172,14 +1248,9 @@ function copiarAtendimento(id){
   document.getElementById('f_usuario').value = r.usuario;
   document.getElementById('f_modulo').value = r.modulo || '';
   document.getElementById('f_submodulo').value = r.submodulo || '';
-  const tipoBtn = document.querySelector(`#f_tipo button[data-val="${r.tipo}"]`);
-  if(tipoBtn){ document.querySelectorAll('#f_tipo button').forEach(b=>b.classList.remove('sel')); tipoBtn.classList.add('sel'); }
-  const atBtn = document.querySelector(`#f_atendente button[data-val="${r.atendente}"]`);
-  if(atBtn){ document.querySelectorAll('#f_atendente button').forEach(b=>b.classList.remove('sel')); atBtn.classList.add('sel'); }
-  const at2Val = r.atendente2 || 'Nenhum';
-  const at2Btn = document.querySelector(`#f_atendente2 button[data-val="${at2Val}"]`);
-  document.querySelectorAll('#f_atendente2 button').forEach(b=>b.classList.remove('sel'));
-  (at2Btn || document.querySelector(`#f_atendente2 button[data-val="Nenhum"]`))?.classList.add('sel');
+  setLookupSingleValor('f_tipo', r.tipo);
+  setLookupSingleValor('f_atendente', r.atendente);
+  setLookupSingleValor('f_atendente2', r.atendente2 || 'Nenhum');
   document.getElementById('f_horas_atendente2').value = r.atendente2 ? Number(r.horasAtendente2||0) : '';
   atualizarVisibilidadeHoras2();
   document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
@@ -4677,6 +4748,12 @@ async function criarAgendamento(){
   const tipoRepeticao = document.getElementById('ag_repetir').value;
   const repetirAte = document.getElementById('ag_repetir_ate').value;
 
+  // antes essas duas condições faziam a repetição ser ignorada em
+  // silêncio (só criava 1 agendamento, sem avisar nada) — agora avisa
+  // exatamente o que falta, em vez de parecer que "repetir não funciona"
+  if(tipoRepeticao !== 'nao' && !repetirAte){ toast('Preencha "Repetir até" pra criar os agendamentos repetidos'); return; }
+  if(tipoRepeticao !== 'nao' && repetirAte <= dataInicial){ toast('"Repetir até" precisa ser uma data depois da Data inicial'); return; }
+
   // monta a lista de datas: só a data escolhida (sem repetição), ou uma
   // por ocorrência até "repetir até" — com um teto de segurança (200)
   // pra nunca criar uma quantidade absurda de agendamentos sem querer
@@ -6177,9 +6254,9 @@ function configurarPullParaAtualizar(){
 
 /* ---------- init ---------- */
 window.addEventListener('DOMContentLoaded', async ()=>{
-  segmentedSetup('f_tipo', atualizarPreview);
-  segmentedSetup('f_atendente', atualizarPreview);
-  segmentedSetup('f_atendente2', ()=>{ atualizarVisibilidadeHoras2(); atualizarPreview(); });
+  wireLookupSingle('f_tipo', atualizarPreview);
+  wireLookupSingle('f_atendente', atualizarPreview);
+  wireLookupSingle('f_atendente2', ()=>{ atualizarVisibilidadeHoras2(); atualizarPreview(); });
   configurarEditorRico();
   configurarPullParaAtualizar();
   document.addEventListener('click', e=>{ if(!e.target.closest('.acoes-wrap')) fecharAcoesMenu(); });
