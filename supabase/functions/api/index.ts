@@ -119,7 +119,7 @@ function valorParaApi(v: any) {
 function atendimentoParaApi(a: any) {
   return {
     id: a.id, data: a.data, mes: a.mes, cliente: a.cliente, usuario: a.usuario, tipo: a.tipo,
-    modulo: a.modulo, submodulo: a.submodulo, atendente: a.atendente, detalhe: a.detalhe,
+    modulo: a.modulo, submodulo: a.submodulo, atendente: a.atendente, assunto: a.assunto || '', detalhe: a.detalhe,
     hi: a.hi, inter: a.inter, hf: a.hf, qtd: a.qtd, vha: a.vha, totalAnanda: a.total_ananda,
     vhr: a.vhr, totalReal: a.total_real, status: a.status, anexoUrl: a.anexo_url, anexoNome: a.anexo_nome,
     solucao: a.solucao || '', dataPrevista: a.data_prevista || '',
@@ -502,7 +502,7 @@ async function acaoSalvarAtendimento(req: any) {
     id: req.id || gerarId(),
     data: req.data, mes, cliente: req.cliente, usuario: req.usuario, tipo: req.tipo,
     modulo: req.modulo || '', submodulo: req.submodulo || '',
-    atendente: req.atendente || '', detalhe: req.detalhe || '',
+    atendente: req.atendente || '', assunto: req.assunto || '', detalhe: req.detalhe || '',
     hi: req.hi || '00:00', inter: req.inter || '00:00', hf: req.hf || '00:00',
     qtd, vha: ananda, total_ananda: qtd * ananda, vhr: real, total_real: qtd * real, status: statusFinal,
     anexo_url: anexoUrl, anexo_nome: anexoNome, solucao: req.solucao || '',

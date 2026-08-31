@@ -144,14 +144,16 @@ async function processarChamado(ticketId: string) {
   const agora = new Date();
   const data = agora.toISOString().slice(0, 10);
   const mes = `${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()}`;
-  const detalhe = `<b>${escaparHtml(chamado.subject || '')}</b><br>${escaparHtml(chamado.message || '')}`
-    + `<br><br><i>Importado automaticamente do TomTicket — protocolo ${escaparHtml(String(chamado.protocol ?? ''))}</i>`;
+  const linkChamado = `https://console.tomticket.com/dashboard/tickets/history/${encodeURIComponent(ticketId)}`;
+  const detalhe = `${escaparHtml(chamado.message || '')}`
+    + `<br><br><i>Importado automaticamente do TomTicket — protocolo ${escaparHtml(String(chamado.protocol ?? ''))}`
+    + ` — <a href="${linkChamado}" target="_blank" rel="noopener">Ver chamado no TomTicket</a></i>`;
 
   const { error } = await db.from('atendimentos').insert({
     id: gerarId(), data, mes,
     cliente: cliente.nome, usuario: usuarioNome || cliente.nome,
     tipo: TIPO_TOMTICKET, modulo: '', submodulo: '',
-    atendente: atendenteEncontrado.nome, detalhe,
+    atendente: atendenteEncontrado.nome, assunto: chamado.subject || '', detalhe,
     hi: '00:00', inter: '00:00', hf: '00:00', qtd: 0, vha: 0, total_ananda: 0, vhr: 0, total_real: 0,
     status: 'PENDENTE', anexo_url: '', anexo_nome: '', solucao: '', data_prevista: '',
     atendente2: '', horas_atendente2: 0, vha2: 0, total_ananda2: 0,

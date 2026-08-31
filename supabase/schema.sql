@@ -627,6 +627,11 @@ alter table atendimentos add column if not exists tomticket_id text;
 create unique index if not exists idx_atendimentos_tomticket_id
   on atendimentos (tomticket_id) where tomticket_id is not null;
 
+-- guarda o assunto do atendimento — usado em qualquer atendimento, e
+-- preenchido automaticamente com o "subject" do chamado nos importados do
+-- TomTicket
+alter table atendimentos add column if not exists assunto text default '';
+
 -- fila de "não deu pra importar" — cliente ou atendente do chamado não
 -- bateu com ninguém já cadastrado aqui; fica registrado pra alguém
 -- revisar manualmente (ver Utilitários → TomTicket)

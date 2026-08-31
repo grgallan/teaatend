@@ -205,7 +205,7 @@ function configurarBuscaVinculo(buscaInputId, resultadosId, obterAtendimentoIdAt
     const atualId = obterAtendimentoIdAtual();
     const resultados = atendimentos
       .filter(r => String(r.id) !== String(atualId))
-      .filter(r => `${r.cliente} ${r.usuario} ${stripHtml(r.detalhe||'')} ${r.tipo}`.toLowerCase().includes(termo))
+      .filter(r => `${r.cliente} ${r.usuario} ${r.assunto||''} ${stripHtml(r.detalhe||'')} ${r.tipo}`.toLowerCase().includes(termo))
       .slice(0, 8);
     if(resultados.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum chamado encontrado.</div>`; return; }
     cont.innerHTML = resultados.map(r=>`
@@ -1082,6 +1082,7 @@ function resetForm(){
   document.getElementById('btnSalvar').textContent = 'Salvar atendimento';
   document.getElementById('f_data').value = new Date().toISOString().slice(0,10);
   popularSelects();
+  document.getElementById('f_assunto').value = '';
   document.getElementById('f_detalhe').innerHTML = '';
   document.getElementById('f_solucao').innerHTML = '';
   const conta = contaAtual();
@@ -1139,6 +1140,7 @@ async function salvarRegistro(){
   const atendente2 = at2Sel && at2Sel !== 'Nenhum' ? at2Sel : '';
   if(atendente2 && atendente2 === atendente){ toast('O segundo atendente não pode ser o mesmo que o atendente principal'); return; }
   const horasAtendente2 = atendente2 ? (Number(document.getElementById('f_horas_atendente2').value) || 0) : 0;
+  const assunto = document.getElementById('f_assunto').value.trim();
   const detalhe = sanitizarHtml(document.getElementById('f_detalhe').innerHTML.trim());
   const solucao = sanitizarHtml(document.getElementById('f_solucao').innerHTML.trim());
   const hi = document.getElementById('f_hi').value;
@@ -1153,7 +1155,7 @@ async function salvarRegistro(){
   btn.textContent = 'Salvando…';
   try{
     const dataPrevista = isUsuario ? '' : document.getElementById('f_data_prevista').value;
-    const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
+    const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, assunto, detalhe, solucao, hi, inter, hf, status,
       dataPrevista, atendente2, horasAtendente2, empresaId: empresaAtual ? empresaAtual.id : '',
       qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
@@ -1201,6 +1203,7 @@ function editar(id){
   setLookupSingleValor('f_atendente2', r.atendente2 || 'Nenhum');
   document.getElementById('f_horas_atendente2').value = r.atendente2 ? Number(r.horasAtendente2||0) : '';
   atualizarVisibilidadeHoras2();
+  document.getElementById('f_assunto').value = r.assunto || '';
   document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
   document.getElementById('f_solucao').innerHTML = sanitizarHtml(r.solucao || '');
   document.getElementById('f_hi').value = r.hi;
@@ -1254,6 +1257,7 @@ function copiarAtendimento(id){
   setLookupSingleValor('f_atendente2', r.atendente2 || 'Nenhum');
   document.getElementById('f_horas_atendente2').value = r.atendente2 ? Number(r.horasAtendente2||0) : '';
   atualizarVisibilidadeHoras2();
+  document.getElementById('f_assunto').value = r.assunto || '';
   document.getElementById('f_detalhe').innerHTML = sanitizarHtml(r.detalhe || '');
   document.getElementById('f_solucao').innerHTML = '';
   document.getElementById('f_hi').value = r.hi;
@@ -1493,6 +1497,7 @@ function renderLinhaAtendimento(r, ctx, opts){
         </div>
       </div>
       ${modSub ? `<div class="detalhe" style="color:var(--accent);font-weight:600;">${modSub}</div>` : ''}
+      ${r.assunto ? `<div class="detalhe" style="font-weight:600;">${escaparHtml(r.assunto)}</div>` : ''}
       ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe).slice(0,140))}${stripHtml(r.detalhe).length>140?'…':''}</div>` : ''}
       <div class="meta">
         <span class="tag">${labelTipo(r.tipo)}</span>
@@ -1579,6 +1584,7 @@ function renderKanbanCard(r, opts){
       <div class="kanban-card-body">
         <div class="cliente">${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
         <div class="data">${dataFmt} · ${Number(r.qtd).toFixed(2).replace('.',',')}h</div>
+        ${r.assunto ? `<div class="detalhe" style="font-weight:600;">${escaparHtml(r.assunto)}</div>` : ''}
         ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe))}</div>` : ''}
         <div class="meta">
           <span class="tag">${labelTipo(r.tipo)}</span>
@@ -4888,10 +4894,10 @@ function exportarCsv(){
 
   itens = itens.slice().sort((a,b)=>String(a.data).localeCompare(String(b.data)));
   if(itens.length===0){ toast('Nada para exportar com esse filtro'); return; }
-  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','2º ATENDENTE','HORAS 2º ATENDENTE','VALOR 2º ATENDENTE/H','TOTAL 2º ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
+  const header = ['DATA','MES','CLIENTE','USUARIO','MODULO','SUBMODULO','TIPO ATENDIMENTO','ATENDENTE','ASSUNTO','DETALHE','SOLUCAO','HI','INTER','HF','QTD','VALOR ATENDENTE/H','TOTAL ATENDENTE','2º ATENDENTE','HORAS 2º ATENDENTE','VALOR 2º ATENDENTE/H','TOTAL 2º ATENDENTE','STATUS','VHR','TOTAL REAL','ANEXO'];
   const rows = itens.map(r=>{
     const [y,m,d]=String(r.data).split('-');
-    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, stripHtml(r.detalhe).replace(/;/g,','), stripHtml(r.solucao).replace(/;/g,','), r.hi, r.inter, r.hf,
+    return [`${d}/${m}/${y}`, r.mes, r.cliente, r.usuario, r.modulo||'', r.submodulo||'', r.tipo, r.atendente, (r.assunto||'').replace(/;/g,','), stripHtml(r.detalhe).replace(/;/g,','), stripHtml(r.solucao).replace(/;/g,','), r.hi, r.inter, r.hf,
       Number(r.qtd).toFixed(2), r.vha, Number(r.totalAnanda).toFixed(2), r.atendente2||'', Number(r.horasAtendente2||0).toFixed(2), r.vha2||0, Number(r.totalAnanda2||0).toFixed(2), r.status, r.vhr, Number(r.totalReal).toFixed(2), r.anexoUrl||''];
   });
   const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
@@ -5513,6 +5519,7 @@ const COLUNAS_RELATORIO = [
   { key:'tipo', label:'Tipo', formatar:r=>labelTipo(r.tipo) },
   { key:'modulo', label:'Módulo', formatar:r=>r.modulo||'' },
   { key:'submodulo', label:'Sub Módulo', formatar:r=>r.submodulo||'' },
+  { key:'assunto', label:'Assunto', formatar:r=>r.assunto||'' },
   { key:'detalhe', label:'Detalhe', formatar:r=>stripHtml(r.detalhe||'') },
   { key:'solucao', label:'Solução', formatar:r=>stripHtml(r.solucao||'') },
   { key:'horario', label:'Horário (Inicial–Final)', formatar:r=>`${r.hi}–${r.hf}` },
@@ -5692,6 +5699,7 @@ async function abrirDetalhe(atendimentoId){
       ${dataPrevistaTexto ? `<div><span style="color:var(--muted);">Previsão de conclusão</span><br>${dataPrevistaTexto} ${flagPrazo(r)}</div>` : ''}
     </div>
     ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;margin-bottom:4px;">${modSub}</div>` : ''}
+    ${r.assunto ? `<div style="font-weight:600;font-size:13px;margin-bottom:4px;">${escaparHtml(r.assunto)}</div>` : ''}
     ${r.detalhe ? `<div class="rt-content" style="font-size:12.5px;color:var(--muted);margin-top:2px;">${sanitizarHtml(r.detalhe)}</div>` : ''}
     ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);display:block;margin-bottom:4px;">Solução:</b><div class="rt-content">${sanitizarHtml(r.solucao)}</div></div>` : ''}
   `;
