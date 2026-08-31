@@ -1279,6 +1279,11 @@
           <div class="field"><label>Nome Fantasia</label><input type="text" id="cl_nome_fantasia"></div>
         </div>
         <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">O CNPJ é usado pra vincular automaticamente as notas fiscais importadas a esse cliente.</p>
+        <div class="field" id="campoClienteEmpresa" style="display:none;">
+          <label>Empresa</label>
+          <select id="cl_empresa"></select>
+          <p style="color:var(--muted);font-size:11.5px;margin:4px 0 0;">Mudar a empresa de um cliente já existente faz ele sumir desta lista se a empresa escolhida não for a que está ativa agora.</p>
+        </div>
         <button class="primary" id="btnAddCliente">Adicionar cliente</button>
         <button class="ghost" id="btnCancelarEdicaoCliente" style="display:none;width:100%;margin-top:8px;">Cancelar edição</button>
       </div>

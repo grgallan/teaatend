@@ -1779,6 +1779,7 @@ async function acaoAtualizarCliente(req: any) {
   if (req.nome !== undefined) atualizado.nome = req.nome;
   if (req.cnpj !== undefined) atualizado.cnpj = req.cnpj;
   if (req.nomeFantasia !== undefined) atualizado.nome_fantasia = req.nomeFantasia;
+  if (req.empresaId) atualizado.empresa_id = req.empresaId;
   const { error } = await db.from('clientes').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
