@@ -30,6 +30,7 @@ const TOMTICKET_API_TOKEN = Deno.env.get('TOMTICKET_API_TOKEN') || '';
 const TOMTICKET_WEBHOOK_SECRET = Deno.env.get('TOMTICKET_WEBHOOK_SECRET') || '';
 const TOMTICKET_EMPRESA_ID = Deno.env.get('TOMTICKET_EMPRESA_ID') || '';
 const TIPO_TOMTICKET = 'TOMTICKET';
+const CLIENTE_PADRAO = 'CORAL';
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -93,6 +94,15 @@ async function garantirTipoTomTicket(): Promise<string> {
   return id;
 }
 
+// quando a organização do chamado não bate com nenhum cliente cadastrado,
+// usa esse cliente fixo em vez de deixar de criar o atendimento
+async function garantirClientePadrao(): Promise<{ nome: string }> {
+  const { data: existente } = await db.from('clientes').select('nome').eq('empresa_id', TOMTICKET_EMPRESA_ID).ilike('nome', CLIENTE_PADRAO).maybeSingle();
+  if (existente) return existente;
+  await db.from('clientes').insert({ id: gerarId(), nome: CLIENTE_PADRAO, empresa_id: TOMTICKET_EMPRESA_ID });
+  return { nome: CLIENTE_PADRAO };
+}
+
 async function processarChamado(ticketId: string) {
   if (!TOMTICKET_API_TOKEN || !TOMTICKET_EMPRESA_ID) {
     console.error('[tomticket] TOMTICKET_API_TOKEN ou TOMTICKET_EMPRESA_ID não configurados — não é possível processar.');
@@ -113,24 +123,21 @@ async function processarChamado(ticketId: string) {
   const clienteNome = chamado?.customer?.organization?.name ? String(chamado.customer.organization.name).trim() : '';
   const usuarioNome = chamado?.customer?.name ? String(chamado.customer.name).trim() : '';
 
-  const [{ data: clienteEncontrado, error: erroCliente }, { data: atendenteEncontrado, error: erroAtendente }] = await Promise.all([
+  const [{ data: clienteEncontrado }, { data: atendenteEncontrado }] = await Promise.all([
     clienteNome
-      ? db.from('clientes').select('*').eq('empresa_id', TOMTICKET_EMPRESA_ID).ilike('nome', clienteNome).maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+      ? db.from('clientes').select('nome').eq('empresa_id', TOMTICKET_EMPRESA_ID).ilike('nome', clienteNome).maybeSingle()
+      : Promise.resolve({ data: null }),
     db.from('contas').select('*').eq('perfil', 'ATENDENTE').ilike('nome', operatorNome).maybeSingle(),
   ]);
-  // log temporário de diagnóstico — remover depois de confirmar por que a
-  // busca do atendente "ALLAN" não está encontrando o cadastro
-  if (erroCliente) console.error('[tomticket][debug] erro ao buscar cliente:', JSON.stringify(erroCliente));
-  if (erroAtendente) console.error('[tomticket][debug] erro ao buscar atendente:', JSON.stringify(erroAtendente));
 
-  if (!clienteEncontrado || !atendenteEncontrado) {
-    const partes = [];
-    if (!clienteEncontrado) partes.push(`cliente "${clienteNome || '(vazio)'}"`);
-    if (!atendenteEncontrado) partes.push(`atendente "${operatorNome}"`);
-    await registrarErro(ticketId, `Não encontrei ${partes.join(' e ')} cadastrado(s) no sistema — atendimento não foi criado.`, chamado);
+  // sem atendente cadastrado, não dá pra saber quem fez o atendimento —
+  // continua exigindo isso, só o cliente tem um valor padrão de reserva
+  if (!atendenteEncontrado) {
+    await registrarErro(ticketId, `Não encontrei atendente "${operatorNome}" cadastrado no sistema — atendimento não foi criado.`, chamado);
     return;
   }
+
+  const cliente = clienteEncontrado || await garantirClientePadrao();
 
   await garantirTipoTomTicket(); // garante que o Tipo "TOMTICKET" existe, pra aparecer certo nos filtros/relatórios
 
@@ -142,7 +149,7 @@ async function processarChamado(ticketId: string) {
 
   const { error } = await db.from('atendimentos').insert({
     id: gerarId(), data, mes,
-    cliente: clienteEncontrado.nome, usuario: usuarioNome || clienteEncontrado.nome,
+    cliente: cliente.nome, usuario: usuarioNome || cliente.nome,
     tipo: TIPO_TOMTICKET, modulo: '', submodulo: '',
     atendente: atendenteEncontrado.nome, detalhe,
     hi: '00:00', inter: '00:00', hf: '00:00', qtd: 0, vha: 0, total_ananda: 0, vhr: 0, total_real: 0,
