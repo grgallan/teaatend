@@ -157,8 +157,16 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return jsonResponse({ ok: true });
 
   const corpoTexto = await req.text();
+  const assinaturaRecebida = req.headers.get('X-Hub-Signature');
 
-  if (!(await assinaturaValida(corpoTexto, req.headers.get('X-Hub-Signature')))) {
+  if (!(await assinaturaValida(corpoTexto, assinaturaRecebida))) {
+    // log temporário de diagnóstico — remover depois de confirmar o formato
+    // real que o TomTicket envia (nome do header e algoritmo de assinatura)
+    const headersRecebidos: Record<string, string> = {};
+    for (const [chave, valor] of req.headers.entries()) headersRecebidos[chave] = valor;
+    console.error('[tomticket][debug] assinatura recebida:', assinaturaRecebida);
+    console.error('[tomticket][debug] todos os headers:', JSON.stringify(headersRecebidos));
+    console.error('[tomticket][debug] corpo recebido:', corpoTexto);
     console.error('[tomticket] Assinatura inválida ou TOMTICKET_WEBHOOK_SECRET não configurado — requisição recusada.');
     return jsonResponse({ erro: 'assinatura inválida' }, 401);
   }
