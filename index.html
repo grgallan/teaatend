@@ -406,7 +406,19 @@
   .login-brand{text-align:center;margin-bottom:22px;}
   .login-brand .empresa{font-size:15px;font-weight:800;letter-spacing:.04em;color:var(--accent);text-transform:uppercase;}
   .login-brand .sistema{font-size:12px;color:var(--muted);margin-top:2px;}
-  .login-logo{width:56px;height:56px;border-radius:16px;background:var(--panel-2);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:26px;}
+  .login-logo{width:56px;height:56px;border-radius:16px;background:var(--panel-2);border:1px solid var(--accent);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:26px;overflow:hidden;}
+  .login-logo img{width:100%;height:100%;object-fit:contain;padding:4px;box-sizing:border-box;}
+
+  /* escolha de empresa (entre o login e a entrada no app) */
+  #screen-empresa{display:none;position:fixed;inset:0;background:var(--bg);z-index:100;align-items:center;justify-content:center;padding:24px 18px;}
+  .empresa-box{width:100%;max-width:360px;}
+  .empresa-box h1{font-size:19px;text-align:center;margin:0 0 4px;}
+  .empresa-box .sub{font-size:13px;color:var(--muted);text-align:center;margin:0 0 20px;}
+  .empresa-opcao{display:flex;align-items:center;gap:12px;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;font:inherit;text-align:left;cursor:pointer;}
+  .empresa-opcao:hover{border-color:var(--accent);}
+  .empresa-opcao .logo{width:38px;height:38px;border-radius:10px;background:var(--panel-2);flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:var(--accent);overflow:hidden;}
+  .empresa-opcao .logo img{width:100%;height:100%;object-fit:contain;}
+  .empresa-opcao .nome{font-size:14px;font-weight:700;}
   .login-box h1{text-align:center;font-size:20px;margin:0 0 4px;}
   .login-box p.sub{text-align:center;color:var(--muted);font-size:13px;margin:0 0 26px;}
   .login-error{background:#3A1918;border:1px solid var(--bad);color:#f3b7b4;font-size:12.5px;padding:9px 12px;border-radius:9px;margin-bottom:12px;display:none;}
@@ -514,6 +526,8 @@
     main{max-width:100% !important;padding:0 !important;margin:0 !important;}
     header.top{display:none !important;}
     #printHeader{display:block !important;margin-bottom:18px;border-bottom:2px solid #111;padding-bottom:10px;}
+    #printHeader .print-topo{display:flex;align-items:center;gap:14px;}
+    #printHeader .print-logo{max-height:44px;max-width:140px;object-fit:contain;flex:none;}
     #printHeader .print-empresa{font-weight:800;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#555;}
     #printHeader h1{font-size:19px;margin:2px 0 6px;}
     #printHeader .print-filtros{font-size:11.5px;color:#333;margin-bottom:2px;}
@@ -540,10 +554,10 @@
 <div id="screen-login">
   <div class="login-box">
     <div class="login-brand">
-      <div class="empresa">T&amp;A Tecnologia</div>
+      <div class="empresa" id="loginEmpresaNome">Sistema de Atendimento</div>
       <div class="sistema">Sistema de Atendimento</div>
     </div>
-    <div class="login-logo">🔐</div>
+    <div class="login-logo" id="loginLogoBox">🔐</div>
     <h1>Controle de Atendimentos</h1>
     <p class="sub">Entre com seu usuário e senha</p>
     <div class="login-error" id="loginError">Usuário ou senha inválidos.</div>
@@ -563,6 +577,15 @@
   </div>
 </div>
 
+<div id="screen-empresa">
+  <div class="empresa-box">
+    <h1>Escolha a empresa</h1>
+    <p class="sub">Sua conta está vinculada a mais de uma empresa — escolha com qual trabalhar agora.</p>
+    <div id="listaEmpresasEscolha"></div>
+    <button class="ghost" id="btnCancelarEscolhaEmpresa" style="width:100%;margin-top:6px;">Voltar ao login</button>
+  </div>
+</div>
+
 <div id="app" style="display:none;">
 <div id="pullRefreshIndicator"><span id="pullRefreshSpinner" class="spinner" style="width:16px;height:16px;border-width:2px;"></span><span id="pullRefreshTexto">↓ Puxe para atualizar</span></div>
 <header class="top">
@@ -574,6 +597,7 @@
     <div class="who">
       <div class="avatar" id="avatarIni">–</div>
       <span id="whoName">–</span>
+      <button type="button" id="btnEmpresaAtual" style="display:none;background:none;border:none;color:var(--accent);font:inherit;font-size:12px;font-weight:700;padding:0;margin-left:2px;cursor:pointer;">· <span id="empresaAtualNome"></span></button>
     </div>
     <div style="display:flex;gap:6px;">
       <button class="logout" id="btnNotificacoes" style="display:none;">🔔 Avisos</button>
@@ -1214,6 +1238,7 @@
       <div class="subtab" data-sub="valores">Valores</div>
       <div class="subtab" data-sub="usuarios">Usuários (login)</div>
       <div class="subtab" data-sub="perfisacesso">Perfis de Acesso</div>
+      <div class="subtab" data-sub="empresas">Empresas</div>
     </div>
 
     <div class="cad-view active" id="cad-atendentes">
@@ -1234,6 +1259,10 @@
         <div class="field">
           <label>Perfis de acesso vinculados (opcional)</label>
           <div id="at_perfis_acesso" class="perfis-lista"></div>
+        </div>
+        <div class="field">
+          <label>Empresas vinculadas</label>
+          <div id="at_empresas" class="perfis-lista"></div>
         </div>
         <button class="primary" id="btnAddAtendente">Adicionar atendente</button>
         <button class="ghost" id="btnCancelarEdicaoAtendente" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
@@ -1377,6 +1406,42 @@
         <button class="ghost" id="btnCancelarEdicaoPerfilAcesso" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
       <div id="listPerfisAcesso"></div>
+    </div>
+
+    <div class="cad-view" id="cad-empresas" style="display:none;">
+      <div class="card">
+        <h2 id="emp_tituloForm">Nova empresa</h2>
+        <div class="field"><label>Razão Social</label><input type="text" id="emp_nome"></div>
+        <div class="row">
+          <div class="field"><label>Nome Fantasia</label><input type="text" id="emp_nome_fantasia"></div>
+          <div class="field"><label>CNPJ</label><input type="text" id="emp_cnpj"></div>
+        </div>
+        <div class="field"><label>Endereço</label><input type="text" id="emp_endereco"></div>
+        <div class="row">
+          <div class="field"><label>Telefone</label><input type="text" id="emp_telefone"></div>
+          <div class="field"><label>E-mail</label><input type="text" id="emp_email"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>CNAE</label><input type="text" id="emp_cnae"></div>
+          <div class="field"><label>Inscrição Municipal</label><input type="text" id="emp_inscricao_municipal"></div>
+        </div>
+        <div class="field"><label>Inscrição Estadual</label><input type="text" id="emp_inscricao_estadual"></div>
+        <div class="field">
+          <label>Logo</label>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+            <div id="emp_logo_preview" style="width:52px;height:52px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none;">
+              <span style="font-size:11px;color:var(--muted);">sem logo</span>
+            </div>
+            <input type="file" id="emp_logo_arquivo" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="flex:1;">
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);cursor:pointer;margin-bottom:14px;">
+          <input type="checkbox" id="emp_padrao"> Empresa padrão — logo mostrado na tela de login antes de entrar
+        </label>
+        <button class="primary" id="btnAddEmpresa">Adicionar empresa</button>
+        <button class="ghost" id="btnCancelarEdicaoEmpresa" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div id="listEmpresas"></div>
     </div>
   </section>
 

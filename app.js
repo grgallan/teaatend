@@ -21,8 +21,12 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [];
+let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [];
 let sessaoConta = null; // conta logada (sem senha), guardada após login
+let empresaAtual = null; // empresa escolhida pra essa sessão — {id, nome, logoUrl, ...}
+let empresasParaEscolher = []; // lista temporária mostrada na tela de escolha de empresa, entre o login e a entrada no app
+let editandoEmpresaId = null;
+let empresaLogoArquivoSelecionado = null; // File escolhido no input, enviado só quando salvar
 let editandoId = null;
 let anexoAtendimentoId = null; // atendimento cujos anexos múltiplos estão sendo geridos ao editar
 let editandoAtendenteId = null;
@@ -470,11 +474,13 @@ function mostrarCarregando(mostrar){
 
 async function carregarTudo(){
   const contaId = sessaoConta ? sessaoConta.id : '';
-  const r = await api('dados', { contaId });
+  const empresaId = empresaAtual ? empresaAtual.id : '';
+  const r = await api('dados', { contaId, empresaId });
   if(!r.ok) return false;
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
+  empresas = r.empresas||[];
   // a sessão foi salva no login (antes de existir "perfisAcesso") — depois
   // do primeiro carregamento de dados, sincroniza com a versão mais
   // atual da própria conta (permissões podem ter mudado desde o login)
@@ -489,6 +495,10 @@ async function carregarTudo(){
 function lerSessao(){ try{ const raw = localStorage.getItem(SESSAO_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; } }
 function gravarSessao(conta){ try{ localStorage.setItem(SESSAO_KEY, JSON.stringify(conta)); }catch(e){} }
 function limparSessao(){ try{ localStorage.removeItem(SESSAO_KEY); }catch(e){} }
+const EMPRESA_KEY = 'empresa_v1';
+function lerEmpresaSalva(){ try{ const raw = localStorage.getItem(EMPRESA_KEY); return raw ? JSON.parse(raw) : null; }catch(e){ return null; } }
+function gravarEmpresaSalva(empresa){ try{ localStorage.setItem(EMPRESA_KEY, JSON.stringify(empresa)); }catch(e){} }
+function limparEmpresaSalva(){ try{ localStorage.removeItem(EMPRESA_KEY); }catch(e){} }
 
 async function tentarLogin(){
   const login = document.getElementById('loginUser').value.trim();
@@ -504,15 +514,21 @@ async function tentarLogin(){
     if(!r.ok){ err.textContent = r.erro || 'Usuário ou senha inválidos.'; err.classList.add('show'); return; }
     sessaoConta = r.conta;
     gravarSessao(sessaoConta);
-    mostrarCarregando(true);
-    const carregou = await carregarTudo();
-    mostrarCarregando(false);
-    if(!carregou){
-      err.textContent = 'Login certo, mas não consegui carregar os dados. Tente novamente.';
+
+    // USUARIO já vem com a empresa resolvida (a do próprio cliente dele) —
+    // ADMIN/ATENDENTE escolhem entre as empresas vinculadas à conta
+    if(r.empresa){
+      empresaAtual = r.empresa;
+      await finalizarLoginComEmpresa();
+    }else if(Array.isArray(r.empresas) && r.empresas.length === 1){
+      empresaAtual = r.empresas[0];
+      await finalizarLoginComEmpresa();
+    }else if(Array.isArray(r.empresas) && r.empresas.length > 1){
+      mostrarTelaEscolhaEmpresa(r.empresas);
+    }else{
+      err.textContent = 'Sua conta não está vinculada a nenhuma empresa. Fale com o administrador.';
       err.classList.add('show');
-      return;
     }
-    entrarNoApp();
   } catch(e) {
     // qualquer falha de conexão/servidor cai aqui — sem isso, o botão só
     // "piscava" e voltava ao normal sem explicar nada (parecia que "não entrava")
@@ -524,10 +540,53 @@ async function tentarLogin(){
   }
 }
 
+let trocandoEmpresa = false; // true = veio do botão "trocar empresa" já logado (Cancelar só fecha a tela); false = é a escolha do login
+function mostrarTelaEscolhaEmpresa(listaEmpresas, emTroca){
+  trocandoEmpresa = !!emTroca;
+  empresasParaEscolher = listaEmpresas;
+  document.getElementById('listaEmpresasEscolha').innerHTML = listaEmpresas.map((e,i)=>`
+    <button type="button" class="empresa-opcao" data-idx="${i}">
+      <span class="logo">${e.logoUrl ? `<img src="${e.logoUrl}">` : escaparHtml((e.nome||'?').slice(0,2).toUpperCase())}</span>
+      <span class="nome">${escaparHtml(e.nome)}</span>
+    </button>
+  `).join('');
+  document.getElementById('screen-login').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('screen-empresa').style.display = 'flex';
+  document.getElementById('btnCancelarEscolhaEmpresa').textContent = trocandoEmpresa ? 'Cancelar' : 'Voltar ao login';
+}
+
+async function abrirTrocaDeEmpresa(){
+  const conta = contaAtual();
+  if(!conta) return;
+  const r = await api('minhasEmpresas', { contaId: conta.id });
+  if(!r.ok || !Array.isArray(r.empresas) || r.empresas.length < 2){ toast('Sua conta não tem outra empresa vinculada.'); return; }
+  mostrarTelaEscolhaEmpresa(r.empresas, true);
+}
+
+async function finalizarLoginComEmpresa(){
+  gravarEmpresaSalva(empresaAtual);
+  document.getElementById('screen-empresa').style.display = 'none';
+  mostrarCarregando(true);
+  const carregou = await carregarTudo();
+  mostrarCarregando(false);
+  if(!carregou){
+    const err = document.getElementById('loginError');
+    document.getElementById('screen-login').style.display = 'flex';
+    err.textContent = 'Login certo, mas não consegui carregar os dados. Tente novamente.';
+    err.classList.add('show');
+    return;
+  }
+  entrarNoApp();
+}
+
 function sair(){
   sessaoConta = null;
+  empresaAtual = null;
   limparSessao();
+  limparEmpresaSalva();
   document.getElementById('app').style.display = 'none';
+  document.getElementById('screen-empresa').style.display = 'none';
   document.getElementById('screen-login').style.display = 'flex';
   document.getElementById('loginUser').value = '';
   document.getElementById('loginPass').value = '';
@@ -760,6 +819,14 @@ function entrarNoApp(){
   document.getElementById('app').style.display = 'block';
   document.getElementById('whoName').textContent = conta.nome;
   document.getElementById('avatarIni').textContent = conta.nome.slice(0,2).toUpperCase();
+  const btnEmpresa = document.getElementById('btnEmpresaAtual');
+  const isAdminBadge = ehAdminEfetivo(conta);
+  if(empresaAtual && (isAdminBadge || conta.perfil === 'ATENDENTE')){
+    btnEmpresa.style.display = '';
+    document.getElementById('empresaAtualNome').textContent = empresaAtual.nome;
+  }else{
+    btnEmpresa.style.display = 'none';
+  }
   atualizarBotaoNotificacoes();
   if(emAppNativo()) iniciarPushNativo();
 
@@ -1005,7 +1072,7 @@ async function salvarRegistro(){
   try{
     const dataPrevista = isUsuario ? '' : document.getElementById('f_data_prevista').value;
     const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, detalhe, solucao, hi, inter, hf, status,
-      dataPrevista, atendente2, horasAtendente2,
+      dataPrevista, atendente2, horasAtendente2, empresaId: empresaAtual ? empresaAtual.id : '',
       qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
     // anexo inicial (só existe esse campo na criação — depois de salvo, usa a lista de múltiplos anexos)
@@ -2353,11 +2420,17 @@ async function salvarWorkbook(livro, nomeArquivo){
 function prepararImpressao(titulo, filtrosTexto){
   const agora = new Date();
   const dataHora = agora.toLocaleDateString('pt-BR') + ' às ' + agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const logo = empresaAtual && empresaAtual.logoUrl ? `<img class="print-logo" src="${empresaAtual.logoUrl}">` : '';
   document.getElementById('printHeader').innerHTML = `
-    <div class="print-empresa">T&A Tecnologia</div>
-    <h1>${escaparHtml(titulo)}</h1>
-    ${filtrosTexto ? `<div class="print-filtros">${escaparHtml(filtrosTexto)}</div>` : ''}
-    <div class="print-data">Gerado em ${dataHora}</div>
+    <div class="print-topo">
+      ${logo}
+      <div>
+        <div class="print-empresa">${escaparHtml(empresaAtual ? empresaAtual.nome : '')}</div>
+        <h1>${escaparHtml(titulo)}</h1>
+        ${filtrosTexto ? `<div class="print-filtros">${escaparHtml(filtrosTexto)}</div>` : ''}
+        <div class="print-data">Gerado em ${dataHora}</div>
+      </div>
+    </div>
   `;
   if(emAppNativo()){ gerarPdfNativo(titulo); return; }
   window.print();
@@ -4729,9 +4802,10 @@ function exportarCsv(){
 
 /* ================= CADASTROS (somente ADMIN) ================= */
 function renderCadastrosTudo(){
-  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso();
+  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso(); renderListEmpresas();
   renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
   renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
+  renderEmpresasCheckboxes('at_empresas', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.empresaIds||[]) : []);
 }
 
 /* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
@@ -4810,6 +4884,81 @@ function lerPerfisAcessoMarcados(containerId){
   return [...document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`)].map(c=>c.value);
 }
 
+// mesmo padrão acima, pra empresas vinculadas ao atendente/admin
+function renderEmpresasCheckboxes(containerId, idsMarcados){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const marcados = new Set(idsMarcados || []);
+  if(empresas.length === 0){ el.innerHTML = `<div class="empty">Nenhuma empresa cadastrada ainda — crie uma na aba "Empresas".</div>`; return; }
+  el.innerHTML = empresas.map(e=>`
+    <label><input type="checkbox" value="${e.id}" ${marcados.has(e.id)?'checked':''}> ${escaparHtml(e.nome)}</label>
+  `).join('');
+}
+function lerEmpresasMarcadas(containerId){
+  return [...document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`)].map(c=>c.value);
+}
+
+/* ---------- empresas (multi-empresa) ---------- */
+function renderListEmpresas(){
+  const el = document.getElementById('listEmpresas');
+  if(!el) return;
+  if(empresas.length === 0){ el.innerHTML = `<div class="empty">Nenhuma empresa cadastrada.</div>`; return; }
+  el.innerHTML = empresas.map(e=>{
+    const selo = e.padrao ? ` <span class="tag" style="color:var(--accent);">padrão</span>` : '';
+    const logo = e.logoUrl ? `<img src="${e.logoUrl}" style="width:28px;height:28px;border-radius:7px;object-fit:contain;background:var(--panel-2);margin-right:8px;vertical-align:middle;">` : '';
+    return `
+    <div class="cad-item" style="cursor:pointer;" onclick="editarEmpresa('${e.id}')">
+      <div class="info">${logo}<b>${escaparHtml(e.nome)}</b>${selo}${e.cnpj?`<span>${escaparHtml(e.cnpj)}</span>`:''}</div>
+      <div class="acts"><button class="danger" onclick="event.stopPropagation();pedirConfirmacao('Remover empresa?','Só é possível remover uma empresa sem clientes vinculados.', ()=>removerEmpresaUi('${e.id}'))">Remover</button></div>
+    </div>`;
+  }).join('');
+}
+function limparFormEmpresa(){
+  editandoEmpresaId = null;
+  document.getElementById('emp_tituloForm').textContent = 'Nova empresa';
+  ['emp_nome','emp_nome_fantasia','emp_cnpj','emp_endereco','emp_telefone','emp_email','emp_cnae','emp_inscricao_municipal','emp_inscricao_estadual'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('emp_padrao').checked = false;
+  document.getElementById('emp_logo_arquivo').value = '';
+  empresaLogoArquivoSelecionado = null;
+  document.getElementById('emp_logo_preview').innerHTML = `<span style="font-size:11px;color:var(--muted);">sem logo</span>`;
+  document.getElementById('emp_logo_preview').dataset.url = '';
+  document.getElementById('btnAddEmpresa').textContent = 'Adicionar empresa';
+  document.getElementById('btnCancelarEdicaoEmpresa').style.display = 'none';
+}
+function editarEmpresa(id){
+  const e = empresas.find(x=>String(x.id)===String(id));
+  if(!e) return;
+  editandoEmpresaId = id;
+  document.getElementById('emp_tituloForm').textContent = `Editando: ${e.nome}`;
+  document.getElementById('emp_nome').value = e.nome;
+  document.getElementById('emp_nome_fantasia').value = e.nomeFantasia || '';
+  document.getElementById('emp_cnpj').value = e.cnpj || '';
+  document.getElementById('emp_endereco').value = e.endereco || '';
+  document.getElementById('emp_telefone').value = e.telefone || '';
+  document.getElementById('emp_email').value = e.email || '';
+  document.getElementById('emp_cnae').value = e.cnae || '';
+  document.getElementById('emp_inscricao_municipal').value = e.inscricaoMunicipal || '';
+  document.getElementById('emp_inscricao_estadual').value = e.inscricaoEstadual || '';
+  document.getElementById('emp_padrao').checked = !!e.padrao;
+  document.getElementById('emp_logo_arquivo').value = '';
+  empresaLogoArquivoSelecionado = null;
+  const preview = document.getElementById('emp_logo_preview');
+  preview.innerHTML = e.logoUrl ? `<img src="${e.logoUrl}" style="width:100%;height:100%;object-fit:contain;">` : `<span style="font-size:11px;color:var(--muted);">sem logo</span>`;
+  preview.dataset.url = e.logoUrl || '';
+  document.getElementById('btnAddEmpresa').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoEmpresa').style.display = '';
+  document.getElementById('emp_nome').scrollIntoView({behavior:'smooth', block:'start'});
+}
+async function removerEmpresaUi(id){
+  const conta = contaAtual();
+  const r = await api('removerEmpresa', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  if(editandoEmpresaId === id) limparFormEmpresa();
+  await carregarTudo();
+  renderCadastrosTudo();
+  toast('Empresa removida');
+}
+
 function renderListAtendentes(){
   const lista = contas.filter(c=>c.perfil==='ATENDENTE');
   const el = document.getElementById('listAtendentes');
@@ -4847,6 +4996,7 @@ function editarAtendente(id){
   document.getElementById('at_telefone').value = a.telefone || '';
   document.getElementById('at_administrador').checked = !!a.ehAdministrador;
   renderPerfisAcessoCheckboxes('at_perfis_acesso', a.perfisAcessoIds||[]);
+  renderEmpresasCheckboxes('at_empresas', a.empresaIds||[]);
   document.getElementById('btnAddAtendente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoAtendente').style.display = '';
   document.getElementById('at_nome').scrollIntoView({behavior:'smooth', block:'start'});
@@ -4863,6 +5013,7 @@ function cancelarEdicaoAtendente(){
   document.getElementById('at_telefone').value = '';
   document.getElementById('at_administrador').checked = false;
   renderPerfisAcessoCheckboxes('at_perfis_acesso', []);
+  renderEmpresasCheckboxes('at_empresas', []);
   document.getElementById('btnAddAtendente').textContent = 'Adicionar atendente';
   document.getElementById('btnCancelarEdicaoAtendente').style.display = 'none';
 }
@@ -5306,7 +5457,7 @@ async function recalcularValores(){
   btn.textContent = 'Recalculando…';
   try{
     const conta = contaAtual();
-    const r = await api('recalcularValores', { contaId: conta.id });
+    const r = await api('recalcularValores', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(!r.ok){ toast(r.erro || 'Não foi possível recalcular.'); return; }
     await carregarTudo();
     renderLista(); renderResumo();
@@ -6403,6 +6554,21 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.querySelectorAll('.subtab').forEach(t=>t.addEventListener('click', ()=>goCadSub(t.dataset.sub)));
 
   document.getElementById('btnLogin').addEventListener('click', tentarLogin);
+  document.getElementById('listaEmpresasEscolha').addEventListener('click', async e=>{
+    const btn = e.target.closest('.empresa-opcao'); if(!btn) return;
+    empresaAtual = empresasParaEscolher[Number(btn.dataset.idx)];
+    await finalizarLoginComEmpresa();
+  });
+  document.getElementById('btnCancelarEscolhaEmpresa').addEventListener('click', ()=>{
+    document.getElementById('screen-empresa').style.display = 'none';
+    if(trocandoEmpresa){
+      document.getElementById('app').style.display = 'block';
+    }else{
+      sessaoConta = null; limparSessao();
+      document.getElementById('screen-login').style.display = 'flex';
+    }
+  });
+  document.getElementById('btnEmpresaAtual').addEventListener('click', abrirTrocaDeEmpresa);
   document.getElementById('loginPass').addEventListener('keydown', e=>{ if(e.key==='Enter') tentarLogin(); });
   document.getElementById('toggleSenha').addEventListener('click', ()=>{
     const campo = document.getElementById('loginPass'); const btn = document.getElementById('toggleSenha');
@@ -6449,6 +6615,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const telefone = document.getElementById('at_telefone').value.trim();
     const ehAdministrador = document.getElementById('at_administrador').checked;
     const perfisMarcados = lerPerfisAcessoMarcados('at_perfis_acesso');
+    const empresasMarcadas = lerEmpresasMarcadas('at_empresas');
     if(!nome || !login){ toast('Preencha nome e login'); return; }
     if(!editandoAtendenteId && !senha){ toast('Informe uma senha'); return; }
 
@@ -6463,11 +6630,54 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const contaAlvoId = editando ? editandoAtendenteId : r.conta.id;
     const conta = contaAtual();
     await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
+    await api('vincularEmpresasConta', { contaId: conta.id, contaAlvoId, empresaIds: empresasMarcadas });
     cancelarEdicaoAtendente();
     await carregarTudo(); renderListAtendentes(); popularSelects();
     toast(editando ? 'Atendente atualizado' : 'Atendente adicionado');
   });
   document.getElementById('btnCancelarEdicaoAtendente').addEventListener('click', cancelarEdicaoAtendente);
+
+  document.getElementById('emp_logo_arquivo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    if(!arquivo) return;
+    empresaLogoArquivoSelecionado = arquivo;
+    const preview = document.getElementById('emp_logo_preview');
+    const leitor = new FileReader();
+    leitor.onload = ()=>{ preview.innerHTML = `<img src="${leitor.result}" style="width:100%;height:100%;object-fit:contain;">`; };
+    leitor.readAsDataURL(arquivo);
+  });
+  document.getElementById('btnAddEmpresa').addEventListener('click', async ()=>{
+    const nome = document.getElementById('emp_nome').value.trim();
+    if(!nome){ toast('Preencha a razão social'); return; }
+    const conta = contaAtual();
+    let logoUrl = document.getElementById('emp_logo_preview').dataset.url || '';
+    if(empresaLogoArquivoSelecionado){
+      const base64 = await lerArquivoBase64(empresaLogoArquivoSelecionado);
+      const rUpload = await api('uploadImagem', { base64, tipo: empresaLogoArquivoSelecionado.type, nome: empresaLogoArquivoSelecionado.name });
+      if(!rUpload.ok){ toast('Não foi possível enviar o logo.'); return; }
+      logoUrl = rUpload.url;
+    }
+    const payload = {
+      contaId: conta.id, id: editandoEmpresaId,
+      nome, nomeFantasia: document.getElementById('emp_nome_fantasia').value.trim(),
+      cnpj: document.getElementById('emp_cnpj').value.trim(),
+      endereco: document.getElementById('emp_endereco').value.trim(),
+      telefone: document.getElementById('emp_telefone').value.trim(),
+      email: document.getElementById('emp_email').value.trim(),
+      cnae: document.getElementById('emp_cnae').value.trim(),
+      inscricaoMunicipal: document.getElementById('emp_inscricao_municipal').value.trim(),
+      inscricaoEstadual: document.getElementById('emp_inscricao_estadual').value.trim(),
+      logoUrl, padrao: document.getElementById('emp_padrao').checked,
+    };
+    const editando = !!editandoEmpresaId;
+    const r = await api('salvarEmpresa', payload);
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    limparFormEmpresa();
+    await carregarTudo();
+    renderCadastrosTudo();
+    toast(editando ? 'Empresa atualizada' : 'Empresa adicionada');
+  });
+  document.getElementById('btnCancelarEdicaoEmpresa').addEventListener('click', limparFormEmpresa);
 
   document.getElementById('btnAddVideo').addEventListener('click', salvarVideoUi);
   document.getElementById('btnCancelarEdicaoVideo').addEventListener('click', limparFormVideo);
@@ -6486,7 +6696,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const editando = !!editandoClienteId;
     const r = editando
       ? await api('atualizarCliente', { id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia })
-      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia });
+      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
@@ -6543,7 +6753,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const valorSegundoAtendStr = document.getElementById('vl_valor_segundo_atend').value;
     const valorSegundoAtend = valorSegundoAtendStr !== '' ? parseFloat(valorSegundoAtendStr) : 0;
     if(!atendenteId || !clienteId || !tipoId || isNaN(real) || isNaN(ananda)){ toast('Preencha todos os campos, incluindo o atendente'); return; }
-    const r = await api('salvarValor', { atendenteId, clienteId, tipoId, real, ananda, valorSegundoAtend });
+    const r = await api('salvarValor', { atendenteId, clienteId, tipoId, real, ananda, valorSegundoAtend, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(!r.ok) return;
     document.getElementById('vl_real').value=''; document.getElementById('vl_ananda').value=''; document.getElementById('vl_valor_segundo_atend').value='';
     await carregarTudo(); renderTabelaValores();
@@ -6624,8 +6834,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 
   const sessaoSalva = lerSessao();
-  if(sessaoSalva){
+  const empresaSalva = lerEmpresaSalva();
+  if(sessaoSalva && empresaSalva){
     sessaoConta = sessaoSalva;
+    empresaAtual = empresaSalva;
     mostrarCarregando(true);
     try{
       const ok = await carregarTudo();
@@ -6633,6 +6845,23 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(ok) entrarNoApp(); else sair();
     }catch(e){ mostrarCarregando(false); sair(); }
   }else{
+    // sessão sem empresa salva (ex: conta antiga de antes desse recurso
+    // existir) — mais simples e seguro pedir login de novo do que tentar
+    // adivinhar qual empresa usar
+    if(sessaoSalva) limparSessao();
+    carregarLogoLogin();
     document.getElementById('screen-login').style.display = 'flex';
   }
 });
+
+// logo/nome mostrados na tela de login, antes de qualquer autenticação —
+// pega a empresa marcada como "padrão" (ação pública, sem contaId)
+async function carregarLogoLogin(){
+  try{
+    const r = await api('empresaPadrao', {});
+    if(r.ok && r.empresa){
+      document.getElementById('loginEmpresaNome').textContent = r.empresa.nome;
+      if(r.empresa.logoUrl) document.getElementById('loginLogoBox').innerHTML = `<img src="${r.empresa.logoUrl}" alt="${escaparHtml(r.empresa.nome)}">`;
+    }
+  }catch(e){ /* sem empresa padrão configurada ainda — mantém o logo genérico */ }
+}
