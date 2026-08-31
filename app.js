@@ -5028,16 +5028,30 @@ async function removerConta(id){
 
 function renderListClientes(){
   const el = document.getElementById('listClientes');
+  // campo Empresa só aparece quando a conta enxerga a lista de empresas
+  // (admin) — pra atendente/perfil sem isso, o cliente cadastrado herda a
+  // empresa ativa da sessão em silêncio, igual já era antes desse campo existir
+  const campoEmpresa = document.getElementById('campoClienteEmpresa');
+  campoEmpresa.style.display = empresas.length > 0 ? '' : 'none';
+  if(empresas.length > 0){
+    document.getElementById('cl_empresa').innerHTML = empresas.map(e=>`<option value="${e.id}">${escaparHtml(e.nome)}</option>`).join('');
+    document.getElementById('cl_empresa').value = empresaAtual ? empresaAtual.id : '';
+  }
   if(clientes.length===0){ el.innerHTML = `<div class="empty">Nenhum cliente cadastrado.</div>`; return; }
-  el.innerHTML = clientes.map(c=>`
+  const mostrarEmpresa = empresas.length > 1;
+  el.innerHTML = clientes.map(c=>{
+    const nomeEmpresa = mostrarEmpresa ? empresas.find(e=>String(e.id)===String(c.empresaId))?.nome : '';
+    return `
     <div class="cad-item"><div class="info"><b>${escaparHtml(c.nome)}</b>
       ${c.nomeFantasia ? `<span>${escaparHtml(c.nomeFantasia)}</span>` : ''}
       ${c.cnpj ? `<span>CNPJ: ${escaparHtml(c.cnpj)}</span>` : `<span style="color:var(--bad);">Sem CNPJ cadastrado</span>`}
+      ${nomeEmpresa ? `<span>Empresa: ${escaparHtml(nomeEmpresa)}</span>` : ''}
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarCliente('${c.id}')">Editar</button>
       <button class="danger" onclick="pedirConfirmacao('Remover cliente?','Isso não apaga lançamentos já salvos, mas remove das opções futuras.', ()=>removerCliente('${c.id}'))">Remover</button>
-    </div></div>`).join('');
+    </div></div>`;
+  }).join('');
 }
 function editarCliente(id){
   const c = clientes.find(x=>String(x.id)===String(id));
@@ -5046,6 +5060,7 @@ function editarCliente(id){
   document.getElementById('cl_nome').value = c.nome;
   document.getElementById('cl_cnpj').value = c.cnpj || '';
   document.getElementById('cl_nome_fantasia').value = c.nomeFantasia || '';
+  if(empresas.length > 0) document.getElementById('cl_empresa').value = c.empresaId || (empresaAtual ? empresaAtual.id : '');
   document.getElementById('btnAddCliente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoCliente').style.display = '';
   document.getElementById('cl_nome').scrollIntoView({ behavior:'smooth', block:'center' });
@@ -5055,6 +5070,7 @@ function cancelarEdicaoCliente(){
   document.getElementById('cl_nome').value = '';
   document.getElementById('cl_cnpj').value = '';
   document.getElementById('cl_nome_fantasia').value = '';
+  if(empresas.length > 0) document.getElementById('cl_empresa').value = empresaAtual ? empresaAtual.id : '';
   document.getElementById('btnAddCliente').textContent = 'Adicionar cliente';
   document.getElementById('btnCancelarEdicaoCliente').style.display = 'none';
 }
@@ -6692,11 +6708,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
     const cnpj = document.getElementById('cl_cnpj').value.trim();
     const nomeFantasia = document.getElementById('cl_nome_fantasia').value.trim();
+    const empresaId = empresas.length > 0 ? document.getElementById('cl_empresa').value : (empresaAtual ? empresaAtual.id : '');
     if(!nome){ toast('Informe o nome do cliente'); return; }
     const editando = !!editandoClienteId;
     const r = editando
-      ? await api('atualizarCliente', { id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia })
-      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia, empresaId: empresaAtual ? empresaAtual.id : '' });
+      ? await api('atualizarCliente', { id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia, empresaId })
+      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia, empresaId });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
