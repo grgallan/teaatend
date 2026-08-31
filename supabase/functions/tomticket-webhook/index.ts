@@ -157,6 +157,12 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return jsonResponse({ ok: true });
 
   const corpoTexto = await req.text();
+
+  // o TomTicket manda um POST sem corpo (content-length 0) como checagem de
+  // disponibilidade da URL antes de aceitar salvar a configuração — não é um
+  // evento de verdade e não vem assinado, então só confirma o recebimento
+  if (!corpoTexto) return jsonResponse({ ok: true });
+
   const assinaturaRecebida = req.headers.get('X-Hub-Signature');
 
   if (!(await assinaturaValida(corpoTexto, assinaturaRecebida))) {
