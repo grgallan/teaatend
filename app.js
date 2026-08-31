@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [];
+let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [];
 let sessaoConta = null; // conta logada (sem senha), guardada após login
 let empresaAtual = null; // empresa escolhida pra essa sessão — {id, nome, logoUrl, ...}
 let empresasParaEscolher = []; // lista temporária mostrada na tela de escolha de empresa, entre o login e a entrada no app
@@ -481,6 +481,7 @@ async function carregarTudo(){
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
   empresas = r.empresas||[];
+  tomticketErros = r.tomticketErros||[];
   // a sessão foi salva no login (antes de existir "perfisAcesso") — depois
   // do primeiro carregamento de dados, sincroniza com a versão mais
   // atual da própria conta (permissões podem ter mudado desde o login)
@@ -2759,9 +2760,33 @@ async function gerarExcelRelatorio(){
 /* ---------- Utilitários › eSocial › Evento 1200 (Remuneração) ----------
    Confronta o(s) XML(s) do evento 1200 com a planilha de Rubricas cadastrada
    e gera um Excel de conferência — tudo no navegador, sem passar pelo backend */
+function renderUtilTomticketLista(){
+  const el = document.getElementById('utilTomticketLista');
+  if(tomticketErros.length === 0){ el.innerHTML = `<div class="empty">Nenhuma pendência — tudo importado certinho.</div>`; return; }
+  el.innerHTML = tomticketErros.map(e=>{
+    const dataHora = e.criadoEm ? new Date(e.criadoEm).toLocaleString('pt-BR') : '';
+    return `
+    <div class="cad-item">
+      <div class="info"><b>Chamado ${escaparHtml(e.ticketId)}</b><span>${escaparHtml(e.motivo)}</span><span>${dataHora}</span></div>
+      <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover essa pendência?','Isso só tira da lista — não cria o atendimento nem afeta o chamado no TomTicket.', ()=>removerTomticketErroUi('${e.id}'))">Remover</button></div>
+    </div>`;
+  }).join('');
+}
+async function removerTomticketErroUi(id){
+  const conta = contaAtual();
+  const r = await api('removerTomticketErro', { contaId: conta.id, id });
+  if(!r.ok) return;
+  await carregarTudo();
+  renderUtilTomticketLista();
+  toast('Removido');
+}
+
 function resetUtilitarios(){
   document.getElementById('utilCategorias').style.display = '';
   document.getElementById('utilEsocial').style.display = 'none';
+  document.getElementById('utilTomticket').style.display = 'none';
+  document.getElementById('utilTomticketBadge').innerHTML = tomticketErros.length > 0
+    ? `<span class="tag" style="background:var(--bad);color:#fff;">${tomticketErros.length}</span>` : '';
   document.getElementById('utilEvento1200').style.display = 'none';
   document.getElementById('util1200_xmls').value = '';
   document.getElementById('util1200_rubricas').value = '';
@@ -6307,6 +6332,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnUtilEsocialVoltar').addEventListener('click', ()=>{
     document.getElementById('utilEsocial').style.display = 'none';
+    document.getElementById('utilCategorias').style.display = '';
+  });
+  document.querySelector('[data-util-cat="tomticket"]').addEventListener('click', ()=>{
+    document.getElementById('utilCategorias').style.display = 'none';
+    document.getElementById('utilTomticket').style.display = '';
+    renderUtilTomticketLista();
+  });
+  document.getElementById('btnUtilTomticketVoltar').addEventListener('click', ()=>{
+    document.getElementById('utilTomticket').style.display = 'none';
     document.getElementById('utilCategorias').style.display = '';
   });
   document.querySelector('[data-util-ferr="evento1200"]').addEventListener('click', ()=>{

@@ -230,6 +230,7 @@ async function rotear(req: any): Promise<any> {
     case 'salvarEmpresa': return acaoSalvarEmpresa(req);
     case 'removerEmpresa': return acaoRemoverEmpresa(req);
     case 'vincularEmpresasConta': return acaoVincularEmpresasConta(req);
+    case 'removerTomticketErro': return acaoRemoverTomticketErro(req);
     default: return { erro: 'ação desconhecida: ' + req.action };
   }
 }
@@ -382,6 +383,12 @@ async function acaoDados(req: any) {
     atendimentos = atendimentos.map((a: any) => ({ ...a, vhr: '', totalReal: '' }));
   }
 
+  let tomticketErros: any[] = [];
+  if (isAdmin) {
+    const { data } = await db.from('tomticket_erros').select('*').order('criado_em', { ascending: false }).limit(100);
+    tomticketErros = (data || []).map((e: any) => ({ id: e.id, ticketId: e.ticket_id, motivo: e.motivo, criadoEm: e.criado_em }));
+  }
+
   return {
     ok: true,
     contas: (contas || []).map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [], empresaIdsPorConta[c.id] || [])),
@@ -395,6 +402,7 @@ async function acaoDados(req: any) {
     vinculos,
     perfisAcesso,
     empresas: isAdmin ? (empresasRaw || []).map(empresaParaApi) : [],
+    tomticketErros,
   };
 }
 
@@ -1746,6 +1754,13 @@ async function acaoVincularEmpresasConta(req: any) {
     const { error: erroInsert } = await db.from('conta_empresas').insert(linhas);
     if (erroInsert) return { ok: false, erro: erroInsert.message };
   }
+  return { ok: true };
+}
+
+/* ---------- integração TomTicket (ver tomticket-webhook) ---------- */
+async function acaoRemoverTomticketErro(req: any) {
+  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar isso.' };
+  await db.from('tomticket_erros').delete().eq('id', req.id);
   return { ok: true };
 }
 
