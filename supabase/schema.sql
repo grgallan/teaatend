@@ -617,3 +617,24 @@ insert into conta_empresas (id, conta_id, empresa_id)
 select 'ce-' || contas.id, contas.id, 'emp-ta' from contas
 where contas.perfil in ('ADMIN', 'ATENDENTE')
 on conflict (conta_id, empresa_id) do nothing;
+
+-- =========================================================
+-- Integração TomTicket — quando um técnico é associado a um chamado lá,
+-- a function tomticket-webhook (separada da "api") cria um atendimento
+-- aqui automaticamente. tomticket_id guarda o id do chamado de origem,
+-- só pra nunca importar o mesmo chamado duas vezes.
+alter table atendimentos add column if not exists tomticket_id text;
+create unique index if not exists idx_atendimentos_tomticket_id
+  on atendimentos (tomticket_id) where tomticket_id is not null;
+
+-- fila de "não deu pra importar" — cliente ou atendente do chamado não
+-- bateu com ninguém já cadastrado aqui; fica registrado pra alguém
+-- revisar manualmente (ver Utilitários → TomTicket)
+create table if not exists tomticket_erros (
+  id text primary key,
+  ticket_id text not null,
+  motivo text not null,
+  payload jsonb,
+  criado_em timestamptz default now()
+);
+alter table tomticket_erros enable row level security;

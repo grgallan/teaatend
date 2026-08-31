@@ -1463,6 +1463,20 @@
           <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Ferramentas de conferência dos eventos do eSocial</p>
         </div>
       </div>
+      <div class="item util-clicavel" data-util-cat="tomticket" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+        <span style="font-size:22px;">🎫</span>
+        <div>
+          <b>TomTicket</b> <span id="utilTomticketBadge"></span>
+          <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Chamados importados automaticamente que precisam de revisão</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="utilTomticket" style="display:none;">
+      <button type="button" class="ghost" id="btnUtilTomticketVoltar" style="width:auto;padding:8px 14px;margin-bottom:12px;">← Voltar</button>
+      <h2>TomTicket — pendências de importação</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin:-6px 0 12px;">Chamados do TomTicket em que o cliente ou o técnico associado não bateu com ninguém já cadastrado aqui — o atendimento não foi criado automaticamente. Corrija o cadastro (nome do Cliente ou do Atendente) e associe o técnico de novo lá no TomTicket pra tentar de novo.</p>
+      <div id="utilTomticketLista"></div>
     </div>
 
     <div class="card" id="utilEsocial" style="display:none;">
