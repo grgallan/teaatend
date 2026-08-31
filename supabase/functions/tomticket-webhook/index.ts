@@ -113,12 +113,16 @@ async function processarChamado(ticketId: string) {
   const clienteNome = chamado?.customer?.organization?.name ? String(chamado.customer.organization.name).trim() : '';
   const usuarioNome = chamado?.customer?.name ? String(chamado.customer.name).trim() : '';
 
-  const [{ data: clienteEncontrado }, { data: atendenteEncontrado }] = await Promise.all([
+  const [{ data: clienteEncontrado, error: erroCliente }, { data: atendenteEncontrado, error: erroAtendente }] = await Promise.all([
     clienteNome
       ? db.from('clientes').select('*').eq('empresa_id', TOMTICKET_EMPRESA_ID).ilike('nome', clienteNome).maybeSingle()
-      : Promise.resolve({ data: null }),
+      : Promise.resolve({ data: null, error: null }),
     db.from('contas').select('*').eq('perfil', 'ATENDENTE').ilike('nome', operatorNome).maybeSingle(),
   ]);
+  // log temporário de diagnóstico — remover depois de confirmar por que a
+  // busca do atendente "ALLAN" não está encontrando o cadastro
+  if (erroCliente) console.error('[tomticket][debug] erro ao buscar cliente:', JSON.stringify(erroCliente));
+  if (erroAtendente) console.error('[tomticket][debug] erro ao buscar atendente:', JSON.stringify(erroAtendente));
 
   if (!clienteEncontrado || !atendenteEncontrado) {
     const partes = [];
