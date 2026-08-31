@@ -151,7 +151,10 @@ async function processarChamado(ticketId: string) {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
-  if (req.method !== 'POST') return jsonResponse({ erro: 'método não suportado' }, 405);
+  // responde 200 em qualquer método que não seja POST (ex: o TomTicket testa
+  // a URL com um GET antes de aceitar salvar a configuração de Webhook) —
+  // só a chamada POST de verdade é processada como evento
+  if (req.method !== 'POST') return jsonResponse({ ok: true });
 
   const corpoTexto = await req.text();
 
