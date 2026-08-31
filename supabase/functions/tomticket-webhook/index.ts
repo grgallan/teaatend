@@ -9,14 +9,18 @@
 // Configuração necessária (Project Settings → Edge Functions → Secrets):
 //   TOMTICKET_API_TOKEN     — token Bearer da API do TomTicket (Configurações
 //                             da Conta → API, no painel do TomTicket)
-//   TOMTICKET_WEBHOOK_SECRET— o mesmo valor colocado em "Segredo da
-//                             Aplicação" na tela de Webhook do TomTicket
+//   TOMTICKET_WEBHOOK_SECRET— um valor secreto escolhido por você, colocado
+//                             na query string da URL configurada no TomTicket
 //   TOMTICKET_EMPRESA_ID    — id da empresa (tabela empresas) que recebe
 //                             os atendimentos importados
 //
 // Configuração no TomTicket (Administração → Configurações da Conta →
-// Webhook): URL de destino = URL desta function depois de publicada,
-// Segredo da Aplicação = mesmo valor de TOMTICKET_WEBHOOK_SECRET.
+// Webhook): URL de destino = URL desta function depois de publicada, com
+// "?secret=<TOMTICKET_WEBHOOK_SECRET>" no final (ex:
+// https://xxx.supabase.co/functions/v1/tomticket-webhook?secret=abc123).
+// O campo "Segredo da Aplicação" da tela deles pode ficar com qualquer
+// valor — não é usado por essa function (não foi possível confirmar o
+// esquema de assinatura real que eles usam nesse campo).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -31,7 +35,7 @@ const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'content-type, x-hub-signature',
+  'Access-Control-Allow-Headers': 'content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -55,20 +59,16 @@ function escaparHtml(texto: string): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// TomTicket assina o corpo com HMAC-SHA1 usando o "Segredo da Aplicação"
-// configurado na tela de Webhook, mandado no header X-Hub-Signature no
-// formato "sha1=<hex>" — confere isso pra garantir que a chamada veio
-// de verdade de lá, e não de qualquer um que descobrisse essa URL
-async function assinaturaValida(corpoTexto: string, assinaturaRecebida: string | null): Promise<boolean> {
+// Não foi possível reproduzir o esquema de assinatura HMAC que o TomTicket
+// usa no header X-Hub-Signature (testado HMAC-SHA1/SHA256/MD5 com a chave em
+// texto, hex e base64, em várias ordens — nada bateu com o valor recebido de
+// verdade). Em vez disso, a autenticação é feita por um segredo colocado
+// direto na query string da "URL de Destino" configurada no TomTicket
+// (?secret=...) — só quem sabe essa URL completa consegue chamar a function.
+function urlAutorizada(req: Request): boolean {
   if (!TOMTICKET_WEBHOOK_SECRET) return false;
-  if (!assinaturaRecebida) return false;
-  const chave = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode(TOMTICKET_WEBHOOK_SECRET),
-    { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
-  );
-  const assinaturaBuffer = await crypto.subtle.sign('HMAC', chave, new TextEncoder().encode(corpoTexto));
-  const assinaturaHex = Array.from(new Uint8Array(assinaturaBuffer)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  return assinaturaRecebida === `sha1=${assinaturaHex}`;
+  const url = new URL(req.url);
+  return url.searchParams.get('secret') === TOMTICKET_WEBHOOK_SECRET;
 }
 
 async function buscarChamadoTomTicket(ticketId: string): Promise<any> {
@@ -156,26 +156,17 @@ Deno.serve(async (req: Request) => {
   // só a chamada POST de verdade é processada como evento
   if (req.method !== 'POST') return jsonResponse({ ok: true });
 
+  if (!urlAutorizada(req)) {
+    console.error('[tomticket] URL sem o ?secret= correto ou TOMTICKET_WEBHOOK_SECRET não configurado — requisição recusada.');
+    return jsonResponse({ erro: 'não autorizado' }, 401);
+  }
+
   const corpoTexto = await req.text();
 
   // o TomTicket manda um POST sem corpo (content-length 0) como checagem de
   // disponibilidade da URL antes de aceitar salvar a configuração — não é um
-  // evento de verdade e não vem assinado, então só confirma o recebimento
+  // evento de verdade
   if (!corpoTexto) return jsonResponse({ ok: true });
-
-  const assinaturaRecebida = req.headers.get('X-Hub-Signature');
-
-  if (!(await assinaturaValida(corpoTexto, assinaturaRecebida))) {
-    // log temporário de diagnóstico — remover depois de confirmar o formato
-    // real que o TomTicket envia (nome do header e algoritmo de assinatura)
-    const headersRecebidos: Record<string, string> = {};
-    for (const [chave, valor] of req.headers.entries()) headersRecebidos[chave] = valor;
-    console.error('[tomticket][debug] assinatura recebida:', assinaturaRecebida);
-    console.error('[tomticket][debug] todos os headers:', JSON.stringify(headersRecebidos));
-    console.error('[tomticket][debug] corpo recebido:', corpoTexto);
-    console.error('[tomticket] Assinatura inválida ou TOMTICKET_WEBHOOK_SECRET não configurado — requisição recusada.');
-    return jsonResponse({ erro: 'assinatura inválida' }, 401);
-  }
 
   let evento: any;
   try {
