@@ -1387,6 +1387,8 @@ function renderFiltroStatusDropdown(termo){
   el.innerHTML = opcoes.map(s=>`<div class="lookup-dropdown-item ${filtroStatus.has(s.nome)?'sel':''}" data-status-opcao="${escaparHtml(s.nome)}">${filtroStatus.has(s.nome)?'✓ ':''}${escaparHtml(s.nome)}</div>`).join('');
 }
 
+const STATUS_SEMPRE_VISIVEL = new Set(['PENDENTE', 'EM ANDAMENTO', 'EM VALIDAÇÃO']);
+
 // filtros de cliente/status/período aplicados tanto na visão em Lista
 // quanto na visão em Cards (kanban) — mesma base, dois jeitos de mostrar
 function itensAtendimentosFiltrados(){
@@ -1401,8 +1403,11 @@ function itensAtendimentosFiltrados(){
   if(filtroStatus.size > 0) itens = itens.filter(r=>filtroStatus.has(r.status));
   const de = document.getElementById('periodo_de').value;
   const ate = document.getElementById('periodo_ate').value;
-  if(de) itens = itens.filter(r=>String(r.data) >= de);
-  if(ate) itens = itens.filter(r=>String(r.data) <= ate);
+  // PENDENTE/EM ANDAMENTO/EM VALIDAÇÃO ainda precisam de atenção, então
+  // aparecem sempre, independente do período escolhido — só os já
+  // encerrados (VALIDADO e demais) respeitam o filtro de período
+  if(de) itens = itens.filter(r=>STATUS_SEMPRE_VISIVEL.has(r.status) || String(r.data) >= de);
+  if(ate) itens = itens.filter(r=>STATUS_SEMPRE_VISIVEL.has(r.status) || String(r.data) <= ate);
   itens.sort((a,b)=> String(b.data).localeCompare(String(a.data)));
   return itens;
 }
@@ -4298,9 +4303,14 @@ async function carregarNotasImportadas(){
 
 function renderListaNotasImportadas(){
   const cont = document.getElementById('listaNotasImportadas');
-  if(notasImportadasCache.length === 0){ cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12.5px;">Nenhuma nota importada ainda.</div>`; return; }
+  const de = document.getElementById('fin_notas_periodo_de').value;
+  const ate = document.getElementById('fin_notas_periodo_ate').value;
+  let notas = notasImportadasCache.slice();
+  if(de) notas = notas.filter(n=>String(n.dataEmissao) >= de);
+  if(ate) notas = notas.filter(n=>String(n.dataEmissao) <= ate);
+  if(notas.length === 0){ cont.innerHTML = `<div class="empty" style="padding:10px 0;font-size:12.5px;">${notasImportadasCache.length === 0 ? 'Nenhuma nota importada ainda.' : 'Nenhuma nota nesse período.'}</div>`; return; }
   const fmtData = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
-  cont.innerHTML = notasImportadasCache.map(n=>`
+  cont.innerHTML = notas.map(n=>`
     <div class="fin-lancamento">
       <div class="fin-topo">
         <div>
@@ -4452,6 +4462,14 @@ function goAgSub(sub){
   agAba = sub;
   document.querySelectorAll('#agSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.agsub===sub));
   document.querySelectorAll('.ag-sub-view').forEach(v=>{ v.style.display = (v.id === 'ag-sub-'+sub) ? '' : 'none'; });
+}
+
+/* ---------- Vídeos/Tutoriais: navegação por submenu ---------- */
+let vidAba = 'lista';
+function goVidSub(sub){
+  vidAba = sub;
+  document.querySelectorAll('#vidSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.vidsub===sub));
+  document.querySelectorAll('.vid-sub-view').forEach(v=>{ v.style.display = (v.id === 'vid-sub-'+sub) ? '' : 'none'; });
 }
 
 /* ---------- Financeiro: resumo (recebido, em aberto, previsão) ---------- */
@@ -5301,7 +5319,7 @@ function editarVideoUi(id){
   document.getElementById('tituloFormVideo').textContent = 'Editar vídeo/tutorial';
   document.getElementById('btnAddVideo').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoVideo').style.display = '';
-  document.getElementById('cardNovoVideo').scrollIntoView({ behavior:'smooth', block:'center' });
+  goVidSub('novo');
 }
 
 async function salvarVideoUi(){
@@ -5333,6 +5351,7 @@ async function salvarVideoUi(){
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     limparFormVideo();
     await carregarVideos();
+    goVidSub('lista');
     toast(editando ? 'Vídeo atualizado' : 'Vídeo adicionado');
   }catch(e){
     toast(e && e.message ? e.message : 'Não foi possível salvar.');
@@ -6213,8 +6232,9 @@ function goView(name){
     const isAdminVid = ehAdminEfetivo(contaVid);
     const permVid = permissaoMenu(contaVid, 'videos');
     const podeInserirVid = permVid ? permVid.inserir : isAdminVid;
-    document.getElementById('cardNovoVideo').style.display = podeInserirVid ? '' : 'none';
+    document.querySelector('#vidSubtabs .subtab[data-vidsub="novo"]').style.display = podeInserirVid ? '' : 'none';
     if(podeInserirVid){ popularSelectsVideo(); limparFormVideo(); }
+    goVidSub(podeInserirVid ? vidAba : 'lista');
     vidFiltroModulo = 'TODOS';
     carregarVideos();
   }
@@ -6492,6 +6512,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const tab = e.target.closest('.subtab'); if(!tab) return;
     goAgSub(tab.dataset.agsub);
   });
+  document.getElementById('vidSubtabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    goVidSub(tab.dataset.vidsub);
+  });
   document.getElementById('verNota_fechar').addEventListener('click', ()=>{
     document.getElementById('verNotaModal').classList.remove('show');
   });
@@ -6621,6 +6645,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('periodo_de').addEventListener('change', renderLista);
   document.getElementById('periodo_ate').addEventListener('change', renderLista);
+  document.getElementById('fin_notas_periodo_de').addEventListener('change', renderListaNotasImportadas);
+  document.getElementById('fin_notas_periodo_ate').addEventListener('change', renderListaNotasImportadas);
 
   segmentedSetup('listaVisualizacaoToggle', ()=>{
     visualizacaoAtendimentos = getSegSel('listaVisualizacaoToggle');
@@ -6815,7 +6841,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnCancelarEdicaoEmpresa').addEventListener('click', limparFormEmpresa);
 
   document.getElementById('btnAddVideo').addEventListener('click', salvarVideoUi);
-  document.getElementById('btnCancelarEdicaoVideo').addEventListener('click', limparFormVideo);
+  document.getElementById('btnCancelarEdicaoVideo').addEventListener('click', ()=>{ limparFormVideo(); goVidSub('lista'); });
   document.getElementById('vidFiltroModulo').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     vidFiltroModulo = chip.dataset.valor;
