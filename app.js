@@ -5047,6 +5047,7 @@ function limparFormEmpresa(){
   editandoEmpresaId = null;
   document.getElementById('emp_tituloForm').textContent = 'Nova empresa';
   ['emp_nome','emp_nome_fantasia','emp_cnpj','emp_endereco','emp_telefone','emp_email','emp_cnae','emp_inscricao_municipal','emp_inscricao_estadual'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('emp_horas_validacao').value = 48;
   document.getElementById('emp_padrao').checked = false;
   document.getElementById('emp_logo_arquivo').value = '';
   empresaLogoArquivoSelecionado = null;
@@ -5069,6 +5070,7 @@ function editarEmpresa(id){
   document.getElementById('emp_cnae').value = e.cnae || '';
   document.getElementById('emp_inscricao_municipal').value = e.inscricaoMunicipal || '';
   document.getElementById('emp_inscricao_estadual').value = e.inscricaoEstadual || '';
+  document.getElementById('emp_horas_validacao').value = e.horasValidacaoAutomatica || 48;
   document.getElementById('emp_padrao').checked = !!e.padrao;
   document.getElementById('emp_logo_arquivo').value = '';
   empresaLogoArquivoSelecionado = null;
@@ -5693,6 +5695,28 @@ function linkWhatsapp(telefone){
   return `https://wa.me/${digitos}`;
 }
 
+// texto de aviso do prazo de validação automática (some quando falta o
+// dado de quando entrou em validação, ex: registro antigo)
+function textoPrazoValidacao(r){
+  if(!r.emValidacaoDesde || !empresaAtual) return '';
+  const horas = Number(empresaAtual.horasValidacaoAutomatica) || 48;
+  const prazo = new Date(r.emValidacaoDesde);
+  prazo.setHours(prazo.getHours() + horas);
+  const dd = String(prazo.getDate()).padStart(2,'0'), mm = String(prazo.getMonth()+1).padStart(2,'0');
+  const hh = String(prazo.getHours()).padStart(2,'0'), mi = String(prazo.getMinutes()).padStart(2,'0');
+  return `<br><span style="color:var(--muted);">Se ninguém aprovar até ${dd}/${mm} às ${hh}:${mi}, ele é validado automaticamente.</span>`;
+}
+
+async function aprovarValidacaoUi(id){
+  const conta = contaAtual();
+  const r = await api('aprovarValidacao', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível aprovar a validação.'); return; }
+  toast('Validação aprovada — chamado encerrado');
+  await carregarTudo();
+  renderLista();
+  fecharChat();
+}
+
 /* ---------- bate-papo por atendimento ---------- */
 let chatAtendimentoId = null;
 let chatPodeRemoverVinculo = false;
@@ -5725,6 +5749,12 @@ async function abrirDetalhe(atendimentoId){
     ${r.assunto ? `<div style="font-weight:600;font-size:13px;margin-bottom:4px;">${escaparHtml(r.assunto)}</div>` : ''}
     ${r.detalhe ? `<div class="rt-content" style="font-size:12.5px;color:var(--muted);margin-top:2px;">${sanitizarHtml(r.detalhe)}</div>` : ''}
     ${r.solucao ? `<div style="font-size:12.5px;margin-top:8px;padding:8px 10px;background:var(--panel-2);border-radius:8px;"><b style="color:var(--ok);display:block;margin-bottom:4px;">Solução:</b><div class="rt-content">${sanitizarHtml(r.solucao)}</div></div>` : ''}
+    ${(isUsuario && r.status === 'EM VALIDAÇÃO') ? `
+      <div style="font-size:12.5px;margin-top:8px;padding:10px;background:var(--panel-2);border-radius:8px;">
+        <b>Esse chamado está em validação.</b> Confirma que ficou tudo certo?
+        ${textoPrazoValidacao(r)}
+        <button class="primary" style="margin-top:8px;" onclick="aprovarValidacaoUi('${r.id}')">✓ Aprovar validação</button>
+      </div>` : ''}
   `;
   document.getElementById('chatVinculosWrap').style.display = 'none';
   document.getElementById('chatVideosWrap').style.display = 'none';
@@ -6832,6 +6862,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       cnae: document.getElementById('emp_cnae').value.trim(),
       inscricaoMunicipal: document.getElementById('emp_inscricao_municipal').value.trim(),
       inscricaoEstadual: document.getElementById('emp_inscricao_estadual').value.trim(),
+      horasValidacaoAutomatica: Number(document.getElementById('emp_horas_validacao').value) || 48,
       logoUrl, padrao: document.getElementById('emp_padrao').checked,
     };
     const editando = !!editandoEmpresaId;

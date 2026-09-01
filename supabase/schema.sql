@@ -668,3 +668,45 @@ create table if not exists tomticket_erros (
   criado_em timestamptz default now()
 );
 alter table tomticket_erros enable row level security;
+
+-- =========================================================
+-- Validação com prazo — o atendente coloca o chamado em "EM VALIDAÇÃO";
+-- o usuário solicitante aprova (ação aprovarValidacao, na tela de
+-- detalhes do chamado) e o status vira "VALIDADO"; se ele não aprovar
+-- dentro do prazo configurado (Cadastros → Empresas → "Horas para
+-- validação automática", padrão 48h), um job automático faz a mesma
+-- coisa sozinho, sem depender do usuário.
+alter table atendimentos add column if not exists em_validacao_desde timestamptz;
+alter table empresas add column if not exists horas_validacao_automatica integer not null default 48;
+
+-- job automático (roda a cada 15 minutos) — PRECISA habilitar a extensão
+-- pg_cron antes de rodar isso aqui: painel do Supabase → Database →
+-- Extensions → procura "pg_cron" → ativa (motivo: pg_cron mexe em
+-- configuração do servidor Postgres, só o painel consegue habilitar
+-- isso direito — rodar "create extension pg_cron" pelo SQL Editor dá erro)
+select cron.unschedule(jobid)
+from cron.job where jobname = 'auto-validar-atendimentos';
+
+select cron.schedule(
+  'auto-validar-atendimentos',
+  '*/15 * * * *',
+  $job$
+    do $$
+    begin
+      create temporary table _atendimentos_expirados on commit drop as
+      select a.id from atendimentos a
+      join empresas e on e.id = a.empresa_id
+      where a.status = 'EM VALIDAÇÃO'
+        and a.em_validacao_desde is not null
+        and a.em_validacao_desde <= now() - (e.horas_validacao_automatica::text || ' hours')::interval;
+
+      insert into historico (id, atendimento_id, descricao, data_hora)
+      select 'hist-autoval-' || id || '-' || floor(extract(epoch from now()))::text, id,
+        'Validado automaticamente — prazo de validação expirado', now()
+      from _atendimentos_expirados;
+
+      update atendimentos set status = 'VALIDADO', em_validacao_desde = null
+      where id in (select id from _atendimentos_expirados);
+    end $$;
+  $job$
+);
