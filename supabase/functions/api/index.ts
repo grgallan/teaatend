@@ -158,6 +158,7 @@ async function rotear(req: any): Promise<any> {
     case 'salvarAtendimento': return acaoSalvarAtendimento(req);
     case 'excluirAtendimento': return acaoExcluirAtendimento(req);
     case 'aprovarValidacao': return acaoAprovarValidacao(req);
+    case 'rejeitarValidacao': return acaoRejeitarValidacao(req);
     case 'addAtendente': return acaoAddConta(req, 'ATENDENTE');
     case 'addUsuario': return acaoAddConta(req, 'USUARIO');
     case 'atualizarConta': return acaoAtualizarConta(req);
@@ -590,6 +591,28 @@ async function acaoAprovarValidacao(req: any) {
   const { error } = await db.from('atendimentos').update({ status: 'VALIDADO', em_validacao_desde: null }).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   await registrarHistorico(req.id, `Validação aprovada por ${conta.nome}`);
+  await notificarStatusAlterado({ ...atendimento, status: 'VALIDADO' }, 'EM VALIDAÇÃO');
+  return { ok: true };
+}
+
+// o usuário solicitante rejeita a validação (achou que não ficou certo) —
+// o chamado volta pra "NÃO VALIDADO" pro atendente revisar e corrigir, em
+// vez de simplesmente ficar preso em "Em Validação" até o prazo estourar
+async function acaoRejeitarValidacao(req: any) {
+  const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
+  if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
+  const { data: atendimento } = await db.from('atendimentos').select('*').eq('id', req.id).maybeSingle();
+  if (!atendimento) return { ok: false, erro: 'Atendimento não encontrado.' };
+  if (conta.perfil !== 'USUARIO' || atendimento.usuario !== conta.nome) {
+    return { ok: false, erro: 'Só o usuário solicitante pode rejeitar a validação desse chamado.' };
+  }
+  if (atendimento.status !== 'EM VALIDAÇÃO') return { ok: false, erro: 'Esse chamado não está em validação.' };
+
+  const motivo = String(req.motivo || '').trim();
+  const { error } = await db.from('atendimentos').update({ status: 'NÃO VALIDADO', em_validacao_desde: null }).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  await registrarHistorico(req.id, `Validação rejeitada por ${conta.nome}${motivo ? ': ' + motivo : ''}`);
+  await notificarStatusAlterado({ ...atendimento, status: 'NÃO VALIDADO' }, 'EM VALIDAÇÃO');
   return { ok: true };
 }
 
