@@ -1387,7 +1387,7 @@ function renderFiltroStatusDropdown(termo){
   el.innerHTML = opcoes.map(s=>`<div class="lookup-dropdown-item ${filtroStatus.has(s.nome)?'sel':''}" data-status-opcao="${escaparHtml(s.nome)}">${filtroStatus.has(s.nome)?'✓ ':''}${escaparHtml(s.nome)}</div>`).join('');
 }
 
-const STATUS_SEMPRE_VISIVEL = new Set(['PENDENTE', 'EM ANDAMENTO', 'EM VALIDAÇÃO']);
+const STATUS_SEMPRE_VISIVEL = new Set(['PENDENTE', 'EM ANDAMENTO', 'EM VALIDAÇÃO', 'NÃO VALIDADO']);
 
 // filtros de cliente/status/período aplicados tanto na visão em Lista
 // quanto na visão em Cards (kanban) — mesma base, dois jeitos de mostrar
@@ -5717,6 +5717,17 @@ async function aprovarValidacaoUi(id){
   fecharChat();
 }
 
+async function rejeitarValidacaoUi(id){
+  const motivo = document.getElementById('chatMotivoRejeicao').value.trim();
+  const conta = contaAtual();
+  const r = await api('rejeitarValidacao', { contaId: conta.id, id, motivo });
+  if(!r.ok){ toast(r.erro || 'Não foi possível rejeitar a validação.'); return; }
+  toast('Validação rejeitada — o atendente vai revisar');
+  await carregarTudo();
+  renderLista();
+  fecharChat();
+}
+
 /* ---------- bate-papo por atendimento ---------- */
 let chatAtendimentoId = null;
 let chatPodeRemoverVinculo = false;
@@ -5753,7 +5764,11 @@ async function abrirDetalhe(atendimentoId){
       <div style="font-size:12.5px;margin-top:8px;padding:10px;background:var(--panel-2);border-radius:8px;">
         <b>Esse chamado está em validação.</b> Confirma que ficou tudo certo?
         ${textoPrazoValidacao(r)}
-        <button class="primary" style="margin-top:8px;" onclick="aprovarValidacaoUi('${r.id}')">✓ Aprovar validação</button>
+        <textarea id="chatMotivoRejeicao" placeholder="Se for rejeitar, explique o motivo (opcional)" style="width:100%;margin-top:8px;min-height:50px;font-size:12.5px;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="primary" style="flex:1;margin-top:0;" onclick="aprovarValidacaoUi('${r.id}')">✓ Aprovar</button>
+          <button class="danger" style="flex:1;" onclick="rejeitarValidacaoUi('${r.id}')">✗ Rejeitar</button>
+        </div>
       </div>` : ''}
   `;
   document.getElementById('chatVinculosWrap').style.display = 'none';
