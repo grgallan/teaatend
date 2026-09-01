@@ -1098,6 +1098,10 @@
       </div>
       <div class="card">
         <h2>Notas fiscais importadas</h2>
+        <div class="row">
+          <div class="field"><label>De</label><input type="date" id="fin_notas_periodo_de"></div>
+          <div class="field"><label>Até</label><input type="date" id="fin_notas_periodo_ate"></div>
+        </div>
         <div id="listaNotasImportadas"></div>
       </div>
     </div>
@@ -1203,30 +1207,39 @@
 
   <!-- VÍDEOS / TUTORIAIS (cadastro só admin; lista pra todo mundo autorizado) -->
   <section class="view" id="view-videos">
-    <div class="card" id="cardNovoVideo">
-      <h2 id="tituloFormVideo">Novo vídeo/tutorial</h2>
-      <div class="field"><label>Título</label><input type="text" id="vid_titulo" placeholder="Ex: Como solicitar abono"></div>
-      <div class="field"><label>Link do YouTube</label><input type="text" id="vid_url" placeholder="Cole o link do vídeo aqui"></div>
-      <div class="field"><label>Descrição (opcional)</label><textarea id="vid_descricao" placeholder="Uma breve explicação sobre o vídeo"></textarea></div>
-      <div class="row">
-        <div class="field"><label>Cliente</label><select id="vid_cliente"><option value="">Todos os clientes</option></select></div>
-        <div class="field"><label>Módulo (opcional)</label><select id="vid_modulo"><option value="">(nenhum)</option></select></div>
-      </div>
-      <div class="field">
-        <label>Quem pode ver (além do admin)</label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" id="vid_perfil_atendente" checked> Atendentes</label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="vid_perfil_usuario" checked> Usuários solicitantes</label>
-      </div>
-      <button class="primary" id="btnAddVideo">Adicionar vídeo</button>
-      <button class="ghost" id="btnCancelarEdicaoVideo" style="display:none;width:100%;margin-top:8px;">Cancelar edição</button>
+    <div class="subtabs" id="vidSubtabs">
+      <div class="subtab" data-vidsub="novo">Novo Vídeo/Tutorial</div>
+      <div class="subtab active" data-vidsub="lista">Vídeos</div>
     </div>
 
-    <div class="card" id="cardFiltroVideoModulo">
-      <h2>Filtrar por módulo</h2>
-      <div class="filters" id="vidFiltroModulo"></div>
+    <div class="vid-sub-view" id="vid-sub-novo">
+      <div class="card" id="cardNovoVideo">
+        <h2 id="tituloFormVideo">Novo vídeo/tutorial</h2>
+        <div class="field"><label>Título</label><input type="text" id="vid_titulo" placeholder="Ex: Como solicitar abono"></div>
+        <div class="field"><label>Link do YouTube</label><input type="text" id="vid_url" placeholder="Cole o link do vídeo aqui"></div>
+        <div class="field"><label>Descrição (opcional)</label><textarea id="vid_descricao" placeholder="Uma breve explicação sobre o vídeo"></textarea></div>
+        <div class="row">
+          <div class="field"><label>Cliente</label><select id="vid_cliente"><option value="">Todos os clientes</option></select></div>
+          <div class="field"><label>Módulo (opcional)</label><select id="vid_modulo"><option value="">(nenhum)</option></select></div>
+        </div>
+        <div class="field">
+          <label>Quem pode ver (além do admin)</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:4px;cursor:pointer;"><input type="checkbox" id="vid_perfil_atendente" checked> Atendentes</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="vid_perfil_usuario" checked> Usuários solicitantes</label>
+        </div>
+        <button class="primary" id="btnAddVideo">Adicionar vídeo</button>
+        <button class="ghost" id="btnCancelarEdicaoVideo" style="display:none;width:100%;margin-top:8px;">Cancelar edição</button>
+      </div>
     </div>
 
-    <div id="listaVideos"></div>
+    <div class="vid-sub-view" id="vid-sub-lista">
+      <div class="card" id="cardFiltroVideoModulo">
+        <h2>Filtrar por módulo</h2>
+        <div class="filters" id="vidFiltroModulo"></div>
+      </div>
+
+      <div id="listaVideos"></div>
+    </div>
   </section>
 
   <!-- CADASTROS (admin) -->
