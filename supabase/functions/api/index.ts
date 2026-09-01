@@ -242,7 +242,10 @@ async function rotear(req: any): Promise<any> {
 // cliente dele, sem escolha nenhuma. Usado no login e na troca de empresa
 // dentro do app (mesma conta, sem precisar digitar a senha de novo).
 async function resolverEmpresasDaConta(contaRow: any): Promise<{ empresas?: any[]; empresa?: any }> {
-  if (ehAdminEfetivo(contaRow)) {
+  // só o ADMIN "de verdade" (perfil = ADMIN) vê todas as empresas — um
+  // ATENDENTE marcado como administrador continua restrito só às empresas
+  // vinculadas a ele (ehAdminEfetivo daria full-access indevido aqui)
+  if (contaRow.perfil === 'ADMIN') {
     const { data: todasEmpresas } = await db.from('empresas').select('*').order('nome');
     return { empresas: (todasEmpresas || []).map(empresaParaApi) };
   }
@@ -331,6 +334,17 @@ async function acaoDados(req: any) {
   const contaAtual = (contas || []).find((c: any) => String(c.id) === String(contaId));
   const isAdmin = ehAdminEfetivo(contaAtual);
 
+  // Atendentes/Usuários também ficam separados por empresa: só aparecem
+  // pra quem está vinculado a ela (ATENDENTE) ou pertence a um cliente
+  // dela (USUARIO) — um ADMIN "de verdade" continua vendo todo mundo,
+  // já que precisa gerenciar contas de qualquer empresa
+  const contasVisiveis = !empresaId ? (contas || []) : (contas || []).filter((c: any) => {
+    if (c.perfil === 'ADMIN') return true;
+    if (c.perfil === 'ATENDENTE') return (empresaIdsPorConta[c.id] || []).includes(empresaId);
+    if (c.perfil === 'USUARIO') return (clientes || []).some((cl: any) => String(cl.id) === String(c.cliente_id));
+    return true;
+  });
+
   let atendimentosQuery = db.from('atendimentos').select('*').order('data', { ascending: false });
   if (empresaId) atendimentosQuery = atendimentosQuery.eq('empresa_id', empresaId);
   if (contaAtual && contaAtual.perfil === 'USUARIO') {
@@ -391,7 +405,7 @@ async function acaoDados(req: any) {
 
   return {
     ok: true,
-    contas: (contas || []).map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [], empresaIdsPorConta[c.id] || [])),
+    contas: contasVisiveis.map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [], empresaIdsPorConta[c.id] || [])),
     clientes: (clientes || []).map(clienteParaApi),
     tipos: (tipos || []).map(simplesParaApi),
     modulos: (modulos || []).map(simplesParaApi),
@@ -401,7 +415,10 @@ async function acaoDados(req: any) {
     atendimentos,
     vinculos,
     perfisAcesso,
-    empresas: isAdmin ? (empresasRaw || []).map(empresaParaApi) : [],
+    // gerenciar a lista de empresas (criar/editar/remover) é coisa de
+    // ADMIN "de verdade" — um ATENDENTE administrador não gerencia isso,
+    // mesmo tendo acesso total dentro da própria empresa dele
+    empresas: (contaAtual && contaAtual.perfil === 'ADMIN') ? (empresasRaw || []).map(empresaParaApi) : [],
     tomticketErros,
   };
 }
@@ -986,7 +1003,7 @@ function videoParaApi(v: any) {
   return {
     id: v.id, titulo: v.titulo, descricao: v.descricao || '', urlYoutube: v.url_youtube,
     cliente: v.cliente || '', modulo: v.modulo || '', visivelPerfis: v.visivel_perfis || [],
-    ordem: v.ordem || 0, criadoPor: v.criado_por || '',
+    ordem: v.ordem || 0, criadoPor: v.criado_por || '', empresaId: v.empresa_id || '',
   };
 }
 
@@ -994,7 +1011,9 @@ async function acaoListarVideos(req: any) {
   const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
   if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
 
-  const { data, error } = await db.from('videos_tutoriais').select('*').order('ordem').order('criado_em');
+  let query = db.from('videos_tutoriais').select('*').order('ordem').order('criado_em');
+  if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  const { data, error } = await query;
   if (error) return { ok: false, erro: error.message };
   let videos = data || [];
 
@@ -1020,12 +1039,13 @@ async function acaoListarVideos(req: any) {
 async function acaoCriarVideo(req: any) {
   if (!(await confirmarAdmin(req.contaId)) && !(await podeAgir(req.contaId, 'videos', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar vídeos.' };
   if (!req.titulo || !req.urlYoutube) return { ok: false, erro: 'Preencha o título e o link do YouTube.' };
+  if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um vídeo.' };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
   const registro = {
     id: gerarId(), titulo: req.titulo, descricao: req.descricao || '', url_youtube: req.urlYoutube,
     cliente: req.cliente || null, modulo: req.modulo || null,
     visivel_perfis: (req.visivelPerfis && req.visivelPerfis.length > 0) ? req.visivelPerfis : ['ATENDENTE', 'USUARIO'],
-    ordem: Number(req.ordem) || 0, criado_por: conta ? conta.nome : '',
+    ordem: Number(req.ordem) || 0, criado_por: conta ? conta.nome : '', empresa_id: req.empresaId,
   };
   const { error } = await db.from('videos_tutoriais').insert(registro);
   if (error) return { ok: false, erro: error.message };
@@ -1265,13 +1285,15 @@ function lancamentoParaApi(l: any) {
     atendimentoIds: l.atendimento_ids || [], dataVencimento: l.data_vencimento || '',
     dataBaixa: l.data_baixa || '', dataPrevisaoBaixa: l.data_previsao_baixa || '',
     numeroNotaFiscal: l.numero_nota_fiscal || '', status: l.status, historico: l.historico || '',
-    criadoPor: l.criado_por || '',
+    criadoPor: l.criado_por || '', empresaId: l.empresa_id || '',
   };
 }
 
 async function acaoListarLancamentos(req: any) {
   if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin acessa o financeiro.' };
-  const { data, error } = await db.from('lancamentos_financeiros').select('*').order('mes_referencia', { ascending: false }).order('criado_em', { ascending: false });
+  let query = db.from('lancamentos_financeiros').select('*').order('mes_referencia', { ascending: false }).order('criado_em', { ascending: false });
+  if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  const { data, error } = await query;
   if (error) return { ok: false, erro: error.message };
   return { ok: true, lancamentos: (data || []).map(lancamentoParaApi) };
 }
@@ -1279,12 +1301,14 @@ async function acaoListarLancamentos(req: any) {
 async function acaoCriarLancamento(req: any) {
   if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode criar lançamentos.' };
   if (!req.cliente || !req.mesReferencia) return { ok: false, erro: 'Cliente e mês de referência são obrigatórios.' };
+  if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de criar o lançamento.' };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
   const registro = {
     id: gerarId(), cliente: req.cliente, mes_referencia: req.mesReferencia,
     valor_total: Number(req.valorTotal) || 0, atendimento_ids: req.atendimentoIds || [],
     data_vencimento: req.dataVencimento || '', numero_nota_fiscal: req.numeroNotaFiscal || '',
     historico: req.historico || '', status: 'ABERTO', criado_por: conta ? conta.nome : '',
+    empresa_id: req.empresaId,
   };
   const { error } = await db.from('lancamentos_financeiros').insert(registro);
   if (error) return { ok: false, erro: error.message };
@@ -1338,24 +1362,25 @@ function notaParaApi(n: any) {
     valorServicos: Number(n.valor_servicos) || 0, valorIss: Number(n.valor_iss) || 0,
     valorLiquido: Number(n.valor_liquido) || 0, discriminacao: n.discriminacao || '',
     lancamentoGeradoId: n.lancamento_gerado_id || null, importadoPor: n.importado_por || '',
-    xmlOriginal: n.xml_original || '',
+    xmlOriginal: n.xml_original || '', empresaId: n.empresa_id || '',
   };
 }
 
 async function acaoImportarNotaFiscal(req: any) {
   if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode importar notas fiscais.' };
+  if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de importar a nota fiscal.' };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
 
   // tenta casar o CNPJ do tomador (que veio no XML) com um cliente já
-  // cadastrado — se achar, usa o nome oficial do cadastro e vincula o
-  // id; comparação ignora pontuação, já que CNPJ pode estar formatado
-  // de jeitos diferentes em cada lugar
+  // cadastrado da MESMA empresa — se achar, usa o nome oficial do
+  // cadastro e vincula o id; comparação ignora pontuação, já que CNPJ
+  // pode estar formatado de jeitos diferentes em cada lugar
   const soDigitos = (s: string) => String(s || '').replace(/\D/g, '');
   let clienteId: string | null = null;
   let nomeCliente = req.cliente || '';
   const cnpjTomador = soDigitos(req.cnpjCpfTomador);
   if (cnpjTomador) {
-    const { data: clientesList } = await db.from('clientes').select('id,nome,cnpj');
+    const { data: clientesList } = await db.from('clientes').select('id,nome,cnpj').eq('empresa_id', req.empresaId);
     const encontrado = (clientesList || []).find((c: any) => soDigitos(c.cnpj) && soDigitos(c.cnpj) === cnpjTomador);
     if (encontrado) { clienteId = encontrado.id; nomeCliente = encontrado.nome; }
   }
@@ -1367,7 +1392,7 @@ async function acaoImportarNotaFiscal(req: any) {
     cnpj_cpf_tomador: req.cnpjCpfTomador || '',
     valor_servicos: Number(req.valorServicos) || 0, valor_iss: Number(req.valorIss) || 0,
     valor_liquido: Number(req.valorLiquido) || 0, discriminacao: req.discriminacao || '',
-    xml_original: req.xmlOriginal || '', importado_por: conta ? conta.nome : '',
+    xml_original: req.xmlOriginal || '', importado_por: conta ? conta.nome : '', empresa_id: req.empresaId,
   };
   const { error } = await db.from('notas_fiscais_importadas').insert(registro);
   if (error) return { ok: false, erro: error.message };
@@ -1376,7 +1401,9 @@ async function acaoImportarNotaFiscal(req: any) {
 
 async function acaoListarNotasImportadas(req: any) {
   if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin acessa o financeiro.' };
-  const { data, error } = await db.from('notas_fiscais_importadas').select('*').order('importado_em', { ascending: false });
+  let query = db.from('notas_fiscais_importadas').select('*').order('importado_em', { ascending: false });
+  if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  const { data, error } = await query;
   if (error) return { ok: false, erro: error.message };
   return { ok: true, notas: (data || []).map(notaParaApi) };
 }
