@@ -1448,6 +1448,11 @@
         </div>
         <div class="field"><label>Inscrição Estadual</label><input type="text" id="emp_inscricao_estadual"></div>
         <div class="field">
+          <label>Horas para validação automática</label>
+          <input type="number" min="1" step="1" id="emp_horas_validacao" placeholder="Ex: 48">
+          <p style="color:var(--muted);font-size:11.5px;margin:4px 0 0;">Um chamado "Em Validação" vira "Validado" sozinho depois desse tempo, se o usuário não aprovar antes.</p>
+        </div>
+        <div class="field">
           <label>Logo</label>
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
             <div id="emp_logo_preview" style="width:52px;height:52px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none;">

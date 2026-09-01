@@ -124,7 +124,8 @@ function atendimentoParaApi(a: any) {
     vhr: a.vhr, totalReal: a.total_real, status: a.status, anexoUrl: a.anexo_url, anexoNome: a.anexo_nome,
     solucao: a.solucao || '', dataPrevista: a.data_prevista || '',
     atendente2: a.atendente2 || '', horasAtendente2: a.horas_atendente2 || 0,
-    vha2: a.vha2 || 0, totalAnanda2: a.total_ananda2 || 0
+    vha2: a.vha2 || 0, totalAnanda2: a.total_ananda2 || 0,
+    emValidacaoDesde: a.em_validacao_desde || '',
   };
 }
 function mensagemParaApi(m: any) {
@@ -145,6 +146,7 @@ function empresaParaApi(e: any) {
     endereco: e.endereco || '', telefone: e.telefone || '', email: e.email || '',
     cnae: e.cnae || '', inscricaoMunicipal: e.inscricao_municipal || '', inscricaoEstadual: e.inscricao_estadual || '',
     logoUrl: e.logo_url || '', padrao: !!e.padrao,
+    horasValidacaoAutomatica: e.horas_validacao_automatica || 48,
   };
 }
 
@@ -155,6 +157,7 @@ async function rotear(req: any): Promise<any> {
     case 'dados': return acaoDados(req);
     case 'salvarAtendimento': return acaoSalvarAtendimento(req);
     case 'excluirAtendimento': return acaoExcluirAtendimento(req);
+    case 'aprovarValidacao': return acaoAprovarValidacao(req);
     case 'addAtendente': return acaoAddConta(req, 'ATENDENTE');
     case 'addUsuario': return acaoAddConta(req, 'USUARIO');
     case 'atualizarConta': return acaoAtualizarConta(req);
@@ -515,6 +518,18 @@ async function acaoSalvarAtendimento(req: any) {
   const ehNovo = !req.id;
   const statusFinal = ehNovo ? 'PENDENTE' : req.status; // todo chamado novo abre PENDENTE — reforçado aqui, não confia só no front
 
+  // marca a partir de quando o chamado entrou em "Em Validação" — usado
+  // pra saber quando expira o prazo de validação automática; sai desse
+  // status (validado pelo usuário, ou voltou pra outro status qualquer)
+  // e a marca é limpa
+  let emValidacaoDesde: string | null = null;
+  if (!ehNovo && statusFinal === 'EM VALIDAÇÃO') {
+    const { data: existenteStatus } = await db.from('atendimentos').select('status,em_validacao_desde').eq('id', req.id).maybeSingle();
+    emValidacaoDesde = (existenteStatus && existenteStatus.status === 'EM VALIDAÇÃO')
+      ? existenteStatus.em_validacao_desde
+      : new Date().toISOString();
+  }
+
   const registro = {
     id: req.id || gerarId(),
     data: req.data, mes, cliente: req.cliente, usuario: req.usuario, tipo: req.tipo,
@@ -526,6 +541,7 @@ async function acaoSalvarAtendimento(req: any) {
     data_prevista: req.dataPrevista || '',
     atendente2: contaAtendente2 ? atendente2Nome : '', horas_atendente2: horasAtendente2,
     vha2: ananda2, total_ananda2: horasAtendente2 * ananda2,
+    em_validacao_desde: emValidacaoDesde,
   };
 
   if (ehNovo) {
@@ -555,6 +571,25 @@ async function acaoSalvarAtendimento(req: any) {
 
 async function acaoExcluirAtendimento(req: any) {
   await db.from('atendimentos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+// o próprio usuário solicitante aprova a validação do chamado (some com o
+// prazo de 48h/etc — se ele não aprovar, o cron de validação automática
+// faz a mesma coisa mais tarde)
+async function acaoAprovarValidacao(req: any) {
+  const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
+  if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
+  const { data: atendimento } = await db.from('atendimentos').select('*').eq('id', req.id).maybeSingle();
+  if (!atendimento) return { ok: false, erro: 'Atendimento não encontrado.' };
+  if (conta.perfil !== 'USUARIO' || atendimento.usuario !== conta.nome) {
+    return { ok: false, erro: 'Só o usuário solicitante pode aprovar a validação desse chamado.' };
+  }
+  if (atendimento.status !== 'EM VALIDAÇÃO') return { ok: false, erro: 'Esse chamado não está em validação.' };
+
+  const { error } = await db.from('atendimentos').update({ status: 'VALIDADO', em_validacao_desde: null }).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  await registrarHistorico(req.id, `Validação aprovada por ${conta.nome}`);
   return { ok: true };
 }
 
@@ -1741,7 +1776,7 @@ async function acaoSalvarEmpresa(req: any) {
     nome, nome_fantasia: req.nomeFantasia || '', cnpj: req.cnpj || '', endereco: req.endereco || '',
     telefone: req.telefone || '', email: req.email || '', cnae: req.cnae || '',
     inscricao_municipal: req.inscricaoMunicipal || '', inscricao_estadual: req.inscricaoEstadual || '',
-    logo_url: req.logoUrl || '',
+    logo_url: req.logoUrl || '', horas_validacao_automatica: Number(req.horasValidacaoAutomatica) || 48,
   };
 
   const id = req.id || gerarId();
