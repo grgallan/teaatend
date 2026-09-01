@@ -328,7 +328,7 @@ async function carregarVideosCacheParaVinculo(){
   const conta = contaAtual();
   if(!conta) return;
   try{
-    const r = await api('listarVideos', { contaId: conta.id });
+    const r = await api('listarVideos', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(r.ok) videosCache = r.videos || [];
   }catch(e){ /* busca de vínculo fica só sem resultados — não é crítico */ }
 }
@@ -4007,6 +4007,7 @@ async function gerarLancamento(){
       contaId: conta.id, cliente, mesReferencia, valorTotal, atendimentoIds, dataVencimento,
       numeroNotaFiscal: document.getElementById('fin_nota_fiscal').value.trim(),
       historico: document.getElementById('fin_historico_novo').value.trim(),
+      empresaId: empresaAtual ? empresaAtual.id : '',
     });
     if(!r.ok){ toast(r.erro || 'Não foi possível gerar o lançamento.'); return; }
     document.getElementById('fin_vencimento').value = '';
@@ -4026,7 +4027,7 @@ async function carregarLancamentos(){
   const conta = contaAtual();
   if(!conta) return;
   try{
-    const r = await api('listarLancamentos', { contaId: conta.id });
+    const r = await api('listarLancamentos', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(r.ok) lancamentosCache = r.lancamentos || [];
   }catch(e){ /* silencioso */ }
 }
@@ -4240,6 +4241,7 @@ async function aoEscolherArquivoXml(e){
         dataEmissao: dados.dataEmissao, cliente: dados.cliente, cnpjCpfTomador: dados.cnpjCpf,
         valorServicos: dados.valorServicos, valorIss: dados.valorIss, valorLiquido: dados.valorLiquido,
         discriminacao: dados.discriminacao, xmlOriginal: texto,
+        empresaId: empresaAtual ? empresaAtual.id : '',
       });
       if(!r.ok){ falhas.push(`${arquivo.name}: ${r.erro || 'falha ao salvar'}`); continue; }
       sucesso++;
@@ -4276,6 +4278,7 @@ async function salvarNotaImportada(){
       valorLiquido: document.getElementById('fin_xml_valor_liquido').value,
       discriminacao: document.getElementById('fin_xml_discriminacao').value.trim(),
       xmlOriginal: xmlNotaOriginal,
+      empresaId: empresaAtual ? empresaAtual.id : '',
     });
     if(!r.ok){ toast(r.erro || 'Não foi possível importar a nota.'); return; }
     document.getElementById('fin_xml_preview').style.display = 'none';
@@ -4296,7 +4299,7 @@ async function carregarNotasImportadas(){
   const conta = contaAtual();
   if(!conta) return;
   try{
-    const r = await api('listarNotasImportadas', { contaId: conta.id });
+    const r = await api('listarNotasImportadas', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(r.ok) notasImportadasCache = r.notas || [];
   }catch(e){ /* silencioso */ }
 }
@@ -4354,6 +4357,7 @@ async function gerarFinanceiroDaNota(notaId){
     valorTotal: nota.valorLiquido, atendimentoIds: [], dataVencimento: vencimento,
     numeroNotaFiscal: nota.numeroNota,
     historico: `Gerado a partir da nota fiscal importada nº ${nota.numeroNota}.`,
+    empresaId: empresaAtual ? empresaAtual.id : '',
   });
   if(!r.ok){ toast(r.erro || 'Não foi possível gerar o financeiro.'); return; }
 
@@ -4931,7 +4935,7 @@ function renderCadastrosTudo(){
   renderListAtendentes(); renderListClientes(); renderListTipos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso(); renderListEmpresas();
   renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
   renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
-  renderEmpresasCheckboxes('at_empresas', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.empresaIds||[]) : []);
+  renderEmpresasCheckboxes('at_empresas', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.empresaIds||[]) : (empresaAtual ? [empresaAtual.id] : []));
 }
 
 /* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
@@ -5139,7 +5143,7 @@ function cancelarEdicaoAtendente(){
   document.getElementById('at_telefone').value = '';
   document.getElementById('at_administrador').checked = false;
   renderPerfisAcessoCheckboxes('at_perfis_acesso', []);
-  renderEmpresasCheckboxes('at_empresas', []);
+  renderEmpresasCheckboxes('at_empresas', empresaAtual ? [empresaAtual.id] : []);
   document.getElementById('btnAddAtendente').textContent = 'Adicionar atendente';
   document.getElementById('btnCancelarEdicaoAtendente').style.display = 'none';
 }
@@ -5245,7 +5249,7 @@ async function carregarVideos(){
   const cont = document.getElementById('listaVideos');
   cont.innerHTML = `<div class="empty" style="padding:14px;">Carregando…</div>`;
   try{
-    const r = await api('listarVideos', { contaId: conta.id });
+    const r = await api('listarVideos', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(!r.ok){ cont.innerHTML = `<div class="empty">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
     videosCache = r.videos || [];
     renderFiltroModuloVideo();
@@ -5339,7 +5343,7 @@ async function salvarVideoUi(){
     descricao: document.getElementById('vid_descricao').value.trim(),
     cliente: document.getElementById('vid_cliente').value,
     modulo: document.getElementById('vid_modulo').value,
-    visivelPerfis,
+    visivelPerfis, empresaId: empresaAtual ? empresaAtual.id : '',
   };
   const editando = !!editandoVideoId;
   const btn = document.getElementById('btnAddVideo');

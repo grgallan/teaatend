@@ -618,6 +618,31 @@ select 'ce-' || contas.id, contas.id, 'emp-ta' from contas
 where contas.perfil in ('ADMIN', 'ATENDENTE')
 on conflict (conta_id, empresa_id) do nothing;
 
+-- Financeiro (Lançamentos, Notas Importadas) e Vídeos/Tutoriais também
+-- passam a pertencer a uma Empresa, mesmo padrão de Clientes/Atendimentos
+alter table lancamentos_financeiros add column if not exists empresa_id text references empresas(id);
+alter table notas_fiscais_importadas add column if not exists empresa_id text references empresas(id);
+alter table videos_tutoriais add column if not exists empresa_id text references empresas(id);
+create index if not exists idx_lancamentos_empresa on lancamentos_financeiros (empresa_id);
+create index if not exists idx_notas_importadas_empresa on notas_fiscais_importadas (empresa_id);
+create index if not exists idx_videos_empresa on videos_tutoriais (empresa_id);
+
+update lancamentos_financeiros set empresa_id = 'emp-ta' where empresa_id is null;
+update notas_fiscais_importadas set empresa_id = 'emp-ta' where empresa_id is null;
+update videos_tutoriais set empresa_id = 'emp-ta' where empresa_id is null;
+
+-- rede de segurança: um ATENDENTE marcado como administrador deixou de
+-- enxergar toda empresa automaticamente (agora fica restrito só às que
+-- estiver vinculado, igual todo mundo) — qualquer conta ADMIN/ATENDENTE
+-- que hoje não tem NENHUMA empresa vinculada (ex: cadastrada sem marcar
+-- nenhum checkbox de "Empresas vinculadas") ficaria travada no login sem
+-- isso aqui; idempotente, roda de novo sem duplicar
+insert into conta_empresas (id, conta_id, empresa_id)
+select 'ce-' || contas.id, contas.id, 'emp-ta' from contas
+where contas.perfil in ('ADMIN', 'ATENDENTE')
+  and not exists (select 1 from conta_empresas ce where ce.conta_id = contas.id)
+on conflict (conta_id, empresa_id) do nothing;
+
 -- =========================================================
 -- Integração TomTicket — quando um técnico é associado a um chamado lá,
 -- a function tomticket-webhook (separada da "api") cria um atendimento
