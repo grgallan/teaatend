@@ -5535,12 +5535,52 @@ const CUBO_DIMENSOES = {
   modulo: r => r.modulo || '(sem módulo)',
   mes: r => r.mes || '(sem mês)',
 };
+const CUBO_DIMENSOES_LABEL = { cliente:'Cliente', atendente:'Atendente', tipo:'Tipo', status:'Status', modulo:'Módulo', mes:'Mês' };
 const CUBO_MEDIDAS = {
-  qtd_chamados: { valor: () => 1, formatar: v => String(v) },
-  soma_horas: { valor: r => Number(r.qtd) || 0, formatar: v => v.toFixed(2).replace('.', ',') + 'h' },
-  soma_real: { valor: r => Number(r.totalReal) || 0, formatar: v => fmtMoeda(v) },
-  soma_ananda: { valor: r => Number(r.totalAnanda) || 0, formatar: v => fmtMoeda(v) },
+  qtd_chamados: { label:'Qtd. de chamados', valor: () => 1, formatar: v => String(v) },
+  soma_horas: { label:'Soma de horas', valor: r => Number(r.qtd) || 0, formatar: v => v.toFixed(2).replace('.', ',') + 'h' },
+  soma_real: { label:'Soma de Valor Real (R$)', valor: r => Number(r.totalReal) || 0, formatar: v => fmtMoeda(v) },
+  soma_ananda: { label:'Soma de Valor Atendente (R$)', valor: r => Number(r.totalAnanda) || 0, formatar: v => fmtMoeda(v) },
 };
+const CUBO_MEDIDAS_LABEL = Object.fromEntries(Object.entries(CUBO_MEDIDAS).map(([k,v])=>[k,v.label]));
+
+// ordem de seleção importa pra Linhas/Colunas — vira a ordem dos
+// níveis/subníveis (primeiro = nível mais de fora); dá pra reordenar
+// depois com as setas ‹ › em cada tag
+let cuboLinhasSelecionadas = ['atendente'];
+let cuboColunasSelecionadas = ['mes'];
+let cuboMedidasSelecionadas = ['qtd_chamados'];
+// grupos de linha recolhidos (guarda o "caminho" de valores, tipo
+// "Camila|||08/2026" — não o objeto, porque a árvore é recalculada do
+// zero a cada render)
+let cuboLinhasColapsadas = new Set();
+
+const CUBO_TIPO_INFO = {
+  linhas: { tagsId:'cuboLinhasTags', opcoesId:'cuboLinhasOpcoes', labels:CUBO_DIMENSOES_LABEL, lista:()=>cuboLinhasSelecionadas, minimoUm:true },
+  colunas: { tagsId:'cuboColunasTags', opcoesId:'cuboColunasOpcoes', labels:CUBO_DIMENSOES_LABEL, lista:()=>cuboColunasSelecionadas, minimoUm:false },
+  medidas: { tagsId:'cuboMedidasTags', opcoesId:'cuboMedidasOpcoes', labels:CUBO_MEDIDAS_LABEL, lista:()=>cuboMedidasSelecionadas, minimoUm:true },
+};
+
+function renderCuboSeletor(tipo){
+  const info = CUBO_TIPO_INFO[tipo];
+  const selecionadas = info.lista();
+  document.getElementById(info.tagsId).innerHTML = selecionadas.map((chave,i)=>`
+    <div class="lookup-tag">
+      ${i>0 ? `<button type="button" data-cubo-mover="${tipo}:${i}:-1" title="Mover pra esquerda" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;font-weight:700;">‹</button>` : ''}
+      ${escaparHtml(info.labels[chave])}
+      ${i<selecionadas.length-1 ? `<button type="button" data-cubo-mover="${tipo}:${i}:1" title="Mover pra direita" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;font-weight:700;">›</button>` : ''}
+      <button type="button" data-cubo-remover="${tipo}:${chave}">×</button>
+    </div>`
+  ).join('');
+  const disponiveis = Object.keys(info.labels).filter(chave=>!selecionadas.includes(chave));
+  document.getElementById(info.opcoesId).innerHTML = disponiveis.map(chave=>
+    `<button type="button" class="chip" data-cubo-adicionar="${tipo}:${chave}">+ ${escaparHtml(info.labels[chave])}</button>`
+  ).join('');
+}
+
+function renderTodosSeletoresCubo(){
+  renderCuboSeletor('linhas'); renderCuboSeletor('colunas'); renderCuboSeletor('medidas');
+}
 
 function itensCuboFiltrados(){
   let itens = atendimentos.slice();
@@ -5551,60 +5591,142 @@ function itensCuboFiltrados(){
   return itens;
 }
 
+// agrupa itens recursivamente por uma sequência de dimensões — cada nível
+// vira um nó com os próprios itens (pra calcular o subtotal daquele grupo)
+// e os filhos do próximo nível, se sobrar mais alguma dimensão na lista
+function cuboAgrupar(itens, chaves, nivel){
+  if(chaves.length === 0) return null;
+  const extrair = CUBO_DIMENSOES[chaves[0]];
+  const grupos = new Map();
+  itens.forEach(r=>{
+    const v = extrair(r);
+    if(!grupos.has(v)) grupos.set(v, []);
+    grupos.get(v).push(r);
+  });
+  const restante = chaves.slice(1);
+  return [...grupos.keys()].sort((a,b)=>String(a).localeCompare(String(b))).map(valor=>{
+    const itensGrupo = grupos.get(valor);
+    return { valor, itens: itensGrupo, filhos: cuboAgrupar(itensGrupo, restante, nivel+1) };
+  });
+}
+
+// combinações de coluna que realmente ocorrem nos dados (evita coluna
+// vazia pra uma combinação de valores que nunca aconteceu junta)
+function cuboCombinacoesColuna(itens, chaves){
+  if(chaves.length === 0) return [[]];
+  const extrair = CUBO_DIMENSOES[chaves[0]];
+  const restante = chaves.slice(1);
+  const valores = [...new Set(itens.map(extrair))].sort((a,b)=>String(a).localeCompare(String(b)));
+  const combos = [];
+  valores.forEach(v=>{
+    const itensDoValor = itens.filter(r=>extrair(r)===v);
+    cuboCombinacoesColuna(itensDoValor, restante).forEach(resto=> combos.push([v, ...resto]));
+  });
+  return combos;
+}
+
+function cuboItensNaColuna(itens, colunaChaves, colunaPath){
+  if(colunaChaves.length === 0) return itens;
+  return itens.filter(r=> colunaChaves.every((chave,i)=> CUBO_DIMENSOES[chave](r) === colunaPath[i]));
+}
+
+// uma linha de cabeçalho por nível de coluna (colspan agrupa combinações
+// com o mesmo prefixo) + uma linha extra com o nome da medida quando tem
+// mais de uma escolhida (ou "Total" quando não tem dimensão de coluna
+// nenhuma e só uma medida)
+function cuboLinhasCabecalho(colunaPaths, colunaChaves, medidaChaves){
+  const numMedidas = medidaChaves.length;
+  const linhas = [];
+  colunaChaves.forEach((_,nivel)=>{
+    const celulas = [];
+    let i = 0;
+    while(i < colunaPaths.length){
+      const prefixo = colunaPaths[i].slice(0, nivel+1).join('|||');
+      let j = i;
+      while(j < colunaPaths.length && colunaPaths[j].slice(0, nivel+1).join('|||') === prefixo) j++;
+      celulas.push({ texto: colunaPaths[i][nivel], colspan: (j - i) * numMedidas });
+      i = j;
+    }
+    linhas.push(celulas);
+  });
+  if(numMedidas > 1){
+    const celulas = [];
+    colunaPaths.forEach(()=> medidaChaves.forEach(mk=> celulas.push({ texto: CUBO_MEDIDAS[mk].label, colspan: 1 })));
+    linhas.push(celulas);
+  }else if(colunaChaves.length === 0){
+    linhas.push([{ texto: 'Total', colspan: 1 }]);
+  }
+  return linhas;
+}
+
+function cuboRenderLinhas(nos, colunaPaths, colunaChaves, medidaChaves, nivel, caminhoPai){
+  return nos.map(no=>{
+    const caminho = caminhoPai ? caminhoPai + '|||' + no.valor : String(no.valor);
+    const celulas = colunaPaths.map(path=>{
+      const itensColuna = cuboItensNaColuna(no.itens, colunaChaves, path);
+      return medidaChaves.map(mk=>{
+        const total = itensColuna.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0);
+        return `<td style="text-align:right;padding:6px 10px;white-space:nowrap;">${total ? CUBO_MEDIDAS[mk].formatar(total) : '—'}</td>`;
+      }).join('');
+    }).join('');
+    const totalLinha = medidaChaves.map(mk=>{
+      const total = no.itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0);
+      return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${CUBO_MEDIDAS[mk].formatar(total)}</td>`;
+    }).join('');
+    const colapsado = cuboLinhasColapsadas.has(caminho);
+    const toggle = no.filhos
+      ? `<button type="button" data-cubo-toggle-linha="${escaparHtml(caminho)}" title="${colapsado?'Expandir':'Recolher'}" style="background:none;border:none;cursor:pointer;color:inherit;padding:0;font-size:10px;width:14px;">${colapsado?'▸':'▾'}</button>`
+      : `<span style="display:inline-block;width:14px;"></span>`;
+    const linhaAtual = `<tr><td style="padding:6px 10px;padding-left:${nivel*18}px;font-weight:${no.filhos?700:600};white-space:nowrap;">${toggle}${escaparHtml(String(no.valor))}</td>${celulas}${totalLinha}</tr>`;
+    const linhasFilhas = (no.filhos && !colapsado) ? cuboRenderLinhas(no.filhos, colunaPaths, colunaChaves, medidaChaves, nivel+1, caminho) : '';
+    return linhaAtual + linhasFilhas;
+  }).join('');
+}
+
 function renderCubo(){
   const cont = document.getElementById('cuboTabela');
   const itens = itensCuboFiltrados();
   if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado nesse período.</div>`; return; }
 
-  const linhaKey = document.getElementById('cubo_linha').value;
-  const colunaKey = document.getElementById('cubo_coluna').value;
-  const medida = CUBO_MEDIDAS[document.getElementById('cubo_medida').value];
-  const extrairLinha = CUBO_DIMENSOES[linhaKey];
-  const extrairColuna = colunaKey === 'nenhum' ? (()=>'Total') : CUBO_DIMENSOES[colunaKey];
+  const linhaChaves = cuboLinhasSelecionadas;
+  const colunaChaves = cuboColunasSelecionadas;
+  const medidaChaves = cuboMedidasSelecionadas;
 
-  const linhas = new Set(), colunas = new Set();
-  const celulas = {}; // chave "linha|||coluna" -> soma acumulada da medida
-  itens.forEach(r=>{
-    const l = extrairLinha(r), c = extrairColuna(r);
-    linhas.add(l); colunas.add(c);
-    const chave = l + '|||' + c;
-    celulas[chave] = (celulas[chave] || 0) + medida.valor(r);
-  });
-  const linhasOrdenadas = [...linhas].sort();
-  const colunasOrdenadas = [...colunas].sort();
+  const arvoreLinhas = cuboAgrupar(itens, linhaChaves, 0);
+  const colunaPaths = cuboCombinacoesColuna(itens, colunaChaves);
+  const linhasCabecalho = cuboLinhasCabecalho(colunaPaths, colunaChaves, medidaChaves);
 
-  let totalGeral = 0;
-  const linhasHtml = linhasOrdenadas.map(l=>{
-    let totalLinha = 0;
-    const celulasHtml = colunasOrdenadas.map(c=>{
-      const v = celulas[l + '|||' + c] || 0;
-      totalLinha += v;
-      return `<td style="text-align:right;padding:6px 10px;white-space:nowrap;">${v ? medida.formatar(v) : '—'}</td>`;
-    }).join('');
-    totalGeral += totalLinha;
-    return `<tr><td style="padding:6px 10px;font-weight:600;white-space:nowrap;">${escaparHtml(l)}</td>${celulasHtml}<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${medida.formatar(totalLinha)}</td></tr>`;
+  const cabecalhoHtml = linhasCabecalho.map((celulas, i)=>{
+    const bordaCelulaVazia = i===0 ? `<th rowspan="${linhasCabecalho.length}" style="text-align:left;padding:6px 10px;border-bottom:2px solid var(--line);"></th>` : '';
+    const meio = celulas.map(c=>`<th colspan="${c.colspan}" style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);white-space:nowrap;">${escaparHtml(String(c.texto))}</th>`).join('');
+    const celulaTotal = i===0 ? `<th rowspan="${linhasCabecalho.length}" style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);">Total</th>` : '';
+    return `<tr>${bordaCelulaVazia}${meio}${celulaTotal}</tr>`;
   }).join('');
-  const totaisColuna = colunasOrdenadas.map(c=>{
-    const total = linhasOrdenadas.reduce((soma,l)=> soma + (celulas[l + '|||' + c] || 0), 0);
-    return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${medida.formatar(total)}</td>`;
+
+  const linhasHtml = cuboRenderLinhas(arvoreLinhas, colunaPaths, colunaChaves, medidaChaves, 0, null);
+
+  const totaisColuna = colunaPaths.map(path=>{
+    const itensColuna = cuboItensNaColuna(itens, colunaChaves, path);
+    return medidaChaves.map(mk=>{
+      const total = itensColuna.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0);
+      return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${CUBO_MEDIDAS[mk].formatar(total)}</td>`;
+    }).join('');
+  }).join('');
+  const totalGeral = medidaChaves.map(mk=>{
+    const total = itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0);
+    return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${CUBO_MEDIDAS[mk].formatar(total)}</td>`;
   }).join('');
 
   cont.innerHTML = `
     <div style="overflow-x:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-        <thead>
-          <tr>
-            <th style="text-align:left;padding:6px 10px;border-bottom:2px solid var(--line);"></th>
-            ${colunasOrdenadas.map(c=>`<th style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);white-space:nowrap;">${escaparHtml(c)}</th>`).join('')}
-            <th style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);">Total</th>
-          </tr>
-        </thead>
+        <thead>${cabecalhoHtml}</thead>
         <tbody>
           ${linhasHtml}
           <tr style="border-top:2px solid var(--line);">
             <td style="padding:6px 10px;font-weight:700;">Total</td>
             ${totaisColuna}
-            <td style="text-align:right;padding:6px 10px;font-weight:700;">${medida.formatar(totalGeral)}</td>
+            ${totalGeral}
           </tr>
         </tbody>
       </table>
@@ -6342,7 +6464,7 @@ function goView(name){
     document.getElementById('cardPreviewRelatoriosPub').style.display = 'none';
     carregarRelatoriosPublicados();
   }
-  if(name==='cubo') renderCubo();
+  if(name==='cubo'){ renderTodosSeletoresCubo(); renderCubo(); }
   if(name==='financeiro'){
     goFinSub(finAba);
     popularClientesFinanceiro();
@@ -6783,8 +6905,49 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('periodo_ate').addEventListener('change', renderLista);
   document.getElementById('fin_notas_periodo_de').addEventListener('change', renderListaNotasImportadas);
   document.getElementById('fin_notas_periodo_ate').addEventListener('change', renderListaNotasImportadas);
-  ['cubo_linha','cubo_coluna','cubo_medida','cubo_periodo_de','cubo_periodo_ate'].forEach(id=>{
-    document.getElementById(id).addEventListener('change', renderCubo);
+  document.getElementById('cubo_periodo_de').addEventListener('change', renderCubo);
+  document.getElementById('cubo_periodo_ate').addEventListener('change', renderCubo);
+  document.getElementById('view-cubo').addEventListener('click', e=>{
+    const btnAdd = e.target.closest('[data-cubo-adicionar]');
+    if(btnAdd){
+      const [tipo, chave] = btnAdd.dataset.cuboAdicionar.split(':');
+      CUBO_TIPO_INFO[tipo].lista().push(chave);
+      if(tipo === 'linhas') cuboLinhasColapsadas.clear();
+      renderCuboSeletor(tipo);
+      renderCubo();
+      return;
+    }
+    const btnRem = e.target.closest('[data-cubo-remover]');
+    if(btnRem){
+      const [tipo, chave] = btnRem.dataset.cuboRemover.split(':');
+      const info = CUBO_TIPO_INFO[tipo];
+      const lista = info.lista();
+      if(info.minimoUm && lista.length <= 1){ toast('Escolha pelo menos um(a)'); return; }
+      const idx = lista.indexOf(chave);
+      if(idx >= 0) lista.splice(idx, 1);
+      if(tipo === 'linhas') cuboLinhasColapsadas.clear();
+      renderCuboSeletor(tipo);
+      renderCubo();
+      return;
+    }
+    const btnMover = e.target.closest('[data-cubo-mover]');
+    if(btnMover){
+      const [tipo, indiceStr, direcaoStr] = btnMover.dataset.cuboMover.split(':');
+      const lista = CUBO_TIPO_INFO[tipo].lista();
+      const indice = Number(indiceStr), novoIndice = indice + Number(direcaoStr);
+      if(novoIndice < 0 || novoIndice >= lista.length) return;
+      [lista[indice], lista[novoIndice]] = [lista[novoIndice], lista[indice]];
+      if(tipo === 'linhas') cuboLinhasColapsadas.clear();
+      renderCuboSeletor(tipo);
+      renderCubo();
+      return;
+    }
+    const btnToggle = e.target.closest('[data-cubo-toggle-linha]');
+    if(btnToggle){
+      const caminho = btnToggle.dataset.cuboToggleLinha;
+      if(cuboLinhasColapsadas.has(caminho)) cuboLinhasColapsadas.delete(caminho); else cuboLinhasColapsadas.add(caminho);
+      renderCubo();
+    }
   });
 
   segmentedSetup('listaVisualizacaoToggle', ()=>{
