@@ -5224,6 +5224,7 @@ async function removerCliente(id){
 let videosCache = [];
 let editandoVideoId = null;
 let vidFiltroModulo = 'TODOS';
+let vidSelecionadoId = null; // aula em destaque no player, na visão "Vídeos"
 
 function extrairIdYoutube(url){
   if(!url) return '';
@@ -5275,20 +5276,39 @@ function renderListaVideos(){
   let itens = videosCache.slice();
   if(vidFiltroModulo !== 'TODOS') itens = itens.filter(v=>v.modulo === vidFiltroModulo);
 
-  if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">🎬</div>Nenhum vídeo disponível ainda.</div>`; return; }
+  if(itens.length === 0){
+    vidSelecionadoId = null;
+    cont.innerHTML = `<div class="empty"><div class="big">🎬</div>Nenhum vídeo disponível ainda.</div>`;
+    return;
+  }
 
-  cont.innerHTML = itens.map(v=>{
-    const videoId = extrairIdYoutube(v.urlYoutube);
-    // o parâmetro "origin" evita o Erro 153 do player em vários casos —
-    // sem ele, alguns navegadores/domínios têm o embed recusado mesmo
-    // com o vídeo liberado pra incorporação
-    const origem = encodeURIComponent(window.location.origin);
-    const embed = videoId
-      ? `<iframe class="vid-embed" src="https://www.youtube.com/embed/${videoId}?rel=0&origin=${origem}" title="${escaparHtml(v.titulo)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`
-      : `<div class="empty" style="padding:10px 0;font-size:12px;">Link do YouTube parece inválido.</div>`;
-    const linkOriginal = videoId ? `https://www.youtube.com/watch?v=${videoId}` : v.urlYoutube;
-    const perfisTexto = (v.visivelPerfis||[]).map(p=>p==='ATENDENTE'?'Atendentes':p==='USUARIO'?'Usuários':p).join(', ');
-    return `<div class="card">
+  // mantém a aula em destaque se ela ainda estiver visível (ex: depois de
+  // recarregar); senão, cai pra primeira da lista
+  if(!itens.some(v=>v.id===vidSelecionadoId)) vidSelecionadoId = itens[0].id;
+
+  cont.innerHTML = `<div id="vidPlayerArea"></div><div id="vidAulasLista"></div>`;
+  renderVidPlayer(isAdmin);
+  renderVidAulasLista(itens, isAdmin);
+}
+
+// player grande com a aula em destaque no topo — igual a tela de "assistir
+// aula" de um site de cursos, com os detalhes/comentários logo abaixo
+function renderVidPlayer(isAdmin){
+  const wrap = document.getElementById('vidPlayerArea');
+  if(!wrap) return;
+  const v = videosCache.find(x=>x.id===vidSelecionadoId);
+  if(!v){ wrap.innerHTML = ''; return; }
+  const videoId = extrairIdYoutube(v.urlYoutube);
+  // o parâmetro "origin" evita o Erro 153 do player em vários casos —
+  // sem ele, alguns navegadores/domínios têm o embed recusado mesmo
+  // com o vídeo liberado pra incorporação
+  const origem = encodeURIComponent(window.location.origin);
+  const embed = videoId
+    ? `<iframe class="vid-embed" src="https://www.youtube.com/embed/${videoId}?rel=0&origin=${origem}" title="${escaparHtml(v.titulo)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>`
+    : `<div class="empty" style="padding:10px 0;font-size:12px;">Link do YouTube parece inválido.</div>`;
+  const linkOriginal = videoId ? `https://www.youtube.com/watch?v=${videoId}` : v.urlYoutube;
+  const perfisTexto = (v.visivelPerfis||[]).map(p=>p==='ATENDENTE'?'Atendentes':p==='USUARIO'?'Usuários':p).join(', ');
+  wrap.innerHTML = `<div class="card vid-player-card">
       ${embed}
       ${videoId ? `<a href="${linkOriginal}" target="_blank" rel="noopener" class="vid-link-alternativo">▶ Não carregou? Assistir direto no YouTube</a>` : ''}
       <div class="vid-titulo">${escaparHtml(v.titulo)}</div>
@@ -5300,8 +5320,70 @@ function renderListaVideos(){
       </div>` : ''}
       <div class="vid-comentarios" id="vidComentarios_${v.id}"></div>
     </div>`;
+  carregarComentariosVideo(v.id);
+}
+
+// lista de "aulas" agrupada por módulo, abaixo/ao lado do player — clicar
+// numa aula troca o vídeo em destaque sem recarregar a página
+function renderVidAulasLista(itens, isAdmin){
+  const cont = document.getElementById('vidAulasLista');
+  if(!cont) return;
+  const porModulo = new Map();
+  const ordemGrupos = [];
+  itens.forEach(v=>{
+    const chave = v.modulo || '';
+    if(!porModulo.has(chave)){ porModulo.set(chave, []); ordemGrupos.push(chave); }
+    porModulo.get(chave).push(v);
+  });
+  // módulos de verdade primeiro, na ordem em que aparecem; vídeo sem
+  // módulo cadastrado cai num grupo "Outros vídeos" no final
+  ordemGrupos.sort((a,b)=> (a===''?1:0) - (b===''?1:0));
+
+  cont.innerHTML = ordemGrupos.map(chave=>{
+    const lista = porModulo.get(chave);
+    const titulo = chave || 'Outros vídeos';
+    const linhas = lista.map((v,i)=>renderVidAulaLinha(v, i+1, isAdmin)).join('');
+    return `<div class="vid-modulo-grupo">
+      <div class="vid-modulo-titulo">${escaparHtml(titulo)}<span class="vid-modulo-contagem">${lista.length}</span></div>
+      <div class="vid-aulas-lista">${linhas}</div>
+    </div>`;
   }).join('');
-  itens.forEach(v => carregarComentariosVideo(v.id));
+}
+
+function renderVidAulaLinha(v, numero, isAdmin){
+  const videoId = extrairIdYoutube(v.urlYoutube);
+  const thumb = videoId ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` : '';
+  const ativo = v.id === vidSelecionadoId;
+  return `<div class="vid-aula-item${ativo?' ativo':''}" data-id="${escaparHtml(v.id)}" onclick="selecionarVideoUi('${v.id}')">
+    <div class="vid-aula-thumb">${thumb ? `<img src="${thumb}" alt="" loading="lazy">` : '🎬'}${ativo ? '<span class="vid-aula-play">▶</span>' : ''}</div>
+    <div class="vid-aula-info">
+      <div class="vid-aula-titulo">${numero}. ${escaparHtml(v.titulo)}</div>
+      ${v.descricao ? `<div class="vid-aula-desc">${escaparHtml(v.descricao)}</div>` : ''}
+    </div>
+    ${isAdmin ? `<div class="vid-aula-acoes" onclick="event.stopPropagation();">
+      <button class="ghost" onclick="editarVideoUi('${v.id}')" title="Editar">✎</button>
+      <button class="ghost" onclick="pedirConfirmacao('Remover vídeo?','Isso não pode ser desfeito.', ()=>removerVideoUi('${v.id}'))" title="Excluir">🗑</button>
+    </div>` : ''}
+  </div>`;
+}
+
+// troca só o destaque (classe "ativo" + player), sem re-renderizar a lista
+// inteira — evita perder a posição do scroll ao clicar numa aula
+function selecionarVideoUi(id){
+  if(vidSelecionadoId === id) return;
+  vidSelecionadoId = id;
+  document.querySelectorAll('#vidAulasLista .vid-aula-item.ativo').forEach(el=>{
+    el.classList.remove('ativo');
+    const play = el.querySelector('.vid-aula-play');
+    if(play) play.remove();
+  });
+  const linha = document.querySelector(`#vidAulasLista .vid-aula-item[data-id="${CSS.escape(id)}"]`);
+  if(linha){
+    linha.classList.add('ativo');
+    linha.querySelector('.vid-aula-thumb')?.insertAdjacentHTML('beforeend', '<span class="vid-aula-play">▶</span>');
+  }
+  renderVidPlayer(ehAdminEfetivo(contaAtual()));
+  document.getElementById('vidPlayerArea')?.scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
 function limparFormVideo(){
@@ -5355,6 +5437,7 @@ async function salvarVideoUi(){
     visivelPerfis, empresaId: empresaAtual ? empresaAtual.id : '',
   };
   const editando = !!editandoVideoId;
+  const idEditado = editandoVideoId;
   const btn = document.getElementById('btnAddVideo');
   btn.disabled = true;
   try{
@@ -5363,6 +5446,7 @@ async function salvarVideoUi(){
       : await api('criarVideo', payload);
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     limparFormVideo();
+    vidSelecionadoId = editando ? idEditado : r.id; // já deixa a aula salva em destaque no player
     await carregarVideos();
     goVidSub('lista');
     toast(editando ? 'Vídeo atualizado' : 'Vídeo adicionado');
@@ -6637,6 +6721,7 @@ function goView(name){
     if(podeInserirVid){ popularSelectsVideo(); limparFormVideo(); }
     goVidSub(podeInserirVid ? vidAba : 'lista');
     vidFiltroModulo = 'TODOS';
+    vidSelecionadoId = null;
     carregarVideos();
   }
   if(name==='cadastros') goCadSub(cadAba);
