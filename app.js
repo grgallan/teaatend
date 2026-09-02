@@ -846,7 +846,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('gantt', menuVisivel(conta, 'cronograma', true));
   aplicarVisibilidadeMenu('relatorio', menuVisivel(conta, 'construtor_relatorios', isAdmin));
   aplicarVisibilidadeMenu('relatoriospub', menuVisivel(conta, 'relatorios', true));
-  aplicarVisibilidadeMenu('cubo', isAdmin); // em teste — só admin, e só existe no menu do desktop (não tem entrada mobile)
+  aplicarVisibilidadeMenu('cubo', isAdmin);
   aplicarVisibilidadeMenu('financeiro', menuVisivel(conta, 'financeiro', isAdmin));
   aplicarVisibilidadeMenu('agenda', menuVisivel(conta, 'agenda', podeVerAgenda));
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
@@ -5723,7 +5723,7 @@ function renderCubo(){
         <thead>${cabecalhoHtml}</thead>
         <tbody>
           ${linhasHtml}
-          <tr style="border-top:2px solid var(--line);">
+          <tr class="cubo-total" style="border-top:2px solid var(--line);">
             <td style="padding:6px 10px;font-weight:700;">Total</td>
             ${totaisColuna}
             ${totalGeral}
@@ -5731,6 +5731,59 @@ function renderCubo(){
         </tbody>
       </table>
     </div>`;
+}
+
+// junta numa lista só (respeitando o que está recolhido/expandido — só
+// exporta o que a pessoa está vendo na tela) pra gerar o Excel/CSV
+function cuboColetarLinhasVisiveis(nos, colunaPaths, colunaChaves, medidaChaves, nivel, caminhoPai, saida){
+  nos.forEach(no=>{
+    const caminho = caminhoPai ? caminhoPai + '|||' + no.valor : String(no.valor);
+    const valores = [];
+    colunaPaths.forEach(path=>{
+      const itensColuna = cuboItensNaColuna(no.itens, colunaChaves, path);
+      medidaChaves.forEach(mk=> valores.push(itensColuna.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
+    });
+    medidaChaves.forEach(mk=> valores.push(no.itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
+    saida.push({ label: no.valor, nivel, valores });
+    const colapsado = cuboLinhasColapsadas.has(caminho);
+    if(no.filhos && !colapsado) cuboColetarLinhasVisiveis(no.filhos, colunaPaths, colunaChaves, medidaChaves, nivel+1, caminho, saida);
+  });
+}
+
+function exportarCuboExcel(){
+  const itens = itensCuboFiltrados();
+  if(itens.length === 0){ toast('Nada para exportar com esse período'); return; }
+
+  const linhaChaves = cuboLinhasSelecionadas, colunaChaves = cuboColunasSelecionadas, medidaChaves = cuboMedidasSelecionadas;
+  const arvoreLinhas = cuboAgrupar(itens, linhaChaves, 0);
+  const colunaPaths = cuboCombinacoesColuna(itens, colunaChaves);
+
+  const cabecalhosColuna = [];
+  colunaPaths.forEach(path=> medidaChaves.forEach(mk=> cabecalhosColuna.push([...path, CUBO_MEDIDAS[mk].label].join(' - '))));
+  medidaChaves.forEach(mk=> cabecalhosColuna.push('Total - ' + CUBO_MEDIDAS[mk].label));
+  const header = [linhaChaves.map(k=>CUBO_DIMENSOES_LABEL[k]).join(' / ') || 'Item', ...cabecalhosColuna];
+
+  const linhasVisiveis = [];
+  cuboColetarLinhasVisiveis(arvoreLinhas, colunaPaths, colunaChaves, medidaChaves, 0, null, linhasVisiveis);
+  const rows = linhasVisiveis.map(l=> [
+    ('  '.repeat(l.nivel) + String(l.label)).replace(/;/g,','),
+    ...l.valores.map(v=> Number(v.toFixed(2))),
+  ]);
+
+  const totalGeralValores = [];
+  colunaPaths.forEach(path=>{
+    const itensColuna = cuboItensNaColuna(itens, colunaChaves, path);
+    medidaChaves.forEach(mk=> totalGeralValores.push(itensColuna.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
+  });
+  medidaChaves.forEach(mk=> totalGeralValores.push(itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
+  rows.push(['Total', ...totalGeralValores.map(v=>Number(v.toFixed(2)))]);
+
+  const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='cubo_atendimentos.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast('Excel exportado');
 }
 
 /* ---------- construtor de relatório ---------- */
@@ -6949,6 +7002,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       renderCubo();
     }
   });
+  document.getElementById('btnExportarCubo').addEventListener('click', exportarCuboExcel);
 
   segmentedSetup('listaVisualizacaoToggle', ()=>{
     visualizacaoAtendimentos = getSegSel('listaVisualizacaoToggle');
