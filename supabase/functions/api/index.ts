@@ -693,6 +693,7 @@ async function enviarEmailsNovoAtendimento(registro: any) {
       `Tipo: ${registro.tipo}`,
       registro.modulo ? `Módulo: ${registro.modulo}` : '',
       registro.submodulo ? `Sub módulo: ${registro.submodulo}` : '',
+      registro.assunto ? `Assunto: ${registro.assunto}` : '',
       registro.detalhe ? `Detalhe: ${textoSimples(registro.detalhe)}` : '',
       '', `Acesse o sistema: ${URL_APP}`,
     ].filter(Boolean).join('\n');
