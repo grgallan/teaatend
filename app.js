@@ -5717,6 +5717,11 @@ function cuboLinhasCabecalho(colunaPaths, colunaChaves, medidaChaves){
 }
 
 function cuboRenderLinhas(nos, colunaPaths, colunaChaves, medidaChaves, nivel, caminhoPai){
+  // com nenhuma dimensão de coluna escolhida, colunaPaths já É a única
+  // coluna que existe — repetir uma coluna "Total" ao lado seria mostrar
+  // o mesmo número duas vezes; a coluna extra de Total só faz sentido
+  // quando tem dimensão de coluna de verdade pra somar através dela
+  const mostrarColunaTotal = colunaChaves.length > 0;
   return nos.map(no=>{
     const caminho = caminhoPai ? caminhoPai + '|||' + no.valor : String(no.valor);
     const celulas = colunaPaths.map(path=>{
@@ -5726,10 +5731,10 @@ function cuboRenderLinhas(nos, colunaPaths, colunaChaves, medidaChaves, nivel, c
         return `<td style="text-align:right;padding:6px 10px;white-space:nowrap;">${total ? CUBO_MEDIDAS[mk].formatar(total) : '—'}</td>`;
       }).join('');
     }).join('');
-    const totalLinha = medidaChaves.map(mk=>{
+    const totalLinha = mostrarColunaTotal ? medidaChaves.map(mk=>{
       const total = no.itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0);
       return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${CUBO_MEDIDAS[mk].formatar(total)}</td>`;
-    }).join('');
+    }).join('') : '';
     const colapsado = cuboLinhasColapsadas.has(caminho);
     const toggle = no.filhos
       ? `<button type="button" data-cubo-toggle-linha="${escaparHtml(caminho)}" title="${colapsado?'Expandir':'Recolher'}" style="background:none;border:none;cursor:pointer;color:inherit;padding:0;font-size:10px;width:14px;">${colapsado?'▸':'▾'}</button>`
@@ -5753,10 +5758,29 @@ function renderCubo(){
   const colunaPaths = cuboCombinacoesColuna(itens, colunaChaves);
   const linhasCabecalho = cuboLinhasCabecalho(colunaPaths, colunaChaves, medidaChaves);
 
+  // a coluna extra de "Total" (soma através de todas as combinações de
+  // coluna) só faz sentido quando existe alguma dimensão de coluna de
+  // verdade — sem isso, colunaPaths já É a única coluna, e repetir um
+  // "Total" do lado mostraria o mesmo número de novo
+  const mostrarColunaTotal = colunaChaves.length > 0;
+
+  // a linha de rótulos de medida (quando tem mais de uma escolhida) é
+  // sempre a última — "Total" só ocupa as linhas de dimensão de coluna
+  // acima dela (rowspan), e ganha seus próprios rótulos de medida nessa
+  // última linha, igual qualquer outro grupo de coluna
+  const temLinhaDeMedida = medidaChaves.length > 1;
   const cabecalhoHtml = linhasCabecalho.map((celulas, i)=>{
+    const ehUltimaLinha = i === linhasCabecalho.length - 1;
     const bordaCelulaVazia = i===0 ? `<th rowspan="${linhasCabecalho.length}" style="text-align:left;padding:6px 10px;border-bottom:2px solid var(--line);"></th>` : '';
     const meio = celulas.map(c=>`<th colspan="${c.colspan}" style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);white-space:nowrap;">${escaparHtml(String(c.texto))}</th>`).join('');
-    const celulaTotal = i===0 ? `<th rowspan="${linhasCabecalho.length}" style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);">Total</th>` : '';
+    let celulaTotal = '';
+    if(mostrarColunaTotal){
+      if(i === 0 && !(temLinhaDeMedida && ehUltimaLinha)){
+        celulaTotal = `<th rowspan="${temLinhaDeMedida ? linhasCabecalho.length-1 : linhasCabecalho.length}" colspan="${medidaChaves.length}" style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);">Total</th>`;
+      }else if(temLinhaDeMedida && ehUltimaLinha){
+        celulaTotal = medidaChaves.map(mk=>`<th style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);white-space:nowrap;">${escaparHtml(CUBO_MEDIDAS[mk].label)}</th>`).join('');
+      }
+    }
     return `<tr>${bordaCelulaVazia}${meio}${celulaTotal}</tr>`;
   }).join('');
 
@@ -5769,10 +5793,10 @@ function renderCubo(){
       return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${CUBO_MEDIDAS[mk].formatar(total)}</td>`;
     }).join('');
   }).join('');
-  const totalGeral = medidaChaves.map(mk=>{
+  const totalGeral = mostrarColunaTotal ? medidaChaves.map(mk=>{
     const total = itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0);
     return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${CUBO_MEDIDAS[mk].formatar(total)}</td>`;
-  }).join('');
+  }).join('') : '';
 
   cont.innerHTML = `
     <div style="overflow-x:auto;">
@@ -5793,6 +5817,7 @@ function renderCubo(){
 // junta numa lista só (respeitando o que está recolhido/expandido — só
 // exporta o que a pessoa está vendo na tela) pra gerar o Excel/CSV
 function cuboColetarLinhasVisiveis(nos, colunaPaths, colunaChaves, medidaChaves, nivel, caminhoPai, saida){
+  const mostrarColunaTotal = colunaChaves.length > 0;
   nos.forEach(no=>{
     const caminho = caminhoPai ? caminhoPai + '|||' + no.valor : String(no.valor);
     const valores = [];
@@ -5800,7 +5825,7 @@ function cuboColetarLinhasVisiveis(nos, colunaPaths, colunaChaves, medidaChaves,
       const itensColuna = cuboItensNaColuna(no.itens, colunaChaves, path);
       medidaChaves.forEach(mk=> valores.push(itensColuna.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
     });
-    medidaChaves.forEach(mk=> valores.push(no.itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
+    if(mostrarColunaTotal) medidaChaves.forEach(mk=> valores.push(no.itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
     saida.push({ label: no.valor, nivel, valores });
     const colapsado = cuboLinhasColapsadas.has(caminho);
     if(no.filhos && !colapsado) cuboColetarLinhasVisiveis(no.filhos, colunaPaths, colunaChaves, medidaChaves, nivel+1, caminho, saida);
@@ -5815,12 +5840,13 @@ async function exportarCuboExcel(){
   if(itens.length === 0){ toast('Nada para exportar com esse período'); return; }
 
   const linhaChaves = cuboLinhasSelecionadas, colunaChaves = cuboColunasSelecionadas, medidaChaves = cuboMedidasSelecionadas;
+  const mostrarColunaTotal = colunaChaves.length > 0;
   const arvoreLinhas = cuboAgrupar(itens, linhaChaves, 0);
   const colunaPaths = cuboCombinacoesColuna(itens, colunaChaves);
 
   const cabecalhosColuna = [];
   colunaPaths.forEach(path=> medidaChaves.forEach(mk=> cabecalhosColuna.push([...path, CUBO_MEDIDAS[mk].label].join(' - '))));
-  medidaChaves.forEach(mk=> cabecalhosColuna.push('Total - ' + CUBO_MEDIDAS[mk].label));
+  if(mostrarColunaTotal) medidaChaves.forEach(mk=> cabecalhosColuna.push('Total - ' + CUBO_MEDIDAS[mk].label));
   const cabecalho = [linhaChaves.map(k=>CUBO_DIMENSOES_LABEL[k]).join(' / ') || 'Item', ...cabecalhosColuna];
 
   const linhasVisiveis = [];
@@ -5835,7 +5861,7 @@ async function exportarCuboExcel(){
     const itensColuna = cuboItensNaColuna(itens, colunaChaves, path);
     medidaChaves.forEach(mk=> totalGeralValores.push(itensColuna.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
   });
-  medidaChaves.forEach(mk=> totalGeralValores.push(itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
+  if(mostrarColunaTotal) medidaChaves.forEach(mk=> totalGeralValores.push(itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
   linhas.push(['Total', ...totalGeralValores.map(v=>Number(v.toFixed(2)))]);
 
   const livro = XLSX.utils.book_new();
