@@ -5539,9 +5539,9 @@ const CUBO_DIMENSOES = {
 const CUBO_DIMENSOES_LABEL = { cliente:'Cliente', usuario:'Usuário solicitante', atendente:'Atendente', tipo:'Tipo', status:'Status', modulo:'Módulo', mes:'Mês' };
 const CUBO_MEDIDAS = {
   qtd_chamados: { label:'Qtd. de chamados', valor: () => 1, formatar: v => String(v) },
-  soma_horas: { label:'Soma de horas', valor: r => Number(r.qtd) || 0, formatar: v => v.toFixed(2).replace('.', ',') + 'h' },
-  soma_real: { label:'Soma de Valor Real (R$)', valor: r => Number(r.totalReal) || 0, formatar: v => fmtMoeda(v) },
-  soma_ananda: { label:'Soma de Valor Atendente (R$)', valor: r => Number(r.totalAnanda) || 0, formatar: v => fmtMoeda(v) },
+  soma_horas: { label:'Horas', valor: r => Number(r.qtd) || 0, formatar: v => v.toFixed(2).replace('.', ',') + 'h' },
+  soma_real: { label:'Valor Real (R$)', valor: r => Number(r.totalReal) || 0, formatar: v => fmtMoeda(v) },
+  soma_ananda: { label:'Valor Atendente (R$)', valor: r => Number(r.totalAnanda) || 0, formatar: v => fmtMoeda(v) },
 };
 const CUBO_MEDIDAS_LABEL = Object.fromEntries(Object.entries(CUBO_MEDIDAS).map(([k,v])=>[k,v.label]));
 
