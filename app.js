@@ -5750,7 +5750,10 @@ function cuboColetarLinhasVisiveis(nos, colunaPaths, colunaChaves, medidaChaves,
   });
 }
 
-function exportarCuboExcel(){
+// mesmo padrão de exportação em Excel de verdade usado no resto do
+// sistema (XLSX + salvarWorkbook) — um Blob com <a download> direto não
+// funciona dentro do app Android (WebView do Capacitor não salva sozinha)
+async function exportarCuboExcel(){
   const itens = itensCuboFiltrados();
   if(itens.length === 0){ toast('Nada para exportar com esse período'); return; }
 
@@ -5761,12 +5764,12 @@ function exportarCuboExcel(){
   const cabecalhosColuna = [];
   colunaPaths.forEach(path=> medidaChaves.forEach(mk=> cabecalhosColuna.push([...path, CUBO_MEDIDAS[mk].label].join(' - '))));
   medidaChaves.forEach(mk=> cabecalhosColuna.push('Total - ' + CUBO_MEDIDAS[mk].label));
-  const header = [linhaChaves.map(k=>CUBO_DIMENSOES_LABEL[k]).join(' / ') || 'Item', ...cabecalhosColuna];
+  const cabecalho = [linhaChaves.map(k=>CUBO_DIMENSOES_LABEL[k]).join(' / ') || 'Item', ...cabecalhosColuna];
 
   const linhasVisiveis = [];
   cuboColetarLinhasVisiveis(arvoreLinhas, colunaPaths, colunaChaves, medidaChaves, 0, null, linhasVisiveis);
-  const rows = linhasVisiveis.map(l=> [
-    ('  '.repeat(l.nivel) + String(l.label)).replace(/;/g,','),
+  const linhas = linhasVisiveis.map(l=> [
+    '  '.repeat(l.nivel) + String(l.label),
     ...l.valores.map(v=> Number(v.toFixed(2))),
   ]);
 
@@ -5776,13 +5779,11 @@ function exportarCuboExcel(){
     medidaChaves.forEach(mk=> totalGeralValores.push(itensColuna.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
   });
   medidaChaves.forEach(mk=> totalGeralValores.push(itens.reduce((soma,r)=> soma + CUBO_MEDIDAS[mk].valor(r), 0)));
-  rows.push(['Total', ...totalGeralValores.map(v=>Number(v.toFixed(2)))]);
+  linhas.push(['Total', ...totalGeralValores.map(v=>Number(v.toFixed(2)))]);
 
-  const csv = [header, ...rows].map(row=>row.join(';')).join('\n');
-  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href=url; a.download='cubo_atendimentos.csv';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalho, ...linhas]), 'Cubo');
+  await salvarWorkbook(livro, `cubo-atendimentos-${hojeLocalISO()}.xlsx`);
   toast('Excel exportado');
 }
 
