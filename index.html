@@ -94,6 +94,13 @@
   .lookup-tag button{background:none;border:none;color:var(--accent);font-size:15px;line-height:1;cursor:pointer;padding:2px 4px;font-family:inherit;}
   .lookup-dropdown{position:absolute;top:100%;left:0;right:0;z-index:15;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:0 8px 20px rgba(0,0,0,.18);display:none;}
   .lookup-dropdown.show{display:block;}
+
+  /* Cubo de Atendimentos — tabela cruzada, zebrada pra facilitar de ler
+     com muita coluna/nível */
+  #cuboTabela thead th{background:var(--panel-2);}
+  #cuboTabela tbody tr:not(.cubo-total):nth-child(even){background:var(--panel-2);}
+  #cuboTabela tbody tr:not(.cubo-total):hover{background:var(--accent-dim);}
+  #cuboTabela tbody tr.cubo-total{background:var(--accent-dim);}
   .lookup-dropdown-item{padding:10px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--line);}
   .lookup-dropdown-item:last-child{border-bottom:none;}
   .lookup-dropdown-item:hover{background:var(--panel-2);}
@@ -639,6 +646,7 @@
     <div class="tab" data-view="gantt" id="tabGantt">Cronograma</div>
     <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
     <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
+    <div class="tab" data-view="cubo" id="tabCubo">Cubo</div>
     <div class="tab" data-view="financeiro" id="tabFinanceiro">Financeiro</div>
     <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
     <div class="tab" data-view="videos" id="tabVideos">Vídeos</div>
@@ -1243,10 +1251,10 @@
     </div>
   </section>
 
-  <!-- CUBO (admin, só desktop — em teste) -->
+  <!-- CUBO (admin) -->
   <section class="view" id="view-cubo">
     <div class="card">
-      <h2>Cubo de Atendimentos <span class="tag" style="margin-left:6px;">🧪 em teste</span></h2>
+      <h2>Cubo de Atendimentos</h2>
       <div class="field">
         <label>Linhas <span style="font-weight:400;color:var(--muted);">(a ordem que você clica define os níveis/subníveis)</span></label>
         <div class="lookup-tags" id="cuboLinhasTags"></div>
@@ -1268,6 +1276,7 @@
       </div>
     </div>
     <div class="card">
+      <button type="button" class="ghost" id="btnExportarCubo" style="width:auto;padding:8px 14px;margin-bottom:12px;">⬇ Exportar Excel</button>
       <div id="cuboTabela"></div>
     </div>
   </section>
@@ -1611,6 +1620,7 @@
   <div class="navbtn" data-view="gantt" id="navGantt"><span class="ic">📊</span>Cronog.</div>
   <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic">📄</span>Constr.</div>
   <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic">📑</span>Relat.</div>
+  <div class="navbtn" data-view="cubo" id="navCubo"><span class="ic">🧮</span>Cubo</div>
   <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic">💵</span>Financ.</div>
   <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic">📅</span>Agenda</div>
   <div class="navbtn" data-view="videos" id="navVideos"><span class="ic">🎬</span>Vídeos</div>
