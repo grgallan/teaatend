@@ -846,6 +846,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('gantt', menuVisivel(conta, 'cronograma', true));
   aplicarVisibilidadeMenu('relatorio', menuVisivel(conta, 'construtor_relatorios', isAdmin));
   aplicarVisibilidadeMenu('relatoriospub', menuVisivel(conta, 'relatorios', true));
+  aplicarVisibilidadeMenu('cubo', isAdmin); // em teste — só admin, e só existe no menu do desktop (não tem entrada mobile)
   aplicarVisibilidadeMenu('financeiro', menuVisivel(conta, 'financeiro', isAdmin));
   aplicarVisibilidadeMenu('agenda', menuVisivel(conta, 'agenda', podeVerAgenda));
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
@@ -5525,6 +5526,91 @@ let filtroGanttCliente = new Set();
 let filtroGanttTipo = new Set();
 let filtroGanttStatus = new Set();
 
+/* ---------- Cubo de Atendimentos (tabela cruzada, em teste — só admin/desktop) ---------- */
+const CUBO_DIMENSOES = {
+  cliente: r => r.cliente || '(sem cliente)',
+  atendente: r => r.atendente || '(a definir)',
+  tipo: r => labelTipo(r.tipo),
+  status: r => r.status,
+  modulo: r => r.modulo || '(sem módulo)',
+  mes: r => r.mes || '(sem mês)',
+};
+const CUBO_MEDIDAS = {
+  qtd_chamados: { valor: () => 1, formatar: v => String(v) },
+  soma_horas: { valor: r => Number(r.qtd) || 0, formatar: v => v.toFixed(2).replace('.', ',') + 'h' },
+  soma_real: { valor: r => Number(r.totalReal) || 0, formatar: v => fmtMoeda(v) },
+  soma_ananda: { valor: r => Number(r.totalAnanda) || 0, formatar: v => fmtMoeda(v) },
+};
+
+function itensCuboFiltrados(){
+  let itens = atendimentos.slice();
+  const de = document.getElementById('cubo_periodo_de').value;
+  const ate = document.getElementById('cubo_periodo_ate').value;
+  if(de) itens = itens.filter(r=>String(r.data) >= de);
+  if(ate) itens = itens.filter(r=>String(r.data) <= ate);
+  return itens;
+}
+
+function renderCubo(){
+  const cont = document.getElementById('cuboTabela');
+  const itens = itensCuboFiltrados();
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado nesse período.</div>`; return; }
+
+  const linhaKey = document.getElementById('cubo_linha').value;
+  const colunaKey = document.getElementById('cubo_coluna').value;
+  const medida = CUBO_MEDIDAS[document.getElementById('cubo_medida').value];
+  const extrairLinha = CUBO_DIMENSOES[linhaKey];
+  const extrairColuna = colunaKey === 'nenhum' ? (()=>'Total') : CUBO_DIMENSOES[colunaKey];
+
+  const linhas = new Set(), colunas = new Set();
+  const celulas = {}; // chave "linha|||coluna" -> soma acumulada da medida
+  itens.forEach(r=>{
+    const l = extrairLinha(r), c = extrairColuna(r);
+    linhas.add(l); colunas.add(c);
+    const chave = l + '|||' + c;
+    celulas[chave] = (celulas[chave] || 0) + medida.valor(r);
+  });
+  const linhasOrdenadas = [...linhas].sort();
+  const colunasOrdenadas = [...colunas].sort();
+
+  let totalGeral = 0;
+  const linhasHtml = linhasOrdenadas.map(l=>{
+    let totalLinha = 0;
+    const celulasHtml = colunasOrdenadas.map(c=>{
+      const v = celulas[l + '|||' + c] || 0;
+      totalLinha += v;
+      return `<td style="text-align:right;padding:6px 10px;white-space:nowrap;">${v ? medida.formatar(v) : '—'}</td>`;
+    }).join('');
+    totalGeral += totalLinha;
+    return `<tr><td style="padding:6px 10px;font-weight:600;white-space:nowrap;">${escaparHtml(l)}</td>${celulasHtml}<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${medida.formatar(totalLinha)}</td></tr>`;
+  }).join('');
+  const totaisColuna = colunasOrdenadas.map(c=>{
+    const total = linhasOrdenadas.reduce((soma,l)=> soma + (celulas[l + '|||' + c] || 0), 0);
+    return `<td style="text-align:right;padding:6px 10px;font-weight:700;white-space:nowrap;">${medida.formatar(total)}</td>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:6px 10px;border-bottom:2px solid var(--line);"></th>
+            ${colunasOrdenadas.map(c=>`<th style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);white-space:nowrap;">${escaparHtml(c)}</th>`).join('')}
+            <th style="text-align:right;padding:6px 10px;border-bottom:2px solid var(--line);">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${linhasHtml}
+          <tr style="border-top:2px solid var(--line);">
+            <td style="padding:6px 10px;font-weight:700;">Total</td>
+            ${totaisColuna}
+            <td style="text-align:right;padding:6px 10px;font-weight:700;">${medida.formatar(totalGeral)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
 /* ---------- construtor de relatório ---------- */
 let relFiltroCliente = new Set();
 let relFiltroTipo = new Set();
@@ -6256,6 +6342,7 @@ function goView(name){
     document.getElementById('cardPreviewRelatoriosPub').style.display = 'none';
     carregarRelatoriosPublicados();
   }
+  if(name==='cubo') renderCubo();
   if(name==='financeiro'){
     goFinSub(finAba);
     popularClientesFinanceiro();
@@ -6696,6 +6783,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('periodo_ate').addEventListener('change', renderLista);
   document.getElementById('fin_notas_periodo_de').addEventListener('change', renderListaNotasImportadas);
   document.getElementById('fin_notas_periodo_ate').addEventListener('change', renderListaNotasImportadas);
+  ['cubo_linha','cubo_coluna','cubo_medida','cubo_periodo_de','cubo_periodo_ate'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', renderCubo);
+  });
 
   segmentedSetup('listaVisualizacaoToggle', ()=>{
     visualizacaoAtendimentos = getSegSel('listaVisualizacaoToggle');
