@@ -5526,16 +5526,17 @@ let filtroGanttCliente = new Set();
 let filtroGanttTipo = new Set();
 let filtroGanttStatus = new Set();
 
-/* ---------- Cubo de Atendimentos (tabela cruzada, em teste — só admin/desktop) ---------- */
+/* ---------- Cubo de Atendimentos (tabela cruzada — só admin) ---------- */
 const CUBO_DIMENSOES = {
   cliente: r => r.cliente || '(sem cliente)',
+  usuario: r => r.usuario || '(sem usuário)',
   atendente: r => r.atendente || '(a definir)',
   tipo: r => labelTipo(r.tipo),
   status: r => r.status,
   modulo: r => r.modulo || '(sem módulo)',
   mes: r => r.mes || '(sem mês)',
 };
-const CUBO_DIMENSOES_LABEL = { cliente:'Cliente', atendente:'Atendente', tipo:'Tipo', status:'Status', modulo:'Módulo', mes:'Mês' };
+const CUBO_DIMENSOES_LABEL = { cliente:'Cliente', usuario:'Usuário solicitante', atendente:'Atendente', tipo:'Tipo', status:'Status', modulo:'Módulo', mes:'Mês' };
 const CUBO_MEDIDAS = {
   qtd_chamados: { label:'Qtd. de chamados', valor: () => 1, formatar: v => String(v) },
   soma_horas: { label:'Soma de horas', valor: r => Number(r.qtd) || 0, formatar: v => v.toFixed(2).replace('.', ',') + 'h' },
@@ -5580,6 +5581,62 @@ function renderCuboSeletor(tipo){
 
 function renderTodosSeletoresCubo(){
   renderCuboSeletor('linhas'); renderCuboSeletor('colunas'); renderCuboSeletor('medidas');
+}
+
+// perfis de visualização do Cubo — guarda linhas/colunas/medidas escolhidas
+// com um nome, pra não ter que remontar toda vez; fica salvo só nesse
+// navegador (localStorage), não é compartilhado com outras contas/telas
+const CUBO_PERFIS_CHAVE = 'teaatend_cubo_perfis';
+
+function cuboPerfisSalvos(){
+  try{ return JSON.parse(localStorage.getItem(CUBO_PERFIS_CHAVE) || '[]'); }catch(e){ return []; }
+}
+function cuboGravarPerfis(perfis){
+  try{ localStorage.setItem(CUBO_PERFIS_CHAVE, JSON.stringify(perfis)); }catch(e){ /* localStorage indisponível — perfil simplesmente não persiste */ }
+}
+
+function renderCuboPerfilSelect(){
+  const perfis = cuboPerfisSalvos();
+  const sel = document.getElementById('cuboPerfilSelect');
+  sel.innerHTML = `<option value="">Selecione um perfil salvo…</option>` + perfis.map((p,i)=>`<option value="${i}">${escaparHtml(p.nome)}</option>`).join('');
+}
+
+function cuboSalvarPerfilAtual(){
+  const nome = document.getElementById('cuboNovoPerfilNome').value.trim();
+  if(!nome){ toast('Digite um nome pro perfil'); return; }
+  const perfis = cuboPerfisSalvos();
+  const idxExistente = perfis.findIndex(p=>p.nome.toLowerCase()===nome.toLowerCase());
+  const perfil = { nome, linhas: [...cuboLinhasSelecionadas], colunas: [...cuboColunasSelecionadas], medidas: [...cuboMedidasSelecionadas] };
+  const idx = idxExistente >= 0 ? idxExistente : perfis.length;
+  if(idxExistente >= 0) perfis[idxExistente] = perfil; else perfis.push(perfil);
+  cuboGravarPerfis(perfis);
+  document.getElementById('cuboNovoPerfilNome').value = '';
+  renderCuboPerfilSelect();
+  document.getElementById('cuboPerfilSelect').value = String(idx);
+  toast(idxExistente >= 0 ? 'Perfil atualizado' : 'Perfil salvo');
+}
+
+function cuboCarregarPerfilSelecionado(){
+  const idx = document.getElementById('cuboPerfilSelect').value;
+  if(idx === '') return;
+  const perfil = cuboPerfisSalvos()[Number(idx)];
+  if(!perfil) return;
+  cuboLinhasSelecionadas = perfil.linhas.length ? [...perfil.linhas] : ['atendente'];
+  cuboColunasSelecionadas = [...perfil.colunas];
+  cuboMedidasSelecionadas = perfil.medidas.length ? [...perfil.medidas] : ['qtd_chamados'];
+  cuboLinhasColapsadas.clear();
+  renderTodosSeletoresCubo();
+  renderCubo();
+}
+
+function cuboRemoverPerfilSelecionado(){
+  const sel = document.getElementById('cuboPerfilSelect');
+  if(sel.value === ''){ toast('Escolha um perfil pra remover'); return; }
+  const perfis = cuboPerfisSalvos();
+  perfis.splice(Number(sel.value), 1);
+  cuboGravarPerfis(perfis);
+  renderCuboPerfilSelect();
+  toast('Perfil removido');
 }
 
 function itensCuboFiltrados(){
@@ -6518,7 +6575,7 @@ function goView(name){
     document.getElementById('cardPreviewRelatoriosPub').style.display = 'none';
     carregarRelatoriosPublicados();
   }
-  if(name==='cubo'){ renderTodosSeletoresCubo(); renderCubo(); }
+  if(name==='cubo'){ renderTodosSeletoresCubo(); renderCuboPerfilSelect(); renderCubo(); }
   if(name==='financeiro'){
     goFinSub(finAba);
     popularClientesFinanceiro();
@@ -7004,6 +7061,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
   });
   document.getElementById('btnExportarCubo').addEventListener('click', exportarCuboExcel);
+  document.getElementById('cuboPerfilSelect').addEventListener('change', cuboCarregarPerfilSelecionado);
+  document.getElementById('btnCuboSalvarPerfil').addEventListener('click', cuboSalvarPerfilAtual);
+  document.getElementById('btnCuboRemoverPerfil').addEventListener('click', cuboRemoverPerfilSelecionado);
 
   segmentedSetup('listaVisualizacaoToggle', ()=>{
     visualizacaoAtendimentos = getSegSel('listaVisualizacaoToggle');

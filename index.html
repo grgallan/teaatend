@@ -1274,6 +1274,17 @@
         <div class="field"><label>De</label><input type="date" id="cubo_periodo_de"></div>
         <div class="field"><label>Até</label><input type="date" id="cubo_periodo_ate"></div>
       </div>
+      <div class="field">
+        <label>Perfil de visualização <span style="font-weight:400;color:var(--muted);">(salvo nesse navegador)</span></label>
+        <div class="row">
+          <select id="cuboPerfilSelect"><option value="">Selecione um perfil salvo…</option></select>
+          <button type="button" class="ghost" id="btnCuboRemoverPerfil" style="width:auto;padding:8px 14px;">🗑 Remover</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <input type="text" id="cuboNovoPerfilNome" placeholder="Nome do perfil (ex: Por atendente e mês)">
+          <button type="button" class="primary" id="btnCuboSalvarPerfil" style="width:auto;padding:8px 14px;margin-top:0;">💾 Salvar perfil atual</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <button type="button" class="ghost" id="btnExportarCubo" style="width:auto;padding:8px 14px;margin-bottom:12px;">⬇ Exportar Excel</button>
