@@ -35,6 +35,7 @@ let editandoClienteId = null;
 let excluindoAcao = null;
 let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = new Set(); // vazio = todos
+let filtroId = ''; // vazio = todos — busca por trecho do ID do atendimento
 let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
 let vinculosExpandidos = new Set(); // ids de atendimento com as linhas-filha de vínculo visíveis — vazio por padrão (tudo recolhido)
 let selecionados = new Set();
@@ -1331,15 +1332,17 @@ function renderFiltros(){
   const el = document.getElementById('filtros');
   const conta = contaAtual();
   aplicarPeriodoPadraoSeVazio();
+  const inputId = `<input type="text" id="filtroIdBusca" placeholder="Filtrar por ID…" autocomplete="off" value="${escaparHtml(filtroId)}" style="min-width:140px;">`;
   // usuário não filtra por cliente (só vê o próprio cliente mesmo) — mas
-  // status e período são liberados abaixo
-  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML=''; renderFiltrosStatus(); return; }
+  // status, período e ID são liberados abaixo
+  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML = inputId; renderFiltrosStatus(); return; }
   el.innerHTML = `
     <div class="lookup-multi">
       <div class="lookup-tags" id="filtroClienteTags"></div>
       <input type="text" id="filtroClienteBusca" placeholder="Filtrar por cliente…" autocomplete="off">
       <div class="lookup-dropdown" id="filtroClienteDropdown"></div>
-    </div>`;
+    </div>
+    ${inputId}`;
   renderFiltroClienteTags();
   renderFiltroClienteDropdown('');
   renderFiltrosStatus();
@@ -1402,6 +1405,7 @@ function itensAtendimentosFiltrados(){
   // cliente; mas status e período valem pra ele também
   if(!isUsuario && filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
   if(filtroStatus.size > 0) itens = itens.filter(r=>filtroStatus.has(r.status));
+  if(filtroId.trim()) { const t = filtroId.trim().toLowerCase(); itens = itens.filter(r=>String(r.id).toLowerCase().includes(t)); }
   const de = document.getElementById('periodo_de').value;
   const ate = document.getElementById('periodo_ate').value;
   // PENDENTE/EM ANDAMENTO/EM VALIDAÇÃO ainda precisam de atenção, então
@@ -1506,6 +1510,7 @@ function renderLinhaAtendimento(r, ctx, opts){
       ${r.assunto ? `<div class="detalhe" style="font-weight:600;">${escaparHtml(r.assunto)}</div>` : ''}
       ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe).slice(0,140))}${stripHtml(r.detalhe).length>140?'…':''}</div>` : ''}
       <div class="meta">
+        <span class="tag" title="ID do atendimento">#${escaparHtml(String(r.id))}</span>
         <span class="tag">${labelTipo(r.tipo)}</span>
         <span class="tag">${r.atendente || 'A definir'}</span>
         <span class="tag">${qtdNum.toFixed(2).replace('.',',')}h</span>
@@ -1593,6 +1598,7 @@ function renderKanbanCard(r, opts){
         ${r.assunto ? `<div class="detalhe" style="font-weight:600;">${escaparHtml(r.assunto)}</div>` : ''}
         ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe))}</div>` : ''}
         <div class="meta">
+          <span class="tag" title="ID do atendimento">#${escaparHtml(String(r.id))}</span>
           <span class="tag">${labelTipo(r.tipo)}</span>
           <span class="tag">${escaparHtml(r.atendente || 'A definir')}</span>
           ${opts.verValores ? `<span class="tag" style="color:var(--accent);">${fmtMoeda(Number(r.totalReal))}</span>` : ''}
@@ -6088,7 +6094,7 @@ async function abrirDetalhe(atendimentoId){
   const isUsuario = conta && conta.perfil === 'USUARIO';
 
   document.getElementById('chatTitulo').textContent = `${r.cliente} · ${r.usuario}`;
-  document.getElementById('chatSub').textContent = `Atendente: ${r.atendente || '(a definir)'}${r.atendente2 ? ' + '+r.atendente2+' (2º)' : ''} · ${d}/${m}/${y} · ${r.status}`;
+  document.getElementById('chatSub').textContent = `#${r.id} · Atendente: ${r.atendente || '(a definir)'}${r.atendente2 ? ' + '+r.atendente2+' (2º)' : ''} · ${d}/${m}/${y} · ${r.status}`;
   const horario = `${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (intervalo '+r.inter+')' : ''}`;
   let dataPrevistaTexto = '';
   if(r.dataPrevista){
@@ -6987,6 +6993,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('filtros').addEventListener('input', e=>{
     if(e.target.id === 'filtroClienteBusca') renderFiltroClienteDropdown(e.target.value);
+    if(e.target.id === 'filtroIdBusca'){ filtroId = e.target.value; renderLista(); }
   });
   document.getElementById('filtros').addEventListener('focusin', e=>{
     if(e.target.id !== 'filtroClienteBusca') return;
