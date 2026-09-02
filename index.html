@@ -1247,38 +1247,22 @@
   <section class="view" id="view-cubo">
     <div class="card">
       <h2>Cubo de Atendimentos <span class="tag" style="margin-left:6px;">🧪 em teste</span></h2>
-      <div class="row">
-        <div class="field"><label>Linhas</label>
-          <select id="cubo_linha">
-            <option value="cliente">Cliente</option>
-            <option value="atendente" selected>Atendente</option>
-            <option value="tipo">Tipo</option>
-            <option value="status">Status</option>
-            <option value="modulo">Módulo</option>
-            <option value="mes">Mês</option>
-          </select>
-        </div>
-        <div class="field"><label>Colunas</label>
-          <select id="cubo_coluna">
-            <option value="nenhum">(nenhuma — só total)</option>
-            <option value="mes" selected>Mês</option>
-            <option value="cliente">Cliente</option>
-            <option value="atendente">Atendente</option>
-            <option value="tipo">Tipo</option>
-            <option value="status">Status</option>
-            <option value="modulo">Módulo</option>
-          </select>
-        </div>
+      <div class="field">
+        <label>Linhas <span style="font-weight:400;color:var(--muted);">(a ordem que você clica define os níveis/subníveis)</span></label>
+        <div class="lookup-tags" id="cuboLinhasTags"></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;" id="cuboLinhasOpcoes"></div>
       </div>
-      <div class="row3">
-        <div class="field"><label>Valor</label>
-          <select id="cubo_medida">
-            <option value="qtd_chamados">Qtd. de chamados</option>
-            <option value="soma_horas">Soma de horas</option>
-            <option value="soma_real">Soma de Valor Real (R$)</option>
-            <option value="soma_ananda">Soma de Valor Atendente (R$)</option>
-          </select>
-        </div>
+      <div class="field">
+        <label>Colunas</label>
+        <div class="lookup-tags" id="cuboColunasTags"></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;" id="cuboColunasOpcoes"></div>
+      </div>
+      <div class="field">
+        <label>Valor <span style="font-weight:400;color:var(--muted);">(pode escolher mais de um)</span></label>
+        <div class="lookup-tags" id="cuboMedidasTags"></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;" id="cuboMedidasOpcoes"></div>
+      </div>
+      <div class="row">
         <div class="field"><label>De</label><input type="date" id="cubo_periodo_de"></div>
         <div class="field"><label>Até</label><input type="date" id="cubo_periodo_ate"></div>
       </div>
