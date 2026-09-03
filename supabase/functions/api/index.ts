@@ -138,7 +138,7 @@ function simplesParaApi(x: any) {
   return { id: x.id, nome: x.nome };
 }
 function clienteParaApi(c: any) {
-  return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '' };
+  return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0 };
 }
 function empresaParaApi(e: any) {
   return {
@@ -1901,7 +1901,7 @@ async function acaoRemoverCliente(req: any) {
 }
 async function acaoAddCliente(req: any) {
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um cliente.' };
-  const registro = { id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '', empresa_id: req.empresaId };
+  const registro = { id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '', meta_mensal: Number(req.metaMensal) || 0, empresa_id: req.empresaId };
   const { error } = await db.from('clientes').insert(registro);
   if (error) return { ok: false, erro: error.message };
   return { ok: true, registro: clienteParaApi(registro) };
@@ -1912,6 +1912,7 @@ async function acaoAtualizarCliente(req: any) {
   if (req.nome !== undefined) atualizado.nome = req.nome;
   if (req.cnpj !== undefined) atualizado.cnpj = req.cnpj;
   if (req.nomeFantasia !== undefined) atualizado.nome_fantasia = req.nomeFantasia;
+  if (req.metaMensal !== undefined) atualizado.meta_mensal = Number(req.metaMensal) || 0;
   if (req.empresaId) atualizado.empresa_id = req.empresaId;
   const { error } = await db.from('clientes').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
