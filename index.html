@@ -10,6 +10,16 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>
+  // aplica o tema salvo antes do CSS pintar a tela, pra não piscar o tema
+  // errado por uma fração de segundo no carregamento
+  (function(){
+    var tema = 'dark';
+    try{ if(localStorage.getItem('tema') === 'light') tema = 'light'; }catch(e){}
+    document.documentElement.setAttribute('data-theme', tema);
+    document.querySelector('meta[name="theme-color"]').setAttribute('content', tema === 'light' ? '#F5F7FA' : '#151A1F');
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -19,6 +29,12 @@
     --text:oklch(96% 0.008 260); --muted:oklch(62% 0.02 260); --accent:oklch(78% 0.15 200); --accent-dim:oklch(78% 0.15 200 / 16%);
     --on-accent:oklch(16% 0.02 260);
     --ok:oklch(75% 0.16 150); --warn:oklch(78% 0.15 75); --bad:oklch(72% 0.18 25); --yellow:oklch(80% 0.15 100); --blue:oklch(75% 0.14 230); --purple:oklch(75% 0.14 300); --radius:14px;
+  }
+  html[data-theme="light"]{
+    --bg:oklch(97% 0.006 220); --panel:oklch(99.5% 0.002 220); --panel-2:oklch(93% 0.008 220); --line:oklch(20% 0.02 220 / 10%);
+    --text:oklch(22% 0.02 220); --muted:oklch(48% 0.02 220); --accent:oklch(58% 0.15 200); --accent-dim:oklch(58% 0.15 200 / 14%);
+    --on-accent:oklch(99% 0 0);
+    --ok:oklch(45% 0.14 150); --warn:oklch(55% 0.15 75); --bad:oklch(52% 0.19 25); --yellow:oklch(52% 0.13 100); --blue:oklch(50% 0.14 230); --purple:oklch(50% 0.14 300);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -34,7 +50,9 @@
   .brand-sub{color:var(--muted);font-size:12.5px;margin-top:2px;display:flex;justify-content:space-between;align-items:center;}
   .who{display:flex;align-items:center;gap:8px;}
   .avatar{width:24px;height:24px;border-radius:50%;background:var(--accent-dim);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;}
-  .logout{background:none;border:1px solid var(--line);color:var(--muted);font-size:11px;padding:5px 10px;border-radius:8px;font-family:inherit;}
+  .logout{background:none;border:1px solid var(--line);color:var(--muted);font-size:11px;padding:5px 10px;border-radius:8px;font-family:inherit;display:inline-flex;align-items:center;}
+  html[data-theme="light"] #btnTema .ic-sun{display:none !important;}
+  html:not([data-theme="light"]) #btnTema .ic-moon{display:none !important;}
 
   main{padding:0 14px;max-width:640px;margin:0 auto;}
 
@@ -78,7 +96,7 @@
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 12px;border-radius:9px;font-size:12.5px;font-family:inherit;}
   a.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 12px;border-radius:9px;font-size:12.5px;font-family:inherit;display:inline-block;text-decoration:none;text-align:center;box-sizing:border-box;}
   button.small{background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:7px 11px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600;}
-  button.danger{background:transparent;border:1px solid oklch(72% 0.18 25 / 35%);color:var(--bad);padding:7px 11px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600;}
+  button.danger{background:transparent;border:1px solid color-mix(in oklch, var(--bad) 35%, transparent);color:var(--bad);padding:7px 11px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600;}
 
   .filters{display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px;}
   /* #filtros e #filtrosStatus só têm o campo de busca (lookup-multi), sem linha
@@ -196,14 +214,14 @@
   .item .detalhe{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.4;}
   .item .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;}
   .tag{font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--muted);font-weight:600;}
-  .tag.status-VALIDADO{background:oklch(75% 0.16 150 / 13%);border:1px solid oklch(75% 0.16 150 / 32%);color:var(--ok);}
-  .tag.status-PENDENTE{background:oklch(78% 0.15 75 / 13%);border:1px solid oklch(78% 0.15 75 / 32%);color:var(--warn);}
-  .tag.status-EM-ANDAMENTO{background:oklch(80% 0.15 100 / 13%);border:1px solid oklch(80% 0.15 100 / 32%);color:var(--yellow);}
-  .tag.status-EM-VALIDACAO{background:oklch(75% 0.14 230 / 13%);border:1px solid oklch(75% 0.14 230 / 32%);color:var(--blue);}
-  .tag.status-CANCELADO{background:oklch(72% 0.18 25 / 13%);border:1px solid oklch(72% 0.18 25 / 32%);color:var(--bad);}
-  .tag.status-NAO-VALIDADO{background:oklch(72% 0.18 25 / 13%);border:1px solid oklch(72% 0.18 25 / 32%);color:var(--bad);}
-  .tag.status-AGENDADO{background:oklch(75% 0.14 300 / 13%);border:1px solid oklch(75% 0.14 300 / 32%);color:var(--purple);}
-  .tag.status-NÃO\ VALIDADO{background:oklch(72% 0.18 25 / 13%);border:1px solid oklch(72% 0.18 25 / 32%);color:var(--bad);}
+  .tag.status-VALIDADO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
+  .tag.status-PENDENTE{background:color-mix(in oklch, var(--warn) 13%, transparent);border:1px solid color-mix(in oklch, var(--warn) 32%, transparent);color:var(--warn);}
+  .tag.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);border:1px solid color-mix(in oklch, var(--yellow) 32%, transparent);color:var(--yellow);}
+  .tag.status-EM-VALIDACAO{background:color-mix(in oklch, var(--blue) 13%, transparent);border:1px solid color-mix(in oklch, var(--blue) 32%, transparent);color:var(--blue);}
+  .tag.status-CANCELADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
+  .tag.status-NAO-VALIDADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
+  .tag.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);border:1px solid color-mix(in oklch, var(--purple) 32%, transparent);color:var(--purple);}
+  .tag.status-NÃO\ VALIDADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .item .valores{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
   .item .valores .v1{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);}
   .item .valores .v2{font-family:'JetBrains Mono',monospace;font-size:13.5px;font-weight:600;color:var(--accent);}
@@ -261,7 +279,7 @@
   .mov-nome{font-weight:700;font-size:12.5px;}
   .mov-perfil{font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;margin-left:6px;}
   .mov-perfil.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
-  .mov-perfil.USUARIO{background:oklch(75% 0.16 150 / 13%);border:1px solid oklch(75% 0.16 150 / 32%);color:var(--ok);}
+  .mov-perfil.USUARIO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
   .mov-perfil.ADMIN{background:var(--panel-2);color:var(--muted);}
   .mov-data{font-size:11px;color:var(--muted);white-space:nowrap;}
   .mov-tempo{font-size:10.5px;color:var(--muted);margin-bottom:6px;}
@@ -447,14 +465,14 @@
   .empresa-box{width:100%;max-width:360px;}
   .empresa-box h1{font-size:19px;text-align:center;margin:0 0 4px;}
   .empresa-box .sub{font-size:13px;color:var(--muted);text-align:center;margin:0 0 20px;}
-  .empresa-opcao{display:flex;align-items:center;gap:12px;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;font:inherit;text-align:left;cursor:pointer;}
+  .empresa-opcao{display:flex;align-items:center;gap:12px;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:10px;font:inherit;color:var(--text);text-align:left;cursor:pointer;}
   .empresa-opcao:hover{border-color:var(--accent);}
   .empresa-opcao .logo{width:38px;height:38px;border-radius:10px;background:var(--panel-2);flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:var(--accent);overflow:hidden;}
   .empresa-opcao .logo img{width:100%;height:100%;object-fit:contain;}
   .empresa-opcao .nome{font-size:14px;font-weight:700;}
   .login-box h1{text-align:center;font-size:20px;margin:0 0 4px;}
   .login-box p.sub{text-align:center;color:var(--muted);font-size:13px;margin:0 0 26px;}
-  .login-error{background:oklch(72% 0.18 25 / 13%);border:1px solid var(--bad);color:var(--bad);font-size:12.5px;padding:9px 12px;border-radius:9px;margin-bottom:12px;display:none;}
+  .login-error{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid var(--bad);color:var(--bad);font-size:12.5px;padding:9px 12px;border-radius:9px;margin-bottom:12px;display:none;}
   .login-error.show{display:block;}
   .login-hint{margin-top:18px;text-align:center;font-size:11.5px;color:var(--muted);}
 
@@ -470,9 +488,9 @@
   .valores-table th{text-align:left;color:var(--muted);font-weight:600;padding:6px 4px;border-bottom:1px solid var(--line);font-size:10.5px;text-transform:uppercase;}
   .valores-table td{padding:8px 4px;border-bottom:1px solid var(--line);}
   .perfil-badge{font-size:10px;padding:2px 7px;border-radius:6px;font-weight:700;}
-  .perfil-badge.ADMIN{background:oklch(72% 0.18 25 / 13%);border:1px solid oklch(72% 0.18 25 / 32%);color:var(--bad);}
+  .perfil-badge.ADMIN{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .perfil-badge.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
-  .perfil-badge.USUARIO{background:oklch(75% 0.16 150 / 13%);border:1px solid oklch(75% 0.16 150 / 32%);color:var(--ok);}
+  .perfil-badge.USUARIO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
   .rel-tabela th, .rel-tabela td{white-space:nowrap;}
   .rel-tabela tr.rel-grupo td{background:var(--panel-2);font-weight:700;color:var(--accent);padding-top:12px;}
   .rel-tabela tr.rel-subtotal td{font-weight:600;color:var(--text);border-top:1px solid var(--line);font-size:11.5px;}
@@ -532,8 +550,8 @@
   .fin-lancamento .fin-historico{font-size:12px;color:var(--muted);background:var(--panel-2);border-radius:8px;padding:8px 10px;margin:6px 0;}
   .fin-status{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;white-space:nowrap;}
   .fin-status.ABERTO{background:var(--accent-dim);color:var(--accent);}
-  .fin-status.BAIXADO{background:oklch(75% 0.16 150 / 13%);border:1px solid oklch(75% 0.16 150 / 32%);color:var(--ok);}
-  .fin-status.CANCELADO{background:oklch(72% 0.18 25 / 13%);border:1px solid oklch(72% 0.18 25 / 32%);color:var(--bad);}
+  .fin-status.BAIXADO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
+  .fin-status.CANCELADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .fin-item-check{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;margin-bottom:5px;font-size:12px;}
 
   #printHeader{display:none;}
@@ -634,6 +652,10 @@
     </div>
     <div style="display:flex;gap:6px;">
       <button class="logout" id="btnNotificacoes" style="display:none;">🔔 Avisos</button>
+      <button class="logout" id="btnTema" title="Alternar tema claro/escuro" style="padding:5px 8px;">
+        <svg class="ic-sun" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="display:block;"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"></path></svg>
+        <svg class="ic-moon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M21 12.5A9 9 0 1 1 11.5 3a7 7 0 0 0 9.5 9.5z"></path></svg>
+      </button>
       <button class="logout" id="btnMinhaSenha">🔑 Senha</button>
       <button class="logout" id="btnLogout">Sair</button>
     </div>
@@ -642,19 +664,18 @@
 
 <nav id="sidebar">
   <div class="brand-side">Atendimentos</div>
-  <div class="side-item navbtn active" data-view="novo"><span class="ic">＋</span>Novo</div>
-  <div class="side-item navbtn" data-view="lista"><span class="ic">☰</span>Atendimentos</div>
-  <div class="side-item navbtn" data-view="resumo" id="sideResumo"><span class="ic">◧</span>Resumo</div>
-  <div class="side-item navbtn" data-view="dashboard" id="sideDashboard"><span class="ic">📈</span>Dashboard</div>
-  <div class="side-item navbtn" data-view="gantt"><span class="ic">📊</span>Cronograma</div>
-  <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio"><span class="ic">📄</span>Construtor</div>
-  <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub"><span class="ic">📑</span>Relatórios</div>
-  <div class="side-item navbtn" data-view="cubo" id="sideCubo"><span class="ic">🧮</span>Cubo</div>
-  <div class="side-item navbtn" data-view="financeiro" id="sideFinanceiro"><span class="ic">💵</span>Financeiro</div>
-  <div class="side-item navbtn" data-view="agenda" id="sideAgenda"><span class="ic">📅</span>Agenda</div>
-  <div class="side-item navbtn" data-view="videos" id="sideVideos"><span class="ic">🎬</span>Vídeos</div>
-  <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic">⚙</span>Cadastros</div>
-  <div class="side-item navbtn" data-view="utilitarios" id="sideUtilitarios"><span class="ic">🧰</span>Utilitários</div>
+  <div class="side-item navbtn active" data-view="novo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>Novo</div>
+  <div class="side-item navbtn" data-view="lista"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11"></path><path d="M9 12h11"></path><path d="M9 18h11"></path><path d="M4.5 6h.01"></path><path d="M4.5 12h.01"></path><path d="M4.5 18h.01"></path></svg></span>Atendimentos</div>
+  <div class="side-item navbtn" data-view="resumo" id="sideResumo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>Resumo</div>
+  <div class="side-item navbtn" data-view="dashboard" id="sideDashboard"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"></line><line x1="12" y1="20" x2="12" y2="6"></line><line x1="18" y1="20" x2="18" y2="15"></line></svg></span>Dashboard</div>
+  <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path><path d="M9.5 15.5l5-5 1.5 1.5-5 5H9.5v-1.5z"></path></svg></span>Construtor</div>
+  <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h9a1 1 0 0 1 1 1v13"></path><path d="M6 7h9a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"></path><path d="M9 12h5"></path><path d="M9 16h5"></path></svg></span>Relatórios</div>
+  <div class="side-item navbtn" data-view="cubo" id="sideCubo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"></path><path d="M12 2v20"></path><path d="M4 6.5l8 4.5 8-4.5"></path></svg></span>Cubo</div>
+  <div class="side-item navbtn" data-view="financeiro" id="sideFinanceiro"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M16 13h.01"></path><path d="M3 9h18"></path></svg></span>Financeiro</div>
+  <div class="side-item navbtn" data-view="agenda" id="sideAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
+  <div class="side-item navbtn" data-view="videos" id="sideVideos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5v-7z" fill="currentColor" stroke="none"></path></svg></span>Vídeos</div>
+  <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>Cadastros</div>
+  <div class="side-item navbtn" data-view="utilitarios" id="sideUtilitarios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.6-.6-.6-2.6z"></path></svg></span>Utilitários</div>
 </nav>
 
 <main>
@@ -669,7 +690,6 @@
     <div class="tab" data-view="lista">Atendimentos</div>
     <div class="tab" data-view="resumo">Resumo</div>
     <div class="tab" data-view="dashboard" id="tabDashboard">Dashboard</div>
-    <div class="tab" data-view="gantt" id="tabGantt">Cronograma</div>
     <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
     <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
     <div class="tab" data-view="cubo" id="tabCubo">Cubo</div>
@@ -1650,19 +1670,18 @@
 </main>
 
 <nav class="bottom" id="bottomNav">
-  <div class="navbtn active" data-view="novo"><span class="ic">＋</span>Novo</div>
-  <div class="navbtn" data-view="lista"><span class="ic">☰</span>Atend.</div>
-  <div class="navbtn" data-view="resumo"><span class="ic">◧</span>Resumo</div>
-  <div class="navbtn" data-view="dashboard" id="navDashboard"><span class="ic">📈</span>Dashb.</div>
-  <div class="navbtn" data-view="gantt" id="navGantt"><span class="ic">📊</span>Cronog.</div>
-  <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic">📄</span>Constr.</div>
-  <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic">📑</span>Relat.</div>
-  <div class="navbtn" data-view="cubo" id="navCubo"><span class="ic">🧮</span>Cubo</div>
-  <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic">💵</span>Financ.</div>
-  <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic">📅</span>Agenda</div>
-  <div class="navbtn" data-view="videos" id="navVideos"><span class="ic">🎬</span>Vídeos</div>
-  <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic">⚙</span>Cadastros</div>
-  <div class="navbtn" data-view="utilitarios" id="navUtilitarios"><span class="ic">🧰</span>Util.</div>
+  <div class="navbtn active" data-view="novo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>Novo</div>
+  <div class="navbtn" data-view="lista"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11"></path><path d="M9 12h11"></path><path d="M9 18h11"></path><path d="M4.5 6h.01"></path><path d="M4.5 12h.01"></path><path d="M4.5 18h.01"></path></svg></span>Atend.</div>
+  <div class="navbtn" data-view="resumo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>Resumo</div>
+  <div class="navbtn" data-view="dashboard" id="navDashboard"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"></line><line x1="12" y1="20" x2="12" y2="6"></line><line x1="18" y1="20" x2="18" y2="15"></line></svg></span>Dashb.</div>
+  <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path><path d="M9.5 15.5l5-5 1.5 1.5-5 5H9.5v-1.5z"></path></svg></span>Constr.</div>
+  <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h9a1 1 0 0 1 1 1v13"></path><path d="M6 7h9a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"></path><path d="M9 12h5"></path><path d="M9 16h5"></path></svg></span>Relat.</div>
+  <div class="navbtn" data-view="cubo" id="navCubo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"></path><path d="M12 2v20"></path><path d="M4 6.5l8 4.5 8-4.5"></path></svg></span>Cubo</div>
+  <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M16 13h.01"></path><path d="M3 9h18"></path></svg></span>Financ.</div>
+  <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
+  <div class="navbtn" data-view="videos" id="navVideos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5v-7z" fill="currentColor" stroke="none"></path></svg></span>Vídeos</div>
+  <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>Cadastros</div>
+  <div class="navbtn" data-view="utilitarios" id="navUtilitarios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.6-.6-.6-2.6z"></path></svg></span>Util.</div>
 </nav>
 </div>
 
