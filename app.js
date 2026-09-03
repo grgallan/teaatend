@@ -45,7 +45,6 @@ const MENUS_PERFIL_ACESSO = [
   { chave:'atendimentos', label:'Atendimentos' },
   { chave:'resumo', label:'Resumo' },
   { chave:'dashboard', label:'Dashboard' },
-  { chave:'cronograma', label:'Cronograma' },
   { chave:'construtor_relatorios', label:'Construtor de Relatórios' },
   { chave:'relatorios', label:'Relatórios' },
   { chave:'financeiro', label:'Financeiro' },
@@ -111,6 +110,16 @@ function menuVisivel(conta, menu, padrao){
 // lateral e barra inferior) de uma vez, sem precisar de um id em cada uma
 function aplicarVisibilidadeMenu(viewName, visivel){
   document.querySelectorAll(`[data-view="${viewName}"]`).forEach(el=>{ el.style.display = visivel ? '' : 'none'; });
+}
+
+// alterna tema claro/escuro — o valor salvo é lido de novo (e aplicado antes
+// do CSS pintar a tela) por um script inline no <head> do index.html
+function alternarTema(){
+  const atual = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  const novo = atual === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', novo);
+  document.querySelector('meta[name="theme-color"]').setAttribute('content', novo === 'light' ? '#F5F7FA' : '#151A1F');
+  try{ localStorage.setItem('tema', novo); }catch(e){ /* sem localStorage, só não persiste entre sessões */ }
 }
 // nome de status pode ter espaço/acento (ex: "EM VALIDAÇÃO") — não dá pra
 // usar direto como classe CSS (classe com espaço vira duas classes, e o
@@ -844,7 +853,6 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('novo', menuVisivel(conta, 'atendimentos', true) && (permissaoMenu(conta,'atendimentos')?.inserir ?? true));
   aplicarVisibilidadeMenu('resumo', menuVisivel(conta, 'resumo', podeVerResumo));
   aplicarVisibilidadeMenu('dashboard', menuVisivel(conta, 'dashboard', podeVerResumo));
-  aplicarVisibilidadeMenu('gantt', menuVisivel(conta, 'cronograma', true));
   aplicarVisibilidadeMenu('relatorio', menuVisivel(conta, 'construtor_relatorios', isAdmin));
   aplicarVisibilidadeMenu('relatoriospub', menuVisivel(conta, 'relatorios', true));
   aplicarVisibilidadeMenu('cubo', isAdmin);
@@ -853,9 +861,6 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
   aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
-  // Cronograma: usuário e atendente veem só os próprios atendimentos (ou
-  // os do cliente, se marcado como admin do cliente) — filtro feito dentro
-  // de renderGantt()
 
   // valores/hora (R$) só aparecem para o admin — atendentes veem só a quantidade de horas
   document.getElementById('stat_ananda').style.display = isAdmin ? '' : 'none';
@@ -7271,6 +7276,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(campo.type === 'password'){ campo.type = 'text'; btn.textContent = 'OCULTAR'; } else { campo.type = 'password'; btn.textContent = 'MOSTRAR'; }
   });
   document.getElementById('btnLogout').addEventListener('click', ()=>pedirConfirmacao('Sair da conta?','Você poderá entrar novamente quando quiser.', sair, 'Sair'));
+  document.getElementById('btnTema').addEventListener('click', alternarTema);
   document.getElementById('btnMinhaSenha').addEventListener('click', abrirModalSenha);
   document.getElementById('btnNotificacoes').addEventListener('click', alternarNotificacoes);
   document.getElementById('senhaCancelar').addEventListener('click', fecharModalSenha);
