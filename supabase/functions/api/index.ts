@@ -385,7 +385,22 @@ async function acaoDados(req: any) {
     .filter((v: any) => idsVisiveis.has(v.atendimento_a) && idsVisiveis.has(v.atendimento_b))
     .map((v: any) => ({ id: v.id, atendimentoA: v.atendimento_a, atendimentoB: v.atendimento_b }));
 
-  let atendimentos = (atendimentosRaw || []).map(atendimentoParaApi);
+  // bolinha de "movimentação não lida" (estilo notificação de app): compara
+  // a última movimentação de cada atendimento com a última vez que ESSA
+  // conta olhou as movimentações dele — sem registro de visita, ou visita
+  // mais antiga que a movimentação, conta como não lida
+  const vistoPorAtendimento: Record<string, string> = {};
+  if (contaId && idsVisiveis.size > 0) {
+    const { data: vistoRaw } = await db.from('atendimento_visto')
+      .select('atendimento_id,visto_em').eq('conta_id', contaId).in('atendimento_id', [...idsVisiveis]);
+    (vistoRaw || []).forEach((v: any) => { vistoPorAtendimento[v.atendimento_id] = v.visto_em; });
+  }
+
+  let atendimentos = (atendimentosRaw || []).map((a: any) => {
+    const visto = vistoPorAtendimento[a.id];
+    const naoLidas = !!a.ultima_movimentacao_em && (!visto || new Date(visto) < new Date(a.ultima_movimentacao_em));
+    return { ...atendimentoParaApi(a), naoLidas };
+  });
   // Valor Real (cobrado do cliente) é do admin, e também do usuário
   // marcado como "administrador do cliente" (vê o valor cobrado do
   // próprio cliente dele, mas não o valor que o atendente ganha).
@@ -975,6 +990,12 @@ async function acaoListarMovimentacoes(req: any) {
   if (!req.atendimentoId) return { ok: false, erro: 'Atendimento não informado.' };
   const { data: movs, error } = await db.from('movimentacoes').select('*').eq('atendimento_id', req.atendimentoId).order('criado_em');
   if (error) return { ok: false, erro: error.message };
+  // marca como "vista" pra essa conta — é isso que apaga a bolinha de
+  // movimentação não lida na lista/menu depois que a pessoa abre o chamado
+  if (req.contaId) {
+    await db.from('atendimento_visto')
+      .upsert({ atendimento_id: req.atendimentoId, conta_id: req.contaId, visto_em: new Date().toISOString() });
+  }
   const { data: anexosMov } = await db.from('anexos').select('*').eq('atendimento_id', req.atendimentoId).not('movimentacao_id', 'is', null);
   const anexosPorMov: Record<string, any[]> = {};
   (anexosMov || []).forEach((a: any) => {
@@ -1006,6 +1027,17 @@ async function acaoCriarMovimentacao(req: any) {
   };
   const { error } = await db.from('movimentacoes').insert(registro);
   if (error) return { ok: false, erro: error.message };
+
+  // marca a hora da movimentação nova no atendimento (é o que acende a
+  // bolinha de "não lida" pra todo mundo, exceto quem acabou de escrever) e
+  // já marca como "vista" pra quem escreveu, senão a própria pessoa veria a
+  // bolinha no chamado em que ela mesma acabou de responder
+  const agora = new Date().toISOString();
+  await db.from('atendimentos').update({ ultima_movimentacao_em: agora }).eq('id', req.atendimentoId);
+  if (req.contaId) {
+    await db.from('atendimento_visto')
+      .upsert({ atendimento_id: req.atendimentoId, conta_id: req.contaId, visto_em: agora });
+  }
 
   let anexoSalvo = null;
   if (req.anexoBase64) {

@@ -54,6 +54,15 @@
   html[data-theme="light"] #btnTema .ic-sun{display:none !important;}
   html:not([data-theme="light"]) #btnTema .ic-moon{display:none !important;}
 
+  /* bolinha de "movimentação não lida" — estilo notificação de app */
+  .dot-naolida{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:6px;flex:none;vertical-align:middle;}
+  .badge-naolida-menu{display:none;width:7px;height:7px;border-radius:50%;background:var(--bad);}
+  .badge-naolida-menu.on{display:block;}
+  .side-item .ic, nav.bottom .navbtn .ic{position:relative;}
+  .side-item .ic .badge-naolida-menu, nav.bottom .navbtn .ic .badge-naolida-menu{position:absolute;top:-2px;right:-3px;border:1.5px solid var(--panel);}
+  .tab .badge-naolida-menu{display:none;margin-left:5px;}
+  .tab .badge-naolida-menu.on{display:inline-block;}
+
   main{padding:0 14px;max-width:640px;margin:0 auto;}
 
   .tabs{display:flex;gap:6px;margin:14px 0 16px;background:var(--panel);padding:4px;border-radius:12px;border:1px solid var(--line);overflow-x:auto;}
@@ -665,7 +674,7 @@
 <nav id="sidebar">
   <div class="brand-side">Atendimentos</div>
   <div class="side-item navbtn active" data-view="novo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>Novo</div>
-  <div class="side-item navbtn" data-view="lista"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11"></path><path d="M9 12h11"></path><path d="M9 18h11"></path><path d="M4.5 6h.01"></path><path d="M4.5 12h.01"></path><path d="M4.5 18h.01"></path></svg></span>Atendimentos</div>
+  <div class="side-item navbtn" data-view="lista"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11"></path><path d="M9 12h11"></path><path d="M9 18h11"></path><path d="M4.5 6h.01"></path><path d="M4.5 12h.01"></path><path d="M4.5 18h.01"></path></svg><span class="badge-naolida-menu"></span></span>Atendimentos</div>
   <div class="side-item navbtn" data-view="resumo" id="sideResumo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>Resumo</div>
   <div class="side-item navbtn" data-view="dashboard" id="sideDashboard"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"></line><line x1="12" y1="20" x2="12" y2="6"></line><line x1="18" y1="20" x2="18" y2="15"></line></svg></span>Dashboard</div>
   <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path><path d="M9.5 15.5l5-5 1.5 1.5-5 5H9.5v-1.5z"></path></svg></span>Construtor</div>
@@ -687,7 +696,7 @@
 
   <div class="tabs" id="mainTabs">
     <div class="tab active" data-view="novo">Novo</div>
-    <div class="tab" data-view="lista">Atendimentos</div>
+    <div class="tab" data-view="lista">Atendimentos<span class="badge-naolida-menu"></span></div>
     <div class="tab" data-view="resumo">Resumo</div>
     <div class="tab" data-view="dashboard" id="tabDashboard">Dashboard</div>
     <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
@@ -1671,7 +1680,7 @@
 
 <nav class="bottom" id="bottomNav">
   <div class="navbtn active" data-view="novo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>Novo</div>
-  <div class="navbtn" data-view="lista"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11"></path><path d="M9 12h11"></path><path d="M9 18h11"></path><path d="M4.5 6h.01"></path><path d="M4.5 12h.01"></path><path d="M4.5 18h.01"></path></svg></span>Atend.</div>
+  <div class="navbtn" data-view="lista"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11"></path><path d="M9 12h11"></path><path d="M9 18h11"></path><path d="M4.5 6h.01"></path><path d="M4.5 12h.01"></path><path d="M4.5 18h.01"></path></svg><span class="badge-naolida-menu"></span></span>Atend.</div>
   <div class="navbtn" data-view="resumo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>Resumo</div>
   <div class="navbtn" data-view="dashboard" id="navDashboard"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"></line><line x1="12" y1="20" x2="12" y2="6"></line><line x1="18" y1="20" x2="18" y2="15"></line></svg></span>Dashb.</div>
   <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path><path d="M9.5 15.5l5-5 1.5 1.5-5 5H9.5v-1.5z"></path></svg></span>Constr.</div>

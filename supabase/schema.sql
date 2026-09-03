@@ -710,3 +710,28 @@ select cron.schedule(
     end $$;
   $job$
 );
+
+-- =========================================================
+-- Indicador de "movimentação não lida" (bolinha estilo notificação, igual
+-- app Android) — cada atendimento guarda quando foi a última movimentação;
+-- uma tabela à parte guarda quando cada conta viu essa lista de
+-- movimentações por último. A bolinha aparece quando a última movimentação
+-- é mais nova do que a última vez que aquela conta visualizou.
+alter table atendimentos add column if not exists ultima_movimentacao_em timestamptz;
+
+-- preenche retroativamente pra quem já tinha movimentações antes dessa
+-- coluna existir — sem isso, chamados antigos só ganhariam a data na
+-- próxima movimentação nova
+update atendimentos a set ultima_movimentacao_em = (
+  select max(m.criado_em) from movimentacoes m where m.atendimento_id = a.id
+) where a.ultima_movimentacao_em is null
+  and exists (select 1 from movimentacoes m where m.atendimento_id = a.id);
+
+create table if not exists atendimento_visto (
+  atendimento_id text not null,
+  conta_id text not null,
+  visto_em timestamptz not null default now(),
+  primary key (atendimento_id, conta_id)
+);
+alter table atendimento_visto enable row level security;
+create index if not exists idx_atendimento_visto_conta on atendimento_visto (conta_id);

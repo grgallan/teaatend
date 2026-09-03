@@ -112,6 +112,13 @@ function aplicarVisibilidadeMenu(viewName, visivel){
   document.querySelectorAll(`[data-view="${viewName}"]`).forEach(el=>{ el.style.display = visivel ? '' : 'none'; });
 }
 
+// bolinha de "movimentação não lida" no menu (sidebar/abas/barra inferior)
+// — acende quando qualquer atendimento visível tiver r.naoLidas
+function atualizarBadgeAtendimentos(){
+  const temNaoLida = (atendimentos||[]).some(a=>a.naoLidas);
+  document.querySelectorAll('.badge-naolida-menu').forEach(el=>{ el.classList.toggle('on', temNaoLida); });
+}
+
 // alterna tema claro/escuro — o valor salvo é lido de novo (e aplicado antes
 // do CSS pintar a tela) por um script inline no <head> do index.html
 function alternarTema(){
@@ -488,6 +495,7 @@ async function carregarTudo(){
   const r = await api('dados', { contaId, empresaId });
   if(!r.ok) return false;
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
+  atualizarBadgeAtendimentos();
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
   empresas = r.empresas||[];
@@ -1503,7 +1511,7 @@ function renderLinhaAtendimento(r, ctx, opts){
       ${galho}
       <div class="top">
         ${(toggleVinculos || checkbox) ? `<div style="display:flex;gap:8px;align-items:flex-start;">${toggleVinculos}${checkbox}<div>` : '<div>'}
-        <div><div class="cliente">${clienteTexto}</div>
+        <div><div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${clienteTexto}</div>
         <div class="data">${dataFmt} · ${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (int. '+r.inter+')' : ''}</div></div>
         ${(toggleVinculos || checkbox) ? `</div></div>` : '</div>'}
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
@@ -1598,7 +1606,7 @@ function renderKanbanCard(r, opts){
     <div class="kanban-card" data-id="${r.id}" data-status="${escaparHtml(r.status)}">
       ${handle}
       <div class="kanban-card-body">
-        <div class="cliente">${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
+        <div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
         <div class="data">${dataFmt} · ${Number(r.qtd).toFixed(2).replace('.',',')}h</div>
         ${r.assunto ? `<div class="detalhe" style="font-weight:600;">${escaparHtml(r.assunto)}</div>` : ''}
         ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe))}</div>` : ''}
@@ -6345,12 +6353,21 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
 
   let resp;
   try{
-    resp = await api('listarMovimentacoes', { atendimentoId });
+    const conta = contaAtual();
+    resp = await api('listarMovimentacoes', { atendimentoId, contaId: conta ? conta.id : '' });
   }catch(e){
     cont.innerHTML = `<div class="chat-empty">Não foi possível carregar as movimentações.</div>`;
     return;
   }
   if(!resp.ok){ cont.innerHTML = `<div class="chat-empty">${resp.erro || 'Não foi possível carregar as movimentações.'}</div>`; return; }
+  // abrir a lista já marca como "vista" no servidor — reflete isso na hora
+  // na tela também (bolinha do card e do menu), sem esperar o próximo
+  // carregarTudo() apagar tudo
+  if(r && r.naoLidas){
+    r.naoLidas = false;
+    atualizarBadgeAtendimentos();
+    if(document.getElementById('view-lista').classList.contains('active')) renderLista();
+  }
 
   estado.cache = resp.movimentacoes || [];
   if(estado.cache.length === 0){
@@ -6466,7 +6483,7 @@ async function enviarMovimentacao(sufixo){
     }else{
       const payload = {
         atendimentoId: estado.atendimentoId, texto: textoHtml, autorNome: conta.nome, autorPerfil: conta.perfil,
-        respondendoA: estado.respondendoId,
+        respondendoA: estado.respondendoId, contaId: conta.id,
       };
       if(estado.anexoArquivo){
         payload.anexoBase64 = await lerArquivoBase64(estado.anexoArquivo);
