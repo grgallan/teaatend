@@ -735,3 +735,7 @@ create table if not exists atendimento_visto (
 );
 alter table atendimento_visto enable row level security;
 create index if not exists idx_atendimento_visto_conta on atendimento_visto (conta_id);
+
+-- meta mensal do cliente (valor de referência, em R$) — comparado no Resumo
+-- do admin com o Valor Real já realizado com aquele cliente no mês
+alter table clientes add column if not exists meta_mensal numeric default 0;

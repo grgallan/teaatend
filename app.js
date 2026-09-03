@@ -1824,16 +1824,29 @@ function renderResumo(){
       porCliente[r.cliente].real += Number(r.totalReal)||0;
       porCliente[r.cliente].qtd += 1;
     });
-    const colunasExtra = (v) => [
+    // meta mensal é cadastrada por cliente (Cadastros → Clientes) — compara
+    // com o Valor Real já realizado no mês pra mostrar se já bateu ou não
+    const metaPorCliente = {};
+    clientes.forEach(c=>{ metaPorCliente[c.nome] = Number(c.metaMensal)||0; });
+    const colunaMeta = (nome, v) => {
+      if(!verValoresReal) return '';
+      const meta = metaPorCliente[nome] || 0;
+      if(meta <= 0) return `<td style="color:var(--muted);">—</td>`;
+      const pct = (v.real / meta) * 100;
+      const bateu = v.real >= meta;
+      return `<td title="${fmtMoeda(v.real)} de ${fmtMoeda(meta)}"><span style="font-weight:700;color:${bateu?'var(--ok)':'var(--warn)'};">${bateu?'✓ ':''}${pct.toFixed(0)}%</span></td>`;
+    };
+    const colunasExtra = (v, nome) => [
       verValoresReal ? `<td>${fmtMoeda(v.real)}</td>` : '',
+      colunaMeta(nome, v),
       verValorAtendente ? `<td>${fmtMoeda(v.ananda)}</td>` : '',
     ].join('');
     const linhasCliente = Object.entries(porCliente)
       .sort((a,b)=>b[1].horas-a[1].horas)
-      .map(([nome,v])=>`<tr><td>${nome}</td><td>${v.horas.toFixed(2).replace('.',',')}h</td><td>${v.qtd}</td>${colunasExtra(v)}</tr>`)
+      .map(([nome,v])=>`<tr><td>${nome}</td><td>${v.horas.toFixed(2).replace('.',',')}h</td><td>${v.qtd}</td>${colunasExtra(v,nome)}</tr>`)
       .join('');
     document.getElementById('resumoPorCliente').innerHTML =
-      `<tr><th>Cliente</th><th>Horas</th><th>Atend.</th>${verValoresReal?'<th>Real</th>':''}${verValorAtendente?'<th>Atendente</th>':''}</tr>${linhasCliente}`;
+      `<tr><th>Cliente</th><th>Horas</th><th>Atend.</th>${verValoresReal?'<th>Real</th><th>Meta</th>':''}${verValorAtendente?'<th>Atendente</th>':''}</tr>${linhasCliente}`;
   }else{
     cardCliente.style.display = 'none';
   }
@@ -5198,6 +5211,7 @@ function renderListClientes(){
       ${c.nomeFantasia ? `<span>${escaparHtml(c.nomeFantasia)}</span>` : ''}
       ${c.cnpj ? `<span>CNPJ: ${escaparHtml(c.cnpj)}</span>` : `<span style="color:var(--bad);">Sem CNPJ cadastrado</span>`}
       ${nomeEmpresa ? `<span>Empresa: ${escaparHtml(nomeEmpresa)}</span>` : ''}
+      ${c.metaMensal ? `<span>Meta mensal: ${fmtMoeda(c.metaMensal)}</span>` : ''}
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarCliente('${c.id}')">Editar</button>
@@ -5212,6 +5226,7 @@ function editarCliente(id){
   document.getElementById('cl_nome').value = c.nome;
   document.getElementById('cl_cnpj').value = c.cnpj || '';
   document.getElementById('cl_nome_fantasia').value = c.nomeFantasia || '';
+  document.getElementById('cl_meta_mensal').value = c.metaMensal ? c.metaMensal : '';
   if(empresas.length > 0) document.getElementById('cl_empresa').value = c.empresaId || (empresaAtual ? empresaAtual.id : '');
   document.getElementById('btnAddCliente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoCliente').style.display = '';
@@ -5222,6 +5237,7 @@ function cancelarEdicaoCliente(){
   document.getElementById('cl_nome').value = '';
   document.getElementById('cl_cnpj').value = '';
   document.getElementById('cl_nome_fantasia').value = '';
+  document.getElementById('cl_meta_mensal').value = '';
   if(empresas.length > 0) document.getElementById('cl_empresa').value = empresaAtual ? empresaAtual.id : '';
   document.getElementById('btnAddCliente').textContent = 'Adicionar cliente';
   document.getElementById('btnCancelarEdicaoCliente').style.display = 'none';
@@ -7412,12 +7428,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
     const cnpj = document.getElementById('cl_cnpj').value.trim();
     const nomeFantasia = document.getElementById('cl_nome_fantasia').value.trim();
+    const metaMensal = Number(document.getElementById('cl_meta_mensal').value) || 0;
     const empresaId = empresas.length > 0 ? document.getElementById('cl_empresa').value : (empresaAtual ? empresaAtual.id : '');
     if(!nome){ toast('Informe o nome do cliente'); return; }
     const editando = !!editandoClienteId;
     const r = editando
-      ? await api('atualizarCliente', { id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia, empresaId })
-      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia, empresaId });
+      ? await api('atualizarCliente', { id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId })
+      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
