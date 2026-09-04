@@ -1468,6 +1468,7 @@ function renderLista(){
 
   const emTabela = visualizacaoAtendimentos !== 'cards' && window.matchMedia('(min-width: 860px)').matches;
   renderAgruparListaBar(emTabela);
+  toggleFiltrosClienteStatusUI(emTabela);
 
   document.getElementById('listaItens').style.display = visualizacaoAtendimentos==='cards' ? 'none' : '';
   document.getElementById('kanbanBoard').style.display = visualizacaoAtendimentos==='cards' ? '' : 'none';
@@ -1544,6 +1545,16 @@ function renderAgruparListaBar(emTabela){
   drop.innerHTML = listaAgrupamento
     ? `<div class="lookup-tag">${escaparHtml(LABEL_AGRUPAMENTO_LISTA[listaAgrupamento] || listaAgrupamento)}<button type="button" onclick="removerAgrupamentoLista()">×</button></div>`
     : `<span style="color:var(--muted);font-size:12.5px;">⠿⠿ arraste uma coluna aqui</span>`;
+}
+
+// na tabela, Cliente e Status já têm o filtro estilo Excel no cabeçalho da
+// coluna — os campos "Filtrar por cliente/status" de cima ficam redundantes
+// e somem; em Cards/mobile (sem cabeçalho de coluna) eles continuam.
+function toggleFiltrosClienteStatusUI(emTabela){
+  const clienteWrap = document.querySelector('#filtros .lookup-multi');
+  if(clienteWrap) clienteWrap.style.display = emTabela ? 'none' : '';
+  const statusEl = document.getElementById('filtrosStatus');
+  if(statusEl) statusEl.style.display = emTabela ? 'none' : '';
 }
 
 // filtro de coluna estilo Excel — Cliente/Status reaproveitam os mesmos
