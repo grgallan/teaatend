@@ -240,7 +240,7 @@ function hojeLocalISO(){
 // Prevista — só faz sentido enquanto o chamado ainda não foi validado, e só
 // se tiver previsão cadastrada
 function flagPrazo(r){
-  if(!r.dataPrevista || r.status === 'VALIDADO') return '';
+  if(!r.dataPrevista || r.status === 'CONCLUÍDO') return '';
   const [,pm,pd] = String(r.dataPrevista).split('-');
   const previstaFmt = `${pd}/${pm}`;
   const atrasado = hojeLocalISO() > r.dataPrevista;
@@ -1523,7 +1523,7 @@ function itensAtendimentosFiltrados(){
   const ate = document.getElementById('periodo_ate').value;
   // PENDENTE/EM ANDAMENTO/EM VALIDAÇÃO ainda precisam de atenção, então
   // aparecem sempre, independente do período escolhido — só os já
-  // encerrados (VALIDADO e demais) respeitam o filtro de período
+  // encerrados (CONCLUÍDO e demais) respeitam o filtro de período
   if(de) itens = itens.filter(r=>STATUS_SEMPRE_VISIVEL.has(r.status) || String(r.data) >= de);
   if(ate) itens = itens.filter(r=>STATUS_SEMPRE_VISIVEL.has(r.status) || String(r.data) <= ate);
   itens.sort((a,b)=> String(b.data).localeCompare(String(a.data)));
@@ -2038,7 +2038,7 @@ function renderLinhasVinculosFilhos(nos, ctx, nivel){
 
 /* ---------- Cards (kanban) — mesma lista de Atendimentos, agrupada por status ---------- */
 function corStatusDot(nome){
-  const mapa = { 'VALIDADO':'var(--ok)', 'PENDENTE':'var(--warn)', 'AGENDADO':'var(--purple)', 'EM-ANDAMENTO':'var(--yellow)', 'EM-VALIDACAO':'var(--blue)', 'CANCELADO':'var(--bad)', 'NAO-VALIDADO':'var(--bad)' };
+  const mapa = { 'CONCLUIDO':'var(--ok)', 'PENDENTE':'var(--warn)', 'AGENDADO':'var(--purple)', 'EM-ANDAMENTO':'var(--yellow)', 'EM-VALIDACAO':'var(--blue)', 'CANCELADO':'var(--bad)', 'NAO-VALIDADO':'var(--bad)' };
   return mapa[statusSlug(nome)] || 'var(--muted)';
 }
 
@@ -2341,7 +2341,7 @@ let dashAba = 'geral';
 let dashSujo = { geral:true, operacional:true, comparativo:true };
 // "concluído" (não fica mais na fila de abertos) — mesmos status que já
 // tiram o card do fluxo normal no resto do app
-const DASH_STATUS_TERMINAIS = new Set(['VALIDADO','CANCELADO','NAO-VALIDADO']);
+const DASH_STATUS_TERMINAIS = new Set(['CONCLUIDO','CANCELADO','NAO-VALIDADO']);
 function dashEhTerminal(status){ return DASH_STATUS_TERMINAIS.has(statusSlug(status)); }
 // dias corridos desde a Data do atendimento — só faz sentido pra quem
 // ainda está em aberto (não tem "data de conclusão" separada no sistema)
@@ -2614,7 +2614,7 @@ function renderDashboardGeral(){
   const verValoresReal = isAdmin || (conta && conta.perfil === 'USUARIO' && conta.adminCliente);
   const verValorAtendente = isAdmin || isAtendente;
 
-  const validados = itens.filter(r=>statusSlug(r.status)==='VALIDADO').length;
+  const validados = itens.filter(r=>statusSlug(r.status)==='CONCLUIDO').length;
   const abertos = itens.filter(r=>!dashEhTerminal(r.status)).length;
   const boxesExtra = [
     verValoresReal ? `<div class="box"><div class="k">Faturado (Total Real)</div><div class="v" style="color:var(--accent)">${fmtMoeda(itens.reduce((s,r)=>s+(Number(r.totalReal)||0),0))}</div></div>` : '',
@@ -2622,7 +2622,7 @@ function renderDashboardGeral(){
   ].join('');
   document.getElementById('dashBoxesGeral').innerHTML = `
     <div class="box"><div class="k">Atendimentos no período</div><div class="v">${itens.length}</div></div>
-    <div class="box"><div class="k">Validados</div><div class="v">${validados}${itens.length ? ' · '+Math.round(validados/itens.length*100)+'%' : ''}</div></div>
+    <div class="box"><div class="k">Concluídos</div><div class="v">${validados}${itens.length ? ' · '+Math.round(validados/itens.length*100)+'%' : ''}</div></div>
     <div class="box"><div class="k">Em aberto</div><div class="v">${abertos}</div></div>
     ${boxesExtra}`;
 
@@ -2634,10 +2634,10 @@ function renderDashboardGeral(){
     labels: meses,
     series: [
       { label:'Total', tok:'--blue', data: meses.map(m=>itens.filter(r=>r.mes===m).length) },
-      { label:'Validados', tok:'--ok', data: meses.map(m=>itens.filter(r=>r.mes===m && statusSlug(r.status)==='VALIDADO').length) },
+      { label:'Concluídos', tok:'--ok', data: meses.map(m=>itens.filter(r=>r.mes===m && statusSlug(r.status)==='CONCLUIDO').length) },
     ],
   });
-  document.getElementById('dashLegendaMeses').innerHTML = dashLegendHtml([{label:'Total',cor:'var(--blue)'},{label:'Validados',cor:'var(--ok)'}]);
+  document.getElementById('dashLegendaMeses').innerHTML = dashLegendHtml([{label:'Total',cor:'var(--blue)'},{label:'Concluídos',cor:'var(--ok)'}]);
 
   const statusCount = {};
   statusList.forEach(s=>statusCount[s.nome]=0);
@@ -2664,7 +2664,7 @@ function renderDashboardGeral(){
       return {
         label: nome,
         valor: seus.reduce((s,r)=>s+ganhoAtendente(r,nome).valor,0),
-        concluidos: seus.filter(r=>statusSlug(r.status)==='VALIDADO').length,
+        concluidos: seus.filter(r=>statusSlug(r.status)==='CONCLUIDO').length,
       };
     }).filter(d=>d.valor>0 || d.concluidos>0).sort((a,b)=>b.valor-a.valor);
     dashRanking(document.getElementById('dashRankingAtendentes'), ranking);
@@ -6500,7 +6500,7 @@ const COLUNAS_RELATORIO = [
   { key:'status', label:'Status', formatar:r=>r.status },
   { key:'dataPrevista', label:'Data Prevista', formatar:r=>{ if(!r.dataPrevista) return ''; const [y,m,d]=String(r.dataPrevista).split('-'); return `${d}/${m}/${y}`; } },
   { key:'situacaoPrazo', label:'Situação do Prazo', formatar:r=>{
-      if(!r.dataPrevista || r.status === 'VALIDADO') return '';
+      if(!r.dataPrevista || r.status === 'CONCLUÍDO') return '';
       return hojeLocalISO() > r.dataPrevista ? 'Atrasado' : 'Em dia';
     } },
   { key:'anexo', label:'Anexo', formatar:r=>r.anexoNome || '' },
@@ -6844,7 +6844,7 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
   if(!atendimentoId) return;
   const cont = document.getElementById(ids.lista);
   const r = atendimentos.find(x=>String(x.id)===String(atendimentoId));
-  const bloqueado = r && r.status === 'VALIDADO';
+  const bloqueado = r && r.status === 'CONCLUÍDO';
   document.getElementById(ids.composer).style.display = bloqueado ? 'none' : '';
   document.getElementById(ids.bloqueado).style.display = bloqueado ? '' : 'none';
 

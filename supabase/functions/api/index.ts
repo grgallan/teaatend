@@ -616,10 +616,10 @@ async function acaoAprovarValidacao(req: any) {
   }
   if (atendimento.status !== 'EM VALIDAÇÃO') return { ok: false, erro: 'Esse chamado não está em validação.' };
 
-  const { error } = await db.from('atendimentos').update({ status: 'VALIDADO', em_validacao_desde: null }).eq('id', req.id);
+  const { error } = await db.from('atendimentos').update({ status: 'CONCLUÍDO', em_validacao_desde: null }).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   await registrarHistorico(req.id, `Validação aprovada por ${conta.nome}`);
-  await notificarStatusAlterado({ ...atendimento, status: 'VALIDADO' }, 'EM VALIDAÇÃO');
+  await notificarStatusAlterado({ ...atendimento, status: 'CONCLUÍDO' }, 'EM VALIDAÇÃO');
   return { ok: true };
 }
 
@@ -1032,7 +1032,7 @@ async function acaoCriarMovimentacao(req: any) {
 
   const { data: atendimento } = await db.from('atendimentos').select('status,cliente,usuario,atendente').eq('id', req.atendimentoId).maybeSingle();
   if (!atendimento) return { ok: false, erro: 'Atendimento não encontrado.' };
-  if (atendimento.status === 'VALIDADO') return { ok: false, erro: 'Esse atendimento já foi validado — não é possível adicionar novas movimentações.' };
+  if (atendimento.status === 'CONCLUÍDO') return { ok: false, erro: 'Esse atendimento já foi concluído — não é possível adicionar novas movimentações.' };
 
   const registro = {
     id: gerarId(), atendimento_id: req.atendimentoId, autor_nome: req.autorNome, autor_perfil: req.autorPerfil,
@@ -1077,7 +1077,7 @@ async function acaoAtualizarMovimentacao(req: any) {
   if (!ehAdminEfetivo(conta) && conta.nome !== mov.autor_nome) return { ok: false, erro: 'Você só pode editar suas próprias movimentações.' };
 
   const { data: atendimento } = await db.from('atendimentos').select('status').eq('id', mov.atendimento_id).maybeSingle();
-  if (atendimento && atendimento.status === 'VALIDADO') return { ok: false, erro: 'Esse atendimento já foi validado — não é possível editar movimentações.' };
+  if (atendimento && atendimento.status === 'CONCLUÍDO') return { ok: false, erro: 'Esse atendimento já foi concluído — não é possível editar movimentações.' };
 
   const texto = String(req.texto || '').trim();
   if (!texto) return { ok: false, erro: 'Escreva algo.' };
@@ -1095,7 +1095,7 @@ async function acaoRemoverMovimentacao(req: any) {
   if (!ehAdminEfetivo(conta) && conta.nome !== mov.autor_nome) return { ok: false, erro: 'Você só pode excluir suas próprias movimentações.' };
 
   const { data: atendimento } = await db.from('atendimentos').select('status').eq('id', mov.atendimento_id).maybeSingle();
-  if (atendimento && atendimento.status === 'VALIDADO') return { ok: false, erro: 'Esse atendimento já foi validado — não é possível excluir movimentações.' };
+  if (atendimento && atendimento.status === 'CONCLUÍDO') return { ok: false, erro: 'Esse atendimento já foi concluído — não é possível excluir movimentações.' };
 
   await db.from('anexos').delete().eq('movimentacao_id', req.id);
   await db.from('movimentacoes').delete().eq('id', req.id);
