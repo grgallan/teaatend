@@ -40,23 +40,28 @@ let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
 // tabela ordenável/agrupável da Lista (só em telas largas — no celular a
 // lista continua em cards, sem essa mecânica)
 let listaOrdenacao = { campo: 'data', direcao: 'desc' }; // igual à ordenação padrão de sempre
-let listaAgrupamento = null; // null | 'status' | 'cliente' | 'atendente' | 'tipo' | 'mes'
-// agrupamento só acontece arrastando o cabeçalho da coluna (arrastavel:true)
-// até a faixa "Agrupar por"; agrupaComo é o campo de agrupamento resultante
-// (a coluna Data agrupa por Mês — dia a dia não faria sentido). Cliente e
-// Status também servem de filtro de coluna estilo Excel reaproveitando os
-// mesmos Sets do filtro de cima (filtroCliente/filtroStatus); Atendente e
-// Tipo têm um filtro próprio, só válido aqui na tabela.
+let listaAgrupamentos = []; // ordem dos campos de agrupamento (múltiplos níveis, do mais externo pro mais interno)
+// agrupamento só acontece arrastando o cabeçalho da coluna até a faixa
+// "Agrupar por" (pode soltar mais de uma coluna, criando subníveis);
+// agrupaComo é o campo de agrupamento resultante (a coluna Data agrupa por
+// Mês — dia a dia não faria sentido). Cliente e Status também servem de
+// filtro de coluna estilo Excel reaproveitando os mesmos Sets do filtro de
+// cima (filtroCliente/filtroStatus); Atendente e Tipo têm um filtro
+// próprio, só válido aqui na tabela. Toda coluna pode ser arrastada pra
+// mudar a ordem das colunas, soltando em cima de outra.
 const COLUNAS_LISTA_TABELA = [
-  { campo:'cliente', label:'Cliente', arrastavel:true, agrupaComo:'cliente', filtravel:true },
+  { campo:'cliente', label:'Cliente', agrupaComo:'cliente', filtravel:true },
   { campo:'assunto', label:'Assunto' },
-  { campo:'atendente', label:'Atendente', arrastavel:true, agrupaComo:'atendente', filtravel:true },
-  { campo:'tipo', label:'Tipo', arrastavel:true, agrupaComo:'tipo', filtravel:true },
-  { campo:'status', label:'Status', arrastavel:true, agrupaComo:'status', filtravel:true },
-  { campo:'data', label:'Data', arrastavel:true, agrupaComo:'mes' },
+  { campo:'atendente', label:'Atendente', agrupaComo:'atendente', filtravel:true },
+  { campo:'tipo', label:'Tipo', agrupaComo:'tipo', filtravel:true },
+  { campo:'status', label:'Status', agrupaComo:'status', filtravel:true },
+  { campo:'data', label:'Data', agrupaComo:'mes' },
   { campo:'horas', label:'Horas' },
   { campo:'valor', label:'Valor Real' },
 ];
+// ordem atual das colunas na tabela (lista de campos) — muda quando o
+// usuário arrasta um cabeçalho de coluna e solta em cima de outro
+let listaOrdemColunas = COLUNAS_LISTA_TABELA.map(c => c.campo);
 let listaFiltrosColuna = { atendente: new Set(), tipo: new Set() }; // filtro de coluna estilo Excel (só na tabela)
 let listaFiltroColunaAberta = null; // campo cujo dropdown de filtro está aberto agora
 let vinculosExpandidos = new Set(); // ids de atendimento com as linhas-filha de vínculo visíveis — vazio por padrão (tudo recolhido)
@@ -1532,8 +1537,16 @@ function ordenarListaPor(campo){
   else listaOrdenacao = { campo, direcao: 'asc' };
   renderLista();
 }
-function definirAgrupamentoLista(campo){ listaAgrupamento = campo; renderLista(); }
-function removerAgrupamentoLista(){ listaAgrupamento = null; renderLista(); }
+// arrasta mais de uma coluna pra faixa "Agrupar por" pra agrupar em vários
+// níveis — a ordem em que soltou vira a ordem dos níveis (mais externo primeiro)
+function definirAgrupamentoLista(campo){
+  if(!listaAgrupamentos.includes(campo)) listaAgrupamentos.push(campo);
+  renderLista();
+}
+function removerAgrupamentoLista(campo){
+  listaAgrupamentos = listaAgrupamentos.filter(c => c !== campo);
+  renderLista();
+}
 
 // a faixa "Agrupar por" é um bloco fixo no HTML (dentro do card de
 // filtros) — só troca de conteúdo/visibilidade, nunca de posição
@@ -1542,9 +1555,21 @@ function renderAgruparListaBar(emTabela){
   if(bloco) bloco.style.display = emTabela ? '' : 'none';
   const drop = document.getElementById('listaAgruparDrop');
   if(!drop) return;
-  drop.innerHTML = listaAgrupamento
-    ? `<div class="lookup-tag">${escaparHtml(LABEL_AGRUPAMENTO_LISTA[listaAgrupamento] || listaAgrupamento)}<button type="button" onclick="removerAgrupamentoLista()">×</button></div>`
+  drop.innerHTML = listaAgrupamentos.length
+    ? listaAgrupamentos.map(campo=>`<div class="lookup-tag">${escaparHtml(LABEL_AGRUPAMENTO_LISTA[campo] || campo)}<button type="button" onclick="removerAgrupamentoLista('${campo}')">×</button></div>`).join('')
     : `<span style="color:var(--muted);font-size:12.5px;">⠿⠿ arraste uma coluna aqui</span>`;
+}
+
+// muda a ordem das colunas: tira a arrastada de onde estava e enfia bem
+// antes da coluna alvo em que foi solta
+function reordenarColunaLista(campoArrastado, campoAlvo){
+  if(!campoArrastado || !campoAlvo || campoArrastado === campoAlvo) return;
+  const semArrastado = listaOrdemColunas.filter(c => c !== campoArrastado);
+  const idxAlvo = semArrastado.indexOf(campoAlvo);
+  if(idxAlvo === -1) return;
+  semArrastado.splice(idxAlvo, 0, campoArrastado);
+  listaOrdemColunas = semArrastado;
+  renderLista();
 }
 
 // na tabela, Cliente e Status já têm o filtro estilo Excel no cabeçalho da
@@ -1606,10 +1631,7 @@ function renderCabecalhoColunaLista(c){
   const ordenadoAtivo = listaOrdenacao.campo === c.campo;
   const seta = ordenadoAtivo ? (listaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
   const filtro = c.filtravel ? celulaFiltroColunaLista(c) : '';
-  if(c.arrastavel){
-    return `<th class="lista-th-arrastavel${ordenadoAtivo ? ' ordenado' : ''}" data-campo="${c.campo}" data-agrupa="${c.agrupaComo || ''}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}${filtro}</th>`;
-  }
-  return `<th class="${ordenadoAtivo ? 'ordenado' : ''}" style="cursor:pointer;" onclick="ordenarListaPor('${c.campo}')">${escaparHtml(c.label)}${seta}${filtro}</th>`;
+  return `<th class="lista-th-arrastavel${ordenadoAtivo ? ' ordenado' : ''}" data-campo="${c.campo}" data-agrupa="${c.agrupaComo || ''}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}${filtro}</th>`;
 }
 
 function renderTabelaAtendimentos(cont, itensOriginais, ctx){
@@ -1620,9 +1642,11 @@ function renderTabelaAtendimentos(cont, itensOriginais, ctx){
   itens.sort((a,b)=>compararLista(a, b, listaOrdenacao.campo, listaOrdenacao.direcao));
 
   const podeSelecionar = podeEditarBtn || podeExcluirBtn;
-  const colunas = COLUNAS_LISTA_TABELA
+  const colunasPorCampo = Object.fromEntries(COLUNAS_LISTA_TABELA.map(c => [c.campo, c]));
+  const colunas = listaOrdemColunas
+    .map(campo => colunasPorCampo[campo])
     .filter(c => c.campo !== 'valor' || verValores)
-    .filter(c => c.agrupaComo !== listaAgrupamento);
+    .filter(c => !listaAgrupamentos.includes(c.agrupaComo));
 
   const headerHtml = `<tr>
     ${podeSelecionar ? '<th style="width:30px;"></th>' : ''}
@@ -1630,30 +1654,47 @@ function renderTabelaAtendimentos(cont, itensOriginais, ctx){
     <th style="width:56px;"></th>
   </tr>`;
 
-  const corpoHtml = listaAgrupamento ? (() => {
-    const grupos = new Map();
-    itens.forEach(r=>{
-      const chave = valorAgrupamentoLista(r, listaAgrupamento);
-      if(!grupos.has(chave)) grupos.set(chave, []);
-      grupos.get(chave).push(r);
-    });
-    return [...grupos.entries()].map(([chave, linhasGrupo])=>
-      renderLinhaGrupoTabela(chave, linhasGrupo, colunas, podeSelecionar) +
-      linhasGrupo.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('')
-    ).join('');
-  })() : itens.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('');
+  const corpoHtml = listaAgrupamentos.length
+    ? renderNosGrupoTabela(listaAgrupar(itens, listaAgrupamentos), colunas, podeSelecionar, ctx, 0)
+    : itens.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('');
 
   cont.innerHTML = `<div class="card" style="padding:0;"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div>`;
 }
 
-function renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar){
+// agrupamento em vários níveis: agrupa pelo primeiro campo, e dentro de
+// cada grupo repete pro campo seguinte — mesma ideia do Cubo (cuboAgrupar)
+function listaAgrupar(itens, campos){
+  if(campos.length === 0) return null;
+  const [campo, ...resto] = campos;
+  const grupos = new Map();
+  itens.forEach(r=>{
+    const chave = valorAgrupamentoLista(r, campo);
+    if(!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(r);
+  });
+  return [...grupos.entries()].map(([chave, itensGrupo])=>({
+    chave, itens: itensGrupo, filhos: listaAgrupar(itensGrupo, resto)
+  }));
+}
+
+function renderNosGrupoTabela(nos, colunas, podeSelecionar, ctx, nivel){
+  return nos.map(no=>{
+    const linhaGrupo = renderLinhaGrupoTabela(no.chave, no.itens, colunas, podeSelecionar, nivel);
+    const corpo = no.filhos
+      ? renderNosGrupoTabela(no.filhos, colunas, podeSelecionar, ctx, nivel+1)
+      : no.itens.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('');
+    return linhaGrupo + corpo;
+  }).join('');
+}
+
+function renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar, nivel){
   const horas = linhas.reduce((s,r)=>s+Number(r.qtd||0), 0);
   const valor = linhas.reduce((s,r)=>s+Number(r.totalReal||0), 0);
   let primeira = true;
   const celulas = colunas.map(c=>{
     if(c.campo === 'horas') return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${horas.toFixed(2).replace('.',',')}h</td>`;
     if(c.campo === 'valor') return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmtMoeda(valor)}</td>`;
-    if(primeira){ primeira = false; return `<td>▾ ${escaparHtml(chave)}<span class="lista-grupo-contagem">${linhas.length}</span></td>`; }
+    if(primeira){ primeira = false; return `<td style="padding-left:${14 + (nivel||0)*18}px;">▾ ${escaparHtml(chave)}<span class="lista-grupo-contagem">${linhas.length}</span></td>`; }
     return `<td></td>`;
   }).join('');
   return `<tr class="lista-grupo">${podeSelecionar ? '<td></td>' : ''}${celulas}<td></td></tr>`;
@@ -1731,8 +1772,10 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
   return `<tr${styleAttr}${clicavel ? ` onclick="abrirDetalhe('${r.id}')"` : ''}>${checkboxTd}${celulas}${acoesTd}</tr>`;
 }
 
-/* ---------- arrastar o cabeçalho da coluna até "Agrupar por" (Pointer Events,
-   igual ao drag do Kanban) — um clique simples (sem arrastar) ordena a coluna ---------- */
+/* ---------- arrastar o cabeçalho da coluna (Pointer Events, igual ao drag
+   do Kanban) — um clique simples (sem arrastar) ordena a coluna; soltar em
+   cima da faixa "Agrupar por" agrupa; soltar em cima de outra coluna troca
+   a ordem das colunas ---------- */
 function iniciarPossivelDragColunaLista(e, thEl){
   const campo = thEl.dataset.campo;
   const agrupaComo = thEl.dataset.agrupa;
@@ -1742,8 +1785,14 @@ function iniciarPossivelDragColunaLista(e, thEl){
   const offsetX = e.clientX - rect.left, offsetY = e.clientY - rect.top;
   let arrastando = false;
   let ghost = null;
+  let thAlvoReordenar = null;
 
   thEl.setPointerCapture(e.pointerId);
+
+  function limparAlvoReordenar(){
+    if(thAlvoReordenar) thAlvoReordenar.classList.remove('lista-th-drop-alvo');
+    thAlvoReordenar = null;
+  }
 
   function mover(ev){
     if(!arrastando){
@@ -1762,6 +1811,15 @@ function iniciarPossivelDragColunaLista(e, thEl){
     const dropZone = document.getElementById('listaAgruparDrop');
     const sobreAlvo = !!(dropZone && alvo && alvo.closest('#listaAgruparDrop'));
     if(dropZone) dropZone.classList.toggle('drag-over', sobreAlvo);
+
+    limparAlvoReordenar();
+    if(!sobreAlvo){
+      const thHover = alvo && alvo.closest('th[data-campo]');
+      if(thHover && thHover !== thEl){
+        thAlvoReordenar = thHover;
+        thAlvoReordenar.classList.add('lista-th-drop-alvo');
+      }
+    }
   }
   function soltar(){
     thEl.removeEventListener('pointermove', mover);
@@ -1769,14 +1827,18 @@ function iniciarPossivelDragColunaLista(e, thEl){
       const dropZone = document.getElementById('listaAgruparDrop');
       const sobreAlvo = dropZone && dropZone.classList.contains('drag-over');
       if(dropZone) dropZone.classList.remove('drag-over');
+      const alvoReordenar = thAlvoReordenar ? thAlvoReordenar.dataset.campo : null;
+      limparAlvoReordenar();
       ghost.remove();
       if(sobreAlvo && agrupaComo) definirAgrupamentoLista(agrupaComo);
+      else if(alvoReordenar) reordenarColunaLista(campo, alvoReordenar);
     }else{
       ordenarListaPor(campo);
     }
   }
   function cancelar(){
     thEl.removeEventListener('pointermove', mover);
+    limparAlvoReordenar();
     if(ghost) ghost.remove();
   }
   thEl.addEventListener('pointermove', mover);
