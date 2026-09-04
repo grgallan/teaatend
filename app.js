@@ -37,6 +37,26 @@ let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = new Set(); // vazio = todos
 let filtroId = ''; // vazio = todos — busca por trecho do ID do atendimento
 let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
+// tabela ordenável/agrupável da Lista (só em telas largas — no celular a
+// lista continua em cards, sem essa mecânica)
+let listaOrdenacao = { campo: 'data', direcao: 'desc' }; // igual à ordenação padrão de sempre
+let listaAgrupamento = null; // null | 'status' | 'cliente' | 'atendente' | 'tipo' | 'mes'
+const COLUNAS_LISTA_TABELA = [
+  { campo:'cliente', label:'Cliente' },
+  { campo:'atendente', label:'Atendente' },
+  { campo:'tipo', label:'Tipo' },
+  { campo:'status', label:'Status' },
+  { campo:'data', label:'Data' },
+  { campo:'horas', label:'Horas' },
+  { campo:'valor', label:'Valor Real' },
+];
+const OPCOES_AGRUPAR_LISTA = [
+  { campo:'status', label:'Status' },
+  { campo:'cliente', label:'Cliente' },
+  { campo:'atendente', label:'Atendente' },
+  { campo:'tipo', label:'Tipo' },
+  { campo:'mes', label:'Mês' },
+];
 let vinculosExpandidos = new Set(); // ids de atendimento com as linhas-filha de vínculo visíveis — vazio por padrão (tudo recolhido)
 let selecionados = new Set();
 let cadAba = 'atendentes';
@@ -1459,7 +1479,195 @@ function renderLista(){
   if(itens.length===0){ cont.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum atendimento encontrado.</div>`; return; }
 
   const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn };
+
+  // em telas largas, a Lista vira uma tabela ordenável/agrupável (estilo
+  // Cubo); no celular não tem coluna pra arrastar, então continua em cards
+  if(window.matchMedia('(min-width: 860px)').matches){
+    renderTabelaAtendimentos(cont, itens, ctx);
+    return;
+  }
   cont.innerHTML = itens.map(r => renderLinhaComVinculos(r, ctx)).join('');
+}
+
+/* ---------- Lista em tabela (desktop): ordenar por coluna, agrupar arrastando ---------- */
+function valorOrdenacaoLista(r, campo){
+  switch(campo){
+    case 'cliente': return r.cliente || '';
+    case 'atendente': return r.atendente || '';
+    case 'tipo': return labelTipo(r.tipo) || '';
+    case 'status': return r.status || '';
+    case 'data': return `${r.data} ${r.hi}`;
+    case 'horas': return Number(r.qtd) || 0;
+    case 'valor': return Number(r.totalReal) || 0;
+    default: return '';
+  }
+}
+function compararLista(a, b, campo, direcao){
+  const va = valorOrdenacaoLista(a, campo), vb = valorOrdenacaoLista(b, campo);
+  const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'pt-BR');
+  return direcao === 'asc' ? cmp : -cmp;
+}
+function valorAgrupamentoLista(r, campo){
+  switch(campo){
+    case 'cliente': return r.cliente || '(sem cliente)';
+    case 'atendente': return r.atendente || 'A definir';
+    case 'tipo': return labelTipo(r.tipo) || '(sem tipo)';
+    case 'status': return r.status || '(sem status)';
+    case 'mes': return r.mes || '(sem mês)';
+    default: return '';
+  }
+}
+function ordenarListaPor(campo){
+  if(listaOrdenacao.campo === campo) listaOrdenacao.direcao = listaOrdenacao.direcao === 'asc' ? 'desc' : 'asc';
+  else listaOrdenacao = { campo, direcao: 'asc' };
+  renderLista();
+}
+function definirAgrupamentoLista(campo){ listaAgrupamento = campo; renderLista(); }
+function removerAgrupamentoLista(){ listaAgrupamento = null; renderLista(); }
+
+function renderTabelaAtendimentos(cont, itensOriginais, ctx){
+  const { isAdmin, verValores, podeEditarBtn, podeExcluirBtn } = ctx;
+  const itens = itensOriginais.slice().sort((a,b)=>compararLista(a, b, listaOrdenacao.campo, listaOrdenacao.direcao));
+  const podeSelecionar = podeEditarBtn || podeExcluirBtn;
+
+  const opcaoAtiva = OPCOES_AGRUPAR_LISTA.find(o=>o.campo === listaAgrupamento);
+  const opcoesDisponiveis = OPCOES_AGRUPAR_LISTA.filter(o=>o.campo !== listaAgrupamento);
+  const colunas = COLUNAS_LISTA_TABELA.filter(c => c.campo !== listaAgrupamento && (c.campo !== 'valor' || verValores));
+
+  const agruparBarHtml = `
+    <div class="card">
+      <h2>Agrupar por</h2>
+      <div class="lookup-tags" id="listaAgruparDrop">
+        ${opcaoAtiva ? `<div class="lookup-tag">${escaparHtml(opcaoAtiva.label)}<button type="button" onclick="removerAgrupamentoLista()">×</button></div>` : ''}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:${opcaoAtiva ? '10px' : '0'};">
+        ${opcoesDisponiveis.map(o=>`<div class="chip" style="cursor:pointer;" onclick="definirAgrupamentoLista('${o.campo}')">${escaparHtml(o.label)}</div>`).join('')}
+      </div>
+      <p style="color:var(--muted);font-size:11.5px;margin:10px 0 0;">Arraste o ⠿⠿ de uma coluna da tabela até aqui, ou clique numa das opções acima.</p>
+    </div>`;
+
+  const headerHtml = `<tr>
+    ${podeSelecionar ? '<th style="width:30px;"></th>' : ''}
+    ${colunas.map(c=>{
+      const ativo = listaOrdenacao.campo === c.campo;
+      const seta = ativo ? (listaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
+      return `<th class="lista-th-arrastavel${ativo ? ' ordenado' : ''}" data-campo="${c.campo}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}</th>`;
+    }).join('')}
+    <th style="width:80px;"></th>
+  </tr>`;
+
+  const corpoHtml = listaAgrupamento ? (() => {
+    const grupos = new Map();
+    itens.forEach(r=>{
+      const chave = valorAgrupamentoLista(r, listaAgrupamento);
+      if(!grupos.has(chave)) grupos.set(chave, []);
+      grupos.get(chave).push(r);
+    });
+    return [...grupos.entries()].map(([chave, linhas])=>
+      renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar) +
+      linhas.map(r=>renderLinhaTabela(r, ctx, colunas, podeSelecionar)).join('')
+    ).join('');
+  })() : itens.map(r=>renderLinhaTabela(r, ctx, colunas, podeSelecionar)).join('');
+
+  cont.innerHTML = `${agruparBarHtml}<div class="card" style="padding:0;"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div>`;
+}
+
+function renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar){
+  const horas = linhas.reduce((s,r)=>s+Number(r.qtd||0), 0);
+  const valor = linhas.reduce((s,r)=>s+Number(r.totalReal||0), 0);
+  let primeira = true;
+  const celulas = colunas.map(c=>{
+    if(c.campo === 'horas') return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${horas.toFixed(2).replace('.',',')}h</td>`;
+    if(c.campo === 'valor') return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmtMoeda(valor)}</td>`;
+    if(primeira){ primeira = false; return `<td>▾ ${escaparHtml(chave)}<span class="lista-grupo-contagem">${linhas.length}</span></td>`; }
+    return `<td></td>`;
+  }).join('');
+  return `<tr class="lista-grupo">${podeSelecionar ? '<td></td>' : ''}${celulas}<td></td></tr>`;
+}
+
+function renderLinhaTabela(r, ctx, colunas, podeSelecionar){
+  const { isAdmin, podeEditarBtn, podeExcluirBtn } = ctx;
+  const [y,m,d] = String(r.data).split('-');
+  const clicavel = podeUsarChat(r);
+  const checkboxTd = podeSelecionar
+    ? `<td onclick="event.stopPropagation();"><input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="toggleSelecao('${r.id}', this.checked)" style="width:16px;height:16px;"></td>`
+    : '';
+  const celulas = colunas.map(c=>{
+    switch(c.campo){
+      case 'cliente': return `<td>${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}<span style="font-weight:700;">${escaparHtml(r.cliente)}</span><div style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario)}</div></td>`;
+      case 'atendente': return `<td>${escaparHtml(r.atendente || 'A definir')}${r.atendente2 ? `<div style="color:var(--muted);font-size:11px;">+2º: ${escaparHtml(r.atendente2)}</div>` : ''}</td>`;
+      case 'tipo': return `<td>${labelTipo(r.tipo)}</td>`;
+      case 'status': return `<td><span class="tag status-${statusSlug(r.status)}">${escaparHtml(r.status)}</span></td>`;
+      case 'data': return `<td style="font-family:'JetBrains Mono',monospace;">${d}/${m}/${y}<div style="color:var(--muted);font-size:11px;">${r.hi}–${r.hf}</div></td>`;
+      case 'horas': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${Number(r.qtd).toFixed(2).replace('.',',')}h</td>`;
+      case 'valor': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--accent);">${fmtMoeda(Number(r.totalReal))}</td>`;
+      default: return '<td></td>';
+    }
+  }).join('');
+  const acoesTd = (podeEditarBtn || podeExcluirBtn || isAdmin) ? `
+    <td onclick="event.stopPropagation();">
+      <div class="acoes-wrap">
+        <button class="ghost" onclick="toggleAcoesMenu('${r.id}')">⋮</button>
+        <div class="acoes-menu" id="acoesMenu-${r.id}">
+          ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();editar('${r.id}')">✎ Editar</div>` : ''}
+          ${isAdmin ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();copiarAtendimento('${r.id}')">⧉ Copiar</div>` : ''}
+          ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">🗑 Excluir</div>` : ''}
+        </div>
+      </div>
+    </td>` : '<td></td>';
+  return `<tr${clicavel ? ` style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''}>${checkboxTd}${celulas}${acoesTd}</tr>`;
+}
+
+/* ---------- arrastar o cabeçalho da coluna até "Agrupar por" (Pointer Events,
+   igual ao drag do Kanban) — um clique simples (sem arrastar) ordena a coluna ---------- */
+function iniciarPossivelDragColunaLista(e, thEl){
+  const campo = thEl.dataset.campo;
+  const label = thEl.dataset.label;
+  const startX = e.clientX, startY = e.clientY;
+  const rect = thEl.getBoundingClientRect();
+  const offsetX = e.clientX - rect.left, offsetY = e.clientY - rect.top;
+  let arrastando = false;
+  let ghost = null;
+
+  thEl.setPointerCapture(e.pointerId);
+
+  function mover(ev){
+    if(!arrastando){
+      if(Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
+      arrastando = true;
+      ghost = document.createElement('div');
+      ghost.className = 'lista-coluna-ghost';
+      ghost.textContent = label;
+      document.body.appendChild(ghost);
+    }
+    ghost.style.left = (ev.clientX - offsetX) + 'px';
+    ghost.style.top = (ev.clientY - offsetY) + 'px';
+    ghost.style.display = 'none';
+    const alvo = document.elementFromPoint(ev.clientX, ev.clientY);
+    ghost.style.display = '';
+    const dropZone = document.getElementById('listaAgruparDrop');
+    const sobreAlvo = !!(dropZone && alvo && alvo.closest('#listaAgruparDrop'));
+    if(dropZone) dropZone.classList.toggle('drag-over', sobreAlvo);
+  }
+  function soltar(){
+    thEl.removeEventListener('pointermove', mover);
+    if(arrastando){
+      const dropZone = document.getElementById('listaAgruparDrop');
+      const sobreAlvo = dropZone && dropZone.classList.contains('drag-over');
+      if(dropZone) dropZone.classList.remove('drag-over');
+      ghost.remove();
+      if(sobreAlvo && OPCOES_AGRUPAR_LISTA.some(o=>o.campo===campo)) definirAgrupamentoLista(campo);
+    }else{
+      ordenarListaPor(campo);
+    }
+  }
+  function cancelar(){
+    thEl.removeEventListener('pointermove', mover);
+    if(ghost) ghost.remove();
+  }
+  thEl.addEventListener('pointermove', mover);
+  thEl.addEventListener('pointerup', soltar, { once:true });
+  thEl.addEventListener('pointercancel', cancelar, { once:true });
 }
 
 // uma linha (atendimento normal ou "filho" de vínculo) — extraído de
@@ -7229,6 +7437,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const handle = e.target.closest('.kanban-card-handle');
     if(!handle) return;
     iniciarDragKanban(e, handle);
+  });
+  document.getElementById('listaItens').addEventListener('pointerdown', e=>{
+    const th = e.target.closest('.lista-th-arrastavel');
+    if(!th) return;
+    iniciarPossivelDragColunaLista(e, th);
   });
   document.getElementById('kanbanBoard').addEventListener('click', e=>{
     if(kanbanAcabouDeArrastar) return;
