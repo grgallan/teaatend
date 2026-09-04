@@ -1677,24 +1677,38 @@ function listaAgrupar(itens, campos){
   }));
 }
 
-function renderNosGrupoTabela(nos, colunas, podeSelecionar, ctx, nivel){
+// caminho de cada grupo (cadeia de chaves dos ancestrais) guarda se ele
+// está recolhido — igual ao padrão já usado no Cubo (cuboLinhasColapsadas)
+let listaGruposColapsados = new Set();
+function toggleGrupoListaColapsado(caminho){
+  if(listaGruposColapsados.has(caminho)) listaGruposColapsados.delete(caminho);
+  else listaGruposColapsados.add(caminho);
+  renderLista();
+}
+
+function renderNosGrupoTabela(nos, colunas, podeSelecionar, ctx, nivel, caminhoPai){
   return nos.map(no=>{
-    const linhaGrupo = renderLinhaGrupoTabela(no.chave, no.itens, colunas, podeSelecionar, nivel);
+    const caminho = caminhoPai ? caminhoPai + '|||' + no.chave : String(no.chave);
+    const colapsado = listaGruposColapsados.has(caminho);
+    const linhaGrupo = renderLinhaGrupoTabela(no.chave, no.itens, colunas, podeSelecionar, nivel, caminho, colapsado);
+    if(colapsado) return linhaGrupo;
     const corpo = no.filhos
-      ? renderNosGrupoTabela(no.filhos, colunas, podeSelecionar, ctx, nivel+1)
+      ? renderNosGrupoTabela(no.filhos, colunas, podeSelecionar, ctx, nivel+1, caminho)
       : no.itens.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('');
     return linhaGrupo + corpo;
   }).join('');
 }
 
-function renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar, nivel){
+function renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar, nivel, caminho, colapsado){
   const horas = linhas.reduce((s,r)=>s+Number(r.qtd||0), 0);
   const valor = linhas.reduce((s,r)=>s+Number(r.totalReal||0), 0);
   let primeira = true;
+  const seta = colapsado ? '▸' : '▾';
+  const toggle = `<button type="button" class="lista-grupo-toggle" data-caminho="${escaparHtml(caminho)}" title="${colapsado ? 'Expandir' : 'Recolher'}" style="background:none;border:none;cursor:pointer;color:inherit;font:inherit;font-weight:700;padding:0;">${seta}</button>`;
   const celulas = colunas.map(c=>{
     if(c.campo === 'horas') return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${horas.toFixed(2).replace('.',',')}h</td>`;
     if(c.campo === 'valor') return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${fmtMoeda(valor)}</td>`;
-    if(primeira){ primeira = false; return `<td style="padding-left:${14 + (nivel||0)*18}px;">▾ ${escaparHtml(chave)}<span class="lista-grupo-contagem">${linhas.length}</span></td>`; }
+    if(primeira){ primeira = false; return `<td style="padding-left:${14 + (nivel||0)*18}px;">${toggle} ${escaparHtml(chave)}<span class="lista-grupo-contagem">${linhas.length}</span></td>`; }
     return `<td></td>`;
   }).join('');
   return `<tr class="lista-grupo">${podeSelecionar ? '<td></td>' : ''}${celulas}<td></td></tr>`;
@@ -7621,6 +7635,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     iniciarPossivelDragColunaLista(e, th);
   });
   document.getElementById('listaItens').addEventListener('click', e=>{
+    const toggleGrupo = e.target.closest('.lista-grupo-toggle');
+    if(toggleGrupo){ toggleGrupoListaColapsado(toggleGrupo.dataset.caminho); return; }
     const item = e.target.closest('.lista-filtro-coluna-item');
     if(!item) return;
     const campo = item.dataset.campo;
