@@ -41,22 +41,24 @@ let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
 // lista continua em cards, sem essa mecânica)
 let listaOrdenacao = { campo: 'data', direcao: 'desc' }; // igual à ordenação padrão de sempre
 let listaAgrupamento = null; // null | 'status' | 'cliente' | 'atendente' | 'tipo' | 'mes'
+// agrupamento só acontece arrastando o cabeçalho da coluna (arrastavel:true)
+// até a faixa "Agrupar por"; agrupaComo é o campo de agrupamento resultante
+// (a coluna Data agrupa por Mês — dia a dia não faria sentido). Cliente e
+// Status também servem de filtro de coluna estilo Excel reaproveitando os
+// mesmos Sets do filtro de cima (filtroCliente/filtroStatus); Atendente e
+// Tipo têm um filtro próprio, só válido aqui na tabela.
 const COLUNAS_LISTA_TABELA = [
-  { campo:'cliente', label:'Cliente' },
-  { campo:'atendente', label:'Atendente' },
-  { campo:'tipo', label:'Tipo' },
-  { campo:'status', label:'Status' },
-  { campo:'data', label:'Data' },
+  { campo:'cliente', label:'Cliente', arrastavel:true, agrupaComo:'cliente', filtravel:true },
+  { campo:'assunto', label:'Assunto' },
+  { campo:'atendente', label:'Atendente', arrastavel:true, agrupaComo:'atendente', filtravel:true },
+  { campo:'tipo', label:'Tipo', arrastavel:true, agrupaComo:'tipo', filtravel:true },
+  { campo:'status', label:'Status', arrastavel:true, agrupaComo:'status', filtravel:true },
+  { campo:'data', label:'Data', arrastavel:true, agrupaComo:'mes' },
   { campo:'horas', label:'Horas' },
   { campo:'valor', label:'Valor Real' },
 ];
-const OPCOES_AGRUPAR_LISTA = [
-  { campo:'status', label:'Status' },
-  { campo:'cliente', label:'Cliente' },
-  { campo:'atendente', label:'Atendente' },
-  { campo:'tipo', label:'Tipo' },
-  { campo:'mes', label:'Mês' },
-];
+let listaFiltrosColuna = { atendente: new Set(), tipo: new Set() }; // filtro de coluna estilo Excel (só na tabela)
+let listaFiltroColunaAberta = null; // campo cujo dropdown de filtro está aberto agora
 let vinculosExpandidos = new Set(); // ids de atendimento com as linhas-filha de vínculo visíveis — vazio por padrão (tudo recolhido)
 let selecionados = new Set();
 let cadAba = 'atendentes';
@@ -1464,6 +1466,9 @@ function renderLista(){
   const podeEditarBtn = permAt ? permAt.editar : podeEditar;
   const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
 
+  const emTabela = visualizacaoAtendimentos !== 'cards' && window.matchMedia('(min-width: 860px)').matches;
+  renderAgruparListaBar(emTabela);
+
   document.getElementById('listaItens').style.display = visualizacaoAtendimentos==='cards' ? 'none' : '';
   document.getElementById('kanbanBoard').style.display = visualizacaoAtendimentos==='cards' ? '' : 'none';
   if(visualizacaoAtendimentos === 'cards'){
@@ -1482,17 +1487,21 @@ function renderLista(){
 
   // em telas largas, a Lista vira uma tabela ordenável/agrupável (estilo
   // Cubo); no celular não tem coluna pra arrastar, então continua em cards
-  if(window.matchMedia('(min-width: 860px)').matches){
+  if(emTabela){
     renderTabelaAtendimentos(cont, itens, ctx);
     return;
   }
   cont.innerHTML = itens.map(r => renderLinhaComVinculos(r, ctx)).join('');
 }
 
-/* ---------- Lista em tabela (desktop): ordenar por coluna, agrupar arrastando ---------- */
+/* ---------- Lista em tabela (desktop): ordenar por coluna, agrupar arrastando,
+   filtro por coluna estilo Excel ---------- */
+const LABEL_AGRUPAMENTO_LISTA = { status:'Status', cliente:'Cliente', atendente:'Atendente', tipo:'Tipo', mes:'Mês' };
+
 function valorOrdenacaoLista(r, campo){
   switch(campo){
     case 'cliente': return r.cliente || '';
+    case 'assunto': return r.assunto || '';
     case 'atendente': return r.atendente || '';
     case 'tipo': return labelTipo(r.tipo) || '';
     case 'status': return r.status || '';
@@ -1525,35 +1534,89 @@ function ordenarListaPor(campo){
 function definirAgrupamentoLista(campo){ listaAgrupamento = campo; renderLista(); }
 function removerAgrupamentoLista(){ listaAgrupamento = null; renderLista(); }
 
+// a faixa "Agrupar por" é um bloco fixo no HTML (dentro do card de
+// filtros) — só troca de conteúdo/visibilidade, nunca de posição
+function renderAgruparListaBar(emTabela){
+  const bloco = document.getElementById('blocoAgruparLista');
+  if(bloco) bloco.style.display = emTabela ? '' : 'none';
+  const drop = document.getElementById('listaAgruparDrop');
+  if(!drop) return;
+  drop.innerHTML = listaAgrupamento
+    ? `<div class="lookup-tag">${escaparHtml(LABEL_AGRUPAMENTO_LISTA[listaAgrupamento] || listaAgrupamento)}<button type="button" onclick="removerAgrupamentoLista()">×</button></div>`
+    : `<span style="color:var(--muted);font-size:12.5px;">⠿⠿ arraste uma coluna aqui</span>`;
+}
+
+// filtro de coluna estilo Excel — Cliente/Status reaproveitam os mesmos
+// Sets do filtro de cima (fica tudo em sincronia); Atendente/Tipo só
+// existem aqui mesmo, válidos só pra tabela
+function filtroColunaAtivo(campo){
+  if(campo === 'cliente') return filtroCliente;
+  if(campo === 'status') return filtroStatus;
+  return listaFiltrosColuna[campo];
+}
+function distintosColunaLista(campo){
+  const valores = new Set();
+  atendimentos.forEach(r=>{
+    let v;
+    if(campo === 'cliente') v = r.cliente;
+    else if(campo === 'atendente') v = r.atendente || 'A definir';
+    else if(campo === 'tipo') v = labelTipo(r.tipo);
+    else if(campo === 'status') v = r.status;
+    if(v) valores.add(v);
+  });
+  return [...valores].sort((a,b)=>a.localeCompare(b, 'pt-BR'));
+}
+function toggleFiltroColunaLista(campo){
+  listaFiltroColunaAberta = listaFiltroColunaAberta === campo ? null : campo;
+  renderLista();
+}
+function fecharFiltroColunaLista(){
+  if(listaFiltroColunaAberta !== null){ listaFiltroColunaAberta = null; renderLista(); }
+}
+function celulaFiltroColunaLista(c){
+  const campo = c.campo;
+  const set = filtroColunaAtivo(campo);
+  const ativo = set.size > 0;
+  const aberto = listaFiltroColunaAberta === campo;
+  const valores = distintosColunaLista(campo);
+  const itensDropdown = valores.map(v=>
+    `<div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="${escaparHtml(v)}">${set.has(v) ? '✓ ' : ''}${escaparHtml(v)}</div>`
+  ).join('');
+  return `<span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;margin-left:6px;">
+    <span onclick="toggleFiltroColunaLista('${campo}')" style="cursor:pointer;${ativo ? 'color:var(--accent);' : ''}" title="Filtrar ${escaparHtml(c.label)}">▾</span>
+    ${aberto ? `<div class="lista-filtro-coluna-dropdown">
+      <div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
+      ${itensDropdown}
+    </div>` : ''}
+  </span>`;
+}
+
+function renderCabecalhoColunaLista(c){
+  const ordenadoAtivo = listaOrdenacao.campo === c.campo;
+  const seta = ordenadoAtivo ? (listaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
+  const filtro = c.filtravel ? celulaFiltroColunaLista(c) : '';
+  if(c.arrastavel){
+    return `<th class="lista-th-arrastavel${ordenadoAtivo ? ' ordenado' : ''}" data-campo="${c.campo}" data-agrupa="${c.agrupaComo || ''}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}${filtro}</th>`;
+  }
+  return `<th class="${ordenadoAtivo ? 'ordenado' : ''}" style="cursor:pointer;" onclick="ordenarListaPor('${c.campo}')">${escaparHtml(c.label)}${seta}${filtro}</th>`;
+}
+
 function renderTabelaAtendimentos(cont, itensOriginais, ctx){
-  const { isAdmin, verValores, podeEditarBtn, podeExcluirBtn } = ctx;
-  const itens = itensOriginais.slice().sort((a,b)=>compararLista(a, b, listaOrdenacao.campo, listaOrdenacao.direcao));
+  const { verValores, podeEditarBtn, podeExcluirBtn } = ctx;
+  let itens = itensOriginais.slice();
+  if(listaFiltrosColuna.atendente.size > 0) itens = itens.filter(r => listaFiltrosColuna.atendente.has(r.atendente || 'A definir'));
+  if(listaFiltrosColuna.tipo.size > 0) itens = itens.filter(r => listaFiltrosColuna.tipo.has(labelTipo(r.tipo)));
+  itens.sort((a,b)=>compararLista(a, b, listaOrdenacao.campo, listaOrdenacao.direcao));
+
   const podeSelecionar = podeEditarBtn || podeExcluirBtn;
-
-  const opcaoAtiva = OPCOES_AGRUPAR_LISTA.find(o=>o.campo === listaAgrupamento);
-  const opcoesDisponiveis = OPCOES_AGRUPAR_LISTA.filter(o=>o.campo !== listaAgrupamento);
-  const colunas = COLUNAS_LISTA_TABELA.filter(c => c.campo !== listaAgrupamento && (c.campo !== 'valor' || verValores));
-
-  const agruparBarHtml = `
-    <div class="card">
-      <h2>Agrupar por</h2>
-      <div class="lookup-tags" id="listaAgruparDrop">
-        ${opcaoAtiva ? `<div class="lookup-tag">${escaparHtml(opcaoAtiva.label)}<button type="button" onclick="removerAgrupamentoLista()">×</button></div>` : ''}
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:${opcaoAtiva ? '10px' : '0'};">
-        ${opcoesDisponiveis.map(o=>`<div class="chip" style="cursor:pointer;" onclick="definirAgrupamentoLista('${o.campo}')">${escaparHtml(o.label)}</div>`).join('')}
-      </div>
-      <p style="color:var(--muted);font-size:11.5px;margin:10px 0 0;">Arraste o ⠿⠿ de uma coluna da tabela até aqui, ou clique numa das opções acima.</p>
-    </div>`;
+  const colunas = COLUNAS_LISTA_TABELA
+    .filter(c => c.campo !== 'valor' || verValores)
+    .filter(c => c.agrupaComo !== listaAgrupamento);
 
   const headerHtml = `<tr>
     ${podeSelecionar ? '<th style="width:30px;"></th>' : ''}
-    ${colunas.map(c=>{
-      const ativo = listaOrdenacao.campo === c.campo;
-      const seta = ativo ? (listaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
-      return `<th class="lista-th-arrastavel${ativo ? ' ordenado' : ''}" data-campo="${c.campo}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}</th>`;
-    }).join('')}
-    <th style="width:80px;"></th>
+    ${colunas.map(c=>renderCabecalhoColunaLista(c)).join('')}
+    <th style="width:56px;"></th>
   </tr>`;
 
   const corpoHtml = listaAgrupamento ? (() => {
@@ -1563,13 +1626,13 @@ function renderTabelaAtendimentos(cont, itensOriginais, ctx){
       if(!grupos.has(chave)) grupos.set(chave, []);
       grupos.get(chave).push(r);
     });
-    return [...grupos.entries()].map(([chave, linhas])=>
-      renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar) +
-      linhas.map(r=>renderLinhaTabela(r, ctx, colunas, podeSelecionar)).join('')
+    return [...grupos.entries()].map(([chave, linhasGrupo])=>
+      renderLinhaGrupoTabela(chave, linhasGrupo, colunas, podeSelecionar) +
+      linhasGrupo.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('')
     ).join('');
-  })() : itens.map(r=>renderLinhaTabela(r, ctx, colunas, podeSelecionar)).join('');
+  })() : itens.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('');
 
-  cont.innerHTML = `${agruparBarHtml}<div class="card" style="padding:0;"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div>`;
+  cont.innerHTML = `<div class="card" style="padding:0;"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div>`;
 }
 
 function renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar){
@@ -1585,26 +1648,60 @@ function renderLinhaGrupoTabela(chave, linhas, colunas, podeSelecionar){
   return `<tr class="lista-grupo">${podeSelecionar ? '<td></td>' : ''}${celulas}<td></td></tr>`;
 }
 
-function renderLinhaTabela(r, ctx, colunas, podeSelecionar){
+// atendimento principal + suas linhas de vínculo (até 2 níveis), igual ao
+// que já existe nos cards — mesma árvore (montarArvoreVinculos), só que
+// como linhas de tabela em vez de divs
+function renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar){
+  const arvore = montarArvoreVinculos(r.id, 2);
+  let html = renderLinhaTabela(r, ctx, colunas, podeSelecionar, { temVinculos: arvore.length > 0 });
+  if(arvore.length > 0 && vinculosExpandidos.has(String(r.id))){
+    html += renderLinhasVinculosFilhosTabela(arvore, ctx, colunas, podeSelecionar, 1);
+  }
+  return html;
+}
+function renderLinhasVinculosFilhosTabela(nos, ctx, colunas, podeSelecionar, nivel){
+  return nos.map((no,i)=>{
+    const temFilhos = !!(no.filhos && no.filhos.length);
+    let html = renderLinhaTabela(no.atendimento, ctx, colunas, podeSelecionar, { filho:true, nivel, ultimo: i === nos.length-1, temVinculos: temFilhos });
+    if(temFilhos && vinculosExpandidos.has(String(no.atendimento.id))){
+      html += renderLinhasVinculosFilhosTabela(no.filhos, ctx, colunas, podeSelecionar, nivel+1);
+    }
+    return html;
+  }).join('');
+}
+
+function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
+  opts = opts || {};
+  const ehFilho = !!opts.filho;
   const { isAdmin, podeEditarBtn, podeExcluirBtn } = ctx;
   const [y,m,d] = String(r.data).split('-');
   const clicavel = podeUsarChat(r);
-  const checkboxTd = podeSelecionar
-    ? `<td onclick="event.stopPropagation();"><input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="toggleSelecao('${r.id}', this.checked)" style="width:16px;height:16px;"></td>`
+  const checkboxTd = !podeSelecionar ? '' : (ehFilho ? '<td></td>' :
+    `<td onclick="event.stopPropagation();"><input type="checkbox" class="chk-item" data-id="${r.id}" ${selecionados.has(r.id)?'checked':''} onclick="toggleSelecao('${r.id}', this.checked)" style="width:16px;height:16px;"></td>`);
+
+  const galho = ehFilho ? (opts.ultimo ? '└─ ' : '├─ ') : '';
+  const expandido = vinculosExpandidos.has(String(r.id));
+  const toggleVinculos = opts.temVinculos
+    ? `<button type="button" class="btn-colapsar-vinculos" onclick="event.stopPropagation();toggleVinculosExpandidos('${r.id}')" title="${expandido ? 'Esconder vínculos' : 'Mostrar vínculos'}" style="margin-right:4px;">${expandido ? '▾' : '▸'}</button>`
     : '';
-  const celulas = colunas.map(c=>{
+  const prefixo = `${galho}${toggleVinculos}${ehFilho ? '🔗 ' : ''}`;
+
+  const celulas = colunas.map((c,i)=>{
+    const pre = i===0 ? prefixo : '';
     switch(c.campo){
-      case 'cliente': return `<td>${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}<span style="font-weight:700;">${escaparHtml(r.cliente)}</span><div style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario)}</div></td>`;
-      case 'atendente': return `<td>${escaparHtml(r.atendente || 'A definir')}${r.atendente2 ? `<div style="color:var(--muted);font-size:11px;">+2º: ${escaparHtml(r.atendente2)}</div>` : ''}</td>`;
-      case 'tipo': return `<td>${labelTipo(r.tipo)}</td>`;
-      case 'status': return `<td><span class="tag status-${statusSlug(r.status)}">${escaparHtml(r.status)}</span></td>`;
-      case 'data': return `<td style="font-family:'JetBrains Mono',monospace;">${d}/${m}/${y}<div style="color:var(--muted);font-size:11px;">${r.hi}–${r.hf}</div></td>`;
-      case 'horas': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${Number(r.qtd).toFixed(2).replace('.',',')}h</td>`;
-      case 'valor': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--accent);">${fmtMoeda(Number(r.totalReal))}</td>`;
+      case 'cliente': return `<td>${pre}${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}<span style="font-weight:700;">${escaparHtml(r.cliente)}</span><div style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario)}</div></td>`;
+      case 'assunto': return `<td>${pre}${r.assunto ? escaparHtml(r.assunto) : `<span style="color:var(--muted);">—</span>`}</td>`;
+      case 'atendente': return `<td>${pre}${escaparHtml(r.atendente || 'A definir')}${r.atendente2 ? `<div style="color:var(--muted);font-size:11px;">+2º: ${escaparHtml(r.atendente2)}</div>` : ''}</td>`;
+      case 'tipo': return `<td>${pre}${labelTipo(r.tipo)}</td>`;
+      case 'status': return `<td>${pre}<span class="tag status-${statusSlug(r.status)}">${escaparHtml(r.status)}</span></td>`;
+      case 'data': return `<td style="font-family:'JetBrains Mono',monospace;">${pre}${d}/${m}/${y}<div style="color:var(--muted);font-size:11px;">${r.hi}–${r.hf}</div></td>`;
+      case 'horas': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${pre}${Number(r.qtd).toFixed(2).replace('.',',')}h</td>`;
+      case 'valor': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--accent);">${pre}${fmtMoeda(Number(r.totalReal))}</td>`;
       default: return '<td></td>';
     }
   }).join('');
-  const acoesTd = (podeEditarBtn || podeExcluirBtn || isAdmin) ? `
+
+  const acoesTd = ehFilho ? '<td></td>' : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
     <td onclick="event.stopPropagation();">
       <div class="acoes-wrap">
         <button class="ghost" onclick="toggleAcoesMenu('${r.id}')">⋮</button>
@@ -1614,14 +1711,20 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar){
           ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">🗑 Excluir</div>` : ''}
         </div>
       </div>
-    </td>` : '<td></td>';
-  return `<tr${clicavel ? ` style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''}>${checkboxTd}${celulas}${acoesTd}</tr>`;
+    </td>` : '<td></td>');
+
+  const estilos = [];
+  if(clicavel) estilos.push('cursor:pointer');
+  if(ehFilho) estilos.push('background:var(--panel-2)');
+  const styleAttr = estilos.length ? ` style="${estilos.join(';')};"` : '';
+  return `<tr${styleAttr}${clicavel ? ` onclick="abrirDetalhe('${r.id}')"` : ''}>${checkboxTd}${celulas}${acoesTd}</tr>`;
 }
 
 /* ---------- arrastar o cabeçalho da coluna até "Agrupar por" (Pointer Events,
    igual ao drag do Kanban) — um clique simples (sem arrastar) ordena a coluna ---------- */
 function iniciarPossivelDragColunaLista(e, thEl){
   const campo = thEl.dataset.campo;
+  const agrupaComo = thEl.dataset.agrupa;
   const label = thEl.dataset.label;
   const startX = e.clientX, startY = e.clientY;
   const rect = thEl.getBoundingClientRect();
@@ -1656,7 +1759,7 @@ function iniciarPossivelDragColunaLista(e, thEl){
       const sobreAlvo = dropZone && dropZone.classList.contains('drag-over');
       if(dropZone) dropZone.classList.remove('drag-over');
       ghost.remove();
-      if(sobreAlvo && OPCOES_AGRUPAR_LISTA.some(o=>o.campo===campo)) definirAgrupamentoLista(campo);
+      if(sobreAlvo && agrupaComo) definirAgrupamentoLista(agrupaComo);
     }else{
       ordenarListaPor(campo);
     }
@@ -7439,10 +7542,23 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     iniciarDragKanban(e, handle);
   });
   document.getElementById('listaItens').addEventListener('pointerdown', e=>{
+    if(e.target.closest('.lista-th-filtro-wrap')) return; // clique no ▾ de filtro não inicia ordenar/arrastar
     const th = e.target.closest('.lista-th-arrastavel');
     if(!th) return;
     iniciarPossivelDragColunaLista(e, th);
   });
+  document.getElementById('listaItens').addEventListener('click', e=>{
+    const item = e.target.closest('.lista-filtro-coluna-item');
+    if(!item) return;
+    const campo = item.dataset.campo;
+    const valor = item.dataset.valor;
+    const set = filtroColunaAtivo(campo);
+    if(valor === '') set.clear();
+    else if(set.has(valor)) set.delete(valor);
+    else set.add(valor);
+    renderLista();
+  });
+  document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap')) fecharFiltroColunaLista(); });
   document.getElementById('kanbanBoard').addEventListener('click', e=>{
     if(kanbanAcabouDeArrastar) return;
     const card = e.target.closest('.kanban-card');

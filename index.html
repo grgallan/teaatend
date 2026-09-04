@@ -261,6 +261,10 @@
   #listaAgruparDrop{min-height:20px;border-radius:10px;transition:background .12s;}
   #listaAgruparDrop.drag-over{background:var(--accent-dim);outline:2px dashed var(--accent);}
   .lista-coluna-ghost{position:fixed;z-index:80;pointer-events:none;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:8px;box-shadow:0 10px 24px rgba(0,0,0,.3);}
+  .lista-tabela .linha-filho{background:var(--panel-2);}
+  .lista-filtro-coluna-dropdown{position:absolute;top:100%;left:0;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:0 8px 20px rgba(0,0,0,.18);min-width:170px;}
+  .lista-filtro-coluna-item{padding:8px 12px;font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap;text-transform:none;letter-spacing:normal;}
+  .lista-filtro-coluna-item:hover{background:var(--panel-2);}
 
   .empty{text-align:center;padding:50px 20px;color:var(--muted);}
   .empty .big{font-size:34px;margin-bottom:8px;}
@@ -877,9 +881,17 @@
       <button data-val="lista" class="sel">☰ Lista</button>
       <button data-val="cards">📋 Cards</button>
     </div>
-    <div id="linhaFiltrosClienteStatus">
-      <div class="filters" id="filtros"></div>
-      <div class="filters" id="filtrosStatus" style="margin-bottom:10px;"></div>
+    <div class="card" id="cardFiltrosLista">
+      <h2>Filtros e agrupamento</h2>
+      <div id="linhaFiltrosClienteStatus">
+        <div class="filters" id="filtros"></div>
+        <div class="filters" id="filtrosStatus" style="margin-bottom:0;"></div>
+      </div>
+      <div id="blocoAgruparLista" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">
+        <label style="margin-bottom:6px;">Agrupar por</label>
+        <div class="lookup-tags" id="listaAgruparDrop"></div>
+        <p style="color:var(--muted);font-size:11.5px;margin:8px 0 0;">Arraste o ⠿⠿ de uma coluna da tabela até aqui pra agrupar por ela.</p>
+      </div>
     </div>
     <div class="row" id="filtroPeriodo" style="display:none;margin-bottom:10px;">
       <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="periodo_de"></div>
