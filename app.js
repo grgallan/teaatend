@@ -5663,8 +5663,9 @@ function cancelarEdicaoAtendente(){
   document.getElementById('btnCancelarEdicaoAtendente').style.display = 'none';
 }
 async function removerConta(id){
-  const r = await api('removerConta', { id });
-  if(!r.ok) return;
+  const conta = contaAtual();
+  const r = await api('removerConta', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   if(editandoAtendenteId === id) cancelarEdicaoAtendente();
   if(editandoUsuarioId === id) cancelarEdicaoUsuario();
   await carregarTudo(); renderCadastrosTudo(); popularSelects();
@@ -5723,8 +5724,8 @@ function cancelarEdicaoCliente(){
   document.getElementById('btnCancelarEdicaoCliente').style.display = 'none';
 }
 async function removerCliente(id){
-  const r = await api('removerCliente', { id });
-  if(!r.ok) return;
+  const r = await api('removerCliente', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarTudo(); renderCadastrosTudo(); popularSelects(); renderFiltros();
   toast('Cliente removido');
 }
@@ -6049,8 +6050,8 @@ function renderListTipos(){
     <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover tipo?','Remove das opções futuras de lançamento.', ()=>removerTipo('${t.id}'))">Remover</button></div></div>`).join('');
 }
 async function removerTipo(id){
-  const r = await api('removerTipo', { id });
-  if(!r.ok) return;
+  const r = await api('removerTipo', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarTudo(); renderCadastrosTudo(); popularSelects();
   toast('Tipo removido');
 }
@@ -6063,8 +6064,8 @@ function renderListModulos(){
     <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover módulo?','Remove das opções futuras de lançamento.', ()=>removerModulo('${m.id}'))">Remover</button></div></div>`).join('');
 }
 async function removerModulo(id){
-  const r = await api('removerModulo', { id });
-  if(!r.ok) return;
+  const r = await api('removerModulo', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarTudo(); renderCadastrosTudo(); popularSelects();
   toast('Módulo removido');
 }
@@ -6077,8 +6078,8 @@ function renderListSubModulos(){
     <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover sub módulo?','Remove das opções futuras de lançamento.', ()=>removerSubModulo('${s.id}'))">Remover</button></div></div>`).join('');
 }
 async function removerSubModulo(id){
-  const r = await api('removerSubModulo', { id });
-  if(!r.ok) return;
+  const r = await api('removerSubModulo', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarTudo(); renderCadastrosTudo(); popularSelects();
   toast('Sub módulo removido');
 }
@@ -6114,8 +6115,8 @@ async function moverStatus(id, direcao){
   renderFiltrosStatus();
 }
 async function removerStatus(id){
-  const r = await api('removerStatus', { id });
-  if(!r.ok) return;
+  const r = await api('removerStatus', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarTudo(); renderCadastrosTudo(); popularSelects();
   toast('Status removido');
 }
@@ -6539,8 +6540,8 @@ function renderTabelaValores(){
   el.innerHTML = `<tr><th>Atendente</th><th>Cliente</th><th>Tipo</th><th>Real/h</th><th>Valor Atendente/h</th><th>Valor 2º Atendente/h</th><th></th></tr>${linhas}`;
 }
 async function removerValor(id){
-  const r = await api('removerValor', { id });
-  if(!r.ok) return;
+  const r = await api('removerValor', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarTudo(); renderTabelaValores();
   toast('Valor removido');
 }
@@ -7852,12 +7853,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
     let r;
     const editando = !!editandoAtendenteId;
+    const contaLogada = contaAtual();
     if(editando){
-      r = await api('atualizarConta', { id: editandoAtendenteId, nome: nome.toUpperCase(), login, senha, email, telefone, ehAdministrador });
+      r = await api('atualizarConta', { contaId: contaLogada.id, id: editandoAtendenteId, nome: nome.toUpperCase(), login, senha, email, telefone, ehAdministrador });
     }else{
-      r = await api('addAtendente', { nome: nome.toUpperCase(), login, senha, email, telefone, ehAdministrador });
+      r = await api('addAtendente', { contaId: contaLogada.id, nome: nome.toUpperCase(), login, senha, email, telefone, ehAdministrador });
     }
-    if(!r.ok) return;
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     const contaAlvoId = editando ? editandoAtendenteId : r.conta.id;
     const conta = contaAtual();
     await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
@@ -7928,9 +7930,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const empresaId = empresas.length > 0 ? document.getElementById('cl_empresa').value : (empresaAtual ? empresaAtual.id : '');
     if(!nome){ toast('Informe o nome do cliente'); return; }
     const editando = !!editandoClienteId;
+    const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarCliente', { id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId })
-      : await api('addCliente', { nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId });
+      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId })
+      : await api('addCliente', { contaId, nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
@@ -7941,8 +7944,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnAddTipo').addEventListener('click', async ()=>{
     const nome = document.getElementById('tp_nome').value.trim();
     if(!nome){ toast('Informe o nome do tipo'); return; }
-    const r = await api('addTipo', { nome: nome.toUpperCase() });
-    if(!r.ok) return;
+    const r = await api('addTipo', { contaId: contaAtual().id, nome: nome.toUpperCase() });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('tp_nome').value='';
     await carregarTudo(); renderListTipos(); popularSelects(); renderValoresForm();
     toast('Tipo adicionado');
@@ -7951,8 +7954,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnAddModulo').addEventListener('click', async ()=>{
     const nome = document.getElementById('md_nome').value.trim();
     if(!nome){ toast('Informe o nome do módulo'); return; }
-    const r = await api('addModulo', { nome });
-    if(!r.ok) return;
+    const r = await api('addModulo', { contaId: contaAtual().id, nome });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('md_nome').value='';
     await carregarTudo(); renderListModulos(); popularSelects();
     toast('Módulo adicionado');
@@ -7961,8 +7964,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnAddSubModulo').addEventListener('click', async ()=>{
     const nome = document.getElementById('sm_nome').value.trim();
     if(!nome){ toast('Informe o nome do sub módulo'); return; }
-    const r = await api('addSubModulo', { nome });
-    if(!r.ok) return;
+    const r = await api('addSubModulo', { contaId: contaAtual().id, nome });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('sm_nome').value='';
     await carregarTudo(); renderListSubModulos(); popularSelects();
     toast('Sub módulo adicionado');
@@ -7971,8 +7974,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnAddStatus').addEventListener('click', async ()=>{
     const nome = document.getElementById('st_nome').value.trim();
     if(!nome){ toast('Informe o nome do status'); return; }
-    const r = await api('addStatus', { nome: nome.toUpperCase() });
-    if(!r.ok) return;
+    const r = await api('addStatus', { contaId: contaAtual().id, nome: nome.toUpperCase() });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('st_nome').value='';
     await carregarTudo(); renderListStatus(); popularSelects();
     toast('Status adicionado');
@@ -7987,8 +7990,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const valorSegundoAtendStr = document.getElementById('vl_valor_segundo_atend').value;
     const valorSegundoAtend = valorSegundoAtendStr !== '' ? parseFloat(valorSegundoAtendStr) : 0;
     if(!atendenteId || !clienteId || !tipoId || isNaN(real) || isNaN(ananda)){ toast('Preencha todos os campos, incluindo o atendente'); return; }
-    const r = await api('salvarValor', { atendenteId, clienteId, tipoId, real, ananda, valorSegundoAtend, empresaId: empresaAtual ? empresaAtual.id : '' });
-    if(!r.ok) return;
+    const r = await api('salvarValor', { contaId: contaAtual().id, atendenteId, clienteId, tipoId, real, ananda, valorSegundoAtend, empresaId: empresaAtual ? empresaAtual.id : '' });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('vl_real').value=''; document.getElementById('vl_ananda').value=''; document.getElementById('vl_valor_segundo_atend').value='';
     await carregarTudo(); renderTabelaValores();
     toast('Valores salvos');
@@ -8024,13 +8027,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(!editandoUsuarioId && !senha){ toast('Informe uma senha'); return; }
 
     const editando = !!editandoUsuarioId;
+    const contaLogada = contaAtual();
     let r;
     if(editando){
-      r = await api('atualizarConta', { id: editandoUsuarioId, nome: nome.toUpperCase(), login, senha, clienteId, email, telefone, adminCliente });
+      r = await api('atualizarConta', { contaId: contaLogada.id, id: editandoUsuarioId, nome: nome.toUpperCase(), login, senha, clienteId, email, telefone, adminCliente });
     }else{
-      r = await api('addUsuario', { nome: nome.toUpperCase(), login, senha, clienteId, email, telefone, adminCliente });
+      r = await api('addUsuario', { contaId: contaLogada.id, nome: nome.toUpperCase(), login, senha, clienteId, email, telefone, adminCliente });
     }
-    if(!r.ok) return;
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     const contaAlvoId = editando ? editandoUsuarioId : r.conta.id;
     const conta = contaAtual();
     await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
