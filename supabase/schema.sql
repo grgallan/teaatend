@@ -395,9 +395,9 @@ create table if not exists perfis_acesso (
 );
 alter table perfis_acesso enable row level security;
 
--- um menu válido por linha: atendimentos, resumo, dashboard, cronograma,
--- construtor_relatorios, relatorios, financeiro, agenda, videos, cadastros,
--- utilitarios
+-- um menu (ou submenu, na forma "menu.submenu" — ex: cadastros.perfisacesso)
+-- válido por linha; a lista completa vive em MENUS_PERFIL_ACESSO, tanto no
+-- app.js quanto na Edge Function (supabase/functions/api/index.ts)
 create table if not exists perfil_acesso_permissoes (
   id text primary key,
   perfil_id text not null references perfis_acesso(id) on delete cascade,

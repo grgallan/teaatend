@@ -68,17 +68,51 @@ let vinculosExpandidos = new Set(); // ids de atendimento com as linhas-filha de
 let selecionados = new Set();
 let cadAba = 'atendentes';
 let editandoPerfilAcessoId = null;
+// menus e, quando existem, seus submenus (as abas internas de cada seção)
+// — cada submenu vira uma permissão própria na matriz do Perfil de Acesso,
+// com chave composta "menu.submenu" (ex: "cadastros.perfisacesso").
+// subContainer/subDataAttr descrevem onde fica o botão daquela aba no DOM,
+// pra aplicarVisibilidadeSubmenus() poder escondê-lo quando não liberado.
 const MENUS_PERFIL_ACESSO = [
   { chave:'atendimentos', label:'Atendimentos' },
   { chave:'resumo', label:'Resumo' },
-  { chave:'dashboard', label:'Dashboard' },
+  { chave:'dashboard', label:'Dashboard', subContainer:'#dashSubtabs', subDataAttr:'dashsub', submenus:[
+    { chave:'geral', label:'Visão Geral' },
+    { chave:'operacional', label:'Operacional' },
+    { chave:'comparativo', label:'Comparativo' },
+  ]},
   { chave:'construtor_relatorios', label:'Construtor de Relatórios' },
   { chave:'relatorios', label:'Relatórios' },
-  { chave:'financeiro', label:'Financeiro' },
-  { chave:'agenda', label:'Agenda' },
-  { chave:'videos', label:'Vídeos' },
-  { chave:'cadastros', label:'Cadastros' },
-  { chave:'utilitarios', label:'Utilitários' },
+  { chave:'financeiro', label:'Financeiro', subContainer:'#finSubtabs', subDataAttr:'finsub', submenus:[
+    { chave:'lancar', label:'Criar Lançamento' },
+    { chave:'importar', label:'Importar XML' },
+    { chave:'lista', label:'Lançamentos' },
+    { chave:'resumo', label:'Resumo Financeiro' },
+  ]},
+  { chave:'agenda', label:'Agenda', subContainer:'#agSubtabs', subDataAttr:'agsub', submenus:[
+    { chave:'novo', label:'Novo Agendamento' },
+    { chave:'calendario', label:'Agenda' },
+  ]},
+  { chave:'videos', label:'Vídeos', subContainer:'#vidSubtabs', subDataAttr:'vidsub', submenus:[
+    { chave:'novo', label:'Novo Vídeo/Tutorial' },
+    { chave:'lista', label:'Vídeos' },
+  ]},
+  { chave:'cadastros', label:'Cadastros', subContainer:'#cadSubtabs', subDataAttr:'sub', submenus:[
+    { chave:'atendentes', label:'Atendentes' },
+    { chave:'clientes', label:'Clientes' },
+    { chave:'tipos', label:'Tipos' },
+    { chave:'modulos', label:'Módulos' },
+    { chave:'submodulos', label:'Sub Módulos' },
+    { chave:'status', label:'Status' },
+    { chave:'valores', label:'Valores' },
+    { chave:'usuarios', label:'Usuários (login)' },
+    { chave:'perfisacesso', label:'Perfis de Acesso' },
+    { chave:'empresas', label:'Empresas' },
+  ]},
+  { chave:'utilitarios', label:'Utilitários', subContainer:'#utilCategorias', subDataAttr:'util-cat', submenus:[
+    { chave:'esocial', label:'eSocial' },
+    { chave:'tomticket', label:'TomTicket' },
+  ]},
 ];
 
 /* ---------- utilidades ---------- */
@@ -137,6 +171,41 @@ function menuVisivel(conta, menu, padrao){
 // lateral e barra inferior) de uma vez, sem precisar de um id em cada uma
 function aplicarVisibilidadeMenu(viewName, visivel){
   document.querySelectorAll(`[data-view="${viewName}"]`).forEach(el=>{ el.style.display = visivel ? '' : 'none'; });
+}
+
+// mesma ideia do menuVisivel/aplicarVisibilidadeMenu, mas pras abas internas
+// (submenus) de Dashboard/Financeiro/Agenda/Vídeos/Cadastros/Utilitários —
+// cada submenu usa a chave composta "menu.submenu"; os dois únicos que já
+// tinham alguma regra própria antes dessa tela existir (Agenda "Novo
+// Agendamento" e Vídeos "Novo Vídeo") continuam com o mesmo padrão de
+// sempre quando a conta não tem nenhum Perfil de Acesso configurado
+function aplicarVisibilidadeSubmenus(conta){
+  const podeGerenciarAg = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
+  const permVid = permissaoMenu(conta, 'videos');
+  const podeInserirVid = permVid ? permVid.inserir : ehAdminEfetivo(conta);
+  const PADROES_SUBMENU = { 'agenda.novo': podeGerenciarAg, 'videos.novo': podeInserirVid };
+  MENUS_PERFIL_ACESSO.forEach(m=>{
+    if(!m.submenus) return;
+    m.submenus.forEach(s=>{
+      const chave = `${m.chave}.${s.chave}`;
+      const padrao = chave in PADROES_SUBMENU ? PADROES_SUBMENU[chave] : true;
+      const visivel = menuVisivel(conta, chave, padrao);
+      const el = document.querySelector(`${m.subContainer} [data-${m.subDataAttr}="${s.chave}"]`);
+      if(el) el.style.display = visivel ? '' : 'none';
+    });
+  });
+}
+// se a aba preferida (a última usada, ou a padrão) desse menu não estiver
+// liberada pro Perfil de Acesso da conta, cai pra primeira aba visível
+function primeiraSubAbaVisivel(menuChave, preferida){
+  const m = MENUS_PERFIL_ACESSO.find(x=>x.chave===menuChave);
+  if(!m || !m.submenus) return preferida;
+  const attr = `data-${m.subDataAttr}`;
+  const datasetChave = m.subDataAttr.replace(/-([a-z])/g, (_,c)=>c.toUpperCase());
+  const preferidoEl = document.querySelector(`${m.subContainer} [${attr}="${preferida}"]`);
+  if(preferidoEl && preferidoEl.style.display !== 'none') return preferida;
+  const primeiroVisivel = [...document.querySelectorAll(`${m.subContainer} [${attr}]`)].find(el=>el.style.display !== 'none');
+  return primeiroVisivel ? primeiroVisivel.dataset[datasetChave] : preferida;
 }
 
 // bolinha de "movimentação não lida" no menu (sidebar/abas/barra inferior)
@@ -896,6 +965,10 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
   aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
+  // mesma ideia, mas pras abas internas de cada menu (Dashboard, Financeiro,
+  // Agenda, Vídeos, Cadastros, Utilitários) — cada uma com sua própria
+  // permissão "menu.submenu" configurável no Perfil de Acesso
+  aplicarVisibilidadeSubmenus(conta);
 
   // valores/hora (R$) só aparecem para o admin — atendentes veem só a quantidade de horas
   document.getElementById('stat_ananda').style.display = isAdmin ? '' : 'none';
@@ -2342,7 +2415,7 @@ function goDashSub(sub){
 function renderDashboard(){
   renderFiltrosDashboard();
   dashSujo = { geral:true, operacional:true, comparativo:true };
-  goDashSub(dashAba);
+  goDashSub(primeiraSubAbaVisivel('dashboard', dashAba));
 }
 
 /* ---------- gráficos (SVG simples, sem biblioteca) ---------- */
@@ -5370,18 +5443,27 @@ function renderCadastrosTudo(){
 }
 
 /* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
+function linhaMatrizPerfil(chave, label, perm, submenu){
+  const p = perm[chave] || {};
+  const cel = (campo)=>`<td><input type="checkbox" data-menu="${chave}" data-campo="${campo}" ${p[campo]?'checked':''}></td>`;
+  return `<tr class="${submenu ? 'pa-submenu' : 'pa-menu'}"><td>${escaparHtml(label)}</td>${cel('visualizar')}${cel('editar')}${cel('excluir')}${cel('inserir')}</tr>`;
+}
 function renderMatrizPerfil(permissoesAtuais){
   const tbody = document.querySelector('#pa_matriz tbody');
   const perm = permissoesAtuais || {};
-  tbody.innerHTML = MENUS_PERFIL_ACESSO.map(({chave,label})=>{
-    const p = perm[chave] || {};
-    const cel = (campo)=>`<td><input type="checkbox" data-menu="${chave}" data-campo="${campo}" ${p[campo]?'checked':''}></td>`;
-    return `<tr><td>${label}</td>${cel('visualizar')}${cel('editar')}${cel('excluir')}${cel('inserir')}</tr>`;
+  tbody.innerHTML = MENUS_PERFIL_ACESSO.map(m=>{
+    let html = linhaMatrizPerfil(m.chave, m.label, perm, false);
+    if(m.submenus) html += m.submenus.map(s=>linhaMatrizPerfil(`${m.chave}.${s.chave}`, s.label, perm, true)).join('');
+    return html;
   }).join('');
 }
 function lerMatrizPerfil(){
   const permissoes = {};
-  MENUS_PERFIL_ACESSO.forEach(({chave})=>{ permissoes[chave] = {visualizar:false, editar:false, excluir:false, inserir:false}; });
+  const vazio = ()=>({visualizar:false, editar:false, excluir:false, inserir:false});
+  MENUS_PERFIL_ACESSO.forEach(m=>{
+    permissoes[m.chave] = vazio();
+    (m.submenus||[]).forEach(s=>{ permissoes[`${m.chave}.${s.chave}`] = vazio(); });
+  });
   document.querySelectorAll('#pa_matriz input[type=checkbox]').forEach(chk=>{
     permissoes[chk.dataset.menu][chk.dataset.campo] = chk.checked;
   });
@@ -7129,7 +7211,7 @@ function goView(name){
   }
   if(name==='cubo'){ renderTodosSeletoresCubo(); renderCuboPerfilSelect(); renderCubo(); }
   if(name==='financeiro'){
-    goFinSub(finAba);
+    goFinSub(primeiraSubAbaVisivel('financeiro', finAba));
     popularClientesFinanceiro();
     popularMesesFinanceiro();
     renderFinAtendimentosLista();
@@ -7140,27 +7222,23 @@ function goView(name){
     document.getElementById('fin_xml_arquivo').value = '';
   }
   if(name==='agenda'){
-    const contaAg = contaAtual();
-    const podeGerenciarAg = contaAg && (contaAg.perfil === 'ADMIN' || contaAg.perfil === 'ATENDENTE');
-    document.querySelector('#agSubtabs .subtab[data-agsub="novo"]').style.display = podeGerenciarAg ? '' : 'none';
-    goAgSub(podeGerenciarAg ? agAba : 'calendario');
+    goAgSub(primeiraSubAbaVisivel('agenda', agAba));
     popularSelectsAgenda();
     renderSeletorCores('ag_cores', document.getElementById('ag_cor_selecionada').value);
     carregarAgendamentos().then(renderAgenda);
   }
   if(name==='videos'){
     const contaVid = contaAtual();
-    const isAdminVid = ehAdminEfetivo(contaVid);
     const permVid = permissaoMenu(contaVid, 'videos');
-    const podeInserirVid = permVid ? permVid.inserir : isAdminVid;
-    document.querySelector('#vidSubtabs .subtab[data-vidsub="novo"]').style.display = podeInserirVid ? '' : 'none';
+    const podeInserirVidPadrao = permVid ? permVid.inserir : ehAdminEfetivo(contaVid);
+    const podeInserirVid = menuVisivel(contaVid, 'videos.novo', podeInserirVidPadrao);
     if(podeInserirVid){ popularSelectsVideo(); limparFormVideo(); }
-    goVidSub(podeInserirVid ? vidAba : 'lista');
+    goVidSub(primeiraSubAbaVisivel('videos', vidAba));
     vidFiltroModulo = 'TODOS';
     vidSelecionadoId = null;
     carregarVideos();
   }
-  if(name==='cadastros') goCadSub(cadAba);
+  if(name==='cadastros') goCadSub(primeiraSubAbaVisivel('cadastros', cadAba));
   if(name==='utilitarios') resetUtilitarios();
 }
 function goCadSub(sub){
