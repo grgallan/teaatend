@@ -245,6 +245,23 @@
   .acoes-menu-item.danger{color:var(--bad);}
   .acoes-menu-item + .acoes-menu-item{border-top:1px solid var(--line);}
 
+  /* Lista em tabela (desktop) — ordenar clicando no cabeçalho, agrupar
+     arrastando o cabeçalho até a faixa "Agrupar por" (mesmo padrão do Cubo) */
+  .lista-tabela{width:100%;border-collapse:collapse;}
+  .lista-tabela thead th{background:var(--panel-2);text-align:left;padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;white-space:nowrap;}
+  .lista-th-arrastavel{cursor:grab;user-select:none;touch-action:none;}
+  .lista-th-arrastavel:hover{color:var(--text);}
+  .lista-th-arrastavel.ordenado{color:var(--accent);}
+  .lista-tabela tbody tr:not(.lista-grupo){border-top:1px solid var(--line);}
+  .lista-tabela tbody tr:not(.lista-grupo):hover{background:var(--panel-2);}
+  .lista-tabela td{padding:10px 14px;font-size:12.5px;}
+  .lista-tabela tr.lista-grupo{background:var(--accent-dim);}
+  .lista-tabela tr.lista-grupo td{padding:9px 14px;font-weight:700;color:var(--accent);}
+  .lista-grupo-contagem{background:var(--panel);color:var(--muted);border-radius:999px;padding:1px 8px;font-size:10.5px;margin-left:6px;font-weight:700;}
+  #listaAgruparDrop{min-height:20px;border-radius:10px;transition:background .12s;}
+  #listaAgruparDrop.drag-over{background:var(--accent-dim);outline:2px dashed var(--accent);}
+  .lista-coluna-ghost{position:fixed;z-index:80;pointer-events:none;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:8px;box-shadow:0 10px 24px rgba(0,0,0,.3);}
+
   .empty{text-align:center;padding:50px 20px;color:var(--muted);}
   .empty .big{font-size:34px;margin-bottom:8px;}
 
