@@ -201,17 +201,17 @@ async function rotear(req: any): Promise<any> {
     case 'addCliente': return acaoAddCliente(req);
     case 'atualizarCliente': return acaoAtualizarCliente(req);
     case 'removerCliente': return acaoRemoverCliente(req);
-    case 'addTipo': return acaoAddSimples('tipos', req);
+    case 'addTipo': return acaoAddSimples('tipos', 'cadastros.tipos', req);
     case 'removerTipo': return acaoRemoverTipo(req);
-    case 'addModulo': return acaoAddSimples('modulos', req);
-    case 'removerModulo': return acaoRemoverSimples('modulos', req);
-    case 'addSubModulo': return acaoAddSimples('submodulos', req);
-    case 'removerSubModulo': return acaoRemoverSimples('submodulos', req);
-    case 'addStatus': return acaoAddSimples('status_list', req);
-    case 'removerStatus': return acaoRemoverSimples('status_list', req);
+    case 'addModulo': return acaoAddSimples('modulos', 'cadastros.modulos', req);
+    case 'removerModulo': return acaoRemoverSimples('modulos', 'cadastros.modulos', req);
+    case 'addSubModulo': return acaoAddSimples('submodulos', 'cadastros.submodulos', req);
+    case 'removerSubModulo': return acaoRemoverSimples('submodulos', 'cadastros.submodulos', req);
+    case 'addStatus': return acaoAddSimples('status_list', 'cadastros.status', req);
+    case 'removerStatus': return acaoRemoverSimples('status_list', 'cadastros.status', req);
     case 'reordenarStatus': return acaoReordenarStatus(req);
     case 'salvarValor': return acaoSalvarValor(req);
-    case 'removerValor': return acaoRemoverSimples('valores', req);
+    case 'removerValor': return acaoRemoverSimples('valores', 'cadastros.valores', req);
     case 'recalcularValores': return acaoRecalcularValores(req);
     case 'listarMensagens': return acaoListarMensagens(req);
     case 'enviarMensagem': return acaoEnviarMensagem(req);
@@ -1141,7 +1141,7 @@ async function acaoListarVideos(req: any) {
 }
 
 async function acaoCriarVideo(req: any) {
-  if (!(await confirmarAdmin(req.contaId)) && !(await podeAgir(req.contaId, 'videos', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar vídeos.' };
+  if (!(await podeAgir(req.contaId, 'videos', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar vídeos.' };
   if (!req.titulo || !req.urlYoutube) return { ok: false, erro: 'Preencha o título e o link do YouTube.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um vídeo.' };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
@@ -1157,7 +1157,7 @@ async function acaoCriarVideo(req: any) {
 }
 
 async function acaoAtualizarVideo(req: any) {
-  if (!(await confirmarAdmin(req.contaId)) && !(await podeAgir(req.contaId, 'videos', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar vídeos.' };
+  if (!(await podeAgir(req.contaId, 'videos', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar vídeos.' };
   if (!req.id) return { ok: false, erro: 'Vídeo não informado.' };
   const atualizado: any = {};
   if (req.titulo !== undefined) atualizado.titulo = req.titulo;
@@ -1173,7 +1173,7 @@ async function acaoAtualizarVideo(req: any) {
 }
 
 async function acaoRemoverVideo(req: any) {
-  if (!(await confirmarAdmin(req.contaId)) && !(await podeAgir(req.contaId, 'videos', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover vídeos.' };
+  if (!(await podeAgir(req.contaId, 'videos', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover vídeos.' };
   await db.from('videos_tutoriais').delete().eq('id', req.id);
   return { ok: true };
 }
@@ -1330,8 +1330,10 @@ async function acaoListarRelatoriosSalvos(req: any) {
 }
 
 async function acaoSalvarRelatorio(req: any) {
+  const campo = req.id ? 'editar' : 'inserir';
+  if (!(await podeAgir(req.contaId, 'construtor_relatorios', campo))) return { ok: false, erro: 'Você não tem permissão para criar/editar relatórios.' };
   const { data: conta } = await db.from('contas').select('perfil,nome,eh_administrador').eq('id', req.contaId).maybeSingle();
-  if (!conta || !ehAdminEfetivo(conta)) return { ok: false, erro: 'Só o admin pode criar/editar relatórios.' };
+  if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
   if (!req.nome) return { ok: false, erro: 'Dê um nome ao relatório.' };
 
   const registro = {
@@ -1356,29 +1358,29 @@ async function acaoSalvarRelatorio(req: any) {
 }
 
 async function acaoRemoverRelatorio(req: any) {
-  const { data: conta } = await db.from('contas').select('perfil,eh_administrador').eq('id', req.contaId).maybeSingle();
-  if (!conta || !ehAdminEfetivo(conta)) return { ok: false, erro: 'Só o admin pode remover relatórios.' };
+  if (!(await podeAgir(req.contaId, 'construtor_relatorios', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover relatórios.' };
   await db.from('relatorios_salvos').delete().eq('id', req.id);
   return { ok: true };
 }
 
 /* ---------- financeiro (lançamentos/faturas por cliente+mês) ---------- */
-async function confirmarAdmin(contaId: string) {
-  const { data: conta } = await db.from('contas').select('perfil,eh_administrador').eq('id', contaId).maybeSingle();
-  return ehAdminEfetivo(conta);
-}
 
 // admin (ou atendente-administrador) sempre pode; senão, checa se algum
 // Perfil de Acesso vinculado à conta libera o campo pedido (visualizar/
-// editar/excluir/inserir) pro menu informado — usado nas ações em que faz
-// sentido um perfil customizado liberar acesso além do admin
-async function podeAgir(contaId: string, menu: string, campo: 'visualizar' | 'editar' | 'excluir' | 'inserir'): Promise<boolean> {
+// editar/excluir/inserir) pro menu (ou submenu, "menu.submenu") informado.
+// "padrao" é o que vale quando a conta não tem NENHUM Perfil de Acesso
+// vinculado — mesma regra do "menuVisivel" do frontend: sem perfil
+// configurado, cai no comportamento de sempre (padrao); com pelo menos um
+// perfil vinculado, vale só o que ele libera de verdade (allow-list, ignora
+// o padrao). Isso é o que garante que contas que nunca tiveram um Perfil de
+// Acesso configurado continuem funcionando exatamente como já funcionavam.
+async function podeAgir(contaId: string, menu: string, campo: 'visualizar' | 'editar' | 'excluir' | 'inserir', padrao = false): Promise<boolean> {
   const { data: conta } = await db.from('contas').select('perfil,eh_administrador').eq('id', contaId).maybeSingle();
   if (ehAdminEfetivo(conta)) return true;
   if (!conta) return false;
   const { data: vinculos } = await db.from('conta_perfis_acesso').select('perfil_id').eq('conta_id', contaId);
   const perfilIds = (vinculos || []).map((v: any) => v.perfil_id);
-  if (perfilIds.length === 0) return false;
+  if (perfilIds.length === 0) return padrao;
   const { data: permissoes } = await db.from('perfil_acesso_permissoes').select('*').in('perfil_id', perfilIds).eq('menu', menu);
   return (permissoes || []).some((p: any) => !!p[campo]);
 }
@@ -1394,7 +1396,7 @@ function lancamentoParaApi(l: any) {
 }
 
 async function acaoListarLancamentos(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin acessa o financeiro.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.lista', 'visualizar'))) return { ok: false, erro: 'Você não tem permissão para acessar o financeiro.' };
   let query = db.from('lancamentos_financeiros').select('*').order('mes_referencia', { ascending: false }).order('criado_em', { ascending: false });
   if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
   const { data, error } = await query;
@@ -1403,7 +1405,7 @@ async function acaoListarLancamentos(req: any) {
 }
 
 async function acaoCriarLancamento(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode criar lançamentos.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.lancar', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para criar lançamentos.' };
   if (!req.cliente || !req.mesReferencia) return { ok: false, erro: 'Cliente e mês de referência são obrigatórios.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de criar o lançamento.' };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
@@ -1420,7 +1422,7 @@ async function acaoCriarLancamento(req: any) {
 }
 
 async function acaoAtualizarLancamento(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode editar lançamentos.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.lista', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar lançamentos.' };
   if (!req.id) return { ok: false, erro: 'Lançamento não informado.' };
   const atualizado: any = { atualizado_em: new Date().toISOString() };
   if (req.dataVencimento !== undefined) atualizado.data_vencimento = req.dataVencimento;
@@ -1433,7 +1435,7 @@ async function acaoAtualizarLancamento(req: any) {
 }
 
 async function acaoBaixarLancamento(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode dar baixa em lançamentos.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.lista', 'editar'))) return { ok: false, erro: 'Você não tem permissão para dar baixa em lançamentos.' };
   if (!req.id || !req.dataBaixa) return { ok: false, erro: 'Informe a data de baixa.' };
   const { error } = await db.from('lancamentos_financeiros').update({
     status: 'BAIXADO', data_baixa: req.dataBaixa, atualizado_em: new Date().toISOString(),
@@ -1443,7 +1445,7 @@ async function acaoBaixarLancamento(req: any) {
 }
 
 async function acaoCancelarLancamento(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode cancelar lançamentos.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.lista', 'editar'))) return { ok: false, erro: 'Você não tem permissão para cancelar lançamentos.' };
   const { error } = await db.from('lancamentos_financeiros').update({
     status: 'CANCELADO', atualizado_em: new Date().toISOString(),
   }).eq('id', req.id);
@@ -1452,7 +1454,7 @@ async function acaoCancelarLancamento(req: any) {
 }
 
 async function acaoRemoverLancamento(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode remover lançamentos.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.lista', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover lançamentos.' };
   await db.from('lancamentos_financeiros').delete().eq('id', req.id);
   return { ok: true };
 }
@@ -1471,7 +1473,7 @@ function notaParaApi(n: any) {
 }
 
 async function acaoImportarNotaFiscal(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode importar notas fiscais.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.importar', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para importar notas fiscais.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de importar a nota fiscal.' };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
 
@@ -1504,7 +1506,7 @@ async function acaoImportarNotaFiscal(req: any) {
 }
 
 async function acaoListarNotasImportadas(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin acessa o financeiro.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.importar', 'visualizar'))) return { ok: false, erro: 'Você não tem permissão para acessar o financeiro.' };
   let query = db.from('notas_fiscais_importadas').select('*').order('importado_em', { ascending: false });
   if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
   const { data, error } = await query;
@@ -1513,13 +1515,13 @@ async function acaoListarNotasImportadas(req: any) {
 }
 
 async function acaoRemoverNotaImportada(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode remover notas importadas.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.importar', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover notas importadas.' };
   await db.from('notas_fiscais_importadas').delete().eq('id', req.id);
   return { ok: true };
 }
 
 async function acaoVincularNotaLancamento(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode fazer essa ação.' };
+  if (!(await podeAgir(req.contaId, 'financeiro.importar', 'editar'))) return { ok: false, erro: 'Você não tem permissão para fazer essa ação.' };
   const { error } = await db.from('notas_fiscais_importadas').update({ lancamento_gerado_id: req.lancamentoId }).eq('id', req.notaId);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
@@ -1706,6 +1708,8 @@ async function acaoEnviarMensagem(req: any) {
 
 /* ---------- contas (atendentes / usuários) ---------- */
 async function acaoAddConta(req: any, perfil: string) {
+  const menu = perfil === 'USUARIO' ? 'cadastros.usuarios' : 'cadastros.atendentes';
+  if (!(await podeAgir(req.contaId, menu, 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar contas.' };
   const { data: existente } = await db.from('contas').select('id').ilike('login', req.login).maybeSingle();
   if (existente) return { ok: false, erro: 'Esse login já existe.' };
   const conta = {
@@ -1723,6 +1727,8 @@ async function acaoAddConta(req: any, perfil: string) {
 async function acaoAtualizarConta(req: any) {
   const { data: existente } = await db.from('contas').select('*').eq('id', req.id).maybeSingle();
   if (!existente) return { ok: false, erro: 'Conta não encontrada.' };
+  const menu = existente.perfil === 'USUARIO' ? 'cadastros.usuarios' : 'cadastros.atendentes';
+  if (!(await podeAgir(req.contaId, menu, 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar essa conta.' };
 
   if (String(req.login).toLowerCase() !== String(existente.login).toLowerCase()) {
     const { data: outraConta } = await db.from('contas').select('id').ilike('login', req.login).neq('id', req.id).maybeSingle();
@@ -1760,13 +1766,17 @@ async function acaoAlterarMinhaSenha(req: any) {
 }
 
 async function acaoRemoverConta(req: any) {
+  const { data: existente } = await db.from('contas').select('perfil').eq('id', req.id).maybeSingle();
+  if (!existente) return { ok: false, erro: 'Conta não encontrada.' };
+  const menu = existente.perfil === 'USUARIO' ? 'cadastros.usuarios' : 'cadastros.atendentes';
+  if (!(await podeAgir(req.contaId, menu, 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover essa conta.' };
   await db.from('contas').delete().eq('id', req.id);
   return { ok: true };
 }
 
 /* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
 async function acaoListarPerfisAcesso(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar perfis de acesso.' };
+  if (!(await podeAgir(req.contaId, 'cadastros.perfisacesso', 'visualizar'))) return { ok: false, erro: 'Você não tem permissão para ver os perfis de acesso.' };
   const [{ data: perfisRaw, error }, { data: permissoesRaw }] = await Promise.all([
     db.from('perfis_acesso').select('*').order('nome'),
     db.from('perfil_acesso_permissoes').select('*'),
@@ -1783,7 +1793,8 @@ async function acaoListarPerfisAcesso(req: any) {
 }
 
 async function acaoSalvarPerfilAcesso(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar perfis de acesso.' };
+  const campo = req.id ? 'editar' : 'inserir';
+  if (!(await podeAgir(req.contaId, 'cadastros.perfisacesso', campo))) return { ok: false, erro: 'Você não tem permissão para gerenciar perfis de acesso.' };
   const nome = String(req.nome || '').trim();
   if (!nome) return { ok: false, erro: 'Dê um nome ao perfil.' };
   const permissoes = req.permissoes || {};
@@ -1812,7 +1823,7 @@ async function acaoSalvarPerfilAcesso(req: any) {
 }
 
 async function acaoRemoverPerfilAcesso(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar perfis de acesso.' };
+  if (!(await podeAgir(req.contaId, 'cadastros.perfisacesso', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover perfis de acesso.' };
   await db.from('perfis_acesso').delete().eq('id', req.id);
   return { ok: true };
 }
@@ -1821,8 +1832,10 @@ async function acaoRemoverPerfilAcesso(req: any) {
 // e previsível do que calcular um diff — a tela sempre manda a lista
 // completa de perfis marcados no momento de salvar)
 async function acaoVincularPerfisConta(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode vincular perfis de acesso.' };
   if (!req.contaAlvoId) return { ok: false, erro: 'Conta não informada.' };
+  const { data: contaAlvo } = await db.from('contas').select('perfil').eq('id', req.contaAlvoId).maybeSingle();
+  const menu = (contaAlvo && contaAlvo.perfil === 'USUARIO') ? 'cadastros.usuarios' : 'cadastros.atendentes';
+  if (!(await podeAgir(req.contaId, menu, 'editar'))) return { ok: false, erro: 'Você não tem permissão para vincular perfis de acesso.' };
   const perfilIds: string[] = Array.isArray(req.perfilIds) ? req.perfilIds : [];
 
   const { error: erroDelete } = await db.from('conta_perfis_acesso').delete().eq('conta_id', req.contaAlvoId);
@@ -1837,7 +1850,8 @@ async function acaoVincularPerfisConta(req: any) {
 
 /* ---------- empresas (multi-empresa) ---------- */
 async function acaoSalvarEmpresa(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar empresas.' };
+  const campo = req.id ? 'editar' : 'inserir';
+  if (!(await podeAgir(req.contaId, 'cadastros.empresas', campo))) return { ok: false, erro: 'Você não tem permissão para gerenciar empresas.' };
   const nome = String(req.nome || '').trim();
   if (!nome) return { ok: false, erro: 'Dê um nome à empresa.' };
 
@@ -1864,7 +1878,7 @@ async function acaoSalvarEmpresa(req: any) {
 }
 
 async function acaoRemoverEmpresa(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar empresas.' };
+  if (!(await podeAgir(req.contaId, 'cadastros.empresas', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover empresas.' };
   const { data: emUso } = await db.from('clientes').select('id').eq('empresa_id', req.id).limit(1);
   if (emUso && emUso.length) return { ok: false, erro: 'Essa empresa tem clientes vinculados — mova ou remova os clientes antes.' };
   await db.from('empresas').delete().eq('id', req.id);
@@ -1874,7 +1888,7 @@ async function acaoRemoverEmpresa(req: any) {
 // mesmo padrão de acaoVincularPerfisConta: substitui por completo a lista
 // de empresas vinculadas à conta alvo (atendente/admin)
 async function acaoVincularEmpresasConta(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode vincular empresas.' };
+  if (!(await podeAgir(req.contaId, 'cadastros.atendentes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para vincular empresas.' };
   if (!req.contaAlvoId) return { ok: false, erro: 'Conta não informada.' };
   const empresaIds: string[] = Array.isArray(req.empresaIds) ? req.empresaIds : [];
 
@@ -1890,29 +1904,33 @@ async function acaoVincularEmpresasConta(req: any) {
 
 /* ---------- integração TomTicket (ver tomticket-webhook) ---------- */
 async function acaoRemoverTomticketErro(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode gerenciar isso.' };
+  if (!(await podeAgir(req.contaId, 'utilitarios.tomticket', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para gerenciar isso.' };
   await db.from('tomticket_erros').delete().eq('id', req.id);
   return { ok: true };
 }
 
 /* ---------- cadastros simples (clientes, tipos, módulos, sub módulos, status) ---------- */
-async function acaoAddSimples(tabela: string, req: any) {
+async function acaoAddSimples(tabela: string, menu: string, req: any) {
+  if (!(await podeAgir(req.contaId, menu, 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar isso.' };
   const registro = { id: gerarId(), nome: req.nome };
   const { error } = await db.from(tabela).insert(registro);
   if (error) return { ok: false, erro: error.message };
   return { ok: true, registro };
 }
-async function acaoRemoverSimples(tabela: string, req: any) {
+async function acaoRemoverSimples(tabela: string, menu: string, req: any) {
+  if (!(await podeAgir(req.contaId, menu, 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover isso.' };
   await db.from(tabela).delete().eq('id', req.id);
   return { ok: true };
 }
 async function acaoRemoverCliente(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover clientes.' };
   await db.from('clientes').delete().eq('id', req.id);
   await db.from('valores').delete().eq('cliente_id', req.id);
   await db.from('contas').delete().eq('perfil', 'USUARIO').eq('cliente_id', req.id);
   return { ok: true };
 }
 async function acaoAddCliente(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar clientes.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um cliente.' };
   const registro = { id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '', meta_mensal: Number(req.metaMensal) || 0, empresa_id: req.empresaId };
   const { error } = await db.from('clientes').insert(registro);
@@ -1920,6 +1938,7 @@ async function acaoAddCliente(req: any) {
   return { ok: true, registro: clienteParaApi(registro) };
 }
 async function acaoAtualizarCliente(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar clientes.' };
   if (!req.id) return { ok: false, erro: 'Cliente não informado.' };
   const atualizado: any = {};
   if (req.nome !== undefined) atualizado.nome = req.nome;
@@ -1932,6 +1951,7 @@ async function acaoAtualizarCliente(req: any) {
   return { ok: true };
 }
 async function acaoRemoverTipo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.tipos', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover tipos.' };
   await db.from('tipos').delete().eq('id', req.id);
   await db.from('valores').delete().eq('tipo_id', req.id);
   return { ok: true };
@@ -1941,7 +1961,7 @@ async function acaoRemoverTipo(req: any) {
 // o campo "ordem" de cada um (0,1,2...) — usada pelos botões ▲▼ em
 // Cadastros → Status, e reflete direto na ordem das colunas do Kanban
 async function acaoReordenarStatus(req: any) {
-  if (!(await confirmarAdmin(req.contaId))) return { ok: false, erro: 'Só o admin pode reordenar status.' };
+  if (!(await podeAgir(req.contaId, 'cadastros.status', 'editar'))) return { ok: false, erro: 'Você não tem permissão para reordenar status.' };
   const ids: string[] = Array.isArray(req.ids) ? req.ids : [];
   for (let i = 0; i < ids.length; i++) {
     await db.from('status_list').update({ ordem: i }).eq('id', ids[i]);
@@ -1951,6 +1971,9 @@ async function acaoReordenarStatus(req: any) {
 
 /* ---------- valores/hora ---------- */
 async function acaoSalvarValor(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.valores', 'editar')) && !(await podeAgir(req.contaId, 'cadastros.valores', 'inserir'))) {
+    return { ok: false, erro: 'Você não tem permissão para gerenciar valores.' };
+  }
   // sem .maybeSingle(): se por acaso já existir mais de uma linha duplicada
   // pra essa combinação (era o que causava valor zerado ao salvar
   // atendimento), isso não quebra — junta tudo numa lista e limpa o excesso.
@@ -1984,9 +2007,7 @@ async function acaoSalvarValor(req: any) {
 // de seguir em frente como se as tabelas estivessem vazias (foi isso que
 // causou os valores zerados numa versão anterior desta função).
 async function acaoRecalcularValores(req: any) {
-  const { data: conta, error: erroConta } = await db.from('contas').select('perfil,eh_administrador').eq('id', req.contaId).maybeSingle();
-  if (erroConta) return { ok: false, erro: 'Erro ao verificar permissão: ' + erroConta.message };
-  if (!conta || !ehAdminEfetivo(conta)) return { ok: false, erro: 'Só o admin pode recalcular valores.' };
+  if (!(await podeAgir(req.contaId, 'cadastros.valores', 'editar'))) return { ok: false, erro: 'Você não tem permissão para recalcular valores.' };
 
   const empresaId = req.empresaId || null;
   let qAtendimentos = db.from('atendimentos').select('*');
