@@ -225,7 +225,7 @@
   .item .detalhe{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.4;}
   .item .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;}
   .tag{font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--muted);font-weight:600;}
-  .tag.status-VALIDADO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
+  .tag.status-CONCLUIDO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
   .tag.status-PENDENTE{background:color-mix(in oklch, var(--warn) 13%, transparent);border:1px solid color-mix(in oklch, var(--warn) 32%, transparent);color:var(--warn);}
   .tag.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);border:1px solid color-mix(in oklch, var(--yellow) 32%, transparent);color:var(--yellow);}
   .tag.status-EM-VALIDACAO{background:color-mix(in oklch, var(--blue) 13%, transparent);border:1px solid color-mix(in oklch, var(--blue) 32%, transparent);color:var(--blue);}
@@ -397,7 +397,7 @@
   .gantt-track{flex:1;position:relative;height:22px;background:linear-gradient(90deg,transparent 0,transparent calc(100% - 1px),var(--line) 0);background-size:calc(100%/1) 100%;}
   .gantt-bar{position:absolute;top:2px;height:18px;border-radius:5px;background:var(--accent);cursor:pointer;min-width:6px;}
   .gantt-bar.status-PENDENTE{background:var(--warn);}
-  .gantt-bar.status-VALIDADO{background:var(--ok);}
+  .gantt-bar.status-CONCLUIDO{background:var(--ok);}
   .gantt-bar.status-EM-ANDAMENTO{background:var(--yellow);}
   .gantt-bar.status-EM-VALIDACAO{background:var(--blue);}
   .gantt-bar.status-CANCELADO{background:var(--bad);}
@@ -964,7 +964,7 @@
       <div class="summary" id="dashBoxesGeral"></div>
       <div class="card">
         <h2>Atendimentos por mês</h2>
-        <div class="dash-sub">total e validados, meses do período selecionado</div>
+        <div class="dash-sub">total e concluídos, meses do período selecionado</div>
         <div id="dashGraficoMeses"></div>
         <div class="dash-legend" id="dashLegendaMeses"></div>
       </div>
@@ -980,7 +980,7 @@
       </div>
       <div class="card" id="dashCardRankingAtendentes">
         <h2>Ranking de atendentes</h2>
-        <div class="dash-sub">valor no período (barra) e atendimentos validados</div>
+        <div class="dash-sub">valor no período (barra) e atendimentos concluídos</div>
         <div id="dashRankingAtendentes"></div>
       </div>
     </div>

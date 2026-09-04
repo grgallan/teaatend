@@ -499,7 +499,7 @@ on conflict (id) do nothing;
 insert into status_list (id, nome) values
   ('st-pendente', 'PENDENTE'),
   ('st-agendado', 'AGENDADO'),
-  ('st-validado', 'VALIDADO'),
+  ('st-validado', 'CONCLUÍDO'),
   ('st-naovalidado', 'NÃO VALIDADO'),
   ('st-andamento', 'EM ANDAMENTO'),
   ('st-emvalidacao', 'EM VALIDAÇÃO'),
@@ -507,7 +507,7 @@ insert into status_list (id, nome) values
 on conflict (id) do nothing;
 
 -- ordem padrão pedida: PENDENTE, AGENDADO, EM ANDAMENTO, EM VALIDAÇÃO,
--- NÃO VALIDADO, VALIDADO, CANCELADO — roda de novo sem problema, é só um
+-- NÃO VALIDADO, CONCLUÍDO, CANCELADO — roda de novo sem problema, é só um
 -- valor inicial; a partir daqui dá pra reordenar pela tela de Cadastros
 update status_list set ordem = 1 where id = 'st-pendente' and ordem = 0;
 update status_list set ordem = 2 where id = 'st-agendado' and ordem = 0;
@@ -516,6 +516,13 @@ update status_list set ordem = 4 where id = 'st-emvalidacao' and ordem = 0;
 update status_list set ordem = 5 where id = 'st-naovalidado' and ordem = 0;
 update status_list set ordem = 6 where id = 'st-validado' and ordem = 0;
 update status_list set ordem = 7 where id = 'st-cancelado' and ordem = 0;
+
+-- renomeia o status "VALIDADO" pra "CONCLUÍDO" (pedido do usuário) — cobre
+-- tanto quem já tinha o status_list criado com o nome antigo quanto os
+-- atendimentos que já estavam gravados com esse status; idempotente (roda
+-- de novo sem problema, já que o "where" só bate com o texto antigo)
+update status_list set nome = 'CONCLUÍDO' where id = 'st-validado' and nome = 'VALIDADO';
+update atendimentos set status = 'CONCLUÍDO' where status = 'VALIDADO';
 
 insert into contas (id, nome, login, senha, perfil, cliente_id) values
   ('c-admin', 'Administrador', 'admin', 'admin123', 'ADMIN', null),
@@ -672,7 +679,7 @@ alter table tomticket_erros enable row level security;
 -- =========================================================
 -- Validação com prazo — o atendente coloca o chamado em "EM VALIDAÇÃO";
 -- o usuário solicitante aprova (ação aprovarValidacao, na tela de
--- detalhes do chamado) e o status vira "VALIDADO"; se ele não aprovar
+-- detalhes do chamado) e o status vira "CONCLUÍDO"; se ele não aprovar
 -- dentro do prazo configurado (Cadastros → Empresas → "Horas para
 -- validação automática", padrão 48h), um job automático faz a mesma
 -- coisa sozinho, sem depender do usuário.
@@ -702,10 +709,10 @@ select cron.schedule(
 
       insert into historico (id, atendimento_id, descricao, data_hora)
       select 'hist-autoval-' || id || '-' || floor(extract(epoch from now()))::text, id,
-        'Validado automaticamente — prazo de validação expirado', now()
+        'Concluído automaticamente — prazo de validação expirado', now()
       from _atendimentos_expirados;
 
-      update atendimentos set status = 'VALIDADO', em_validacao_desde = null
+      update atendimentos set status = 'CONCLUÍDO', em_validacao_desde = null
       where id in (select id from _atendimentos_expirados);
     end $$;
   $job$
