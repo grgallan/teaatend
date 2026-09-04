@@ -103,10 +103,23 @@ function contaParaApi(c: any, comSenha = false, perfisAcessoIds: string[] = [], 
   return base;
 }
 
-// menus válidos pra Perfis de Acesso — precisa bater com os 11 itens de
-// menu do app (Atendimentos, Resumo, Dashboard, Cronograma, Construtor de
-// Relatórios, Relatórios, Financeiro, Agenda, Vídeos, Cadastros, Utilitários)
-const MENUS_PERFIL_ACESSO = ['atendimentos', 'resumo', 'dashboard', 'cronograma', 'construtor_relatorios', 'relatorios', 'financeiro', 'agenda', 'videos', 'cadastros', 'utilitarios'];
+// menus válidos pra Perfis de Acesso — precisa bater com o MENUS_PERFIL_ACESSO
+// do app.js (Atendimentos, Resumo, Dashboard, Cronograma, Construtor de
+// Relatórios, Relatórios, Financeiro, Agenda, Vídeos, Cadastros, Utilitários),
+// incluindo os submenus (abas internas) na forma "menu.submenu"
+const MENUS_PERFIL_ACESSO = [
+  'atendimentos', 'resumo',
+  'dashboard', 'dashboard.geral', 'dashboard.operacional', 'dashboard.comparativo',
+  'cronograma',
+  'construtor_relatorios', 'relatorios',
+  'financeiro', 'financeiro.lancar', 'financeiro.importar', 'financeiro.lista', 'financeiro.resumo',
+  'agenda', 'agenda.novo', 'agenda.calendario',
+  'videos', 'videos.novo', 'videos.lista',
+  'cadastros', 'cadastros.atendentes', 'cadastros.clientes', 'cadastros.tipos', 'cadastros.modulos',
+  'cadastros.submodulos', 'cadastros.status', 'cadastros.valores', 'cadastros.usuarios',
+  'cadastros.perfisacesso', 'cadastros.empresas',
+  'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket',
+];
 
 function permissaoVaziaPorMenu() {
   const obj: Record<string, any> = {};
