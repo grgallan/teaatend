@@ -62,13 +62,18 @@
   /* 📎 indica que o atendimento tem anexo — passar o mouse (PC) ou segurar
      (mobile) mostra uma prévia flutuante dos arquivos */
   .anexo-badge{display:inline-flex;align-items:center;justify-content:center;margin-right:5px;font-size:12px;vertical-align:middle;cursor:default;touch-action:manipulation;}
-  .anexo-previa-popover{position:fixed;z-index:95;display:none;flex-wrap:wrap;gap:6px;max-width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;box-shadow:0 10px 24px rgba(0,0,0,.35);}
+  .anexo-previa-popover{position:fixed;z-index:95;display:none;flex-wrap:wrap;gap:10px;max-width:min(1040px, calc(100vw - 24px));background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;box-shadow:0 10px 24px rgba(0,0,0,.35);}
   .anexo-previa-popover.show{display:flex;}
-  .anexo-previa-item{display:block;width:64px;height:64px;border-radius:8px;overflow:hidden;background:var(--panel-2);border:1px solid var(--line);flex:none;}
+  .anexo-previa-item{display:block;width:256px;height:256px;border-radius:10px;overflow:hidden;background:var(--panel-2);border:1px solid var(--line);flex:none;}
   .anexo-previa-item img{width:100%;height:100%;object-fit:cover;display:block;}
-  .anexo-previa-arquivo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;text-align:center;}
-  .anexo-previa-icone{font-size:20px;}
-  .anexo-previa-nome{font-size:9px;color:var(--muted);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:56px;}
+  .anexo-previa-arquivo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px;text-align:center;}
+  .anexo-previa-icone{font-size:80px;}
+  .anexo-previa-nome{font-size:14px;color:var(--muted);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px;}
+  /* no celular o 📎 vira um alvo de toque maior — o tamanho de sempre era
+     difícil de acertar com o dedo */
+  @media (max-width: 859px){
+    .anexo-badge{font-size:22px;min-width:34px;min-height:34px;margin-right:2px;}
+  }
   .side-item .ic, nav.bottom .navbtn .ic{position:relative;}
   .side-item .ic .badge-naolida-menu, nav.bottom .navbtn .ic .badge-naolida-menu{position:absolute;top:-2px;right:-3px;border:1.5px solid var(--panel);}
   .tab .badge-naolida-menu{display:none;margin-left:5px;}
