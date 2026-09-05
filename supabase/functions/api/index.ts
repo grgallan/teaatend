@@ -425,9 +425,15 @@ async function acaoDados(req: any) {
   let atendimentos = (atendimentosRaw || []).map((a: any) => {
     const visto = vistoPorAtendimento[a.id];
     const naoLidas = !!a.ultima_movimentacao_em && (!visto || new Date(visto) < new Date(a.ultima_movimentacao_em));
+    // o anexo inicial (anexo_url) já é gravado também na tabela "anexos" ao
+    // criar o atendimento (ver acaoSalvarAtendimento) — só usa o anexo_url
+    // aqui pros atendimentos antigos que nunca ganharam essa linha na
+    // tabela, senão o mesmo arquivo aparece duplicado na prévia
+    const anexosTabela = anexosPorAtendimento[a.id] || [];
+    const jaTemNaTabela = a.anexo_url && anexosTabela.some((an: any) => an.url === a.anexo_url);
     const anexos = [
-      ...(a.anexo_url ? [{ id: 'legado-' + a.id, nome: a.anexo_nome || 'anexo', url: a.anexo_url }] : []),
-      ...(anexosPorAtendimento[a.id] || []),
+      ...(a.anexo_url && !jaTemNaTabela ? [{ id: 'legado-' + a.id, nome: a.anexo_nome || 'anexo', url: a.anexo_url }] : []),
+      ...anexosTabela,
     ];
     return { ...atendimentoParaApi(a), naoLidas, anexos };
   });
