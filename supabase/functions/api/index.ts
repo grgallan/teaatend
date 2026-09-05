@@ -409,10 +409,27 @@ async function acaoDados(req: any) {
     (vistoRaw || []).forEach((v: any) => { vistoPorAtendimento[v.atendimento_id] = v.visto_em; });
   }
 
+  // anexos de cada atendimento (inicial + os adicionados depois, inclusive
+  // os deixados numa movimentação) — traz tudo de uma vez, igual aos
+  // vínculos acima, pro 📎 da lista/tabela e a prévia ao passar o mouse não
+  // precisarem de uma chamada extra por card
+  const anexosPorAtendimento: Record<string, { id: string; nome: string; url: string }[]> = {};
+  if (idsVisiveis.size > 0) {
+    const { data: anexosRaw } = await db.from('anexos').select('id,atendimento_id,nome,url').in('atendimento_id', [...idsVisiveis]);
+    (anexosRaw || []).forEach((an: any) => {
+      if (!anexosPorAtendimento[an.atendimento_id]) anexosPorAtendimento[an.atendimento_id] = [];
+      anexosPorAtendimento[an.atendimento_id].push({ id: an.id, nome: an.nome, url: an.url });
+    });
+  }
+
   let atendimentos = (atendimentosRaw || []).map((a: any) => {
     const visto = vistoPorAtendimento[a.id];
     const naoLidas = !!a.ultima_movimentacao_em && (!visto || new Date(visto) < new Date(a.ultima_movimentacao_em));
-    return { ...atendimentoParaApi(a), naoLidas };
+    const anexos = [
+      ...(a.anexo_url ? [{ id: 'legado-' + a.id, nome: a.anexo_nome || 'anexo', url: a.anexo_url }] : []),
+      ...(anexosPorAtendimento[a.id] || []),
+    ];
+    return { ...atendimentoParaApi(a), naoLidas, anexos };
   });
   // Valor Real (cobrado do cliente) é do admin, e também do usuário
   // marcado como "administrador do cliente" (vê o valor cobrado do

@@ -250,6 +250,80 @@ function flagPrazo(r){
 }
 function primeiroDiaMes(d){ return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0,10); }
 function ultimoDiaMes(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0).toISOString().slice(0,10); }
+
+/* ---------- 📎 indicador de anexo na lista/cards (com prévia ao passar o
+   mouse no PC e segurar no mobile) — os anexos já vêm prontos em cada
+   atendimento (campo r.anexos), sem precisar de uma chamada extra ---------- */
+function anexoBadgeHtml(r){
+  if(!r.anexos || r.anexos.length === 0) return '';
+  return `<span class="anexo-badge" title="Tem anexo — passe o mouse ou segure pra ver"
+    onmouseenter="mostrarPreviaAnexos(event,'${r.id}')" onmouseleave="agendarEsconderPreviaAnexos()"
+    ontouchstart="iniciarLongPressPreviaAnexos(event,'${r.id}')" ontouchmove="cancelarLongPressPreviaAnexos()" ontouchend="finalizarLongPressPreviaAnexos(event)"
+  >📎</span>`;
+}
+function ehImagemAnexo(nome){
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(String(nome||''));
+}
+function renderPreviaAnexosHtml(anexos){
+  return anexos.map(a=>{
+    if(ehImagemAnexo(a.nome)){
+      return `<a href="${a.url}" target="_blank" class="anexo-previa-item" title="${escaparHtml(a.nome)}" onclick="event.stopPropagation();">
+        <img src="${a.url}" alt="${escaparHtml(a.nome)}" loading="lazy">
+      </a>`;
+    }
+    return `<a href="${a.url}" target="_blank" class="anexo-previa-item anexo-previa-arquivo" title="${escaparHtml(a.nome)}" onclick="event.stopPropagation();">
+      <span class="anexo-previa-icone">📄</span><span class="anexo-previa-nome">${escaparHtml(a.nome)}</span>
+    </a>`;
+  }).join('');
+}
+let previaAnexosEsconderTimer = null;
+function mostrarPreviaAnexos(ev, id){
+  clearTimeout(previaAnexosEsconderTimer);
+  const r = atendimentos.find(x=>String(x.id)===String(id));
+  const anexos = (r && r.anexos) || [];
+  if(anexos.length === 0) return;
+  const pop = document.getElementById('anexoPreviaPopover');
+  pop.innerHTML = renderPreviaAnexosHtml(anexos);
+  pop.classList.add('show');
+  const ancora = (ev.currentTarget || ev.target).closest ? (ev.currentTarget || ev.target) : null;
+  if(ancora) posicionarPreviaAnexos(ancora);
+}
+function posicionarPreviaAnexos(ancora){
+  const pop = document.getElementById('anexoPreviaPopover');
+  const rect = ancora.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  let top = rect.bottom + 6;
+  let left = rect.left;
+  if(left + popRect.width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - popRect.width - 8);
+  if(top + popRect.height > window.innerHeight - 8) top = rect.top - popRect.height - 6;
+  pop.style.top = `${Math.max(8,top)}px`;
+  pop.style.left = `${left}px`;
+}
+function agendarEsconderPreviaAnexos(){
+  clearTimeout(previaAnexosEsconderTimer);
+  previaAnexosEsconderTimer = setTimeout(()=>{ document.getElementById('anexoPreviaPopover').classList.remove('show'); }, 150);
+}
+function cancelarEsconderPreviaAnexos(){ clearTimeout(previaAnexosEsconderTimer); }
+
+// segurar no mobile (sem mouse, não tem "passar por cima") — um toque
+// rápido continua abrindo o atendimento normalmente; só suprime esse clique
+// quando o toque durou o suficiente pra prévia já ter aparecido
+let previaAnexosLongPressTimer = null;
+let previaAnexosLongPressAtivou = false;
+function iniciarLongPressPreviaAnexos(ev, id){
+  previaAnexosLongPressAtivou = false;
+  const alvo = ev.currentTarget;
+  clearTimeout(previaAnexosLongPressTimer);
+  previaAnexosLongPressTimer = setTimeout(()=>{
+    previaAnexosLongPressAtivou = true;
+    mostrarPreviaAnexos({ currentTarget: alvo }, id);
+  }, 450);
+}
+function cancelarLongPressPreviaAnexos(){ clearTimeout(previaAnexosLongPressTimer); }
+function finalizarLongPressPreviaAnexos(ev){
+  clearTimeout(previaAnexosLongPressTimer);
+  if(previaAnexosLongPressAtivou){ ev.preventDefault(); previaAnexosLongPressAtivou = false; }
+}
 /* ---------- seleção múltipla / alteração de status em massa ---------- */
 function toggleSelecao(id, marcado){
   if(marcado) selecionados.add(id); else selecionados.delete(id);
@@ -1828,7 +1902,7 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
   const celulas = colunas.map((c,i)=>{
     const pre = i===0 ? prefixo : '';
     switch(c.campo){
-      case 'cliente': return `<td>${pre}${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}<span style="font-weight:700;">${escaparHtml(r.cliente)}</span><div style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario)}</div></td>`;
+      case 'cliente': return `<td>${pre}${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${anexoBadgeHtml(r)}<span style="font-weight:700;">${escaparHtml(r.cliente)}</span><div style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario)}</div></td>`;
       case 'assunto': return `<td>${pre}${r.assunto ? escaparHtml(r.assunto) : `<span style="color:var(--muted);">—</span>`}</td>`;
       case 'atendente': return `<td>${pre}${escaparHtml(r.atendente || 'A definir')}${r.atendente2 ? `<div style="color:var(--muted);font-size:11px;">+2º: ${escaparHtml(r.atendente2)}</div>` : ''}</td>`;
       case 'tipo': return `<td>${pre}${labelTipo(r.tipo)}</td>`;
@@ -1982,7 +2056,7 @@ function renderLinhaAtendimento(r, ctx, opts){
       ${galho}
       <div class="top">
         ${(toggleVinculos || checkbox) ? `<div style="display:flex;gap:8px;align-items:flex-start;">${toggleVinculos}${checkbox}<div>` : '<div>'}
-        <div><div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${clienteTexto}</div>
+        <div><div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${anexoBadgeHtml(r)}${clienteTexto}</div>
         <div class="data">${dataFmt} · ${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (int. '+r.inter+')' : ''}</div></div>
         ${(toggleVinculos || checkbox) ? `</div></div>` : '</div>'}
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
@@ -2077,7 +2151,7 @@ function renderKanbanCard(r, opts){
     <div class="kanban-card" data-id="${r.id}" data-status="${escaparHtml(r.status)}">
       ${handle}
       <div class="kanban-card-body">
-        <div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
+        <div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${anexoBadgeHtml(r)}${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
         <div class="data">${dataFmt} · ${Number(r.qtd).toFixed(2).replace('.',',')}h</div>
         ${r.assunto ? `<div class="detalhe" style="font-weight:600;">${escaparHtml(r.assunto)}</div>` : ''}
         ${r.detalhe ? `<div class="detalhe">${escaparHtml(stripHtml(r.detalhe))}</div>` : ''}
@@ -7727,6 +7801,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     renderLista();
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap')) fecharFiltroColunaLista(); });
+  document.addEventListener('click', e=>{
+    if(!e.target.closest('.anexo-badge') && !e.target.closest('#anexoPreviaPopover')) document.getElementById('anexoPreviaPopover').classList.remove('show');
+  });
   document.getElementById('kanbanBoard').addEventListener('click', e=>{
     if(kanbanAcabouDeArrastar) return;
     const card = e.target.closest('.kanban-card');

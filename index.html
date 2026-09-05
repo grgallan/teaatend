@@ -58,6 +58,17 @@
   .dot-naolida{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:6px;flex:none;vertical-align:middle;}
   .badge-naolida-menu{display:none;width:7px;height:7px;border-radius:50%;background:var(--bad);}
   .badge-naolida-menu.on{display:block;}
+
+  /* 📎 indica que o atendimento tem anexo — passar o mouse (PC) ou segurar
+     (mobile) mostra uma prévia flutuante dos arquivos */
+  .anexo-badge{display:inline-flex;align-items:center;justify-content:center;margin-right:5px;font-size:12px;vertical-align:middle;cursor:default;touch-action:manipulation;}
+  .anexo-previa-popover{position:fixed;z-index:95;display:none;flex-wrap:wrap;gap:6px;max-width:250px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;box-shadow:0 10px 24px rgba(0,0,0,.35);}
+  .anexo-previa-popover.show{display:flex;}
+  .anexo-previa-item{display:block;width:64px;height:64px;border-radius:8px;overflow:hidden;background:var(--panel-2);border:1px solid var(--line);flex:none;}
+  .anexo-previa-item img{width:100%;height:100%;object-fit:cover;display:block;}
+  .anexo-previa-arquivo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;text-align:center;}
+  .anexo-previa-icone{font-size:20px;}
+  .anexo-previa-nome{font-size:9px;color:var(--muted);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:56px;}
   .side-item .ic, nav.bottom .navbtn .ic{position:relative;}
   .side-item .ic .badge-naolida-menu, nav.bottom .navbtn .ic .badge-naolida-menu{position:absolute;top:-2px;right:-3px;border:1.5px solid var(--panel);}
   .tab .badge-naolida-menu{display:none;margin-left:5px;}
@@ -1729,6 +1740,8 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<div class="anexo-previa-popover" id="anexoPreviaPopover" onmouseenter="cancelarEsconderPreviaAnexos()" onmouseleave="agendarEsconderPreviaAnexos()"></div>
 
 <div class="modal-bg" id="modalBg">
   <div class="modal">
