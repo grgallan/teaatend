@@ -257,7 +257,7 @@ function ultimoDiaMes(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0).to
 function anexoBadgeHtml(r){
   if(!r.anexos || r.anexos.length === 0) return '';
   return `<span class="anexo-badge" title="Tem anexo — passe o mouse ou segure pra ver"
-    onmouseenter="mostrarPreviaAnexos(event,'${r.id}')" onmouseleave="agendarEsconderPreviaAnexos()"
+    onmouseenter="cancelarPreviaDetalhe();mostrarPreviaAnexos(event,'${r.id}')" onmouseleave="agendarEsconderPreviaAnexos()"
     ontouchstart="iniciarLongPressPreviaAnexos(event,'${r.id}')" ontouchmove="cancelarLongPressPreviaAnexos()" ontouchend="finalizarLongPressPreviaAnexos(event)"
   >📎</span>`;
 }
@@ -286,10 +286,11 @@ function mostrarPreviaAnexos(ev, id){
   pop.innerHTML = renderPreviaAnexosHtml(anexos);
   pop.classList.add('show');
   const ancora = (ev.currentTarget || ev.target).closest ? (ev.currentTarget || ev.target) : null;
-  if(ancora) posicionarPreviaAnexos(ancora);
+  if(ancora) posicionarPreviaPopover(pop, ancora);
 }
-function posicionarPreviaAnexos(ancora){
-  const pop = document.getElementById('anexoPreviaPopover');
+// posiciona qualquer popover de prévia (anexo ou detalhe) colado embaixo do
+// elemento que disparou, sem estourar a borda da tela
+function posicionarPreviaPopover(pop, ancora){
   const rect = ancora.getBoundingClientRect();
   const popRect = pop.getBoundingClientRect();
   let top = rect.bottom + 6;
@@ -324,6 +325,37 @@ function finalizarLongPressPreviaAnexos(ev){
   clearTimeout(previaAnexosLongPressTimer);
   if(previaAnexosLongPressAtivou){ ev.preventDefault(); previaAnexosLongPressAtivou = false; }
 }
+
+/* ---------- prévia do Detalhe ao passar o mouse em cima da linha/card por
+   2,5s, sem precisar clicar — mesmo popover flutuante da prévia de anexo ---------- */
+let previaDetalheMostrarTimer = null;
+let previaDetalheEsconderTimer = null;
+function iniciarPreviaDetalhe(ev, id){
+  clearTimeout(previaDetalheMostrarTimer);
+  const alvo = ev.currentTarget;
+  previaDetalheMostrarTimer = setTimeout(()=>{ mostrarPreviaDetalhe(alvo, id); }, 2500);
+}
+function mostrarPreviaDetalhe(ancora, id){
+  const r = atendimentos.find(x=>String(x.id)===String(id));
+  const detalhe = (r && r.detalhe) ? String(r.detalhe).trim() : '';
+  if(!detalhe) return;
+  clearTimeout(previaDetalheEsconderTimer);
+  const pop = document.getElementById('detalhePreviaPopover');
+  pop.innerHTML = `<div class="detalhe-previa-titulo">Detalhe</div><div class="detalhe-previa-conteudo">${detalhe}</div>`;
+  pop.classList.add('show');
+  posicionarPreviaPopover(pop, ancora);
+}
+// sai da linha antes dos 2,5s: cancela sem chegar a mostrar; sai depois de
+// já ter mostrado: esconde com o mesmo pequeno atraso da prévia de anexo
+function cancelarPreviaDetalhe(){
+  clearTimeout(previaDetalheMostrarTimer);
+  agendarEsconderPreviaDetalhe();
+}
+function agendarEsconderPreviaDetalhe(){
+  clearTimeout(previaDetalheEsconderTimer);
+  previaDetalheEsconderTimer = setTimeout(()=>{ document.getElementById('detalhePreviaPopover').classList.remove('show'); }, 150);
+}
+function cancelarEsconderPreviaDetalhe(){ clearTimeout(previaDetalheEsconderTimer); }
 /* ---------- seleção múltipla / alteração de status em massa ---------- */
 function toggleSelecao(id, marcado){
   if(marcado) selecionados.add(id); else selecionados.delete(id);
@@ -1930,7 +1962,7 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
   if(clicavel) estilos.push('cursor:pointer');
   if(ehFilho) estilos.push('background:var(--panel-2)');
   const styleAttr = estilos.length ? ` style="${estilos.join(';')};"` : '';
-  return `<tr${styleAttr}${clicavel ? ` onclick="abrirDetalhe('${r.id}')"` : ''}>${checkboxTd}${celulas}${acoesTd}</tr>`;
+  return `<tr${styleAttr}${clicavel ? ` onclick="abrirDetalhe('${r.id}')"` : ''} onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()">${checkboxTd}${celulas}${acoesTd}</tr>`;
 }
 
 /* ---------- arrastar o cabeçalho da coluna (Pointer Events, igual ao drag
@@ -2052,7 +2084,7 @@ function renderLinhaAtendimento(r, ctx, opts){
       </div>` : ''));
 
   return `
-    <div class="item${ehFilho ? ' filho nivel'+(opts.nivel||1) : ''}" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''}>
+    <div class="item${ehFilho ? ' filho nivel'+(opts.nivel||1) : ''}" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''} onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()">
       ${galho}
       <div class="top">
         ${(toggleVinculos || checkbox) ? `<div style="display:flex;gap:8px;align-items:flex-start;">${toggleVinculos}${checkbox}<div>` : '<div>'}
@@ -2148,7 +2180,7 @@ function renderKanbanCard(r, opts){
   const dataFmt = `${d}/${m}/${y}`;
   const handle = opts.podeEditarBtn ? `<div class="kanban-card-handle">⠿</div>` : '';
   return `
-    <div class="kanban-card" data-id="${r.id}" data-status="${escaparHtml(r.status)}">
+    <div class="kanban-card" data-id="${r.id}" data-status="${escaparHtml(r.status)}" onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()">
       ${handle}
       <div class="kanban-card-body">
         <div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${anexoBadgeHtml(r)}${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
