@@ -258,7 +258,7 @@ function anexoBadgeHtml(r){
   if(!r.anexos || r.anexos.length === 0) return '';
   return `<span class="anexo-badge" title="Tem anexo — passe o mouse ou segure pra ver"
     onmouseenter="cancelarPreviaDetalhe();mostrarPreviaAnexos(event,'${r.id}')" onmouseleave="agendarEsconderPreviaAnexos()"
-    ontouchstart="iniciarLongPressPreviaAnexos(event,'${r.id}')" ontouchmove="cancelarLongPressPreviaAnexos()" ontouchend="finalizarLongPressPreviaAnexos(event)"
+    ontouchstart="iniciarLongPressPreviaAnexos(event,'${r.id}')" ontouchmove="cancelarLongPressPreviaAnexos(event)" ontouchend="finalizarLongPressPreviaAnexos(event)"
   >📎</span>`;
 }
 function ehImagemAnexo(nome){
@@ -308,10 +308,14 @@ function cancelarEsconderPreviaAnexos(){ clearTimeout(previaAnexosEsconderTimer)
 
 // segurar no mobile (sem mouse, não tem "passar por cima") — um toque
 // rápido continua abrindo o atendimento normalmente; só suprime esse clique
-// quando o toque durou o suficiente pra prévia já ter aparecido
+// quando o toque durou o suficiente pra prévia já ter aparecido. stopPropagation
+// em tudo aqui pra o toque no 📎 (que fica dentro da linha) não também
+// disparar o long-press do Detalhe da linha por baixo.
 let previaAnexosLongPressTimer = null;
 let previaAnexosLongPressAtivou = false;
 function iniciarLongPressPreviaAnexos(ev, id){
+  ev.stopPropagation();
+  cancelarLongPressPreviaDetalhe();
   previaAnexosLongPressAtivou = false;
   const alvo = ev.currentTarget;
   clearTimeout(previaAnexosLongPressTimer);
@@ -320,20 +324,20 @@ function iniciarLongPressPreviaAnexos(ev, id){
     mostrarPreviaAnexos({ currentTarget: alvo }, id);
   }, 450);
 }
-function cancelarLongPressPreviaAnexos(){ clearTimeout(previaAnexosLongPressTimer); }
+function cancelarLongPressPreviaAnexos(ev){ if(ev) ev.stopPropagation(); clearTimeout(previaAnexosLongPressTimer); }
 function finalizarLongPressPreviaAnexos(ev){
+  ev.stopPropagation();
   clearTimeout(previaAnexosLongPressTimer);
   if(previaAnexosLongPressAtivou){ ev.preventDefault(); previaAnexosLongPressAtivou = false; }
 }
 
-/* ---------- prévia do Detalhe ao passar o mouse em cima da linha/card por
-   2,5s, sem precisar clicar — mesmo popover flutuante da prévia de anexo ---------- */
-let previaDetalheMostrarTimer = null;
+/* ---------- prévia do Detalhe: no PC aparece na hora ao passar o mouse
+   em cima da linha/card; no mobile precisa segurar (senão um toque comum
+   nunca ia conseguir abrir o atendimento) — mesmo popover flutuante da
+   prévia de anexo ---------- */
 let previaDetalheEsconderTimer = null;
 function iniciarPreviaDetalhe(ev, id){
-  clearTimeout(previaDetalheMostrarTimer);
-  const alvo = ev.currentTarget;
-  previaDetalheMostrarTimer = setTimeout(()=>{ mostrarPreviaDetalhe(alvo, id); }, 2500);
+  mostrarPreviaDetalhe(ev.currentTarget, id);
 }
 function mostrarPreviaDetalhe(ancora, id){
   const r = atendimentos.find(x=>String(x.id)===String(id));
@@ -345,17 +349,32 @@ function mostrarPreviaDetalhe(ancora, id){
   pop.classList.add('show');
   posicionarPreviaPopover(pop, ancora);
 }
-// sai da linha antes dos 2,5s: cancela sem chegar a mostrar; sai depois de
-// já ter mostrado: esconde com o mesmo pequeno atraso da prévia de anexo
-function cancelarPreviaDetalhe(){
-  clearTimeout(previaDetalheMostrarTimer);
-  agendarEsconderPreviaDetalhe();
-}
+function cancelarPreviaDetalhe(){ agendarEsconderPreviaDetalhe(); }
 function agendarEsconderPreviaDetalhe(){
   clearTimeout(previaDetalheEsconderTimer);
   previaDetalheEsconderTimer = setTimeout(()=>{ document.getElementById('detalhePreviaPopover').classList.remove('show'); }, 150);
 }
 function cancelarEsconderPreviaDetalhe(){ clearTimeout(previaDetalheEsconderTimer); }
+
+// segurar no mobile pra ver o Detalhe — mesmo padrão do 📎 de anexo: toque
+// rápido continua abrindo o atendimento normalmente, só o toque longo (que
+// já mostrou a prévia) suprime esse clique
+let previaDetalheLongPressTimer = null;
+let previaDetalheLongPressAtivou = false;
+function iniciarLongPressPreviaDetalhe(ev, id){
+  previaDetalheLongPressAtivou = false;
+  const alvo = ev.currentTarget;
+  clearTimeout(previaDetalheLongPressTimer);
+  previaDetalheLongPressTimer = setTimeout(()=>{
+    previaDetalheLongPressAtivou = true;
+    mostrarPreviaDetalhe(alvo, id);
+  }, 450);
+}
+function cancelarLongPressPreviaDetalhe(){ clearTimeout(previaDetalheLongPressTimer); }
+function finalizarLongPressPreviaDetalhe(ev){
+  clearTimeout(previaDetalheLongPressTimer);
+  if(previaDetalheLongPressAtivou){ ev.preventDefault(); previaDetalheLongPressAtivou = false; }
+}
 /* ---------- seleção múltipla / alteração de status em massa ---------- */
 function toggleSelecao(id, marcado){
   if(marcado) selecionados.add(id); else selecionados.delete(id);
@@ -1962,7 +1981,7 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
   if(clicavel) estilos.push('cursor:pointer');
   if(ehFilho) estilos.push('background:var(--panel-2)');
   const styleAttr = estilos.length ? ` style="${estilos.join(';')};"` : '';
-  return `<tr${styleAttr}${clicavel ? ` onclick="abrirDetalhe('${r.id}')"` : ''} onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()">${checkboxTd}${celulas}${acoesTd}</tr>`;
+  return `<tr${styleAttr}${clicavel ? ` onclick="abrirDetalhe('${r.id}')"` : ''} onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()" ontouchstart="iniciarLongPressPreviaDetalhe(event,'${r.id}')" ontouchmove="cancelarLongPressPreviaDetalhe()" ontouchend="finalizarLongPressPreviaDetalhe(event)">${checkboxTd}${celulas}${acoesTd}</tr>`;
 }
 
 /* ---------- arrastar o cabeçalho da coluna (Pointer Events, igual ao drag
@@ -2084,7 +2103,7 @@ function renderLinhaAtendimento(r, ctx, opts){
       </div>` : ''));
 
   return `
-    <div class="item${ehFilho ? ' filho nivel'+(opts.nivel||1) : ''}" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''} onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()">
+    <div class="item${ehFilho ? ' filho nivel'+(opts.nivel||1) : ''}" ${clicavel ? `style="cursor:pointer;" onclick="abrirDetalhe('${r.id}')"` : ''} onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()" ontouchstart="iniciarLongPressPreviaDetalhe(event,'${r.id}')" ontouchmove="cancelarLongPressPreviaDetalhe()" ontouchend="finalizarLongPressPreviaDetalhe(event)">
       ${galho}
       <div class="top">
         ${(toggleVinculos || checkbox) ? `<div style="display:flex;gap:8px;align-items:flex-start;">${toggleVinculos}${checkbox}<div>` : '<div>'}
@@ -2180,7 +2199,7 @@ function renderKanbanCard(r, opts){
   const dataFmt = `${d}/${m}/${y}`;
   const handle = opts.podeEditarBtn ? `<div class="kanban-card-handle">⠿</div>` : '';
   return `
-    <div class="kanban-card" data-id="${r.id}" data-status="${escaparHtml(r.status)}" onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()">
+    <div class="kanban-card" data-id="${r.id}" data-status="${escaparHtml(r.status)}" onmouseenter="iniciarPreviaDetalhe(event,'${r.id}')" onmouseleave="cancelarPreviaDetalhe()" ontouchstart="iniciarLongPressPreviaDetalhe(event,'${r.id}')" ontouchmove="cancelarLongPressPreviaDetalhe()" ontouchend="finalizarLongPressPreviaDetalhe(event)">
       ${handle}
       <div class="kanban-card-body">
         <div class="cliente">${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${anexoBadgeHtml(r)}${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</div>
@@ -7835,6 +7854,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap')) fecharFiltroColunaLista(); });
   document.addEventListener('click', e=>{
     if(!e.target.closest('.anexo-badge') && !e.target.closest('#anexoPreviaPopover')) document.getElementById('anexoPreviaPopover').classList.remove('show');
+  });
+  document.addEventListener('click', e=>{
+    if(!e.target.closest('#detalhePreviaPopover')) document.getElementById('detalhePreviaPopover').classList.remove('show');
   });
   document.getElementById('kanbanBoard').addEventListener('click', e=>{
     if(kanbanAcabouDeArrastar) return;
