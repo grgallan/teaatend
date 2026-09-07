@@ -524,11 +524,14 @@ update status_list set ordem = 7 where id = 'st-cancelado' and ordem = 0;
 update status_list set nome = 'CONCLUÍDO' where id = 'st-validado' and nome = 'VALIDADO';
 update atendimentos set status = 'CONCLUÍDO' where status = 'VALIDADO';
 
+-- "on conflict do nothing" sem indicar coluna: cobre tanto o id quanto o
+-- login (unique) — evita erro de chave duplicada se esses logins já
+-- existirem com outro id (ex: conta já cadastrada pela tela)
 insert into contas (id, nome, login, senha, perfil, cliente_id) values
   ('c-admin', 'Administrador', 'admin', 'admin123', 'ADMIN', null),
   ('c-allan', 'ALLAN', 'allan', '123456', 'ATENDENTE', null),
   ('c-ananda', 'ANANDA', 'ananda', '123456', 'ATENDENTE', null)
-on conflict (id) do nothing;
+on conflict do nothing;
 
 insert into contas (id, nome, login, senha, perfil, cliente_id) values
   ('c-rayane', 'RAYANE', 'rayane', '123456', 'USUARIO', 'cli-fujicom'),
@@ -542,7 +545,7 @@ insert into contas (id, nome, login, senha, perfil, cliente_id) values
   ('c-francisco', 'FRANCISCO', 'francisco', '123456', 'USUARIO', 'cli-tea'),
   ('c-junior', 'JUNIOR', 'junior', '123456', 'USUARIO', 'cli-tea'),
   ('c-vitoria', 'VITORIA', 'vitoria', '123456', 'USUARIO', 'cli-regina')
-on conflict (id) do nothing;
+on conflict do nothing;
 
 insert into valores (id, atendente_id, cliente_id, tipo_id, real, ananda) values
   ('v-allan-fuj-on', 'c-allan', 'cli-fujicom', 'tp-online', 75, 30),
@@ -557,7 +560,12 @@ insert into valores (id, atendente_id, cliente_id, tipo_id, real, ananda) values
   ('v-ananda-tea-vi', 'c-ananda', 'cli-tea', 'tp-visita', 90, 10),
   ('v-ananda-reg-on', 'c-ananda', 'cli-regina', 'tp-online', 85, 30),
   ('v-ananda-reg-vi', 'c-ananda', 'cli-regina', 'tp-visita', 85, 10)
-on conflict (id) do nothing;
+-- "on conflict do nothing" sem indicar coluna: cobre tanto o id (esses
+-- valores de exemplo) quanto a constraint valores_unico — evita erro de
+-- chave duplicada quando o banco já tem essas mesmas combinações
+-- atendente+cliente+tipo cadastradas com um id diferente (ex: cadastradas
+-- pela tela, não por este script)
+on conflict do nothing;
 
 -- =========================================================
 -- Empresas (multi-empresa) — cada Cliente/Atendimento/Valor passa a
