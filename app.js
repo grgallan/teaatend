@@ -5602,6 +5602,12 @@ function renderCadastrosTudo(){
 // normaliza texto pra busca — minúsculas e sem acento, pra "clientes"
 // encontrar "Clientes" e "usuário" encontrar "usuario" (e vice-versa) nos
 // lookups de tabela principal, campos e tabelas relacionadas
+// mesma normalização usada no backend pra chave composta ("CODCOLIGADA,
+// CHAPA" -> "CODCOLIGADA,CHAPA") — aplicada só na hora de gerar o SQL, pra
+// não brigar com o que a pessoa está digitando nos campos de junção
+function normalizarCamposRmTexto(s){
+  return String(s || '').split(',').map(x=>x.trim().toUpperCase()).filter(Boolean).join(',');
+}
 function normalizarBuscaTextoRm(s){
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
@@ -6213,9 +6219,15 @@ async function toggleRmBdTabelaRelacionada(tabelaId){
   const rel = rmBuilder.relacionamentosDisponiveis.find(r=>r.outraTabelaId === tabelaId);
   if(!rel) return;
   const r = await api('rmListarCampos', { contaId: contaAtual().id, tabelaId });
+  // tipoJoin/meuCampo/campoOutraTabela começam com o padrão cadastrado em
+  // Relacionamentos RM, mas são editáveis aqui — só valem pra ESSA consulta,
+  // sem alterar o cadastro (útil quando o mesmo campo tem nomes diferentes
+  // nas duas tabelas, ex: CHAPA numa e CHAPAU noutra)
   rmBuilder.tabelasRelacionadas.set(tabelaId, {
     tabelaId, tabelaNome: rel.outraTabelaNome, tabelaApelido: rel.outraTabelaApelido,
     relacionamento: rel, campos: new Set(), camposDisponiveis: r.ok ? r.campos : [],
+    tipoJoin: rel.tipoJoin === 'INNER' ? 'INNER' : 'LEFT',
+    meuCampo: rel.meuCampo, campoOutraTabela: rel.campoOutraTabela,
   });
   renderRmBdChipsRelacionadas();
   renderRmBdSecoesRelacionadas();
@@ -6223,9 +6235,22 @@ async function toggleRmBdTabelaRelacionada(tabelaId){
 function renderRmBdSecoesRelacionadas(){
   const el = document.getElementById('rmBdSecoesRelacionadas');
   const secoes = [...rmBuilder.tabelasRelacionadas.values()];
+  const principal = rmBuilder.tabelaPrincipal;
   el.innerHTML = secoes.map(s=>`
     <div class="rm-secao-relacionada">
-      <h3>${escaparHtml(s.tabelaApelido || s.tabelaNome)} <span style="color:var(--muted);font-weight:400;">(${s.relacionamento.tipoJoin === 'INNER' ? 'INNER JOIN' : 'LEFT JOIN'})</span></h3>
+      <h3>${escaparHtml(s.tabelaApelido || s.tabelaNome)}</h3>
+      <div class="row">
+        <div class="field"><label>Campo em ${escaparHtml(principal.apelido || principal.nome)}</label><input type="text" class="mono" data-join="meuCampo" data-tabela="${s.tabelaId}" value="${escaparHtml(s.meuCampo)}"></div>
+        <div class="field"><label>Campo em ${escaparHtml(s.tabelaApelido || s.tabelaNome)}</label><input type="text" class="mono" data-join="campoOutraTabela" data-tabela="${s.tabelaId}" value="${escaparHtml(s.campoOutraTabela)}"></div>
+      </div>
+      <div class="field">
+        <label>Tipo de junção</label>
+        <select data-join="tipoJoin" data-tabela="${s.tabelaId}">
+          <option value="LEFT" ${s.tipoJoin !== 'INNER' ? 'selected' : ''}>LEFT JOIN (traz mesmo sem correspondência)</option>
+          <option value="INNER" ${s.tipoJoin === 'INNER' ? 'selected' : ''}>INNER JOIN (precisa existir dos dois lados)</option>
+        </select>
+      </div>
+      <p class="rm-hint">Ajuste aqui se o campo tiver nomes diferentes nas duas tabelas (ex: CHAPA numa, CHAPAU noutra) — vale só pra essa consulta, não muda o cadastro em Relacionamentos RM. Chave composta: separe por vírgula, na mesma ordem dos dois lados.</p>
       <input type="text" id="rm_bd_busca_campos_${s.tabelaId}" placeholder="Buscar campo por nome ou descrição...">
       <div class="rm-chips-selecionados" id="rmBdChipsSel_${s.tabelaId}"></div>
       <div class="rm-campos-grid" id="rmBdCampos_${s.tabelaId}"></div>
@@ -6236,6 +6261,16 @@ function renderRmBdSecoesRelacionadas(){
     const buscaEl = document.getElementById(`rm_bd_busca_campos_${s.tabelaId}`);
     if(buscaEl) buscaEl.addEventListener('input', e=>filtrarPorBuscaRm(`rmBdCampos_${s.tabelaId}`, e.target.value, '.rm-campo-row'));
   });
+}
+// edição do campo/tipo de junção de uma tabela relacionada, só pra essa
+// consulta (não grava nada em Relacionamentos RM) — um único listener
+// delegado no container cobre todas as seções, mesmo recriadas do zero
+// a cada toggle de tabela relacionada
+function tratarEdicaoJoinRm(e){
+  const campo = e.target.closest('[data-join]'); if(!campo) return;
+  const secao = rmBuilder.tabelasRelacionadas.get(campo.dataset.tabela); if(!secao) return;
+  secao[campo.dataset.join] = campo.value;
+  gerarSqlRm();
 }
 function toggleRmBdCampoRelacionado(tabelaId, nome, marcado){
   const secao = rmBuilder.tabelasRelacionadas.get(tabelaId); if(!secao) return;
@@ -6323,11 +6358,10 @@ function gerarSqlRm(){
   });
   if(linhasSelect.length === 0) linhasSelect.push('*');
   const joins = [...s.tabelasRelacionadas.values()].map(sec=>{
-    const rel = sec.relacionamento;
-    const camposMeu = rel.meuCampo.split(',');
-    const camposOutro = rel.campoOutraTabela.split(',');
+    const camposMeu = normalizarCamposRmTexto(sec.meuCampo).split(',');
+    const camposOutro = normalizarCamposRmTexto(sec.campoOutraTabela).split(',');
     const condicoes = camposMeu.map((c,i)=>`${aliasDe(s.tabelaPrincipal.nome)}.${aliasDe(c)} = ${aliasDe(sec.tabelaNome)}.${aliasDe(camposOutro[i]||camposOutro[0])}`);
-    return `${rel.tipoJoin === 'INNER' ? 'INNER' : 'LEFT'} JOIN ${aliasDe(sec.tabelaNome)} ON ${condicoes.join(' AND ')}`;
+    return `${sec.tipoJoin === 'INNER' ? 'INNER' : 'LEFT'} JOIN ${aliasDe(sec.tabelaNome)} ON ${condicoes.join(' AND ')}`;
   });
   const orderBy = s.ordem.map(o=>`${aliasDe(o.tabelaNomeReal)}.${aliasDe(o.campo)} ${o.direcao}`);
   let texto = `SELECT TOP 100\n  ${linhasSelect.join(',\n  ')}\nFROM ${aliasDe(s.tabelaPrincipal.nome)}`;
@@ -8352,6 +8386,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('rm_bd_busca_campos_principal').addEventListener('input', e=>filtrarPorBuscaRm('rmBdCamposPrincipal', e.target.value, '.rm-campo-row'));
   document.getElementById('rm_bd_busca_relacionadas').addEventListener('input', e=>filtrarTabelasRelacionadasRm(e.target.value));
   document.getElementById('rm_bd_ordem_add').addEventListener('change', adicionarRmBdOrdem);
+  document.getElementById('rmBdSecoesRelacionadas').addEventListener('input', tratarEdicaoJoinRm);
+  document.getElementById('rmBdSecoesRelacionadas').addEventListener('change', tratarEdicaoJoinRm);
   document.getElementById('btnRmBdBaixarSql').addEventListener('click', baixarSqlRm);
   document.getElementById('btnRmBdSalvarConsulta').addEventListener('click', salvarConsultaRm);
   document.querySelector('[data-util-ferr="evento1200"]').addEventListener('click', ()=>{
