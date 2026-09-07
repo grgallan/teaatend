@@ -6068,6 +6068,7 @@ function abrirGeradorSqlRm(){
 async function iniciarGeradorSqlRm(){
   document.getElementById('rmBdCardCampos').style.display = 'none';
   document.getElementById('rmBdCardRelacionadas').style.display = 'none';
+  document.getElementById('rmBdCardFiltros').style.display = 'none';
   document.getElementById('rmBdCardOrdem').style.display = 'none';
   document.getElementById('rmBdCardSql').style.display = 'none';
   document.getElementById('rm_bd_busca_campos_principal').value = '';
@@ -6106,7 +6107,8 @@ async function selecionarTabelaPrincipalRM(tabelaId){
   await carregarTabelaPrincipalRM(tabelaId);
 }
 async function carregarTabelaPrincipalRM(tabelaId){
-  rmBuilder = { tabelaPrincipal: null, camposPrincipal: new Set(), relacionamentosDisponiveis: [], tabelasRelacionadas: new Map(), ordem: [] };
+  rmBuilder = { tabelaPrincipal: null, camposPrincipal: new Set(), camposDisponiveisPrincipal: [], relacionamentosDisponiveis: [], tabelasRelacionadas: new Map(), filtros: [], ordem: [] };
+  document.getElementById('rmBdCardFiltros').style.display = 'none';
   document.getElementById('rmBdCardOrdem').style.display = 'none';
   document.getElementById('rmBdCardSql').style.display = 'none';
   renderRmBdTabelaPrincipalSelecionada();
@@ -6129,6 +6131,7 @@ async function carregarTabelaPrincipalRM(tabelaId){
   document.getElementById('rmBdCardRelacionadas').style.display = '';
   rmBuilder.relacionamentosDisponiveis = rRel.ok ? rRel.relacionamentos : [];
   renderRmBdChipsRelacionadas();
+  atualizarRmBdFiltroCampoSelect();
 }
 // filtro genérico (esconde/mostra sem re-renderizar, pra não perder o
 // texto digitado nem a posição do scroll) — usado nos lookups de campos
@@ -6231,6 +6234,7 @@ async function toggleRmBdTabelaRelacionada(tabelaId){
     renderRmBdChipsRelacionadas();
     renderRmBdSecoesRelacionadas();
     atualizarRmBdOrdemDisponiveis();
+    atualizarRmBdFiltroCampoSelect();
     return;
   }
   const rel = rmBuilder.relacionamentosDisponiveis.find(r=>r.outraTabelaId === tabelaId);
@@ -6248,6 +6252,7 @@ async function toggleRmBdTabelaRelacionada(tabelaId){
   });
   renderRmBdChipsRelacionadas();
   renderRmBdSecoesRelacionadas();
+  atualizarRmBdFiltroCampoSelect();
 }
 function renderRmBdSecoesRelacionadas(){
   const el = document.getElementById('rmBdSecoesRelacionadas');
@@ -6361,6 +6366,60 @@ function renderRmBdOrdemLista(){
       <button onclick="removerRmBdOrdem(${i})">✕</button>
     </div>`).join('');
 }
+// lista de TODOS os campos disponíveis (principal + relacionadas), mesmo os
+// não marcados pro SELECT — filtro (WHERE) pode usar qualquer campo, não só
+// os que vão aparecer no resultado
+function todosCamposDisponiveisRmBd(){
+  const lista = [];
+  if(rmBuilder.tabelaPrincipal){
+    (rmBuilder.camposDisponiveisPrincipal || []).forEach(c=>lista.push({ tabelaId: rmBuilder.tabelaPrincipal.id, tabelaNomeReal: rmBuilder.tabelaPrincipal.nome, tabelaLabel: rmBuilder.tabelaPrincipal.apelido || rmBuilder.tabelaPrincipal.nome, campo: c.nome, rotulo: c.rotulo }));
+  }
+  rmBuilder.tabelasRelacionadas.forEach(s=>{
+    (s.camposDisponiveis || []).forEach(c=>lista.push({ tabelaId: s.tabelaId, tabelaNomeReal: s.tabelaNome, tabelaLabel: s.tabelaApelido || s.tabelaNome, campo: c.nome, rotulo: c.rotulo }));
+  });
+  return lista;
+}
+function atualizarRmBdFiltroCampoSelect(){
+  const disponiveis = todosCamposDisponiveisRmBd();
+  document.getElementById('rmBdCardFiltros').style.display = disponiveis.length ? '' : 'none';
+  const sel = document.getElementById('rm_bd_filtro_campo');
+  sel.innerHTML = disponiveis.map((c,i)=>`<option value="${i}">${escaparHtml(c.tabelaLabel)} · ${escaparHtml(c.rotulo || c.campo)}</option>`).join('');
+  sel.dataset.disponiveis = JSON.stringify(disponiveis);
+  renderRmBdFiltrosLista();
+}
+function atualizarRmBdFiltroValorVisibilidade(){
+  const op = document.getElementById('rm_bd_filtro_operador').value;
+  document.getElementById('rmBdFiltroValorCampo').style.display = (op === 'IS NULL' || op === 'IS NOT NULL') ? 'none' : '';
+}
+function adicionarRmBdFiltro(){
+  const sel = document.getElementById('rm_bd_filtro_campo');
+  const disponiveis = JSON.parse(sel.dataset.disponiveis || '[]');
+  const campo = disponiveis[Number(sel.value)];
+  if(!campo){ toast('Escolha um campo para filtrar'); return; }
+  const operador = document.getElementById('rm_bd_filtro_operador').value;
+  const valorEl = document.getElementById('rm_bd_filtro_valor');
+  const valor = valorEl.value;
+  if(operador !== 'IS NULL' && operador !== 'IS NOT NULL' && !valor.trim()){ toast('Informe um valor para o filtro'); return; }
+  rmBuilder.filtros.push({ tabelaId: campo.tabelaId, tabelaNomeReal: campo.tabelaNomeReal, tabelaLabel: campo.tabelaLabel, campo: campo.campo, rotulo: campo.rotulo, operador, valor: valor.trim() });
+  valorEl.value = '';
+  renderRmBdFiltrosLista();
+  gerarSqlRm();
+}
+function removerRmBdFiltro(i){
+  rmBuilder.filtros.splice(i, 1);
+  renderRmBdFiltrosLista();
+  gerarSqlRm();
+}
+function renderRmBdFiltrosLista(){
+  const el = document.getElementById('rmBdFiltrosLista');
+  document.getElementById('rmBdFiltrosTotal').textContent = rmBuilder.filtros.length;
+  if(rmBuilder.filtros.length === 0){ el.innerHTML = `<div class="empty">Nenhum filtro adicionado ainda.</div>`; return; }
+  el.innerHTML = rmBuilder.filtros.map((f,i)=>`
+    <div class="rm-ordem-item">
+      <span class="rm-ordem-nome">${escaparHtml(f.tabelaLabel)} · ${escaparHtml(f.rotulo || f.campo)} ${escaparHtml(f.operador)}${f.valor ? ' '+escaparHtml(f.valor) : ''}</span>
+      <button onclick="removerRmBdFiltro(${i})">✕</button>
+    </div>`).join('');
+}
 // gera o SELECT em T-SQL (SQL Server) — [colchetes], TOP em vez de LIMIT,
 // JOIN pareando campo a campo (chave composta = vários pares na mesma ON)
 function gerarSqlRm(){
@@ -6380,9 +6439,17 @@ function gerarSqlRm(){
     const condicoes = camposMeu.map((c,i)=>`${aliasDe(s.tabelaPrincipal.nome)}.${aliasDe(c)} = ${aliasDe(sec.tabelaNome)}.${aliasDe(camposOutro[i]||camposOutro[0])}`);
     return `${sec.tipoJoin === 'INNER' ? 'INNER' : 'LEFT'} JOIN ${aliasDe(sec.tabelaNome)} ON ${condicoes.join(' AND ')}`;
   });
+  const condicoes = (s.filtros || []).map(f=>{
+    const expr = `${aliasDe(f.tabelaNomeReal)}.${aliasDe(f.campo)}`;
+    if(f.operador === 'IS NULL' || f.operador === 'IS NOT NULL') return `${expr} ${f.operador}`;
+    const numerico = /^-?\d+(\.\d+)?$/.test(String(f.valor).trim());
+    const valorSql = numerico ? String(f.valor).trim() : `'${String(f.valor).replace(/'/g, "''")}'`;
+    return `${expr} ${f.operador} ${valorSql}`;
+  });
   const orderBy = s.ordem.map(o=>`${aliasDe(o.tabelaNomeReal)}.${aliasDe(o.campo)} ${o.direcao}`);
   let texto = `SELECT TOP 100\n  ${linhasSelect.join(',\n  ')}\nFROM ${aliasDe(s.tabelaPrincipal.nome)}`;
   if(joins.length) texto += '\n' + joins.join('\n');
+  if(condicoes.length) texto += '\nWHERE ' + condicoes.join('\n  AND ');
   if(orderBy.length) texto += '\nORDER BY ' + orderBy.join(', ');
   texto += ';';
   document.getElementById('rmBdSqlPreview').textContent = texto;
@@ -6404,6 +6471,7 @@ async function salvarConsultaRm(){
   const config = {
     camposPrincipal: [...rmBuilder.camposPrincipal],
     tabelasRelacionadas: [...rmBuilder.tabelasRelacionadas.entries()].map(([tabelaId, s])=>({ tabelaId, campos: [...s.campos] })),
+    filtros: rmBuilder.filtros,
     ordem: rmBuilder.ordem,
   };
   const r = await api('rmSalvarConsulta', { contaId: contaAtual().id, nome, tabelaPrincipalId: rmBuilder.tabelaPrincipal.id, config, sqlGerado: sql });
@@ -8398,6 +8466,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('rm_bd_busca_tabela_principal').addEventListener('input', e=>renderRmBdResultadosTabelaPrincipal(e.target.value));
   document.getElementById('rm_bd_busca_campos_principal').addEventListener('input', e=>filtrarPorBuscaRm('rmBdCamposPrincipal', e.target.value, '.rm-campo-row'));
   document.getElementById('rm_bd_busca_relacionadas').addEventListener('input', e=>filtrarTabelasRelacionadasRm(e.target.value));
+  document.getElementById('rm_bd_filtro_operador').addEventListener('change', atualizarRmBdFiltroValorVisibilidade);
+  document.getElementById('btnRmBdAdicionarFiltro').addEventListener('click', adicionarRmBdFiltro);
   document.getElementById('rm_bd_ordem_add').addEventListener('change', adicionarRmBdOrdem);
   document.getElementById('rmBdSecoesRelacionadas').addEventListener('input', tratarEdicaoJoinRm);
   document.getElementById('rmBdSecoesRelacionadas').addEventListener('change', tratarEdicaoJoinRm);
