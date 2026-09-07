@@ -584,6 +584,12 @@
   .rm-hint-inline{color:var(--muted);font-size:11.5px;}
   .rm-secao-relacionada input[type="text"]{margin-bottom:8px;}
   .rm-campos-grid label[hidden]{display:none;}
+  .rm-lookup-resultados{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:6px;background:var(--panel-2);margin-bottom:6px;}
+  .rm-lookup-resultados:empty{display:none;border:none;padding:0;margin:0;}
+  .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;white-space:normal;}
+  .rm-lookup-item:hover{background:var(--accent-dim);color:var(--accent);}
+  .rm-lookup-item.on{background:var(--accent-dim);color:var(--accent);font-weight:600;}
+  .rm-lookup-item[hidden]{display:none;}
   .rel-ficha-item{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;break-inside:avoid;}
   .rel-ficha-item h3{font-size:13.5px;margin:0 0 4px;}
   .rel-ficha-item .rel-ficha-sub{color:var(--muted);font-size:11.5px;margin-bottom:10px;}
@@ -1722,7 +1728,7 @@
     <!-- Gerador SQL RM: Relacionamentos RM -->
     <div class="cad-view" id="cad-relacionamentosrm" style="display:none;">
       <div class="card">
-        <h2>Novo relacionamento</h2>
+        <h2 id="rmRelTituloForm">Novo relacionamento</h2>
         <div class="row">
           <div class="field"><label>Tabela de origem</label><select id="rl_tabela_origem"></select></div>
           <div class="field"><label>Campo de origem</label><input type="text" class="mono" id="rl_campo_origem" placeholder="Ex: CODCIDADE (ou CODCOLIGADA,CHAPA)"></div>
@@ -1740,6 +1746,7 @@
           </select>
         </div>
         <button class="primary" id="btnSalvarRelacionamentoRM">Adicionar relacionamento</button>
+        <button class="ghost" id="btnCancelarEdicaoRelacionamentoRM" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
       <div class="card">
         <h2>Importar relacionamentos do RM (GLINKSREL)</h2>
@@ -1808,7 +1815,7 @@
         <label>De qual tabela você quer os dados?</label>
         <input type="text" id="rm_bd_busca_tabela_principal" placeholder="Buscar tabela por nome ou apelido...">
         <div class="rm-chips-selecionados" id="rmBdTabelaPrincipalSelecionada"></div>
-        <div class="rm-chips-wrap" id="rmBdResultadosTabelaPrincipal"></div>
+        <div class="rm-lookup-resultados" id="rmBdResultadosTabelaPrincipal"></div>
       </div>
 
       <div class="card" id="rmBdCardCampos" style="display:none;">
@@ -1822,7 +1829,7 @@
         <h2><span class="step-num">3</span> Tabelas relacionadas <span class="pill" id="rmBdRelacionadasTotal">0</span></h2>
         <input type="text" id="rm_bd_busca_relacionadas" placeholder="Buscar tabela relacionada por nome ou apelido...">
         <div class="rm-chips-selecionados" id="rmBdChipsRelacionadasSelecionadas"></div>
-        <div class="rm-chips-wrap" id="rmBdChipsRelacionadas"></div>
+        <div class="rm-lookup-resultados" id="rmBdChipsRelacionadas"></div>
         <div id="rmBdSecoesRelacionadas"></div>
       </div>
 
