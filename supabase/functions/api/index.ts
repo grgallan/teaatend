@@ -274,9 +274,6 @@ async function rotear(req: any): Promise<any> {
     case 'rmPublicoListarTabelas': return acaoRmPublicoListarTabelas(req);
     case 'rmPublicoListarCampos': return acaoRmPublicoListarCampos(req);
     case 'rmPublicoListarRelacionamentosDe': return acaoRmPublicoListarRelacionamentosDe(req);
-    case 'rmPublicoListarConsultasSalvas': return acaoRmPublicoListarConsultasSalvas(req);
-    case 'rmPublicoSalvarConsulta': return acaoRmPublicoSalvarConsulta(req);
-    case 'rmPublicoRemoverConsulta': return acaoRmPublicoRemoverConsulta(req);
     default: return { erro: 'ação desconhecida: ' + req.action };
   }
 }
@@ -2575,10 +2572,12 @@ async function acaoRmRemoverConsulta(req: any) {
    Gerador SQL RM — versões PÚBLICAS (sem login), usadas só pela página
    separada gerador-sql-rm.html (link livre, sem acesso ao resto do
    sistema — pedido explícito do usuário, aceitando que qualquer um com o
-   link acessa o dicionário de tabelas do RM e pode gerar/salvar consultas).
-   Nunca leem/gravam nada fora das tabelas rm_* — sem contaId, então sem
-   como restringir por Perfil de Acesso; a restrição aqui é só "só mexe no
-   dicionário do RM", nunca em atendimentos/clientes/financeiro/etc.
+   link acessa o dicionário de tabelas do RM e pode gerar/baixar consultas).
+   Só LEITURA — a página pública não salva/lista/remove consultas
+   (rm_consultas_salvas continua exclusivo da tela autenticada). Sem
+   contaId, então sem como restringir por Perfil de Acesso; a restrição
+   aqui é só "só lê o dicionário do RM", nunca atendimentos/clientes/
+   financeiro/etc.
    ========================================================= */
 async function acaoRmPublicoListarTabelas(req: any) {
   return nucleoRmListarTabelas(req);
@@ -2589,26 +2588,6 @@ async function acaoRmPublicoListarCampos(req: any) {
 async function acaoRmPublicoListarRelacionamentosDe(req: any) {
   return nucleoRmListarRelacionamentosDe(req);
 }
-async function acaoRmPublicoListarConsultasSalvas(req: any) {
-  const { data, error } = await db.from('rm_consultas_salvas').select('*').order('criado_em', { ascending: false }).limit(100);
-  if (error) return { ok: false, erro: error.message };
-  return { ok: true, consultas: (data || []).map(rmConsultaParaApi) };
-}
-async function acaoRmPublicoSalvarConsulta(req: any) {
-  if (!req.nome || !req.tabelaPrincipalId || !req.sqlGerado) return { ok: false, erro: 'Preencha nome, tabela principal e gere o SQL antes de salvar.' };
-  const registro = {
-    id: gerarId(), nome: req.nome, tabela_principal_id: req.tabelaPrincipalId,
-    config: req.config || {}, sql_gerado: req.sqlGerado, criado_por: 'Link público',
-  };
-  const { error } = await db.from('rm_consultas_salvas').insert(registro);
-  if (error) return { ok: false, erro: error.message };
-  return { ok: true, consulta: rmConsultaParaApi(registro) };
-}
-async function acaoRmPublicoRemoverConsulta(req: any) {
-  await db.from('rm_consultas_salvas').delete().eq('id', req.id);
-  return { ok: true };
-}
-
 /* ---------- entrada HTTP ---------- */
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
