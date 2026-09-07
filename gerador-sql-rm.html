@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#151A1F">
+<title>Gerador SQL RM</title>
+<link rel="icon" href="icons/icon-192.png">
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(19% 0.018 260); --panel:oklch(24% 0.018 260); --panel-2:oklch(29% 0.018 260); --line:oklch(100% 0 0 / 9%);
+    --text:oklch(96% 0.008 260); --muted:oklch(62% 0.02 260); --accent:oklch(78% 0.15 200); --accent-dim:oklch(78% 0.15 200 / 16%);
+    --on-accent:oklch(16% 0.02 260); --ok:oklch(75% 0.16 150); --bad:oklch(72% 0.18 25); --radius:14px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:oklch(97% 0.006 220); --panel:oklch(99.5% 0.002 220); --panel-2:oklch(93% 0.008 220); --line:oklch(20% 0.02 220 / 10%);
+      --text:oklch(22% 0.02 220); --muted:oklch(48% 0.02 220); --accent:oklch(58% 0.15 200); --accent-dim:oklch(58% 0.15 200 / 14%);
+      --on-accent:oklch(99% 0 0); --ok:oklch(45% 0.14 150); --bad:oklch(52% 0.19 25);
+    }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:720px;margin:0 auto;padding:22px 16px 90px;}
+  header.top{margin-bottom:18px;}
+  header.top h1{font-size:19px;margin:0;font-weight:700;display:flex;align-items:center;gap:8px;}
+  header.top p{color:var(--muted);font-size:12.5px;margin:4px 0 0;}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 14px;font-weight:700;}
+  .step-num{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:800;font-family:'JetBrains Mono',monospace;margin-right:6px;}
+  label{display:block;font-size:12.5px;color:var(--muted);margin:0 0 5px;font-weight:600;}
+  .field{margin-bottom:12px;}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  select,input[type=text],textarea{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:11px 10px;border-radius:10px;font-size:15px;font-family:inherit;appearance:none;-webkit-appearance:none;}
+  select:focus,input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent);}
+  select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='9'><path d='M1 1l6 6 6-6' stroke='%238B99A6' stroke-width='2' fill='none' fill-rule='evenodd'/></svg>");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;}
+  input.mono{font-family:'JetBrains Mono',monospace;}
+  button.primary{width:100%;background:var(--accent);color:var(--on-accent);border:none;padding:14px;border-radius:12px;font-size:15px;font-weight:700;margin-top:6px;font-family:inherit;cursor:pointer;}
+  button.primary:active{transform:scale(.98);}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 12px;border-radius:9px;font-size:12.5px;font-family:inherit;cursor:pointer;}
+  button.danger{background:transparent;border:1px solid color-mix(in oklch, var(--bad) 35%, transparent);color:var(--bad);padding:7px 11px;border-radius:8px;font-size:12px;font-family:inherit;font-weight:600;cursor:pointer;}
+  .empty{text-align:center;padding:30px 20px;color:var(--muted);font-size:13px;}
+  .pill{display:inline-block;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:8px;}
+  .chip{white-space:nowrap;padding:7px 13px;border-radius:999px;background:var(--panel);border:1px solid var(--line);font-size:12.5px;color:var(--muted);font-weight:600;cursor:pointer;}
+  .chip.on{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);}
+  .rm-hint{color:var(--muted);font-size:11.5px;line-height:1.5;margin:-4px 0 12px;}
+  .rm-hint-inline{color:var(--muted);font-size:11.5px;}
+  .rm-campos-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 14px;max-height:320px;overflow-y:auto;padding:2px;}
+  .rm-campos-grid label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer;}
+  .rm-campos-grid label span.tipo{color:var(--muted);font-size:10.5px;font-family:'JetBrains Mono',monospace;}
+  .rm-campos-grid label[hidden]{display:none;}
+  .mono-sub{color:var(--muted);font-size:10.5px;font-family:'JetBrains Mono',monospace;display:block;}
+  .rm-chips-selecionados{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;min-height:0;}
+  .rm-secao-relacionada{border:1px solid var(--line);border-radius:11px;padding:12px;margin-top:10px;background:var(--panel-2);}
+  .rm-secao-relacionada h3{margin:0 0 8px;font-size:12.5px;}
+  .rm-secao-relacionada input[type="text"]{margin-bottom:8px;}
+  .rm-lookup-resultados{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:6px;background:var(--panel-2);margin-bottom:6px;}
+  .rm-lookup-resultados:empty{display:none;border:none;padding:0;margin:0;}
+  .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;}
+  .rm-lookup-item:hover{background:var(--accent-dim);color:var(--accent);}
+  .rm-lookup-item[hidden]{display:none;}
+  .rm-ordem-item{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;margin-bottom:5px;font-size:12.5px;}
+  .rm-ordem-item .rm-ordem-nome{flex:1;font-family:'JetBrains Mono',monospace;}
+  .rm-ordem-item button{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);min-width:24px;height:24px;font-size:11px;padding:0 6px;cursor:pointer;}
+  .rm-ordem-item button:hover{color:var(--text);}
+  .sql-box{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow-y:auto;margin-bottom:12px;}
+  .cad-item{display:flex;justify-content:space-between;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-bottom:8px;gap:10px;}
+  .cad-item .info b{font-size:13.5px;display:block;}
+  .cad-item .info span{font-size:11.5px;color:var(--muted);}
+  .cad-item .acts{display:flex;gap:6px;flex:none;}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--accent);color:var(--text);padding:10px 18px;border-radius:10px;font-size:13px;z-index:50;opacity:0;pointer-events:none;transition:opacity .25s, transform .25s;font-weight:600;max-width:90vw;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>🗄️ Gerador SQL RM</h1>
+    <p>Monte consultas SQL a partir do dicionário de tabelas do TOTVS RM.</p>
+  </header>
+
+  <div class="card">
+    <h2><span class="step-num">1</span> Tabela principal</h2>
+    <label>De qual tabela você quer os dados?</label>
+    <input type="text" id="rm_bd_busca_tabela_principal" placeholder="Buscar tabela por nome ou apelido...">
+    <div class="rm-chips-selecionados" id="rmBdTabelaPrincipalSelecionada"></div>
+    <div class="rm-lookup-resultados" id="rmBdResultadosTabelaPrincipal"></div>
+  </div>
+
+  <div class="card" id="rmBdCardCampos" style="display:none;">
+    <h2><span class="step-num">2</span> Campos da tabela principal</h2>
+    <input type="text" id="rm_bd_busca_campos_principal" placeholder="Buscar campo por nome ou descrição...">
+    <div class="rm-chips-selecionados" id="rmBdChipsCamposPrincipalSelecionados"></div>
+    <div class="rm-campos-grid" id="rmBdCamposPrincipal"></div>
+  </div>
+
+  <div class="card" id="rmBdCardRelacionadas" style="display:none;">
+    <h2><span class="step-num">3</span> Tabelas relacionadas <span class="pill" id="rmBdRelacionadasTotal">0</span></h2>
+    <input type="text" id="rm_bd_busca_relacionadas" placeholder="Buscar tabela relacionada por nome ou apelido...">
+    <div class="rm-chips-selecionados" id="rmBdChipsRelacionadasSelecionadas"></div>
+    <div class="rm-lookup-resultados" id="rmBdChipsRelacionadas"></div>
+    <div id="rmBdSecoesRelacionadas"></div>
+  </div>
+
+  <div class="card" id="rmBdCardOrdem" style="display:none;">
+    <h2><span class="step-num">4</span> Ordem</h2>
+    <div class="field"><label>Adicionar campo à ordenação</label><select id="rm_bd_ordem_add"></select></div>
+    <div id="rmBdOrdemLista"></div>
+  </div>
+
+  <div class="card" id="rmBdCardSql" style="display:none;">
+    <h2><span class="step-num">5</span> Consulta gerada</h2>
+    <div class="sql-box" id="rmBdSqlPreview"></div>
+    <div class="row">
+      <button class="primary" id="btnRmBdBaixarSql" style="margin-top:0;">⬇ Baixar .sql</button>
+      <button class="primary" id="btnRmBdSalvarConsulta" style="margin-top:0;">💾 Salvar consulta</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Consultas salvas</h2>
+    <div id="rmBdConsultasSalvas"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="gerador-sql-rm.js"></script>
+</body>
+</html>

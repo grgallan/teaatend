@@ -269,6 +269,14 @@ async function rotear(req: any): Promise<any> {
     case 'rmListarConsultasSalvas': return acaoRmListarConsultasSalvas(req);
     case 'rmSalvarConsulta': return acaoRmSalvarConsulta(req);
     case 'rmRemoverConsulta': return acaoRmRemoverConsulta(req);
+    // versões públicas (sem login) — usadas só pela página separada
+    // gerador-sql-rm.html; nunca leem/gravam nada fora das tabelas rm_*
+    case 'rmPublicoListarTabelas': return acaoRmPublicoListarTabelas(req);
+    case 'rmPublicoListarCampos': return acaoRmPublicoListarCampos(req);
+    case 'rmPublicoListarRelacionamentosDe': return acaoRmPublicoListarRelacionamentosDe(req);
+    case 'rmPublicoListarConsultasSalvas': return acaoRmPublicoListarConsultasSalvas(req);
+    case 'rmPublicoSalvarConsulta': return acaoRmPublicoSalvarConsulta(req);
+    case 'rmPublicoRemoverConsulta': return acaoRmPublicoRemoverConsulta(req);
     default: return { erro: 'ação desconhecida: ' + req.action };
   }
 }
@@ -2184,10 +2192,9 @@ async function buscarTabelasExistentesRm(nomes: any[]): Promise<{ mapa: Map<stri
   return { mapa };
 }
 
-async function acaoRmListarTabelas(req: any) {
-  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.tabelasrm'], 'visualizar'))) {
-    return { ok: false, erro: 'Você não tem permissão para ver as tabelas do RM.' };
-  }
+// miolo sem checagem de permissão — usado pela versão autenticada
+// (acaoRmListarTabelas) e pela pública (acaoRmPublicoListarTabelas)
+async function nucleoRmListarTabelas(req: any) {
   const limite = Math.min(Number(req.limit) || 40, 1000);
   const offset = Math.max(Number(req.offset) || 0, 0);
   let query = db.from('rm_tabelas').select('*', { count: 'exact' }).order('nome').range(offset, offset + limite - 1);
@@ -2199,6 +2206,12 @@ async function acaoRmListarTabelas(req: any) {
   const { data, error, count } = await query;
   if (error) return { ok: false, erro: error.message };
   return { ok: true, tabelas: (data || []).map(rmTabelaParaApi), total: count || 0 };
+}
+async function acaoRmListarTabelas(req: any) {
+  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.tabelasrm'], 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver as tabelas do RM.' };
+  }
+  return nucleoRmListarTabelas(req);
 }
 async function acaoRmAddTabela(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.tabelasrm', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar tabelas do RM.' };
@@ -2296,10 +2309,7 @@ async function acaoRmImportarDicionarioLote(req: any) {
   return { ok: true, tabelas: nomesTabelas.length, campos: camposProcessados };
 }
 
-async function acaoRmListarCampos(req: any) {
-  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.camposrm'], 'visualizar'))) {
-    return { ok: false, erro: 'Você não tem permissão para ver os campos do RM.' };
-  }
+async function nucleoRmListarCampos(req: any) {
   if (!req.tabelaId) return { ok: true, campos: [] };
   let query = db.from('rm_campos').select('*').eq('tabela_id', req.tabelaId).order('nome');
   if (req.busca) {
@@ -2309,6 +2319,12 @@ async function acaoRmListarCampos(req: any) {
   const { data, error } = await query;
   if (error) return { ok: false, erro: error.message };
   return { ok: true, campos: (data || []).map(rmCampoParaApi) };
+}
+async function acaoRmListarCampos(req: any) {
+  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.camposrm'], 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver os campos do RM.' };
+  }
+  return nucleoRmListarCampos(req);
 }
 async function acaoRmAddCampo(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.camposrm', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar campos do RM.' };
@@ -2338,10 +2354,7 @@ async function acaoRmRemoverCampo(req: any) {
 // origem ou destino do relacionamento no RM) já com o nome/apelido da
 // OUTRA tabela resolvido — é isso que faz a lista de "tabelas relacionadas"
 // do Gerador SQL RM mostrar só quem realmente tem relação com a principal
-async function acaoRmListarRelacionamentosDe(req: any) {
-  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.relacionamentosrm'], 'visualizar'))) {
-    return { ok: false, erro: 'Você não tem permissão para ver os relacionamentos do RM.' };
-  }
+async function nucleoRmListarRelacionamentosDe(req: any) {
   const tabelaId = String(req.tabelaId || '');
   if (!/^[a-zA-Z0-9-]+$/.test(tabelaId)) return { ok: true, relacionamentos: [] };
   const { data, error } = await db.from('rm_relacionamentos').select('*')
@@ -2363,6 +2376,12 @@ async function acaoRmListarRelacionamentosDe(req: any) {
     };
   });
   return { ok: true, relacionamentos };
+}
+async function acaoRmListarRelacionamentosDe(req: any) {
+  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.relacionamentosrm'], 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver os relacionamentos do RM.' };
+  }
+  return nucleoRmListarRelacionamentosDe(req);
 }
 // lista/busca administrativa (tela Cadastros → Relacionamentos RM) — filtra
 // pelo nome/apelido de qualquer uma das tabelas envolvidas
@@ -2548,6 +2567,44 @@ async function acaoRmRemoverConsulta(req: any) {
   if (!(await podeAgir(req.contaId, 'utilitarios.sqlrm', 'excluir'))) {
     return { ok: false, erro: 'Você não tem permissão para remover consultas salvas.' };
   }
+  await db.from('rm_consultas_salvas').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+/* =========================================================
+   Gerador SQL RM — versões PÚBLICAS (sem login), usadas só pela página
+   separada gerador-sql-rm.html (link livre, sem acesso ao resto do
+   sistema — pedido explícito do usuário, aceitando que qualquer um com o
+   link acessa o dicionário de tabelas do RM e pode gerar/salvar consultas).
+   Nunca leem/gravam nada fora das tabelas rm_* — sem contaId, então sem
+   como restringir por Perfil de Acesso; a restrição aqui é só "só mexe no
+   dicionário do RM", nunca em atendimentos/clientes/financeiro/etc.
+   ========================================================= */
+async function acaoRmPublicoListarTabelas(req: any) {
+  return nucleoRmListarTabelas(req);
+}
+async function acaoRmPublicoListarCampos(req: any) {
+  return nucleoRmListarCampos(req);
+}
+async function acaoRmPublicoListarRelacionamentosDe(req: any) {
+  return nucleoRmListarRelacionamentosDe(req);
+}
+async function acaoRmPublicoListarConsultasSalvas(req: any) {
+  const { data, error } = await db.from('rm_consultas_salvas').select('*').order('criado_em', { ascending: false }).limit(100);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, consultas: (data || []).map(rmConsultaParaApi) };
+}
+async function acaoRmPublicoSalvarConsulta(req: any) {
+  if (!req.nome || !req.tabelaPrincipalId || !req.sqlGerado) return { ok: false, erro: 'Preencha nome, tabela principal e gere o SQL antes de salvar.' };
+  const registro = {
+    id: gerarId(), nome: req.nome, tabela_principal_id: req.tabelaPrincipalId,
+    config: req.config || {}, sql_gerado: req.sqlGerado, criado_por: 'Link público',
+  };
+  const { error } = await db.from('rm_consultas_salvas').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, consulta: rmConsultaParaApi(registro) };
+}
+async function acaoRmPublicoRemoverConsulta(req: any) {
   await db.from('rm_consultas_salvas').delete().eq('id', req.id);
   return { ok: true };
 }
