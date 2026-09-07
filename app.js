@@ -30,6 +30,7 @@ let rmTabelaSelecionadaCamposRM = null; // tabela escolhida na tela Cadastros �
 let rmBuscaRelacionamentosRM = ''; // termo de busca da tela Cadastros → Relacionamentos RM
 let editandoTabelaRMId = null;
 let editandoCampoRMId = null;
+let editandoRelacionamentoRMId = null;
 // estado do construtor de consulta (Utilitários → Gerador SQL RM)
 let rmBuilder = {
   tabelaPrincipal: null, // {id, nome, apelido}
@@ -5876,10 +5877,37 @@ function renderListRelacionamentosRM(lista){
         <span>${r.tipoJoin === 'INNER' ? 'INNER JOIN' : 'LEFT JOIN'}</span>
       </div>
       <div class="acts">
+        <button onclick="editarRelacionamentoRM('${r.id}')">Editar</button>
         <button onclick="alternarTipoJoinRelacionamentoRM('${r.id}')">${r.tipoJoin === 'INNER' ? 'Tornar LEFT' : 'Tornar INNER'}</button>
         <button class="danger" onclick="pedirConfirmacao('Remover esse relacionamento?','', ()=>removerRelacionamentoRM('${r.id}'))">Remover</button>
       </div>
     </div>`).join('');
+}
+// carrega um relacionamento existente no formulário do topo pra edição —
+// o import traz um padrão (tabelas/campos vindos do GLINKSREL); aqui o
+// admin corrige/ajusta manualmente qualquer parte dele, inclusive quando
+// o join está como LEFT
+function editarRelacionamentoRM(id){
+  const r = rmRelacionamentosListaAtual.find(x=>x.id===id); if(!r) return;
+  editandoRelacionamentoRMId = id;
+  document.getElementById('rl_tabela_origem').value = r.tabelaOrigemId;
+  document.getElementById('rl_tabela_destino').value = r.tabelaDestinoId;
+  document.getElementById('rl_campo_origem').value = r.campoOrigem;
+  document.getElementById('rl_campo_destino').value = r.campoDestino;
+  document.getElementById('rl_tipo').value = r.tipoJoin === 'INNER' ? 'INNER' : 'LEFT';
+  document.getElementById('rmRelTituloForm').textContent = 'Editar relacionamento';
+  document.getElementById('btnSalvarRelacionamentoRM').textContent = 'Salvar edição';
+  document.getElementById('btnCancelarEdicaoRelacionamentoRM').style.display = '';
+  document.getElementById('rmRelTituloForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function cancelarEdicaoRelacionamentoRM(){
+  editandoRelacionamentoRMId = null;
+  document.getElementById('rl_campo_origem').value = '';
+  document.getElementById('rl_campo_destino').value = '';
+  document.getElementById('rl_tipo').value = 'LEFT';
+  document.getElementById('rmRelTituloForm').textContent = 'Novo relacionamento';
+  document.getElementById('btnSalvarRelacionamentoRM').textContent = 'Adicionar relacionamento';
+  document.getElementById('btnCancelarEdicaoRelacionamentoRM').style.display = 'none';
 }
 async function alternarTipoJoinRelacionamentoRM(id){
   const r = rmRelacionamentosListaAtual.find(x=>x.id===id); if(!r) return;
@@ -5902,11 +5930,18 @@ async function salvarRelacionamentoRM(){
   const campoDestino = document.getElementById('rl_campo_destino').value.trim();
   const tipoJoin = document.getElementById('rl_tipo').value;
   if(!tabelaOrigemId || !tabelaDestinoId || !campoOrigem || !campoDestino){ toast('Preencha tabela e campo de origem e destino'); return; }
-  const r = await api('rmAddRelacionamento', { contaId: conta.id, tabelaOrigemId, tabelaDestinoId, campoOrigem, campoDestino, tipoJoin });
-  if(!r.ok){ toast(r.erro || 'Erro ao cadastrar'); return; }
-  toast('Relacionamento cadastrado');
-  document.getElementById('rl_campo_origem').value = '';
-  document.getElementById('rl_campo_destino').value = '';
+  if(editandoRelacionamentoRMId){
+    const r = await api('rmAtualizarRelacionamento', { contaId: conta.id, id: editandoRelacionamentoRMId, tabelaOrigemId, tabelaDestinoId, campoOrigem, campoDestino, tipoJoin });
+    if(!r.ok){ toast(r.erro || 'Erro ao salvar'); return; }
+    toast('Relacionamento atualizado');
+    cancelarEdicaoRelacionamentoRM();
+  } else {
+    const r = await api('rmAddRelacionamento', { contaId: conta.id, tabelaOrigemId, tabelaDestinoId, campoOrigem, campoDestino, tipoJoin });
+    if(!r.ok){ toast(r.erro || 'Erro ao cadastrar'); return; }
+    toast('Relacionamento cadastrado');
+    document.getElementById('rl_campo_origem').value = '';
+    document.getElementById('rl_campo_destino').value = '';
+  }
   recarregarListaRelacionamentosRM();
 }
 async function importarArquivoRelacionamentosRM(inputEl){
@@ -6028,9 +6063,12 @@ function renderRmBdResultadosTabelaPrincipal(termo){
   const el = document.getElementById('rmBdResultadosTabelaPrincipal');
   const t = normalizarBuscaTextoRm(termo).trim();
   if(!t){ el.innerHTML = ''; return; }
-  const resultados = (rmTabelasTodas || []).filter(x=>normalizarBuscaTextoRm(`${x.nome} ${x.apelido || ''}`).includes(t)).slice(0, 100);
+  const resultados = (rmTabelasTodas || [])
+    .filter(x=>normalizarBuscaTextoRm(`${x.nome} ${x.apelido || ''}`).includes(t))
+    .sort((a,b)=>a.nome.localeCompare(b.nome, 'pt-BR'))
+    .slice(0, 100);
   if(resultados.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela encontrada.</div>`; return; }
-  el.innerHTML = resultados.map(x=>`<div class="chip" onclick="selecionarTabelaPrincipalRM('${x.id}')">${escaparHtml(x.nome)}${x.apelido && x.apelido !== x.nome ? ' — '+escaparHtml(x.apelido) : ''}</div>`).join('');
+  el.innerHTML = resultados.map(x=>`<div class="rm-lookup-item" onclick="selecionarTabelaPrincipalRM('${x.id}')">${escaparHtml(x.nome)}${x.apelido && x.apelido !== x.nome ? ' — '+escaparHtml(x.apelido) : ''}</div>`).join('');
 }
 function renderRmBdTabelaPrincipalSelecionada(){
   const el = document.getElementById('rmBdTabelaPrincipalSelecionada');
@@ -6088,7 +6126,7 @@ function renderCamposLookupRm(containerId, chipsContainerId, campos, selecionado
   renderChipsCamposSelecionadosRm(chipsContainerId, campos, selecionados, montarChamada);
   const el = document.getElementById(containerId);
   if(!campos || campos.length === 0){ el.innerHTML = `<div class="empty">Essa tabela ainda não tem campos cadastrados.</div>`; return; }
-  el.innerHTML = campos.map(c=>{
+  el.innerHTML = campos.slice().sort((a,b)=>(a.rotulo || a.nome).localeCompare(b.rotulo || b.nome, 'pt-BR')).map(c=>{
     const busca = normalizarBuscaTextoRm(`${c.nome} ${c.rotulo || ''}`);
     const rotulo = c.rotulo ? `${escaparHtml(c.rotulo)}<span class="mono-sub">${escaparHtml(c.nome)}</span>` : `<span class="mono-sub">${escaparHtml(c.nome)}</span>`;
     return `<label class="rm-campo-row" data-busca="${escaparHtml(busca)}"><input type="checkbox" data-campo="${escaparHtml(c.nome)}" ${selecionados.has(c.nome)?'checked':''} onchange="${montarChamada(c.nome,'this.checked')}"> ${rotulo}${c.tipo ? ` <span class="tipo">${escaparHtml(c.tipo)}</span>` : ''}</label>`;
@@ -6137,10 +6175,13 @@ function renderRmBdChipsRelacionadas(){
     document.getElementById('rmBdSecoesRelacionadas').innerHTML = '';
     return;
   }
-  el.innerHTML = rels.map(r=>{
-    const buscaTxt = normalizarBuscaTextoRm(`${r.outraTabelaNome} ${r.outraTabelaApelido || ''}`);
-    return `<div class="chip rm-rel-chip" data-tabela="${r.outraTabelaId}" data-busca="${escaparHtml(buscaTxt)}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`;
-  }).join('');
+  el.innerHTML = rels
+    .slice()
+    .sort((a,b)=>(a.outraTabelaApelido || a.outraTabelaNome).localeCompare(b.outraTabelaApelido || b.outraTabelaNome, 'pt-BR'))
+    .map(r=>{
+      const buscaTxt = normalizarBuscaTextoRm(`${r.outraTabelaNome} ${r.outraTabelaApelido || ''}`);
+      return `<div class="rm-lookup-item rm-rel-chip" data-tabela="${r.outraTabelaId}" data-busca="${escaparHtml(buscaTxt)}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`;
+    }).join('');
   renderChipsRelacionadasSelecionadasRm();
   const busca = document.getElementById('rm_bd_busca_relacionadas');
   filtrarTabelasRelacionadasRm(busca ? busca.value : '');
@@ -8302,6 +8343,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnSalvarCampoRM').addEventListener('click', salvarCampoRM);
   document.getElementById('btnCancelarEdicaoCampoRM').addEventListener('click', cancelarEdicaoCampoRM);
   document.getElementById('btnSalvarRelacionamentoRM').addEventListener('click', salvarRelacionamentoRM);
+  document.getElementById('btnCancelarEdicaoRelacionamentoRM').addEventListener('click', cancelarEdicaoRelacionamentoRM);
   document.getElementById('rl_arquivo').addEventListener('change', e=>importarArquivoRelacionamentosRM(e.target));
   document.getElementById('rl_busca').addEventListener('input', e=>{ rmBuscaRelacionamentosRM = e.target.value; recarregarListaRelacionamentosRM(); });
   document.getElementById('ax_tabela').addEventListener('change', atualizarCamposAuxSelectsRM);

@@ -2411,10 +2411,33 @@ async function acaoRmAddRelacionamento(req: any) {
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
+// atualiza um relacionamento já existente — tanto o tipo de junção quanto
+// a própria definição de quais tabelas/campos se relacionam (o import traz
+// um padrão a partir do GLINKSREL; essa ação deixa o admin corrigir/ajustar
+// manualmente). Só atualiza os campos que vierem definidos no pedido.
 async function acaoRmAtualizarRelacionamento(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.relacionamentosrm', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar relacionamentos do RM.' };
-  const { error } = await db.from('rm_relacionamentos').update({ tipo_join: req.tipoJoin === 'INNER' ? 'INNER' : 'LEFT' }).eq('id', req.id);
-  if (error) return { ok: false, erro: error.message };
+  const atualizacao: any = {};
+  if (req.tipoJoin !== undefined) atualizacao.tipo_join = req.tipoJoin === 'INNER' ? 'INNER' : 'LEFT';
+  if (req.tabelaOrigemId !== undefined) atualizacao.tabela_origem_id = req.tabelaOrigemId;
+  if (req.tabelaDestinoId !== undefined) atualizacao.tabela_destino_id = req.tabelaDestinoId;
+  if (req.campoOrigem !== undefined) {
+    const campo = normalizarCamposRm(req.campoOrigem);
+    if (!campo) return { ok: false, erro: 'Informe o campo de origem.' };
+    atualizacao.campo_origem = campo;
+  }
+  if (req.campoDestino !== undefined) {
+    const campo = normalizarCamposRm(req.campoDestino);
+    if (!campo) return { ok: false, erro: 'Informe o campo de destino.' };
+    atualizacao.campo_destino = campo;
+  }
+  const { error } = await db.from('rm_relacionamentos').update(atualizacao).eq('id', req.id);
+  if (error) {
+    if (String(error.message || '').includes('rm_relacionamentos_unico')) {
+      return { ok: false, erro: 'Já existe um relacionamento igual (mesma tabela/campo de origem e destino).' };
+    }
+    return { ok: false, erro: error.message };
+  }
   return { ok: true };
 }
 async function acaoRmRemoverRelacionamento(req: any) {
