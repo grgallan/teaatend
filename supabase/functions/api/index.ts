@@ -2225,27 +2225,38 @@ async function acaoRmImportarDicionarioLote(req: any) {
   if (linhas.length === 0) return { ok: true, tabelas: 0, campos: 0 };
 
   const nomesTabelas = [...new Set(linhas.map((l: any) => l.tabela))];
-  // fase 1: garante que toda tabela citada no lote já existe — NUNCA
-  // sobrescreve o id de quem já existe (ignoreDuplicates: a linha em
-  // conflito é simplesmente ignorada, o id enviado só vale pra quem é
-  // realmente novo)
-  const stubs = nomesTabelas.map((nome) => ({ id: gerarId(), nome }));
-  const { error: erroStub } = await db.from('rm_tabelas').upsert(stubs, { onConflict: 'nome', ignoreDuplicates: true });
-  if (erroStub) return { ok: false, erro: erroStub.message };
+  // 1) descobre quem já existe (pelo nome) — só depois disso decide o que
+  // é INSERT (nome ainda não existe, precisa de id novo) e o que é UPDATE
+  // (nome já existe, usa o id de verdade — nunca gera/upserta sem saber o
+  // id certo, que foi exatamente a causa do erro "null value in column id")
+  const { data: existentes, error: erroExistentes } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
+  if (erroExistentes) return { ok: false, erro: erroExistentes.message };
+  const mapaId = new Map((existentes || []).map((t: any) => [t.nome, t.id]));
 
-  // fase 2: aplica o rótulo/descrição da tabela (linhas coluna="#") — sem
-  // "id" no payload, então o UPDATE do conflito só toca apelido/descricao,
-  // nunca o id (a linha já existe garantido pela fase 1)
-  const linhasTabela = dedupPorChaveRm(linhas.filter((l: any) => l.coluna === '#' && l.descricao), (l: any) => l.tabela);
-  if (linhasTabela.length) {
-    const atualizacoesTabela = linhasTabela.map((l: any) => ({ nome: l.tabela, apelido: l.descricao, descricao: l.descricao }));
-    const { error: erroApelido } = await db.from('rm_tabelas').upsert(atualizacoesTabela, { onConflict: 'nome', ignoreDuplicates: false });
-    if (erroApelido) return { ok: false, erro: erroApelido.message };
+  const nomesFaltando = nomesTabelas.filter((nome) => !mapaId.has(nome));
+  if (nomesFaltando.length) {
+    const novos = nomesFaltando.map((nome) => ({ id: gerarId(), nome }));
+    const { data: inseridos, error: erroInsert } = await db.from('rm_tabelas').insert(novos).select('id,nome');
+    if (erroInsert) return { ok: false, erro: erroInsert.message };
+    (inseridos || []).forEach((t: any) => mapaId.set(t.nome, t.id));
   }
 
-  const { data: tabelasAtuais, error: erroSelect } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
-  if (erroSelect) return { ok: false, erro: erroSelect.message };
-  const mapaId = new Map((tabelasAtuais || []).map((t: any) => [t.nome, t.id]));
+  // 2) aplica o rótulo/descrição da tabela (linhas coluna="#") via upsert
+  // por id — o id usado é sempre o real (recém-criado ou já existente),
+  // então "on conflict (id) do update" nunca troca o id de ninguém
+  const linhasTabela = dedupPorChaveRm(linhas.filter((l: any) => l.coluna === '#' && l.descricao), (l: any) => l.tabela);
+  if (linhasTabela.length) {
+    const atualizacoesTabela = linhasTabela
+      .map((l: any) => {
+        const id = mapaId.get(l.tabela);
+        return id ? { id, nome: l.tabela, apelido: l.descricao, descricao: l.descricao } : null;
+      })
+      .filter(Boolean);
+    if (atualizacoesTabela.length) {
+      const { error: erroApelido } = await db.from('rm_tabelas').upsert(atualizacoesTabela, { onConflict: 'id' });
+      if (erroApelido) return { ok: false, erro: erroApelido.message };
+    }
+  }
 
   const linhasCampo = dedupPorChaveRm(
     linhas.filter((l: any) => l.coluna && l.coluna !== '#'),
@@ -2415,14 +2426,21 @@ async function acaoRmImportarRelacionamentosLote(req: any) {
     .filter((l: any) => l.tabelaOrigem && l.campoOrigem && l.tabelaDestino && l.campoDestino);
   if (linhas.length === 0) return { ok: true, relacionamentos: 0 };
 
+  // mesmo padrão do import do dicionário: descobre quem já existe antes de
+  // decidir o que precisa de id novo, nunca upserta uma tabela sem saber
+  // com certeza o id dela
   const nomesTabelas = [...new Set(linhas.flatMap((l: any) => [l.tabelaOrigem, l.tabelaDestino]))];
-  const stubs = nomesTabelas.map((nome) => ({ id: gerarId(), nome }));
-  const { error: erroStub } = await db.from('rm_tabelas').upsert(stubs, { onConflict: 'nome', ignoreDuplicates: true });
-  if (erroStub) return { ok: false, erro: erroStub.message };
+  const { data: existentes, error: erroExistentes } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
+  if (erroExistentes) return { ok: false, erro: erroExistentes.message };
+  const mapaId = new Map((existentes || []).map((t: any) => [t.nome, t.id]));
 
-  const { data: tabelasAtuais, error: erroSelect } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
-  if (erroSelect) return { ok: false, erro: erroSelect.message };
-  const mapaId = new Map((tabelasAtuais || []).map((t: any) => [t.nome, t.id]));
+  const nomesFaltando = nomesTabelas.filter((nome) => !mapaId.has(nome));
+  if (nomesFaltando.length) {
+    const novos = nomesFaltando.map((nome) => ({ id: gerarId(), nome }));
+    const { data: inseridos, error: erroInsert } = await db.from('rm_tabelas').insert(novos).select('id,nome');
+    if (erroInsert) return { ok: false, erro: erroInsert.message };
+    (inseridos || []).forEach((t: any) => mapaId.set(t.nome, t.id));
+  }
 
   const registros = dedupPorChaveRm(
     linhas
