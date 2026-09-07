@@ -6002,22 +6002,47 @@ async function desmarcarTabelaAuxRM(tabelaId){
 
 /* ---------- Utilitários › Gerador SQL RM (construtor de consulta) ---------- */
 async function iniciarGeradorSqlRm(){
-  rmBuilder = { tabelaPrincipal: null, camposPrincipal: new Set(), relacionamentosDisponiveis: [], tabelasRelacionadas: new Map(), ordem: [] };
   document.getElementById('rmBdCardCampos').style.display = 'none';
   document.getElementById('rmBdCardRelacionadas').style.display = 'none';
   document.getElementById('rmBdCardOrdem').style.display = 'none';
   document.getElementById('rmBdCardSql').style.display = 'none';
   document.getElementById('rm_bd_busca_campos_principal').value = '';
   document.getElementById('rm_bd_busca_relacionadas').value = '';
+  document.getElementById('rm_bd_busca_tabela_principal').value = '';
+  document.getElementById('rmBdResultadosTabelaPrincipal').innerHTML = '';
   await carregarTabelasRMTodas();
-  preencherSelectTabelasRM(document.getElementById('rm_bd_tabela_principal'), null, true);
+  await carregarTabelaPrincipalRM(null);
   await carregarConsultasSalvasRM();
 }
-async function escolherTabelaPrincipalRM(){
-  const tabelaId = document.getElementById('rm_bd_tabela_principal').value;
+// tabela principal também é um lookup por busca (não um <select> comum) —
+// mesmo conceito da busca de campos/tabelas relacionadas: digita, aparecem
+// os resultados (por nome real ou apelido), clica pra escolher; o
+// resultado some da tela e vira um chip removível acima
+function renderRmBdResultadosTabelaPrincipal(termo){
+  const el = document.getElementById('rmBdResultadosTabelaPrincipal');
+  const t = (termo || '').trim().toLowerCase();
+  if(!t){ el.innerHTML = ''; return; }
+  const resultados = (rmTabelasTodas || []).filter(x=>`${x.nome} ${x.apelido || ''}`.toLowerCase().includes(t)).slice(0, 100);
+  if(resultados.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela encontrada.</div>`; return; }
+  el.innerHTML = resultados.map(x=>`<div class="chip" onclick="selecionarTabelaPrincipalRM('${x.id}')">${escaparHtml(x.nome)}${x.apelido && x.apelido !== x.nome ? ' — '+escaparHtml(x.apelido) : ''}</div>`).join('');
+}
+function renderRmBdTabelaPrincipalSelecionada(){
+  const el = document.getElementById('rmBdTabelaPrincipalSelecionada');
+  const t = rmBuilder.tabelaPrincipal;
+  el.innerHTML = t
+    ? `<div class="chip on" onclick="selecionarTabelaPrincipalRM(null)">${escaparHtml(t.nome)}${t.apelido && t.apelido !== t.nome ? ' — '+escaparHtml(t.apelido) : ''} ✕</div>`
+    : `<span class="rm-hint-inline">Nenhuma tabela escolhida ainda.</span>`;
+}
+async function selecionarTabelaPrincipalRM(tabelaId){
+  document.getElementById('rm_bd_busca_tabela_principal').value = '';
+  document.getElementById('rmBdResultadosTabelaPrincipal').innerHTML = '';
+  await carregarTabelaPrincipalRM(tabelaId);
+}
+async function carregarTabelaPrincipalRM(tabelaId){
   rmBuilder = { tabelaPrincipal: null, camposPrincipal: new Set(), relacionamentosDisponiveis: [], tabelasRelacionadas: new Map(), ordem: [] };
   document.getElementById('rmBdCardOrdem').style.display = 'none';
   document.getElementById('rmBdCardSql').style.display = 'none';
+  renderRmBdTabelaPrincipalSelecionada();
   if(!tabelaId){
     document.getElementById('rmBdCardCampos').style.display = 'none';
     document.getElementById('rmBdCardRelacionadas').style.display = 'none';
@@ -6025,6 +6050,7 @@ async function escolherTabelaPrincipalRM(){
   }
   const tabela = (rmTabelasTodas || []).find(t=>t.id === tabelaId);
   rmBuilder.tabelaPrincipal = tabela;
+  renderRmBdTabelaPrincipalSelecionada();
   const conta = contaAtual();
   const [rCampos, rRel] = await Promise.all([
     api('rmListarCampos', { contaId: conta.id, tabelaId }),
@@ -8274,7 +8300,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('rl_busca').addEventListener('input', e=>{ rmBuscaRelacionamentosRM = e.target.value; recarregarListaRelacionamentosRM(); });
   document.getElementById('ax_tabela').addEventListener('change', atualizarCamposAuxSelectsRM);
   document.getElementById('btnMarcarTabelaAuxRM').addEventListener('click', marcarTabelaAuxRM);
-  document.getElementById('rm_bd_tabela_principal').addEventListener('change', escolherTabelaPrincipalRM);
+  document.getElementById('rm_bd_busca_tabela_principal').addEventListener('input', e=>renderRmBdResultadosTabelaPrincipal(e.target.value));
   document.getElementById('rm_bd_busca_campos_principal').addEventListener('input', e=>filtrarPorBuscaRm('rmBdCamposPrincipal', e.target.value, '.rm-campo-row'));
   document.getElementById('rm_bd_busca_relacionadas').addEventListener('input', e=>filtrarTabelasRelacionadasRm(e.target.value));
   document.getElementById('rm_bd_ordem_add').addEventListener('change', adicionarRmBdOrdem);
