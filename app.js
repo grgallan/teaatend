@@ -1128,6 +1128,16 @@ function entrarNoApp(){
   renderCadastrosTudo();
   resetForm();
   renderFiltros();
+  // link direto pro Gerador SQL RM (ex: .../#gerador-sql-rm) — abre já
+  // dentro da ferramenta, sem precisar navegar por Utilitários manualmente;
+  // só funciona se a conta realmente tiver acesso a ela
+  const querAbrirGeradorSqlRm = location.hash.toLowerCase() === '#gerador-sql-rm';
+  const podeAbrirGeradorSqlRm = menuVisivel(conta, 'utilitarios', isAdmin) && menuVisivel(conta, 'utilitarios.sqlrm', true);
+  if(querAbrirGeradorSqlRm && podeAbrirGeradorSqlRm){
+    goView('utilitarios');
+    abrirGeradorSqlRm();
+    return;
+  }
   const alvoPadrao = isUsuario ? 'lista' : 'novo';
   const podeAbrirAlvoPadrao = document.querySelector(`.tab[data-view="${alvoPadrao}"]`)?.style.display !== 'none';
   goView(podeAbrirAlvoPadrao ? alvoPadrao : 'lista');
@@ -6048,6 +6058,13 @@ async function desmarcarTabelaAuxRM(tabelaId){
 }
 
 /* ---------- Utilitários › Gerador SQL RM (construtor de consulta) ---------- */
+// abre o card do Gerador SQL RM dentro de Utilitários — usado tanto pelo
+// clique no card quanto pelo link direto (#gerador-sql-rm), ver entrarNoApp()
+function abrirGeradorSqlRm(){
+  document.getElementById('utilCategorias').style.display = 'none';
+  document.getElementById('utilSqlRm').style.display = '';
+  iniciarGeradorSqlRm();
+}
 async function iniciarGeradorSqlRm(){
   document.getElementById('rmBdCardCampos').style.display = 'none';
   document.getElementById('rmBdCardRelacionadas').style.display = 'none';
@@ -8358,11 +8375,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('utilTomticket').style.display = 'none';
     document.getElementById('utilCategorias').style.display = '';
   });
-  document.querySelector('[data-util-cat="sqlrm"]').addEventListener('click', ()=>{
-    document.getElementById('utilCategorias').style.display = 'none';
-    document.getElementById('utilSqlRm').style.display = '';
-    iniciarGeradorSqlRm();
-  });
+  document.querySelector('[data-util-cat="sqlrm"]').addEventListener('click', abrirGeradorSqlRm);
   document.getElementById('btnUtilSqlRmVoltar').addEventListener('click', ()=>{
     document.getElementById('utilSqlRm').style.display = 'none';
     document.getElementById('utilCategorias').style.display = '';
