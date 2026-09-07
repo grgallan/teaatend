@@ -118,7 +118,8 @@ const MENUS_PERFIL_ACESSO = [
   'cadastros', 'cadastros.atendentes', 'cadastros.clientes', 'cadastros.tipos', 'cadastros.modulos',
   'cadastros.submodulos', 'cadastros.status', 'cadastros.valores', 'cadastros.usuarios',
   'cadastros.perfisacesso', 'cadastros.empresas',
-  'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket',
+  'cadastros.tabelasrm', 'cadastros.camposrm', 'cadastros.relacionamentosrm', 'cadastros.tabelasauxrm',
+  'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket', 'utilitarios.sqlrm',
 ];
 
 function permissaoVaziaPorMenu() {
@@ -248,6 +249,26 @@ async function rotear(req: any): Promise<any> {
     case 'removerEmpresa': return acaoRemoverEmpresa(req);
     case 'vincularEmpresasConta': return acaoVincularEmpresasConta(req);
     case 'removerTomticketErro': return acaoRemoverTomticketErro(req);
+    case 'rmListarTabelas': return acaoRmListarTabelas(req);
+    case 'rmAddTabela': return acaoRmAddTabela(req);
+    case 'rmAtualizarTabela': return acaoRmAtualizarTabela(req);
+    case 'rmRemoverTabela': return acaoRmRemoverTabela(req);
+    case 'rmImportarDicionarioLote': return acaoRmImportarDicionarioLote(req);
+    case 'rmListarCampos': return acaoRmListarCampos(req);
+    case 'rmAddCampo': return acaoRmAddCampo(req);
+    case 'rmAtualizarCampo': return acaoRmAtualizarCampo(req);
+    case 'rmRemoverCampo': return acaoRmRemoverCampo(req);
+    case 'rmListarRelacionamentos': return acaoRmListarRelacionamentos(req);
+    case 'rmListarRelacionamentosDe': return acaoRmListarRelacionamentosDe(req);
+    case 'rmAddRelacionamento': return acaoRmAddRelacionamento(req);
+    case 'rmAtualizarRelacionamento': return acaoRmAtualizarRelacionamento(req);
+    case 'rmRemoverRelacionamento': return acaoRmRemoverRelacionamento(req);
+    case 'rmImportarRelacionamentosLote': return acaoRmImportarRelacionamentosLote(req);
+    case 'rmListarTabelasAuxiliares': return acaoRmListarTabelasAuxiliares(req);
+    case 'rmMarcarAuxiliar': return acaoRmMarcarAuxiliar(req);
+    case 'rmListarConsultasSalvas': return acaoRmListarConsultasSalvas(req);
+    case 'rmSalvarConsulta': return acaoRmSalvarConsulta(req);
+    case 'rmRemoverConsulta': return acaoRmRemoverConsulta(req);
     default: return { erro: 'ação desconhecida: ' + req.action };
   }
 }
@@ -2099,6 +2120,380 @@ async function acaoRecalcularValores(req: any) {
   }
 
   return { ok: true, total: lista.length, atualizados, semCorrespondencia };
+}
+
+/* =========================================================
+   Gerador SQL RM — dicionário de dados do TOTVS RM (tabelas, campos e
+   relacionamentos) guardado no nosso banco, pra montar consultas SQL
+   Server sem decorar nome de tabela/campo do RM. Alimentado por
+   importação em lote (GDIC2 = dicionário, GLINKSREL = relacionamentos)
+   ou cadastro manual — ver Cadastros → Tabelas RM/Campos RM/
+   Relacionamentos RM/Tabelas Auxiliares RM e Utilitários → Gerador SQL RM.
+   ========================================================= */
+function normalizarNomeRm(s: any): string {
+  return String(s || '').trim().toUpperCase();
+}
+// chave composta do RM vem como "CODCOLIGADA,CHAPA" (às vezes com espaço
+// depois da vírgula) — normaliza pra sempre "CODCOLIGADA,CHAPA", sem espaço,
+// pra bater exatamente na hora de comparar/gerar o SQL
+function normalizarCamposRm(s: any): string {
+  return String(s || '').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean).join(',');
+}
+// tira caracteres que quebrariam a sintaxe de filtro do PostgREST (usada
+// direto numa string interpolada em .or()/.in()) — a busca continua
+// funcionando normalmente, só perde esses símbolos específicos
+function sanitizarBuscaRm(s: any): string {
+  return String(s || '').replace(/[,()%*]/g, ' ').trim();
+}
+function dedupPorChaveRm<T>(arr: T[], chave: (x: T) => string): T[] {
+  const mapa = new Map<string, T>();
+  for (const item of arr) mapa.set(chave(item), item);
+  return [...mapa.values()];
+}
+// verdadeiro se a conta tiver a permissão pedida em QUALQUER um dos menus
+// informados — usado pelas telas que servem tanto o Cadastro (admin) quanto
+// o Gerador SQL RM (uso corrente, ex: buscar tabelas/campos pra montar consulta)
+async function podeAgirRm(contaId: string, menus: string[], campo: 'visualizar' | 'editar' | 'excluir' | 'inserir'): Promise<boolean> {
+  for (const m of menus) { if (await podeAgir(contaId, m, campo)) return true; }
+  return false;
+}
+function rmTabelaParaApi(t: any) {
+  return { id: t.id, nome: t.nome, apelido: t.apelido || '', descricao: t.descricao || '', auxiliar: !!t.auxiliar, auxCampoCodigo: t.aux_campo_codigo || '', auxCampoDescricao: t.aux_campo_descricao || '' };
+}
+function rmCampoParaApi(c: any) {
+  return { id: c.id, tabelaId: c.tabela_id, nome: c.nome, rotulo: c.rotulo || '', tipo: c.tipo || '' };
+}
+function rmConsultaParaApi(c: any) {
+  return { id: c.id, nome: c.nome, tabelaPrincipalId: c.tabela_principal_id, config: c.config, sqlGerado: c.sql_gerado, criadoPor: c.criado_por || '', criadoEm: c.criado_em };
+}
+
+async function acaoRmListarTabelas(req: any) {
+  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.tabelasrm'], 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver as tabelas do RM.' };
+  }
+  const limite = Math.min(Number(req.limit) || 40, 1000);
+  const offset = Math.max(Number(req.offset) || 0, 0);
+  let query = db.from('rm_tabelas').select('*', { count: 'exact' }).order('nome').range(offset, offset + limite - 1);
+  if (req.somenteAuxiliares) query = query.eq('auxiliar', true);
+  if (req.busca) {
+    const termo = sanitizarBuscaRm(req.busca);
+    query = query.or(`nome.ilike.%${termo}%,apelido.ilike.%${termo}%`);
+  }
+  const { data, error, count } = await query;
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, tabelas: (data || []).map(rmTabelaParaApi), total: count || 0 };
+}
+async function acaoRmAddTabela(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.tabelasrm', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar tabelas do RM.' };
+  const nome = normalizarNomeRm(req.nome);
+  if (!nome) return { ok: false, erro: 'Informe o nome real da tabela.' };
+  const { data: existente } = await db.from('rm_tabelas').select('id').eq('nome', nome).maybeSingle();
+  if (existente) return { ok: false, erro: 'Já existe uma tabela cadastrada com esse nome.' };
+  const registro = { id: gerarId(), nome, apelido: req.apelido || nome, descricao: req.descricao || '' };
+  const { error } = await db.from('rm_tabelas').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, tabela: rmTabelaParaApi(registro) };
+}
+async function acaoRmAtualizarTabela(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.tabelasrm', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar tabelas do RM.' };
+  const atualizacao: any = {};
+  if (req.apelido !== undefined) atualizacao.apelido = req.apelido;
+  if (req.descricao !== undefined) atualizacao.descricao = req.descricao;
+  const { error } = await db.from('rm_tabelas').update(atualizacao).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRmRemoverTabela(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.tabelasrm', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover tabelas do RM.' };
+  await db.from('rm_tabelas').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+// importação em lote do dicionário do RM (export GDIC2: TABELA;COLUNA;
+// DESCRICAO;...) — o front-end já manda só as 3 colunas que interessam,
+// em lotes de ~1500 linhas, pra nunca estourar tempo/tamanho de uma
+// requisição só, mesmo num dicionário com mais de 100 mil linhas.
+// COLUNA "#" é uma linha especial do RM: não é um campo de verdade, é o
+// próprio rótulo/descrição da tabela.
+async function acaoRmImportarDicionarioLote(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.tabelasrm', 'inserir'))) {
+    return { ok: false, erro: 'Você não tem permissão para importar o dicionário do RM.' };
+  }
+  const linhas = (Array.isArray(req.linhas) ? req.linhas : [])
+    .map((l: any) => ({ tabela: normalizarNomeRm(l.tabela), coluna: String(l.coluna || '').trim(), descricao: String(l.descricao || '').trim() }))
+    .filter((l: any) => l.tabela);
+  if (linhas.length === 0) return { ok: true, tabelas: 0, campos: 0 };
+
+  const nomesTabelas = [...new Set(linhas.map((l: any) => l.tabela))];
+  // fase 1: garante que toda tabela citada no lote já existe — NUNCA
+  // sobrescreve o id de quem já existe (ignoreDuplicates: a linha em
+  // conflito é simplesmente ignorada, o id enviado só vale pra quem é
+  // realmente novo)
+  const stubs = nomesTabelas.map((nome) => ({ id: gerarId(), nome }));
+  const { error: erroStub } = await db.from('rm_tabelas').upsert(stubs, { onConflict: 'nome', ignoreDuplicates: true });
+  if (erroStub) return { ok: false, erro: erroStub.message };
+
+  // fase 2: aplica o rótulo/descrição da tabela (linhas coluna="#") — sem
+  // "id" no payload, então o UPDATE do conflito só toca apelido/descricao,
+  // nunca o id (a linha já existe garantido pela fase 1)
+  const linhasTabela = dedupPorChaveRm(linhas.filter((l: any) => l.coluna === '#' && l.descricao), (l: any) => l.tabela);
+  if (linhasTabela.length) {
+    const atualizacoesTabela = linhasTabela.map((l: any) => ({ nome: l.tabela, apelido: l.descricao, descricao: l.descricao }));
+    const { error: erroApelido } = await db.from('rm_tabelas').upsert(atualizacoesTabela, { onConflict: 'nome', ignoreDuplicates: false });
+    if (erroApelido) return { ok: false, erro: erroApelido.message };
+  }
+
+  const { data: tabelasAtuais, error: erroSelect } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
+  if (erroSelect) return { ok: false, erro: erroSelect.message };
+  const mapaId = new Map((tabelasAtuais || []).map((t: any) => [t.nome, t.id]));
+
+  const linhasCampo = dedupPorChaveRm(
+    linhas.filter((l: any) => l.coluna && l.coluna !== '#'),
+    (l: any) => `${l.tabela}|${normalizarNomeRm(l.coluna)}`
+  );
+  let camposProcessados = 0;
+  if (linhasCampo.length) {
+    const registrosCampo = linhasCampo
+      .map((l: any) => {
+        const tabelaId = mapaId.get(l.tabela);
+        if (!tabelaId) return null;
+        return { id: gerarId(), tabela_id: tabelaId, nome: normalizarNomeRm(l.coluna), rotulo: l.descricao };
+      })
+      .filter(Boolean);
+    if (registrosCampo.length) {
+      const { error: erroCampo } = await db.from('rm_campos').upsert(registrosCampo, { onConflict: 'tabela_id,nome', ignoreDuplicates: false });
+      if (erroCampo) return { ok: false, erro: erroCampo.message };
+      camposProcessados = registrosCampo.length;
+    }
+  }
+  return { ok: true, tabelas: nomesTabelas.length, campos: camposProcessados };
+}
+
+async function acaoRmListarCampos(req: any) {
+  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.camposrm'], 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver os campos do RM.' };
+  }
+  if (!req.tabelaId) return { ok: true, campos: [] };
+  let query = db.from('rm_campos').select('*').eq('tabela_id', req.tabelaId).order('nome');
+  if (req.busca) {
+    const termo = sanitizarBuscaRm(req.busca);
+    query = query.or(`nome.ilike.%${termo}%,rotulo.ilike.%${termo}%`);
+  }
+  const { data, error } = await query;
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, campos: (data || []).map(rmCampoParaApi) };
+}
+async function acaoRmAddCampo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.camposrm', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar campos do RM.' };
+  const nome = normalizarNomeRm(req.nome);
+  if (!nome || !req.tabelaId) return { ok: false, erro: 'Informe a tabela e o nome real do campo.' };
+  const registro = { id: gerarId(), tabela_id: req.tabelaId, nome, rotulo: req.rotulo || nome, tipo: req.tipo || '' };
+  const { error } = await db.from('rm_campos').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, campo: rmCampoParaApi(registro) };
+}
+async function acaoRmAtualizarCampo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.camposrm', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar campos do RM.' };
+  const atualizacao: any = {};
+  if (req.rotulo !== undefined) atualizacao.rotulo = req.rotulo;
+  if (req.tipo !== undefined) atualizacao.tipo = req.tipo;
+  const { error } = await db.from('rm_campos').update(atualizacao).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRmRemoverCampo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.camposrm', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover campos do RM.' };
+  await db.from('rm_campos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+// devolve os relacionamentos de UMA tabela (dos dois lados — ela pode ser
+// origem ou destino do relacionamento no RM) já com o nome/apelido da
+// OUTRA tabela resolvido — é isso que faz a lista de "tabelas relacionadas"
+// do Gerador SQL RM mostrar só quem realmente tem relação com a principal
+async function acaoRmListarRelacionamentosDe(req: any) {
+  if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.relacionamentosrm'], 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver os relacionamentos do RM.' };
+  }
+  const tabelaId = String(req.tabelaId || '');
+  if (!/^[a-zA-Z0-9-]+$/.test(tabelaId)) return { ok: true, relacionamentos: [] };
+  const { data, error } = await db.from('rm_relacionamentos').select('*')
+    .or(`tabela_origem_id.eq.${tabelaId},tabela_destino_id.eq.${tabelaId}`);
+  if (error) return { ok: false, erro: error.message };
+  const idsTabelas = new Set<string>();
+  (data || []).forEach((r: any) => { idsTabelas.add(r.tabela_origem_id); idsTabelas.add(r.tabela_destino_id); });
+  const { data: tabelas } = idsTabelas.size ? await db.from('rm_tabelas').select('id,nome,apelido').in('id', [...idsTabelas]) : { data: [] as any[] };
+  const mapaTabela = new Map<string, any>((tabelas || []).map((t: any) => [t.id, t]));
+  const relacionamentos = (data || []).map((r: any) => {
+    const outraId = r.tabela_origem_id === tabelaId ? r.tabela_destino_id : r.tabela_origem_id;
+    const outra = mapaTabela.get(outraId);
+    const meuCampo = r.tabela_origem_id === tabelaId ? r.campo_origem : r.campo_destino;
+    const campoOutra = r.tabela_origem_id === tabelaId ? r.campo_destino : r.campo_origem;
+    return {
+      id: r.id, tipoJoin: r.tipo_join,
+      outraTabelaId: outraId, outraTabelaNome: outra ? outra.nome : '', outraTabelaApelido: outra ? (outra.apelido || outra.nome) : '',
+      meuCampo, campoOutraTabela: campoOutra,
+    };
+  });
+  return { ok: true, relacionamentos };
+}
+// lista/busca administrativa (tela Cadastros → Relacionamentos RM) — filtra
+// pelo nome/apelido de qualquer uma das tabelas envolvidas
+async function acaoRmListarRelacionamentos(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.relacionamentosrm', 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver os relacionamentos do RM.' };
+  }
+  const limite = Math.min(Number(req.limit) || 50, 200);
+  let idsTabelasFiltro: string[] | null = null;
+  if (req.busca) {
+    const termo = sanitizarBuscaRm(req.busca);
+    const { data: tabelasBusca } = await db.from('rm_tabelas').select('id').or(`nome.ilike.%${termo}%,apelido.ilike.%${termo}%`).limit(300);
+    idsTabelasFiltro = (tabelasBusca || []).map((t: any) => t.id);
+    if (!idsTabelasFiltro || idsTabelasFiltro.length === 0) return { ok: true, relacionamentos: [] };
+  }
+  let query = db.from('rm_relacionamentos').select('*').order('criado_em', { ascending: false }).limit(limite);
+  if (idsTabelasFiltro) query = query.or(`tabela_origem_id.in.(${idsTabelasFiltro.join(',')}),tabela_destino_id.in.(${idsTabelasFiltro.join(',')})`);
+  const { data, error } = await query;
+  if (error) return { ok: false, erro: error.message };
+  const idsTabelas = new Set<string>();
+  (data || []).forEach((r: any) => { idsTabelas.add(r.tabela_origem_id); idsTabelas.add(r.tabela_destino_id); });
+  const { data: tabelas } = idsTabelas.size ? await db.from('rm_tabelas').select('id,nome,apelido').in('id', [...idsTabelas]) : { data: [] as any[] };
+  const mapaTabela = new Map<string, any>((tabelas || []).map((t: any) => [t.id, t]));
+  const relacionamentos = (data || []).map((r: any) => ({
+    id: r.id,
+    tabelaOrigemId: r.tabela_origem_id, tabelaOrigemNome: mapaTabela.get(r.tabela_origem_id)?.nome || '',
+    campoOrigem: r.campo_origem,
+    tabelaDestinoId: r.tabela_destino_id, tabelaDestinoNome: mapaTabela.get(r.tabela_destino_id)?.nome || '',
+    campoDestino: r.campo_destino, tipoJoin: r.tipo_join,
+  }));
+  return { ok: true, relacionamentos };
+}
+async function acaoRmAddRelacionamento(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.relacionamentosrm', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar relacionamentos do RM.' };
+  const campoOrigem = normalizarCamposRm(req.campoOrigem);
+  const campoDestino = normalizarCamposRm(req.campoDestino);
+  if (!req.tabelaOrigemId || !req.tabelaDestinoId || !campoOrigem || !campoDestino) {
+    return { ok: false, erro: 'Preencha tabela e campo de origem e destino.' };
+  }
+  const registro = {
+    id: gerarId(), tabela_origem_id: req.tabelaOrigemId, campo_origem: campoOrigem,
+    tabela_destino_id: req.tabelaDestinoId, campo_destino: campoDestino,
+    tipo_join: req.tipoJoin === 'INNER' ? 'INNER' : 'LEFT',
+  };
+  const { error } = await db.from('rm_relacionamentos').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRmAtualizarRelacionamento(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.relacionamentosrm', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar relacionamentos do RM.' };
+  const { error } = await db.from('rm_relacionamentos').update({ tipo_join: req.tipoJoin === 'INNER' ? 'INNER' : 'LEFT' }).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRmRemoverRelacionamento(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.relacionamentosrm', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover relacionamentos do RM.' };
+  await db.from('rm_relacionamentos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+// importação em lote dos relacionamentos do RM (export GLINKSREL:
+// MASTERTABLE;CHILDTABLE;MASTERFIELD;CHILDFIELD) — mesmo esquema em lotes
+// da importação do dicionário. ignoreDuplicates:true na upsert final
+// preserva o tipo de junção (INNER/LEFT) que o admin já tiver ajustado à
+// mão pra um relacionamento que já existia.
+async function acaoRmImportarRelacionamentosLote(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.relacionamentosrm', 'inserir'))) {
+    return { ok: false, erro: 'Você não tem permissão para importar relacionamentos do RM.' };
+  }
+  const linhas = (Array.isArray(req.linhas) ? req.linhas : [])
+    .map((l: any) => ({
+      tabelaOrigem: normalizarNomeRm(l.tabelaOrigem),
+      campoOrigem: normalizarCamposRm(l.campoOrigem),
+      tabelaDestino: normalizarNomeRm(l.tabelaDestino),
+      campoDestino: normalizarCamposRm(l.campoDestino),
+    }))
+    .filter((l: any) => l.tabelaOrigem && l.campoOrigem && l.tabelaDestino && l.campoDestino);
+  if (linhas.length === 0) return { ok: true, relacionamentos: 0 };
+
+  const nomesTabelas = [...new Set(linhas.flatMap((l: any) => [l.tabelaOrigem, l.tabelaDestino]))];
+  const stubs = nomesTabelas.map((nome) => ({ id: gerarId(), nome }));
+  const { error: erroStub } = await db.from('rm_tabelas').upsert(stubs, { onConflict: 'nome', ignoreDuplicates: true });
+  if (erroStub) return { ok: false, erro: erroStub.message };
+
+  const { data: tabelasAtuais, error: erroSelect } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
+  if (erroSelect) return { ok: false, erro: erroSelect.message };
+  const mapaId = new Map((tabelasAtuais || []).map((t: any) => [t.nome, t.id]));
+
+  const registros = dedupPorChaveRm(
+    linhas
+      .map((l: any) => {
+        const origemId = mapaId.get(l.tabelaOrigem);
+        const destinoId = mapaId.get(l.tabelaDestino);
+        if (!origemId || !destinoId) return null;
+        return { id: gerarId(), tabela_origem_id: origemId, campo_origem: l.campoOrigem, tabela_destino_id: destinoId, campo_destino: l.campoDestino, tipo_join: 'LEFT' };
+      })
+      .filter(Boolean) as any[],
+    (r: any) => `${r.tabela_origem_id}|${r.campo_origem}|${r.tabela_destino_id}|${r.campo_destino}`
+  );
+  if (registros.length === 0) return { ok: true, relacionamentos: 0 };
+  const { error: erroRel } = await db.from('rm_relacionamentos').upsert(registros, {
+    onConflict: 'tabela_origem_id,campo_origem,tabela_destino_id,campo_destino',
+    ignoreDuplicates: true,
+  });
+  if (erroRel) return { ok: false, erro: erroRel.message };
+  return { ok: true, relacionamentos: registros.length };
+}
+
+async function acaoRmListarTabelasAuxiliares(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.tabelasauxrm', 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver as tabelas auxiliares do RM.' };
+  }
+  const { data, error } = await db.from('rm_tabelas').select('*').eq('auxiliar', true).order('nome');
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, tabelas: (data || []).map(rmTabelaParaApi) };
+}
+async function acaoRmMarcarAuxiliar(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.tabelasauxrm', 'inserir'))) {
+    return { ok: false, erro: 'Você não tem permissão para marcar tabelas auxiliares do RM.' };
+  }
+  const atualizacao = {
+    auxiliar: !!req.auxiliar,
+    aux_campo_codigo: req.auxCampoCodigo ? normalizarNomeRm(req.auxCampoCodigo) : null,
+    aux_campo_descricao: req.auxCampoDescricao ? normalizarNomeRm(req.auxCampoDescricao) : null,
+  };
+  const { error } = await db.from('rm_tabelas').update(atualizacao).eq('id', req.tabelaId);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+
+async function acaoRmListarConsultasSalvas(req: any) {
+  if (!(await podeAgir(req.contaId, 'utilitarios.sqlrm', 'visualizar'))) {
+    return { ok: false, erro: 'Você não tem permissão para ver as consultas salvas.' };
+  }
+  const { data, error } = await db.from('rm_consultas_salvas').select('*').order('criado_em', { ascending: false }).limit(100);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, consultas: (data || []).map(rmConsultaParaApi) };
+}
+async function acaoRmSalvarConsulta(req: any) {
+  if (!(await podeAgir(req.contaId, 'utilitarios.sqlrm', 'inserir'))) {
+    return { ok: false, erro: 'Você não tem permissão para salvar consultas.' };
+  }
+  if (!req.nome || !req.tabelaPrincipalId || !req.sqlGerado) return { ok: false, erro: 'Preencha nome, tabela principal e gere o SQL antes de salvar.' };
+  const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
+  const registro = {
+    id: gerarId(), nome: req.nome, tabela_principal_id: req.tabelaPrincipalId,
+    config: req.config || {}, sql_gerado: req.sqlGerado, criado_por: conta ? conta.nome : '',
+  };
+  const { error } = await db.from('rm_consultas_salvas').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, consulta: rmConsultaParaApi(registro) };
+}
+async function acaoRmRemoverConsulta(req: any) {
+  if (!(await podeAgir(req.contaId, 'utilitarios.sqlrm', 'excluir'))) {
+    return { ok: false, erro: 'Você não tem permissão para remover consultas salvas.' };
+  }
+  await db.from('rm_consultas_salvas').delete().eq('id', req.id);
+  return { ok: true };
 }
 
 /* ---------- entrada HTTP ---------- */

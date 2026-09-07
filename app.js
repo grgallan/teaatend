@@ -22,6 +22,24 @@ const CONFIG = {
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [];
+
+/* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
+let rmTabelasTodas = null; // cache — todas as tabelas cadastradas, carregado 1x (usado pra preencher os <select> de escolher tabela); null = ainda não carregado
+let rmBuscaTabelasRM = ''; // termo de busca da tela Cadastros → Tabelas RM
+let rmTabelaSelecionadaCamposRM = null; // tabela escolhida na tela Cadastros → Campos RM
+let rmBuscaRelacionamentosRM = ''; // termo de busca da tela Cadastros → Relacionamentos RM
+let editandoTabelaRMId = null;
+let editandoCampoRMId = null;
+// estado do construtor de consulta (Utilitários → Gerador SQL RM)
+let rmBuilder = {
+  tabelaPrincipal: null, // {id, nome, apelido}
+  camposPrincipal: new Set(),
+  relacionamentosDisponiveis: [], // relacionamentos da tabela principal, vindos da API
+  tabelasRelacionadas: new Map(), // tabelaId (da tabela relacionada) -> {tabela:{id,nome,apelido}, relacionamento, campos:Set, camposDisponiveis:[]}
+  ordem: [], // [{tabelaId, tabelaNome, campo, direcao}]
+};
+let rmConsultasSalvas = [];
+let rmImportando = false; // trava os botões de importar em lote enquanto uma importação está em andamento
 let sessaoConta = null; // conta logada (sem senha), guardada após login
 let empresaAtual = null; // empresa escolhida pra essa sessão — {id, nome, logoUrl, ...}
 let empresasParaEscolher = []; // lista temporária mostrada na tela de escolha de empresa, entre o login e a entrada no app
@@ -108,10 +126,15 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'usuarios', label:'Usuários (login)' },
     { chave:'perfisacesso', label:'Perfis de Acesso' },
     { chave:'empresas', label:'Empresas' },
+    { chave:'tabelasrm', label:'Tabelas RM' },
+    { chave:'camposrm', label:'Campos RM' },
+    { chave:'relacionamentosrm', label:'Relacionamentos RM' },
+    { chave:'tabelasauxrm', label:'Tabelas Auxiliares RM' },
   ]},
   { chave:'utilitarios', label:'Utilitários', subContainer:'#utilCategorias', subDataAttr:'util-cat', submenus:[
     { chave:'esocial', label:'eSocial' },
     { chave:'tomticket', label:'TomTicket' },
+    { chave:'sqlrm', label:'Gerador SQL RM' },
   ]},
 ];
 
@@ -3425,6 +3448,7 @@ function resetUtilitarios(){
   document.getElementById('utilCategorias').style.display = '';
   document.getElementById('utilEsocial').style.display = 'none';
   document.getElementById('utilTomticket').style.display = 'none';
+  document.getElementById('utilSqlRm').style.display = 'none';
   document.getElementById('utilTomticketBadge').innerHTML = tomticketErros.length > 0
     ? `<span class="tag" style="background:var(--bad);color:#fff;">${tomticketErros.length}</span>` : '';
   document.getElementById('utilEvento1200').style.display = 'none';
@@ -5567,6 +5591,624 @@ function renderCadastrosTudo(){
   renderEmpresasCheckboxes('at_empresas', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.empresaIds||[]) : (empresaAtual ? [empresaAtual.id] : []));
 }
 
+/* =========================================================
+   GERADOR SQL RM — dicionário de tabelas do TOTVS RM guardado no nosso
+   banco (Cadastros → Tabelas RM/Campos RM/Relacionamentos RM/Tabelas
+   Auxiliares RM), usado tanto pra alimentar essas telas de cadastro
+   quanto o construtor de consulta em Utilitários → Gerador SQL RM.
+   ========================================================= */
+
+// lê um CSV separado por ";" com aspas (formato dos exports do RM,
+// GDIC2/GLINKSREL) — cuida de campo entre aspas contendo ";" e de aspas
+// duplicadas ("") como escape, igual qualquer CSV padrão
+function parseCsvSemicolon(texto){
+  const linhas = [];
+  let campo = '', linha = [], dentroAspas = false;
+  for(let i=0;i<texto.length;i++){
+    const c = texto[i];
+    if(dentroAspas){
+      if(c === '"'){
+        if(texto[i+1] === '"'){ campo += '"'; i++; } else { dentroAspas = false; }
+      } else campo += c;
+    } else {
+      if(c === '"') dentroAspas = true;
+      else if(c === ';'){ linha.push(campo); campo = ''; }
+      else if(c === '\r'){ /* ignora — CRLF */ }
+      else if(c === '\n'){ linha.push(campo); linhas.push(linha); linha = []; campo = ''; }
+      else campo += c;
+    }
+  }
+  if(campo.length || linha.length){ linha.push(campo); linhas.push(linha); }
+  return linhas;
+}
+
+// carrega TODAS as tabelas cadastradas (pagina de 1000 em 1000, já que o
+// dicionário completo do RM pode passar de 8 mil tabelas) — usado só pra
+// preencher os <select> de "escolher uma tabela"; fica em cache até
+// alguém importar/cadastrar/remover uma tabela (rmTabelasTodas = null)
+async function carregarTabelasRMTodas(forcar){
+  if(rmTabelasTodas && !forcar) return rmTabelasTodas;
+  const conta = contaAtual();
+  const TAM_PAGINA = 1000;
+  let tudo = [], offset = 0;
+  while(true){
+    const r = await api('rmListarTabelas', { contaId: conta.id, limit: TAM_PAGINA, offset });
+    if(!r.ok){ toast(r.erro || 'Erro ao carregar tabelas do RM'); break; }
+    tudo = tudo.concat(r.tabelas || []);
+    if(!r.tabelas || r.tabelas.length < TAM_PAGINA) break;
+    offset += TAM_PAGINA;
+  }
+  rmTabelasTodas = tudo;
+  return rmTabelasTodas;
+}
+function preencherSelectTabelasRM(selectEl, valorSelecionado, comPlaceholder){
+  const tabelas = (rmTabelasTodas || []).slice().sort((a,b)=>a.nome.localeCompare(b.nome));
+  const opcoes = tabelas.map(t=>`<option value="${t.id}">${escaparHtml(t.nome)}${t.apelido && t.apelido !== t.nome ? ' — '+escaparHtml(t.apelido) : ''}</option>`).join('');
+  selectEl.innerHTML = (comPlaceholder ? `<option value="">Selecione a tabela...</option>` : '') + opcoes;
+  if(valorSelecionado) selectEl.value = valorSelecionado;
+}
+
+/* ---------- Cadastros › Tabelas RM ---------- */
+let rmTabelasListaAtual = [];
+async function carregarECadTabelasRM(){
+  const r = await api('rmListarTabelas', { contaId: contaAtual().id, busca: rmBuscaTabelasRM, limit: 60 });
+  if(!r.ok){ toast(r.erro || 'Erro ao carregar tabelas do RM'); return; }
+  renderListTabelasRM(r.tabelas, r.total);
+}
+function renderListTabelasRM(tabelas, total){
+  rmTabelasListaAtual = tabelas || [];
+  document.getElementById('rmTabTotal').textContent = total != null ? total : rmTabelasListaAtual.length;
+  const el = document.getElementById('listTabelasRM');
+  if(rmTabelasListaAtual.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela encontrada.</div>`; return; }
+  el.innerHTML = rmTabelasListaAtual.map(t=>`
+    <div class="cad-item">
+      <div class="info"><b>${escaparHtml(t.nome)}${t.auxiliar ? '<span class="tag-aux">Auxiliar</span>' : ''}</b><span>${escaparHtml(t.apelido || '')}</span></div>
+      <div class="acts">
+        <button onclick="editarTabelaRM('${t.id}')">Editar</button>
+        <button class="danger" onclick="pedirConfirmacao('Remover a tabela ${escaparHtml(t.nome)}?','Isso remove também os campos e relacionamentos cadastrados dela.', ()=>removerTabelaRM('${t.id}'))">Remover</button>
+      </div>
+    </div>`).join('');
+}
+function editarTabelaRM(id){
+  const t = rmTabelasListaAtual.find(x=>x.id===id); if(!t) return;
+  editandoTabelaRMId = id;
+  const campoNome = document.getElementById('rm_tab_nome');
+  campoNome.value = t.nome; campoNome.disabled = true;
+  document.getElementById('rm_tab_apelido').value = t.apelido || '';
+  document.getElementById('rm_tab_descricao').value = t.descricao || '';
+  document.getElementById('rmTabTituloForm').textContent = 'Editar tabela';
+  document.getElementById('btnCancelarEdicaoTabelaRM').style.display = '';
+}
+function cancelarEdicaoTabelaRM(){
+  editandoTabelaRMId = null;
+  const campoNome = document.getElementById('rm_tab_nome');
+  campoNome.value = ''; campoNome.disabled = false;
+  document.getElementById('rm_tab_apelido').value = '';
+  document.getElementById('rm_tab_descricao').value = '';
+  document.getElementById('rmTabTituloForm').textContent = 'Nova tabela';
+  document.getElementById('btnCancelarEdicaoTabelaRM').style.display = 'none';
+}
+async function salvarTabelaRM(){
+  const conta = contaAtual();
+  const apelido = document.getElementById('rm_tab_apelido').value.trim();
+  const descricao = document.getElementById('rm_tab_descricao').value.trim();
+  if(editandoTabelaRMId){
+    const r = await api('rmAtualizarTabela', { contaId: conta.id, id: editandoTabelaRMId, apelido, descricao });
+    if(!r.ok){ toast(r.erro || 'Erro ao salvar'); return; }
+    toast('Tabela atualizada');
+  } else {
+    const nome = document.getElementById('rm_tab_nome').value.trim();
+    if(!nome){ toast('Informe o nome real da tabela'); return; }
+    const r = await api('rmAddTabela', { contaId: conta.id, nome, apelido, descricao });
+    if(!r.ok){ toast(r.erro || 'Erro ao cadastrar'); return; }
+    toast('Tabela cadastrada');
+  }
+  cancelarEdicaoTabelaRM();
+  rmTabelasTodas = null;
+  carregarECadTabelasRM();
+}
+async function removerTabelaRM(id){
+  const r = await api('rmRemoverTabela', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Erro ao remover'); return; }
+  toast('Tabela removida');
+  rmTabelasTodas = null;
+  carregarECadTabelasRM();
+}
+async function importarArquivoDicionarioRM(inputEl){
+  const arquivo = inputEl.files && inputEl.files[0];
+  if(!arquivo) return;
+  if(rmImportando){ toast('Já tem uma importação em andamento'); inputEl.value=''; return; }
+  rmImportando = true;
+  const barra = document.getElementById('rmImportDicProgresso');
+  barra.className = 'rm-import-progresso'; barra.style.display = ''; barra.textContent = 'Lendo arquivo...';
+  try{
+    const texto = await arquivo.text();
+    const linhas = parseCsvSemicolon(texto);
+    if(linhas.length < 2){ toast('Arquivo vazio ou em formato inesperado'); return; }
+    const cabecalho = linhas[0].map(h=>String(h||'').trim().toUpperCase());
+    const iTabela = cabecalho.indexOf('TABELA'), iColuna = cabecalho.indexOf('COLUNA'), iDescricao = cabecalho.indexOf('DESCRICAO');
+    if(iTabela<0 || iColuna<0 || iDescricao<0){ toast('Arquivo não parece ser o GDIC2 (faltam colunas TABELA/COLUNA/DESCRICAO)'); return; }
+    const linhasDados = linhas.slice(1).filter(l=>(l[iTabela]||'').trim());
+    const conta = contaAtual();
+    const TAM_LOTE = 1500;
+    for(let i=0;i<linhasDados.length;i+=TAM_LOTE){
+      const lote = linhasDados.slice(i, i+TAM_LOTE).map(l=>({ tabela: l[iTabela]||'', coluna: l[iColuna]||'', descricao: l[iDescricao]||'' }));
+      barra.textContent = `Importando ${Math.min(i+TAM_LOTE, linhasDados.length)} / ${linhasDados.length}...`;
+      const r = await api('rmImportarDicionarioLote', { contaId: conta.id, linhas: lote });
+      if(!r.ok){ toast(r.erro || 'Erro ao importar'); return; }
+    }
+    barra.classList.add('ok');
+    barra.textContent = `Importação concluída — ${linhasDados.length} linhas processadas.`;
+    toast('Dicionário importado com sucesso');
+    rmTabelasTodas = null;
+    carregarECadTabelasRM();
+  } catch(e){
+    toast('Erro ao ler/importar o arquivo');
+  } finally {
+    rmImportando = false;
+    inputEl.value = '';
+  }
+}
+
+/* ---------- Cadastros › Campos RM ---------- */
+let rmCamposListaAtual = [];
+async function carregarECadCamposRM(){
+  await carregarTabelasRMTodas();
+  const sel = document.getElementById('cp_tabela');
+  if(!rmTabelaSelecionadaCamposRM && rmTabelasTodas.length) rmTabelaSelecionadaCamposRM = rmTabelasTodas.slice().sort((a,b)=>a.nome.localeCompare(b.nome))[0].id;
+  preencherSelectTabelasRM(sel, rmTabelaSelecionadaCamposRM);
+  await recarregarListaCamposRM();
+}
+async function recarregarListaCamposRM(){
+  const tabelaId = document.getElementById('cp_tabela').value;
+  rmTabelaSelecionadaCamposRM = tabelaId;
+  cancelarEdicaoCampoRM();
+  if(!tabelaId){ document.getElementById('listCamposRM').innerHTML = ''; return; }
+  const r = await api('rmListarCampos', { contaId: contaAtual().id, tabelaId });
+  if(!r.ok){ toast(r.erro || 'Erro ao carregar campos'); return; }
+  renderListCamposRM(r.campos);
+}
+function renderListCamposRM(campos){
+  rmCamposListaAtual = campos || [];
+  document.getElementById('rmCampoTotal').textContent = rmCamposListaAtual.length;
+  const el = document.getElementById('listCamposRM');
+  if(rmCamposListaAtual.length === 0){ el.innerHTML = `<div class="empty">Nenhum campo cadastrado pra essa tabela.</div>`; return; }
+  el.innerHTML = rmCamposListaAtual.map(c=>`
+    <div class="cad-item">
+      <div class="info"><b>${escaparHtml(c.nome)}</b><span>${escaparHtml(c.rotulo || '')}${c.tipo ? ' · '+escaparHtml(c.tipo) : ''}</span></div>
+      <div class="acts">
+        <button onclick="editarCampoRM('${c.id}')">Editar</button>
+        <button class="danger" onclick="pedirConfirmacao('Remover o campo ${escaparHtml(c.nome)}?','', ()=>removerCampoRM('${c.id}'))">Remover</button>
+      </div>
+    </div>`).join('');
+}
+function editarCampoRM(id){
+  const c = rmCamposListaAtual.find(x=>x.id===id); if(!c) return;
+  editandoCampoRMId = id;
+  const campoNome = document.getElementById('cp_nome');
+  campoNome.value = c.nome; campoNome.disabled = true;
+  document.getElementById('cp_rotulo').value = c.rotulo || '';
+  document.getElementById('cp_tipo').value = c.tipo || '';
+  document.getElementById('rmCampoTituloForm').textContent = 'Editar campo';
+  document.getElementById('btnCancelarEdicaoCampoRM').style.display = '';
+}
+function cancelarEdicaoCampoRM(){
+  editandoCampoRMId = null;
+  const campoNome = document.getElementById('cp_nome');
+  campoNome.value = ''; campoNome.disabled = false;
+  document.getElementById('cp_rotulo').value = '';
+  document.getElementById('cp_tipo').value = '';
+  document.getElementById('rmCampoTituloForm').textContent = 'Novo campo (dicionário)';
+  document.getElementById('btnCancelarEdicaoCampoRM').style.display = 'none';
+}
+async function salvarCampoRM(){
+  const conta = contaAtual();
+  const tabelaId = document.getElementById('cp_tabela').value;
+  if(!tabelaId){ toast('Escolha a tabela'); return; }
+  const rotulo = document.getElementById('cp_rotulo').value.trim();
+  const tipo = document.getElementById('cp_tipo').value;
+  if(editandoCampoRMId){
+    const r = await api('rmAtualizarCampo', { contaId: conta.id, id: editandoCampoRMId, rotulo, tipo });
+    if(!r.ok){ toast(r.erro || 'Erro ao salvar'); return; }
+    toast('Campo atualizado');
+  } else {
+    const nome = document.getElementById('cp_nome').value.trim();
+    if(!nome){ toast('Informe o nome real do campo'); return; }
+    const r = await api('rmAddCampo', { contaId: conta.id, tabelaId, nome, rotulo, tipo });
+    if(!r.ok){ toast(r.erro || 'Erro ao cadastrar'); return; }
+    toast('Campo cadastrado');
+  }
+  cancelarEdicaoCampoRM();
+  recarregarListaCamposRM();
+}
+async function removerCampoRM(id){
+  const r = await api('rmRemoverCampo', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Erro ao remover'); return; }
+  toast('Campo removido');
+  recarregarListaCamposRM();
+}
+
+/* ---------- Cadastros › Relacionamentos RM ---------- */
+let rmRelacionamentosListaAtual = [];
+async function carregarECadRelacionamentosRM(){
+  await carregarTabelasRMTodas();
+  preencherSelectTabelasRM(document.getElementById('rl_tabela_origem'), null, true);
+  preencherSelectTabelasRM(document.getElementById('rl_tabela_destino'), null, true);
+  await recarregarListaRelacionamentosRM();
+}
+async function recarregarListaRelacionamentosRM(){
+  const r = await api('rmListarRelacionamentos', { contaId: contaAtual().id, busca: rmBuscaRelacionamentosRM });
+  if(!r.ok){ toast(r.erro || 'Erro ao carregar relacionamentos'); return; }
+  renderListRelacionamentosRM(r.relacionamentos);
+}
+function renderListRelacionamentosRM(lista){
+  rmRelacionamentosListaAtual = lista || [];
+  document.getElementById('rmRelTotal').textContent = rmRelacionamentosListaAtual.length;
+  const el = document.getElementById('listRelacionamentosRM');
+  if(rmRelacionamentosListaAtual.length === 0){ el.innerHTML = `<div class="empty">Nenhum relacionamento encontrado.</div>`; return; }
+  el.innerHTML = rmRelacionamentosListaAtual.map(r=>`
+    <div class="cad-item">
+      <div class="info">
+        <b>${escaparHtml(r.tabelaOrigemNome)} <span style="color:var(--muted);font-weight:400;">(${escaparHtml(r.campoOrigem)})</span> → ${escaparHtml(r.tabelaDestinoNome)} <span style="color:var(--muted);font-weight:400;">(${escaparHtml(r.campoDestino)})</span></b>
+        <span>${r.tipoJoin === 'INNER' ? 'INNER JOIN' : 'LEFT JOIN'}</span>
+      </div>
+      <div class="acts">
+        <button onclick="alternarTipoJoinRelacionamentoRM('${r.id}')">${r.tipoJoin === 'INNER' ? 'Tornar LEFT' : 'Tornar INNER'}</button>
+        <button class="danger" onclick="pedirConfirmacao('Remover esse relacionamento?','', ()=>removerRelacionamentoRM('${r.id}'))">Remover</button>
+      </div>
+    </div>`).join('');
+}
+async function alternarTipoJoinRelacionamentoRM(id){
+  const r = rmRelacionamentosListaAtual.find(x=>x.id===id); if(!r) return;
+  const novo = r.tipoJoin === 'INNER' ? 'LEFT' : 'INNER';
+  const resp = await api('rmAtualizarRelacionamento', { contaId: contaAtual().id, id, tipoJoin: novo });
+  if(!resp.ok){ toast(resp.erro || 'Erro ao salvar'); return; }
+  recarregarListaRelacionamentosRM();
+}
+async function removerRelacionamentoRM(id){
+  const r = await api('rmRemoverRelacionamento', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Erro ao remover'); return; }
+  toast('Relacionamento removido');
+  recarregarListaRelacionamentosRM();
+}
+async function salvarRelacionamentoRM(){
+  const conta = contaAtual();
+  const tabelaOrigemId = document.getElementById('rl_tabela_origem').value;
+  const tabelaDestinoId = document.getElementById('rl_tabela_destino').value;
+  const campoOrigem = document.getElementById('rl_campo_origem').value.trim();
+  const campoDestino = document.getElementById('rl_campo_destino').value.trim();
+  const tipoJoin = document.getElementById('rl_tipo').value;
+  if(!tabelaOrigemId || !tabelaDestinoId || !campoOrigem || !campoDestino){ toast('Preencha tabela e campo de origem e destino'); return; }
+  const r = await api('rmAddRelacionamento', { contaId: conta.id, tabelaOrigemId, tabelaDestinoId, campoOrigem, campoDestino, tipoJoin });
+  if(!r.ok){ toast(r.erro || 'Erro ao cadastrar'); return; }
+  toast('Relacionamento cadastrado');
+  document.getElementById('rl_campo_origem').value = '';
+  document.getElementById('rl_campo_destino').value = '';
+  recarregarListaRelacionamentosRM();
+}
+async function importarArquivoRelacionamentosRM(inputEl){
+  const arquivo = inputEl.files && inputEl.files[0];
+  if(!arquivo) return;
+  if(rmImportando){ toast('Já tem uma importação em andamento'); inputEl.value=''; return; }
+  rmImportando = true;
+  const barra = document.getElementById('rmImportRelProgresso');
+  barra.className = 'rm-import-progresso'; barra.style.display = ''; barra.textContent = 'Lendo arquivo...';
+  try{
+    const texto = await arquivo.text();
+    const linhas = parseCsvSemicolon(texto);
+    if(linhas.length < 2){ toast('Arquivo vazio ou em formato inesperado'); return; }
+    const cabecalho = linhas[0].map(h=>String(h||'').trim().toUpperCase());
+    const iOrig = cabecalho.indexOf('MASTERTABLE'), iDest = cabecalho.indexOf('CHILDTABLE'), iCampoOrig = cabecalho.indexOf('MASTERFIELD'), iCampoDest = cabecalho.indexOf('CHILDFIELD');
+    if(iOrig<0 || iDest<0 || iCampoOrig<0 || iCampoDest<0){ toast('Arquivo não parece ser o GLINKSREL (faltam colunas MASTERTABLE/CHILDTABLE/MASTERFIELD/CHILDFIELD)'); return; }
+    const linhasDados = linhas.slice(1).filter(l=>(l[iOrig]||'').trim() && (l[iDest]||'').trim());
+    const conta = contaAtual();
+    const TAM_LOTE = 1500;
+    for(let i=0;i<linhasDados.length;i+=TAM_LOTE){
+      const lote = linhasDados.slice(i, i+TAM_LOTE).map(l=>({ tabelaOrigem: l[iOrig]||'', tabelaDestino: l[iDest]||'', campoOrigem: l[iCampoOrig]||'', campoDestino: l[iCampoDest]||'' }));
+      barra.textContent = `Importando ${Math.min(i+TAM_LOTE, linhasDados.length)} / ${linhasDados.length}...`;
+      const r = await api('rmImportarRelacionamentosLote', { contaId: conta.id, linhas: lote });
+      if(!r.ok){ toast(r.erro || 'Erro ao importar'); return; }
+    }
+    barra.classList.add('ok');
+    barra.textContent = `Importação concluída — ${linhasDados.length} linhas processadas.`;
+    toast('Relacionamentos importados com sucesso');
+    rmTabelasTodas = null;
+    carregarECadRelacionamentosRM();
+  } catch(e){
+    toast('Erro ao ler/importar o arquivo');
+  } finally {
+    rmImportando = false;
+    inputEl.value = '';
+  }
+}
+
+/* ---------- Cadastros › Tabelas Auxiliares RM ---------- */
+async function carregarECadTabelasAuxRM(){
+  await carregarTabelasRMTodas();
+  preencherSelectTabelasRM(document.getElementById('ax_tabela'), null, true);
+  document.getElementById('ax_campo_codigo').innerHTML = '';
+  document.getElementById('ax_campo_descricao').innerHTML = '';
+  await recarregarListaTabelasAuxRM();
+}
+async function atualizarCamposAuxSelectsRM(){
+  const tabelaId = document.getElementById('ax_tabela').value;
+  const selCod = document.getElementById('ax_campo_codigo');
+  const selDesc = document.getElementById('ax_campo_descricao');
+  selCod.innerHTML = ''; selDesc.innerHTML = '';
+  if(!tabelaId) return;
+  const r = await api('rmListarCampos', { contaId: contaAtual().id, tabelaId });
+  if(!r.ok) return;
+  const opcoes = (r.campos || []).map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}${c.rotulo ? ' — '+escaparHtml(c.rotulo) : ''}</option>`).join('');
+  selCod.innerHTML = opcoes;
+  selDesc.innerHTML = opcoes;
+}
+async function recarregarListaTabelasAuxRM(){
+  const r = await api('rmListarTabelasAuxiliares', { contaId: contaAtual().id });
+  if(!r.ok){ toast(r.erro || 'Erro ao carregar'); return; }
+  renderListTabelasAuxRM(r.tabelas);
+}
+function renderListTabelasAuxRM(tabelas){
+  document.getElementById('rmAuxTotal').textContent = (tabelas || []).length;
+  const el = document.getElementById('listTabelasAuxRM');
+  if(!tabelas || tabelas.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela auxiliar marcada ainda.</div>`; return; }
+  el.innerHTML = tabelas.map(t=>`
+    <div class="cad-item">
+      <div class="info"><b>${escaparHtml(t.nome)}<span class="tag-aux">Auxiliar</span></b><span>${escaparHtml(t.apelido || '')} · código: ${escaparHtml(t.auxCampoCodigo || '—')} · descrição: ${escaparHtml(t.auxCampoDescricao || '—')}</span></div>
+      <div class="acts"><button class="danger" onclick="pedirConfirmacao('Desmarcar ${escaparHtml(t.nome)} como auxiliar?','', ()=>desmarcarTabelaAuxRM('${t.id}'))">Remover</button></div>
+    </div>`).join('');
+}
+async function marcarTabelaAuxRM(){
+  const tabelaId = document.getElementById('ax_tabela').value;
+  if(!tabelaId){ toast('Escolha a tabela'); return; }
+  const auxCampoCodigo = document.getElementById('ax_campo_codigo').value;
+  const auxCampoDescricao = document.getElementById('ax_campo_descricao').value;
+  const r = await api('rmMarcarAuxiliar', { contaId: contaAtual().id, tabelaId, auxiliar: true, auxCampoCodigo, auxCampoDescricao });
+  if(!r.ok){ toast(r.erro || 'Erro ao marcar'); return; }
+  toast('Tabela marcada como auxiliar');
+  rmTabelasTodas = null;
+  recarregarListaTabelasAuxRM();
+}
+async function desmarcarTabelaAuxRM(tabelaId){
+  const r = await api('rmMarcarAuxiliar', { contaId: contaAtual().id, tabelaId, auxiliar: false, auxCampoCodigo: '', auxCampoDescricao: '' });
+  if(!r.ok){ toast(r.erro || 'Erro ao remover'); return; }
+  toast('Tabela desmarcada');
+  rmTabelasTodas = null;
+  recarregarListaTabelasAuxRM();
+}
+
+/* ---------- Utilitários › Gerador SQL RM (construtor de consulta) ---------- */
+async function iniciarGeradorSqlRm(){
+  rmBuilder = { tabelaPrincipal: null, camposPrincipal: new Set(), relacionamentosDisponiveis: [], tabelasRelacionadas: new Map(), ordem: [] };
+  document.getElementById('rmBdCardCampos').style.display = 'none';
+  document.getElementById('rmBdCardRelacionadas').style.display = 'none';
+  document.getElementById('rmBdCardOrdem').style.display = 'none';
+  document.getElementById('rmBdCardSql').style.display = 'none';
+  await carregarTabelasRMTodas();
+  preencherSelectTabelasRM(document.getElementById('rm_bd_tabela_principal'), null, true);
+  await carregarConsultasSalvasRM();
+}
+async function escolherTabelaPrincipalRM(){
+  const tabelaId = document.getElementById('rm_bd_tabela_principal').value;
+  rmBuilder = { tabelaPrincipal: null, camposPrincipal: new Set(), relacionamentosDisponiveis: [], tabelasRelacionadas: new Map(), ordem: [] };
+  document.getElementById('rmBdCardOrdem').style.display = 'none';
+  document.getElementById('rmBdCardSql').style.display = 'none';
+  if(!tabelaId){
+    document.getElementById('rmBdCardCampos').style.display = 'none';
+    document.getElementById('rmBdCardRelacionadas').style.display = 'none';
+    return;
+  }
+  const tabela = (rmTabelasTodas || []).find(t=>t.id === tabelaId);
+  rmBuilder.tabelaPrincipal = tabela;
+  const conta = contaAtual();
+  const [rCampos, rRel] = await Promise.all([
+    api('rmListarCampos', { contaId: conta.id, tabelaId }),
+    api('rmListarRelacionamentosDe', { contaId: conta.id, tabelaId }),
+  ]);
+  document.getElementById('rmBdCardCampos').style.display = '';
+  renderRmBdCamposPrincipal(rCampos.ok ? rCampos.campos : []);
+  document.getElementById('rmBdCardRelacionadas').style.display = '';
+  rmBuilder.relacionamentosDisponiveis = rRel.ok ? rRel.relacionamentos : [];
+  renderRmBdChipsRelacionadas();
+}
+function renderRmBdCamposPrincipal(campos){
+  rmBuilder.camposDisponiveisPrincipal = campos || [];
+  const el = document.getElementById('rmBdCamposPrincipal');
+  if(!campos || campos.length === 0){ el.innerHTML = `<div class="empty">Essa tabela ainda não tem campos cadastrados.</div>`; return; }
+  el.innerHTML = campos.map(c=>`
+    <label><input type="checkbox" onchange="toggleRmBdCampoPrincipal('${c.nome}', this.checked)"> ${escaparHtml(c.nome)}${c.tipo ? ` <span class="tipo">${escaparHtml(c.tipo)}</span>` : ''}</label>
+  `).join('');
+}
+function toggleRmBdCampoPrincipal(nome, marcado){
+  if(marcado) rmBuilder.camposPrincipal.add(nome); else rmBuilder.camposPrincipal.delete(nome);
+  atualizarRmBdOrdemDisponiveis();
+}
+function renderRmBdChipsRelacionadas(){
+  const el = document.getElementById('rmBdChipsRelacionadas');
+  const rels = rmBuilder.relacionamentosDisponiveis || [];
+  if(rels.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela relacionada com essa (cadastre em Cadastros → Relacionamentos RM).</div>`; document.getElementById('rmBdSecoesRelacionadas').innerHTML=''; return; }
+  el.innerHTML = rels.map(r=>`<div class="chip ${rmBuilder.tabelasRelacionadas.has(r.outraTabelaId) ? 'on' : ''}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`).join('');
+}
+async function toggleRmBdTabelaRelacionada(tabelaId){
+  if(rmBuilder.tabelasRelacionadas.has(tabelaId)){
+    rmBuilder.tabelasRelacionadas.delete(tabelaId);
+    renderRmBdChipsRelacionadas();
+    renderRmBdSecoesRelacionadas();
+    atualizarRmBdOrdemDisponiveis();
+    return;
+  }
+  const rel = rmBuilder.relacionamentosDisponiveis.find(r=>r.outraTabelaId === tabelaId);
+  if(!rel) return;
+  const r = await api('rmListarCampos', { contaId: contaAtual().id, tabelaId });
+  rmBuilder.tabelasRelacionadas.set(tabelaId, {
+    tabelaId, tabelaNome: rel.outraTabelaNome, tabelaApelido: rel.outraTabelaApelido,
+    relacionamento: rel, campos: new Set(), camposDisponiveis: r.ok ? r.campos : [],
+  });
+  renderRmBdChipsRelacionadas();
+  renderRmBdSecoesRelacionadas();
+}
+function renderRmBdSecoesRelacionadas(){
+  const el = document.getElementById('rmBdSecoesRelacionadas');
+  const secoes = [...rmBuilder.tabelasRelacionadas.values()];
+  el.innerHTML = secoes.map(s=>`
+    <div class="rm-secao-relacionada">
+      <h3>${escaparHtml(s.tabelaApelido || s.tabelaNome)} <span style="color:var(--muted);font-weight:400;">(${s.relacionamento.tipoJoin === 'INNER' ? 'INNER JOIN' : 'LEFT JOIN'})</span></h3>
+      <div class="rm-campos-grid">
+        ${(s.camposDisponiveis||[]).length ? s.camposDisponiveis.map(c=>`
+          <label><input type="checkbox" onchange="toggleRmBdCampoRelacionado('${s.tabelaId}','${c.nome}', this.checked)"> ${escaparHtml(c.nome)}${c.tipo ? ` <span class="tipo">${escaparHtml(c.tipo)}</span>` : ''}</label>
+        `).join('') : `<div class="empty">Essa tabela ainda não tem campos cadastrados.</div>`}
+      </div>
+    </div>`).join('');
+}
+function toggleRmBdCampoRelacionado(tabelaId, nome, marcado){
+  const secao = rmBuilder.tabelasRelacionadas.get(tabelaId); if(!secao) return;
+  if(marcado) secao.campos.add(nome); else secao.campos.delete(nome);
+  atualizarRmBdOrdemDisponiveis();
+}
+// lista de campos já escolhidos (principal + relacionadas), disponível
+// pra virar critério de ordenação — repovoada toda vez que uma marcação muda
+// tabelaNomeReal = nome de verdade da tabela (usado no SQL, precisa bater
+// com o alias usado no FROM/JOIN); tabelaLabel = apelido, só pra exibição
+function camposEscolhidosRmBd(){
+  const lista = [];
+  if(rmBuilder.tabelaPrincipal){
+    rmBuilder.camposPrincipal.forEach(nome=>lista.push({ tabelaId: rmBuilder.tabelaPrincipal.id, tabelaNomeReal: rmBuilder.tabelaPrincipal.nome, tabelaLabel: rmBuilder.tabelaPrincipal.apelido || rmBuilder.tabelaPrincipal.nome, campo: nome }));
+  }
+  rmBuilder.tabelasRelacionadas.forEach(s=>{
+    s.campos.forEach(nome=>lista.push({ tabelaId: s.tabelaId, tabelaNomeReal: s.tabelaNome, tabelaLabel: s.tabelaApelido || s.tabelaNome, campo: nome }));
+  });
+  return lista;
+}
+function atualizarRmBdOrdemDisponiveis(){
+  const disponiveis = camposEscolhidosRmBd();
+  document.getElementById('rmBdCardOrdem').style.display = disponiveis.length ? '' : 'none';
+  const sel = document.getElementById('rm_bd_ordem_add');
+  const jaEscolhidos = new Set(rmBuilder.ordem.map(o=>o.tabelaId+'|'+o.campo));
+  const restantes = disponiveis.filter(c=>!jaEscolhidos.has(c.tabelaId+'|'+c.campo));
+  sel.innerHTML = `<option value="">Escolha um campo...</option>` + restantes.map((c,i)=>`<option value="${i}">${escaparHtml(c.tabelaLabel)} · ${escaparHtml(c.campo)}</option>`).join('');
+  sel.dataset.restantes = JSON.stringify(restantes);
+  renderRmBdOrdemLista();
+  gerarSqlRm();
+}
+function adicionarRmBdOrdem(){
+  const sel = document.getElementById('rm_bd_ordem_add');
+  const idx = sel.value;
+  if(idx === '') return;
+  const restantes = JSON.parse(sel.dataset.restantes || '[]');
+  const campo = restantes[Number(idx)];
+  if(!campo) return;
+  rmBuilder.ordem.push({ tabelaId: campo.tabelaId, tabelaNomeReal: campo.tabelaNomeReal, tabelaLabel: campo.tabelaLabel, campo: campo.campo, direcao: 'ASC' });
+  atualizarRmBdOrdemDisponiveis();
+}
+function removerRmBdOrdem(i){
+  rmBuilder.ordem.splice(i, 1);
+  atualizarRmBdOrdemDisponiveis();
+}
+function moverRmBdOrdem(i, dir){
+  const novoIndex = i + dir;
+  if(novoIndex < 0 || novoIndex >= rmBuilder.ordem.length) return;
+  const [item] = rmBuilder.ordem.splice(i, 1);
+  rmBuilder.ordem.splice(novoIndex, 0, item);
+  renderRmBdOrdemLista();
+  gerarSqlRm();
+}
+function alternarDirecaoRmBdOrdem(i){
+  rmBuilder.ordem[i].direcao = rmBuilder.ordem[i].direcao === 'ASC' ? 'DESC' : 'ASC';
+  renderRmBdOrdemLista();
+  gerarSqlRm();
+}
+function renderRmBdOrdemLista(){
+  const el = document.getElementById('rmBdOrdemLista');
+  if(rmBuilder.ordem.length === 0){ el.innerHTML = `<div class="empty">Nenhum campo na ordenação ainda.</div>`; return; }
+  el.innerHTML = rmBuilder.ordem.map((o,i)=>`
+    <div class="rm-ordem-item">
+      <span class="rm-ordem-nome">${escaparHtml(o.tabelaLabel)} · ${escaparHtml(o.campo)}</span>
+      <button onclick="alternarDirecaoRmBdOrdem(${i})">${o.direcao}</button>
+      <button onclick="moverRmBdOrdem(${i},-1)" ${i===0?'disabled':''}>↑</button>
+      <button onclick="moverRmBdOrdem(${i},1)" ${i===rmBuilder.ordem.length-1?'disabled':''}>↓</button>
+      <button onclick="removerRmBdOrdem(${i})">✕</button>
+    </div>`).join('');
+}
+// gera o SELECT em T-SQL (SQL Server) — [colchetes], TOP em vez de LIMIT,
+// JOIN pareando campo a campo (chave composta = vários pares na mesma ON)
+function gerarSqlRm(){
+  const s = rmBuilder;
+  document.getElementById('rmBdCardSql').style.display = s.tabelaPrincipal ? '' : 'none';
+  if(!s.tabelaPrincipal) return '';
+  const aliasDe = (nome)=>'['+nome+']';
+  const linhasSelect = [];
+  s.camposPrincipal.forEach(campo=>linhasSelect.push(`${aliasDe(s.tabelaPrincipal.nome)}.${aliasDe(campo)} AS ${aliasDe(s.tabelaPrincipal.nome+'_'+campo)}`));
+  s.tabelasRelacionadas.forEach(sec=>{
+    sec.campos.forEach(campo=>linhasSelect.push(`${aliasDe(sec.tabelaNome)}.${aliasDe(campo)} AS ${aliasDe(sec.tabelaNome+'_'+campo)}`));
+  });
+  if(linhasSelect.length === 0) linhasSelect.push('*');
+  const joins = [...s.tabelasRelacionadas.values()].map(sec=>{
+    const rel = sec.relacionamento;
+    const camposMeu = rel.meuCampo.split(',');
+    const camposOutro = rel.campoOutraTabela.split(',');
+    const condicoes = camposMeu.map((c,i)=>`${aliasDe(s.tabelaPrincipal.nome)}.${aliasDe(c)} = ${aliasDe(sec.tabelaNome)}.${aliasDe(camposOutro[i]||camposOutro[0])}`);
+    return `${rel.tipoJoin === 'INNER' ? 'INNER' : 'LEFT'} JOIN ${aliasDe(sec.tabelaNome)} ON ${condicoes.join(' AND ')}`;
+  });
+  const orderBy = s.ordem.map(o=>`${aliasDe(o.tabelaNomeReal)}.${aliasDe(o.campo)} ${o.direcao}`);
+  let texto = `SELECT TOP 100\n  ${linhasSelect.join(',\n  ')}\nFROM ${aliasDe(s.tabelaPrincipal.nome)}`;
+  if(joins.length) texto += '\n' + joins.join('\n');
+  if(orderBy.length) texto += '\nORDER BY ' + orderBy.join(', ');
+  texto += ';';
+  document.getElementById('rmBdSqlPreview').textContent = texto;
+  return texto;
+}
+function baixarSqlRm(){
+  const sql = gerarSqlRm();
+  if(!sql){ toast('Escolha uma tabela principal primeiro'); return; }
+  const blob = new Blob([sql], { type: 'text/plain;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `consulta_rm_${(rmBuilder.tabelaPrincipal.nome||'consulta').toLowerCase()}.sql`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+async function salvarConsultaRm(){
+  const sql = gerarSqlRm();
+  if(!sql || !rmBuilder.tabelaPrincipal){ toast('Monte a consulta antes de salvar'); return; }
+  const nome = prompt('Nome da consulta:');
+  if(!nome) return;
+  const config = {
+    camposPrincipal: [...rmBuilder.camposPrincipal],
+    tabelasRelacionadas: [...rmBuilder.tabelasRelacionadas.entries()].map(([tabelaId, s])=>({ tabelaId, campos: [...s.campos] })),
+    ordem: rmBuilder.ordem,
+  };
+  const r = await api('rmSalvarConsulta', { contaId: contaAtual().id, nome, tabelaPrincipalId: rmBuilder.tabelaPrincipal.id, config, sqlGerado: sql });
+  if(!r.ok){ toast(r.erro || 'Erro ao salvar consulta'); return; }
+  toast('Consulta salva');
+  carregarConsultasSalvasRM();
+}
+async function carregarConsultasSalvasRM(){
+  const r = await api('rmListarConsultasSalvas', { contaId: contaAtual().id });
+  rmConsultasSalvas = r.ok ? (r.consultas || []) : [];
+  renderConsultasSalvasRM();
+}
+function renderConsultasSalvasRM(){
+  const el = document.getElementById('rmBdConsultasSalvas');
+  if(rmConsultasSalvas.length === 0){ el.innerHTML = `<div class="empty">Nenhuma consulta salva ainda.</div>`; return; }
+  el.innerHTML = rmConsultasSalvas.map(c=>`
+    <div class="cad-item">
+      <div class="info"><b>${escaparHtml(c.nome)}</b><span>${escaparHtml((c.criadoPor||'')+' · '+(new Date(c.criadoEm)).toLocaleDateString('pt-BR'))}</span></div>
+      <div class="acts">
+        <button onclick="carregarSqlSalvoRM('${c.id}')">Ver SQL</button>
+        <button class="danger" onclick="pedirConfirmacao('Remover a consulta ${escaparHtml(c.nome)}?','', ()=>removerConsultaRm('${c.id}'))">Remover</button>
+      </div>
+    </div>`).join('');
+}
+function carregarSqlSalvoRM(id){
+  const c = rmConsultasSalvas.find(x=>x.id===id); if(!c) return;
+  document.getElementById('rmBdCardSql').style.display = '';
+  document.getElementById('rmBdSqlPreview').textContent = c.sqlGerado;
+  document.getElementById('rmBdCardSql').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+async function removerConsultaRm(id){
+  const r = await api('rmRemoverConsulta', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Erro ao remover'); return; }
+  toast('Consulta removida');
+  carregarConsultasSalvasRM();
+}
+
 /* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
 function linhaMatrizPerfil(chave, label, perm, submenu){
   const p = perm[chave] || {};
@@ -7371,6 +8013,10 @@ function goCadSub(sub){
   cadAba = sub;
   document.querySelectorAll('.subtab').forEach(t=>t.classList.toggle('active', t.dataset.sub===sub));
   document.querySelectorAll('.cad-view').forEach(v=>{ v.style.display = (v.id === 'cad-'+sub) ? '' : 'none'; });
+  if(sub === 'tabelasrm') carregarECadTabelasRM();
+  if(sub === 'camposrm') carregarECadCamposRM();
+  if(sub === 'relacionamentosrm') carregarECadRelacionamentosRM();
+  if(sub === 'tabelasauxrm') carregarECadTabelasAuxRM();
 }
 
 /* ---------- relógio ---------- */
@@ -7497,6 +8143,33 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('utilTomticket').style.display = 'none';
     document.getElementById('utilCategorias').style.display = '';
   });
+  document.querySelector('[data-util-cat="sqlrm"]').addEventListener('click', ()=>{
+    document.getElementById('utilCategorias').style.display = 'none';
+    document.getElementById('utilSqlRm').style.display = '';
+    iniciarGeradorSqlRm();
+  });
+  document.getElementById('btnUtilSqlRmVoltar').addEventListener('click', ()=>{
+    document.getElementById('utilSqlRm').style.display = 'none';
+    document.getElementById('utilCategorias').style.display = '';
+  });
+
+  /* ---------- Gerador SQL RM ---------- */
+  document.getElementById('btnSalvarTabelaRM').addEventListener('click', salvarTabelaRM);
+  document.getElementById('btnCancelarEdicaoTabelaRM').addEventListener('click', cancelarEdicaoTabelaRM);
+  document.getElementById('rm_tab_arquivo').addEventListener('change', e=>importarArquivoDicionarioRM(e.target));
+  document.getElementById('rm_tab_busca').addEventListener('input', e=>{ rmBuscaTabelasRM = e.target.value; carregarECadTabelasRM(); });
+  document.getElementById('cp_tabela').addEventListener('change', recarregarListaCamposRM);
+  document.getElementById('btnSalvarCampoRM').addEventListener('click', salvarCampoRM);
+  document.getElementById('btnCancelarEdicaoCampoRM').addEventListener('click', cancelarEdicaoCampoRM);
+  document.getElementById('btnSalvarRelacionamentoRM').addEventListener('click', salvarRelacionamentoRM);
+  document.getElementById('rl_arquivo').addEventListener('change', e=>importarArquivoRelacionamentosRM(e.target));
+  document.getElementById('rl_busca').addEventListener('input', e=>{ rmBuscaRelacionamentosRM = e.target.value; recarregarListaRelacionamentosRM(); });
+  document.getElementById('ax_tabela').addEventListener('change', atualizarCamposAuxSelectsRM);
+  document.getElementById('btnMarcarTabelaAuxRM').addEventListener('click', marcarTabelaAuxRM);
+  document.getElementById('rm_bd_tabela_principal').addEventListener('change', escolherTabelaPrincipalRM);
+  document.getElementById('rm_bd_ordem_add').addEventListener('change', adicionarRmBdOrdem);
+  document.getElementById('btnRmBdBaixarSql').addEventListener('click', baixarSqlRm);
+  document.getElementById('btnRmBdSalvarConsulta').addEventListener('click', salvarConsultaRm);
   document.querySelector('[data-util-ferr="evento1200"]').addEventListener('click', ()=>{
     document.getElementById('utilEsocial').style.display = 'none';
     document.getElementById('utilEvento1200').style.display = '';
