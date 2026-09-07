@@ -746,3 +746,76 @@ create index if not exists idx_atendimento_visto_conta on atendimento_visto (con
 -- meta mensal do cliente (valor de referência, em R$) — comparado no Resumo
 -- do admin com o Valor Real já realizado com aquele cliente no mês
 alter table clientes add column if not exists meta_mensal numeric default 0;
+
+-- =========================================================
+-- Gerador SQL RM — modela o dicionário de dados do TOTVS RM (tabelas,
+-- campos e relacionamentos entre tabelas) dentro do nosso banco, pra
+-- montar consultas SQL Server sem precisar decorar nome de tabela/campo
+-- do RM. Alimentado por importação em lote a partir dos exports reais do
+-- RM (GDIC2 = dicionário de tabelas/campos, GLINKSREL = relacionamentos)
+-- ou cadastro manual, pela tela Cadastros → Tabelas RM/Campos RM/
+-- Relacionamentos RM/Tabelas Auxiliares RM.
+create table if not exists rm_tabelas (
+  id text primary key,
+  nome text not null unique,       -- nome real da tabela no RM, sempre maiúsculo (ex: FCFO)
+  apelido text not null default '',
+  descricao text default '',
+  -- "tabela auxiliar" = tabela de domínio/lookup (ex: HDOMINIO), marcada
+  -- manualmente pela tela Tabelas Auxiliares RM; aux_campo_codigo/
+  -- aux_campo_descricao indicam qual campo é o código e qual é o texto,
+  -- pra eventualmente traduzir códigos em texto legível nas consultas
+  auxiliar boolean not null default false,
+  aux_campo_codigo text,
+  aux_campo_descricao text,
+  criado_em timestamptz default now()
+);
+alter table rm_tabelas enable row level security;
+create index if not exists idx_rm_tabelas_auxiliar on rm_tabelas (auxiliar);
+
+create table if not exists rm_campos (
+  id text primary key,
+  tabela_id text not null references rm_tabelas(id) on delete cascade,
+  nome text not null,              -- nome real do campo, sempre maiúsculo (ex: CODCFO)
+  rotulo text not null default '',
+  tipo text default '',            -- só preenchido em cadastro manual — o dicionário do RM (GDIC2) não informa tipo de dado
+  criado_em timestamptz default now()
+);
+alter table rm_campos enable row level security;
+alter table rm_campos drop constraint if exists rm_campos_unico;
+alter table rm_campos add constraint rm_campos_unico unique (tabela_id, nome);
+create index if not exists idx_rm_campos_tabela on rm_campos (tabela_id);
+
+-- campo_origem/campo_destino guardam o(s) nome(s) do campo separados por
+-- vírgula SEM espaço (ex: "CODCOLIGADA,CHAPA") — chave composta, como o
+-- próprio RM exporta em GLINKSREL; os dois lados têm sempre a mesma
+-- quantidade de campos, pareados na mesma ordem
+create table if not exists rm_relacionamentos (
+  id text primary key,
+  tabela_origem_id text not null references rm_tabelas(id) on delete cascade,
+  campo_origem text not null,
+  tabela_destino_id text not null references rm_tabelas(id) on delete cascade,
+  campo_destino text not null,
+  tipo_join text not null default 'LEFT' check (tipo_join in ('INNER','LEFT')),
+  criado_em timestamptz default now()
+);
+alter table rm_relacionamentos enable row level security;
+alter table rm_relacionamentos drop constraint if exists rm_relacionamentos_unico;
+alter table rm_relacionamentos add constraint rm_relacionamentos_unico
+  unique (tabela_origem_id, campo_origem, tabela_destino_id, campo_destino);
+create index if not exists idx_rm_rel_origem on rm_relacionamentos (tabela_origem_id);
+create index if not exists idx_rm_rel_destino on rm_relacionamentos (tabela_destino_id);
+
+-- consultas montadas na tela do Gerador SQL RM e salvas pelo usuário —
+-- "config" guarda tudo que define a consulta (campos escolhidos, tabelas
+-- relacionadas, ordem), do mesmo jeito que relatorios_salvos.config guarda
+-- a configuração de um relatório personalizado
+create table if not exists rm_consultas_salvas (
+  id text primary key,
+  nome text not null,
+  tabela_principal_id text not null references rm_tabelas(id),
+  config jsonb not null,
+  sql_gerado text not null,
+  criado_por text,
+  criado_em timestamptz default now()
+);
+alter table rm_consultas_salvas enable row level security;

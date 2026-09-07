@@ -559,6 +559,26 @@
   .rel-coluna-ordem .rel-coluna-nome{flex:1;}
   .rel-coluna-ordem button{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);width:24px;height:24px;font-size:12px;padding:0;cursor:pointer;}
   .rel-coluna-ordem button:hover{color:var(--text);}
+
+  /* Gerador SQL RM (dicionário de tabelas do TOTVS RM) */
+  .tag-novo{background:var(--accent);color:var(--on-accent, #0d1117);font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:999px;margin-left:8px;}
+  .tag-aux{display:inline-block;background:color-mix(in oklch, var(--yellow) 18%, transparent);color:var(--yellow);font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 7px;border-radius:999px;margin-left:7px;vertical-align:1px;}
+  .item.novo{border-color:var(--accent-dim);background:color-mix(in oklch, var(--accent) 6%, var(--panel));}
+  .rm-hint{color:var(--muted);font-size:11.5px;line-height:1.5;margin:-4px 0 12px;}
+  .rm-campos-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 14px;max-height:320px;overflow-y:auto;padding:2px;}
+  .rm-campos-grid label{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:5px 0;cursor:pointer;}
+  .rm-campos-grid label span.tipo{color:var(--muted);font-size:10.5px;font-family:'JetBrains Mono',monospace;}
+  .rm-chips-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:6px;}
+  .rm-secao-relacionada{border:1px solid var(--line);border-radius:11px;padding:12px;margin-top:10px;background:var(--panel-2);}
+  .rm-secao-relacionada h3{margin:0 0 8px;font-size:12.5px;}
+  .rm-ordem-item{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;margin-bottom:5px;font-size:12.5px;}
+  .rm-ordem-item .rm-ordem-nome{flex:1;font-family:'JetBrains Mono',monospace;}
+  .rm-ordem-item button{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);min-width:24px;height:24px;font-size:11px;padding:0 6px;cursor:pointer;}
+  .rm-ordem-item button:hover{color:var(--text);}
+  .sql-box{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:340px;overflow-y:auto;margin-bottom:12px;}
+  .rm-import-progresso{font-size:12px;color:var(--muted);margin-top:8px;}
+  .rm-import-progresso.ok{color:var(--ok);}
+  .step-num{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:800;font-family:'JetBrains Mono',monospace;margin-right:6px;}
   .rel-ficha-item{border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;break-inside:avoid;}
   .rel-ficha-item h3{font-size:13.5px;margin:0 0 4px;}
   .rel-ficha-item .rel-ficha-sub{color:var(--muted);font-size:11.5px;margin-bottom:10px;}
@@ -1419,6 +1439,10 @@
       <div class="subtab" data-sub="usuarios">Usuários (login)</div>
       <div class="subtab" data-sub="perfisacesso">Perfis de Acesso</div>
       <div class="subtab" data-sub="empresas">Empresas</div>
+      <div class="subtab" data-sub="tabelasrm">Tabelas RM</div>
+      <div class="subtab" data-sub="camposrm">Campos RM</div>
+      <div class="subtab" data-sub="relacionamentosrm">Relacionamentos RM</div>
+      <div class="subtab" data-sub="tabelasauxrm">Tabelas Auxiliares RM</div>
     </div>
 
     <div class="cad-view active" id="cad-atendentes">
@@ -1635,6 +1659,113 @@
       </div>
       <div id="listEmpresas"></div>
     </div>
+
+    <!-- Gerador SQL RM: Tabelas RM -->
+    <div class="cad-view" id="cad-tabelasrm" style="display:none;">
+      <div class="card">
+        <h2 id="rmTabTituloForm">Nova tabela</h2>
+        <div class="row">
+          <div class="field"><label>Nome real da tabela (no banco)</label><input type="text" class="mono" id="rm_tab_nome" placeholder="Ex: FCFO"></div>
+          <div class="field"><label>Apelido / rótulo amigável</label><input type="text" id="rm_tab_apelido" placeholder="Ex: Fornecedores/Clientes"></div>
+        </div>
+        <div class="field"><label>Descrição (opcional)</label><textarea id="rm_tab_descricao" placeholder="Pra que serve essa tabela"></textarea></div>
+        <button class="primary" id="btnSalvarTabelaRM">Adicionar tabela</button>
+        <button class="ghost" id="btnCancelarEdicaoTabelaRM" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div class="card">
+        <h2>Importar dicionário do RM (GDIC2)</h2>
+        <p class="rm-hint">Escolha o arquivo exportado do RM (colunas TABELA;COLUNA;DESCRICAO, separado por ";") — cadastra de uma vez todas as tabelas e campos dele. Pode importar de novo depois pra atualizar (não duplica).</p>
+        <input type="file" id="rm_tab_arquivo" accept=".csv,.txt">
+        <div class="rm-import-progresso" id="rmImportDicProgresso" style="display:none;"></div>
+      </div>
+      <div class="card">
+        <h2>Tabelas cadastradas <span class="pill" id="rmTabTotal">0</span></h2>
+        <div class="field" style="margin-bottom:12px;"><input type="text" id="rm_tab_busca" placeholder="Buscar por nome ou apelido..."></div>
+        <div id="listTabelasRM"></div>
+      </div>
+    </div>
+
+    <!-- Gerador SQL RM: Campos RM -->
+    <div class="cad-view" id="cad-camposrm" style="display:none;">
+      <div class="card">
+        <h2 id="rmCampoTituloForm">Novo campo (dicionário)</h2>
+        <div class="field"><label>Tabela</label><select id="cp_tabela"></select></div>
+        <div class="row">
+          <div class="field"><label>Nome real do campo</label><input type="text" class="mono" id="cp_nome" placeholder="Ex: CODCFO"></div>
+          <div class="field"><label>Rótulo amigável</label><input type="text" id="cp_rotulo" placeholder="Ex: Código"></div>
+        </div>
+        <div class="field">
+          <label>Tipo (opcional — o dicionário do RM não informa)</label>
+          <select id="cp_tipo">
+            <option value="">—</option>
+            <option value="varchar">varchar</option>
+            <option value="int">int</option>
+            <option value="date">date</option>
+            <option value="bit">bit</option>
+            <option value="decimal">decimal</option>
+          </select>
+        </div>
+        <button class="primary" id="btnSalvarCampoRM">Adicionar campo</button>
+        <button class="ghost" id="btnCancelarEdicaoCampoRM" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div class="card">
+        <h2>Campos da tabela <span class="pill" id="rmCampoTotal">0</span></h2>
+        <div id="listCamposRM"></div>
+      </div>
+    </div>
+
+    <!-- Gerador SQL RM: Relacionamentos RM -->
+    <div class="cad-view" id="cad-relacionamentosrm" style="display:none;">
+      <div class="card">
+        <h2>Novo relacionamento</h2>
+        <div class="row">
+          <div class="field"><label>Tabela de origem</label><select id="rl_tabela_origem"></select></div>
+          <div class="field"><label>Campo de origem</label><input type="text" class="mono" id="rl_campo_origem" placeholder="Ex: CODCIDADE (ou CODCOLIGADA,CHAPA)"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Tabela de destino</label><select id="rl_tabela_destino"></select></div>
+          <div class="field"><label>Campo de destino</label><input type="text" class="mono" id="rl_campo_destino" placeholder="Ex: CODCIDADE (ou CODCOLIGADA,CHAPA)"></div>
+        </div>
+        <p class="rm-hint">Chave composta: liste os campos separados por vírgula, na mesma ordem dos dois lados — ex: CODCOLIGADA,CHAPA.</p>
+        <div class="field">
+          <label>Tipo de junção</label>
+          <select id="rl_tipo">
+            <option value="LEFT">LEFT JOIN (traz mesmo sem correspondência)</option>
+            <option value="INNER">INNER JOIN (precisa existir dos dois lados)</option>
+          </select>
+        </div>
+        <button class="primary" id="btnSalvarRelacionamentoRM">Adicionar relacionamento</button>
+      </div>
+      <div class="card">
+        <h2>Importar relacionamentos do RM (GLINKSREL)</h2>
+        <p class="rm-hint">Escolha o arquivo exportado do RM (colunas MASTERTABLE;CHILDTABLE;MASTERFIELD;CHILDFIELD, separado por ";"). Pode importar de novo depois pra atualizar (não duplica, e preserva o tipo de junção que você já tiver ajustado).</p>
+        <input type="file" id="rl_arquivo" accept=".csv,.txt">
+        <div class="rm-import-progresso" id="rmImportRelProgresso" style="display:none;"></div>
+      </div>
+      <div class="card">
+        <h2>Relacionamentos cadastrados <span class="pill" id="rmRelTotal">0</span></h2>
+        <div class="field" style="margin-bottom:12px;"><input type="text" id="rl_busca" placeholder="Buscar por nome de uma das tabelas..."></div>
+        <div id="listRelacionamentosRM"></div>
+      </div>
+    </div>
+
+    <!-- Gerador SQL RM: Tabelas Auxiliares RM -->
+    <div class="cad-view" id="cad-tabelasauxrm" style="display:none;">
+      <p class="rm-hint" style="margin-top:0;">Tabelas auxiliares guardam os "domínios" do RM — listas fixas de código e descrição (situação, tipo de pessoa, UF etc.), só pra referência. Escolha uma tabela já cadastrada e indique qual campo é o código e qual é a descrição.</p>
+      <div class="card">
+        <h2>Marcar tabela como auxiliar</h2>
+        <div class="field"><label>Tabela</label><select id="ax_tabela"></select></div>
+        <div class="row">
+          <div class="field"><label>Campo código</label><select id="ax_campo_codigo"></select></div>
+          <div class="field"><label>Campo descrição</label><select id="ax_campo_descricao"></select></div>
+        </div>
+        <button class="primary" id="btnMarcarTabelaAuxRM">Marcar como auxiliar</button>
+      </div>
+      <div class="card">
+        <h2>Tabelas auxiliares cadastradas <span class="pill" id="rmAuxTotal">0</span></h2>
+        <div id="listTabelasAuxRM"></div>
+      </div>
+    </div>
   </section>
 
   <!-- UTILITÁRIOS -->
@@ -1654,6 +1785,53 @@
           <b>TomTicket</b> <span id="utilTomticketBadge"></span>
           <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Chamados importados automaticamente que precisam de revisão</p>
         </div>
+      </div>
+      <div class="item util-clicavel novo" data-util-cat="sqlrm" style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+        <span style="font-size:22px;">🗄️</span>
+        <div>
+          <b>Gerador SQL RM<span class="tag-novo">Novo</span></b>
+          <p style="margin:2px 0 0;font-size:12.5px;color:var(--muted);">Monte consultas SQL a partir do dicionário de tabelas do TOTVS RM</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="utilSqlRm" style="display:none;">
+      <button type="button" class="ghost" id="btnUtilSqlRmVoltar" style="width:auto;padding:8px 14px;margin-bottom:12px;">← Voltar</button>
+
+      <div class="card">
+        <h2><span class="step-num">1</span> Tabela principal</h2>
+        <div class="field"><label>De qual tabela você quer os dados?</label><select id="rm_bd_tabela_principal"></select></div>
+      </div>
+
+      <div class="card" id="rmBdCardCampos" style="display:none;">
+        <h2><span class="step-num">2</span> Campos da tabela principal</h2>
+        <div class="rm-campos-grid" id="rmBdCamposPrincipal"></div>
+      </div>
+
+      <div class="card" id="rmBdCardRelacionadas" style="display:none;">
+        <h2><span class="step-num">3</span> Tabelas relacionadas</h2>
+        <div class="rm-chips-wrap" id="rmBdChipsRelacionadas"></div>
+        <div id="rmBdSecoesRelacionadas"></div>
+      </div>
+
+      <div class="card" id="rmBdCardOrdem" style="display:none;">
+        <h2><span class="step-num">4</span> Ordem</h2>
+        <div class="field"><label>Adicionar campo à ordenação</label><select id="rm_bd_ordem_add"></select></div>
+        <div id="rmBdOrdemLista"></div>
+      </div>
+
+      <div class="card" id="rmBdCardSql" style="display:none;">
+        <h2><span class="step-num">5</span> Consulta gerada</h2>
+        <div class="sql-box" id="rmBdSqlPreview"></div>
+        <div class="row">
+          <button class="primary" id="btnRmBdBaixarSql" style="margin-top:0;">⬇ Baixar .sql</button>
+          <button class="primary" id="btnRmBdSalvarConsulta" style="margin-top:0;">💾 Salvar consulta</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Consultas salvas</h2>
+        <div id="rmBdConsultasSalvas"></div>
       </div>
     </div>
 
