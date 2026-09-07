@@ -6030,6 +6030,7 @@ async function escolherTabelaPrincipalRM(){
     api('rmListarCampos', { contaId: conta.id, tabelaId }),
     api('rmListarRelacionamentosDe', { contaId: conta.id, tabelaId }),
   ]);
+  document.getElementById('rm_bd_busca_relacionadas').value = '';
   document.getElementById('rmBdCardCampos').style.display = '';
   renderRmBdCamposPrincipal(rCampos.ok ? rCampos.campos : []);
   document.getElementById('rmBdCardRelacionadas').style.display = '';
@@ -6037,9 +6038,8 @@ async function escolherTabelaPrincipalRM(){
   renderRmBdChipsRelacionadas();
 }
 // filtro genérico (esconde/mostra sem re-renderizar, pra não perder o
-// texto digitado nem a posição do scroll) — usado nos 3 "lookups" do
-// construtor: campos da principal, campos de cada relacionada, e as
-// próprias tabelas relacionadas
+// texto digitado nem a posição do scroll) — usado nos lookups de campos
+// (da principal e de cada relacionada)
 function filtrarPorBuscaRm(containerId, termo, seletorLinha){
   const t = (termo || '').trim().toLowerCase();
   document.querySelectorAll(`#${containerId} ${seletorLinha}`).forEach(linha=>{
@@ -6090,17 +6090,44 @@ function toggleRmBdCampoPrincipal(nome, marcado){
     (n, estado)=>`toggleRmBdCampoPrincipal('${n}', ${estado})`);
   atualizarRmBdOrdemDisponiveis();
 }
+// a lista de tabelas relacionadas pode ter centenas/milhares de itens (ex:
+// uma tabela citada em 667 relacionamentos) — por isso NUNCA mostra tudo de
+// uma vez: só as já escolhidas (chips removíveis, sempre visíveis) e,
+// enquanto o usuário não digitar nada na busca, mais nada. Resultado da
+// busca (por nome real OU apelido) aparece assim que ele digita.
 function renderRmBdChipsRelacionadas(){
   const el = document.getElementById('rmBdChipsRelacionadas');
   const rels = rmBuilder.relacionamentosDisponiveis || [];
   document.getElementById('rmBdRelacionadasTotal').textContent = rels.length;
-  const busca = document.getElementById('rm_bd_busca_relacionadas');
-  if(busca) busca.value = '';
-  if(rels.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela relacionada com essa (cadastre em Cadastros → Relacionamentos RM).</div>`; document.getElementById('rmBdSecoesRelacionadas').innerHTML=''; return; }
+  if(rels.length === 0){
+    el.innerHTML = `<div class="empty">Nenhuma tabela relacionada com essa (cadastre em Cadastros → Relacionamentos RM).</div>`;
+    document.getElementById('rmBdChipsRelacionadasSelecionadas').innerHTML = '';
+    document.getElementById('rmBdSecoesRelacionadas').innerHTML = '';
+    return;
+  }
   el.innerHTML = rels.map(r=>{
     const buscaTxt = `${r.outraTabelaNome} ${r.outraTabelaApelido || ''}`.toLowerCase();
-    return `<div class="chip rm-rel-chip ${rmBuilder.tabelasRelacionadas.has(r.outraTabelaId) ? 'on' : ''}" data-busca="${escaparHtml(buscaTxt)}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`;
+    return `<div class="chip rm-rel-chip" data-tabela="${r.outraTabelaId}" data-busca="${escaparHtml(buscaTxt)}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`;
   }).join('');
+  renderChipsRelacionadasSelecionadasRm();
+  const busca = document.getElementById('rm_bd_busca_relacionadas');
+  filtrarTabelasRelacionadasRm(busca ? busca.value : '');
+}
+function renderChipsRelacionadasSelecionadasRm(){
+  const chipsEl = document.getElementById('rmBdChipsRelacionadasSelecionadas');
+  const escolhidas = [...rmBuilder.tabelasRelacionadas.values()];
+  chipsEl.innerHTML = escolhidas.length
+    ? escolhidas.map(s=>`<div class="chip on" onclick="toggleRmBdTabelaRelacionada('${s.tabelaId}')">${escaparHtml(s.tabelaApelido || s.tabelaNome)} ✕</div>`).join('')
+    : `<span class="rm-hint-inline">Nenhuma tabela relacionada selecionada ainda.</span>`;
+}
+// só mostra os resultados da busca (nunca as 667 de uma vez); os que já
+// estão marcados aparecem destacados também se baterem com a busca
+function filtrarTabelasRelacionadasRm(termo){
+  const t = (termo || '').trim().toLowerCase();
+  document.querySelectorAll('#rmBdChipsRelacionadas .rm-rel-chip').forEach(chip=>{
+    chip.hidden = !t || !(chip.dataset.busca || '').includes(t);
+    chip.classList.toggle('on', rmBuilder.tabelasRelacionadas.has(chip.dataset.tabela));
+  });
 }
 async function toggleRmBdTabelaRelacionada(tabelaId){
   if(rmBuilder.tabelasRelacionadas.has(tabelaId)){
@@ -8249,7 +8276,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnMarcarTabelaAuxRM').addEventListener('click', marcarTabelaAuxRM);
   document.getElementById('rm_bd_tabela_principal').addEventListener('change', escolherTabelaPrincipalRM);
   document.getElementById('rm_bd_busca_campos_principal').addEventListener('input', e=>filtrarPorBuscaRm('rmBdCamposPrincipal', e.target.value, '.rm-campo-row'));
-  document.getElementById('rm_bd_busca_relacionadas').addEventListener('input', e=>filtrarPorBuscaRm('rmBdChipsRelacionadas', e.target.value, '.rm-rel-chip'));
+  document.getElementById('rm_bd_busca_relacionadas').addEventListener('input', e=>filtrarTabelasRelacionadasRm(e.target.value));
   document.getElementById('rm_bd_ordem_add').addEventListener('change', adicionarRmBdOrdem);
   document.getElementById('btnRmBdBaixarSql').addEventListener('click', baixarSqlRm);
   document.getElementById('btnRmBdSalvarConsulta').addEventListener('click', salvarConsultaRm);
