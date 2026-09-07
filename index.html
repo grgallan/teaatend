@@ -1805,7 +1805,10 @@
 
       <div class="card">
         <h2><span class="step-num">1</span> Tabela principal</h2>
-        <div class="field"><label>De qual tabela você quer os dados?</label><select id="rm_bd_tabela_principal"></select></div>
+        <label>De qual tabela você quer os dados?</label>
+        <input type="text" id="rm_bd_busca_tabela_principal" placeholder="Buscar tabela por nome ou apelido...">
+        <div class="rm-chips-selecionados" id="rmBdTabelaPrincipalSelecionada"></div>
+        <div class="rm-chips-wrap" id="rmBdResultadosTabelaPrincipal"></div>
       </div>
 
       <div class="card" id="rmBdCardCampos" style="display:none;">
