@@ -5598,6 +5598,12 @@ function renderCadastrosTudo(){
    quanto o construtor de consulta em Utilitários → Gerador SQL RM.
    ========================================================= */
 
+// normaliza texto pra busca — minúsculas e sem acento, pra "clientes"
+// encontrar "Clientes" e "usuário" encontrar "usuario" (e vice-versa) nos
+// lookups de tabela principal, campos e tabelas relacionadas
+function normalizarBuscaTextoRm(s){
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
 // lê um CSV separado por ";" com aspas (formato dos exports do RM,
 // GDIC2/GLINKSREL) — cuida de campo entre aspas contendo ";" e de aspas
 // duplicadas ("") como escape, igual qualquer CSV padrão
@@ -6020,9 +6026,9 @@ async function iniciarGeradorSqlRm(){
 // resultado some da tela e vira um chip removível acima
 function renderRmBdResultadosTabelaPrincipal(termo){
   const el = document.getElementById('rmBdResultadosTabelaPrincipal');
-  const t = (termo || '').trim().toLowerCase();
+  const t = normalizarBuscaTextoRm(termo).trim();
   if(!t){ el.innerHTML = ''; return; }
-  const resultados = (rmTabelasTodas || []).filter(x=>`${x.nome} ${x.apelido || ''}`.toLowerCase().includes(t)).slice(0, 100);
+  const resultados = (rmTabelasTodas || []).filter(x=>normalizarBuscaTextoRm(`${x.nome} ${x.apelido || ''}`).includes(t)).slice(0, 100);
   if(resultados.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela encontrada.</div>`; return; }
   el.innerHTML = resultados.map(x=>`<div class="chip" onclick="selecionarTabelaPrincipalRM('${x.id}')">${escaparHtml(x.nome)}${x.apelido && x.apelido !== x.nome ? ' — '+escaparHtml(x.apelido) : ''}</div>`).join('');
 }
@@ -6067,7 +6073,7 @@ async function carregarTabelaPrincipalRM(tabelaId){
 // texto digitado nem a posição do scroll) — usado nos lookups de campos
 // (da principal e de cada relacionada)
 function filtrarPorBuscaRm(containerId, termo, seletorLinha){
-  const t = (termo || '').trim().toLowerCase();
+  const t = normalizarBuscaTextoRm(termo).trim();
   document.querySelectorAll(`#${containerId} ${seletorLinha}`).forEach(linha=>{
     linha.hidden = !!t && !(linha.dataset.busca || '').includes(t);
   });
@@ -6083,7 +6089,7 @@ function renderCamposLookupRm(containerId, chipsContainerId, campos, selecionado
   const el = document.getElementById(containerId);
   if(!campos || campos.length === 0){ el.innerHTML = `<div class="empty">Essa tabela ainda não tem campos cadastrados.</div>`; return; }
   el.innerHTML = campos.map(c=>{
-    const busca = `${c.nome} ${c.rotulo || ''}`.toLowerCase();
+    const busca = normalizarBuscaTextoRm(`${c.nome} ${c.rotulo || ''}`);
     const rotulo = c.rotulo ? `${escaparHtml(c.rotulo)}<span class="mono-sub">${escaparHtml(c.nome)}</span>` : `<span class="mono-sub">${escaparHtml(c.nome)}</span>`;
     return `<label class="rm-campo-row" data-busca="${escaparHtml(busca)}"><input type="checkbox" data-campo="${escaparHtml(c.nome)}" ${selecionados.has(c.nome)?'checked':''} onchange="${montarChamada(c.nome,'this.checked')}"> ${rotulo}${c.tipo ? ` <span class="tipo">${escaparHtml(c.tipo)}</span>` : ''}</label>`;
   }).join('');
@@ -6132,7 +6138,7 @@ function renderRmBdChipsRelacionadas(){
     return;
   }
   el.innerHTML = rels.map(r=>{
-    const buscaTxt = `${r.outraTabelaNome} ${r.outraTabelaApelido || ''}`.toLowerCase();
+    const buscaTxt = normalizarBuscaTextoRm(`${r.outraTabelaNome} ${r.outraTabelaApelido || ''}`);
     return `<div class="chip rm-rel-chip" data-tabela="${r.outraTabelaId}" data-busca="${escaparHtml(buscaTxt)}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`;
   }).join('');
   renderChipsRelacionadasSelecionadasRm();
@@ -6149,7 +6155,7 @@ function renderChipsRelacionadasSelecionadasRm(){
 // só mostra os resultados da busca (nunca as 667 de uma vez); os que já
 // estão marcados aparecem destacados também se baterem com a busca
 function filtrarTabelasRelacionadasRm(termo){
-  const t = (termo || '').trim().toLowerCase();
+  const t = normalizarBuscaTextoRm(termo).trim();
   document.querySelectorAll('#rmBdChipsRelacionadas .rm-rel-chip').forEach(chip=>{
     chip.hidden = !t || !(chip.dataset.busca || '').includes(t);
     chip.classList.toggle('on', rmBuilder.tabelasRelacionadas.has(chip.dataset.tabela));
