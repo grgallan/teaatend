@@ -5983,6 +5983,8 @@ async function iniciarGeradorSqlRm(){
   document.getElementById('rmBdCardRelacionadas').style.display = 'none';
   document.getElementById('rmBdCardOrdem').style.display = 'none';
   document.getElementById('rmBdCardSql').style.display = 'none';
+  document.getElementById('rm_bd_busca_campos_principal').value = '';
+  document.getElementById('rm_bd_busca_relacionadas').value = '';
   await carregarTabelasRMTodas();
   preencherSelectTabelasRM(document.getElementById('rm_bd_tabela_principal'), null, true);
   await carregarConsultasSalvasRM();
@@ -6010,23 +6012,71 @@ async function escolherTabelaPrincipalRM(){
   rmBuilder.relacionamentosDisponiveis = rRel.ok ? rRel.relacionamentos : [];
   renderRmBdChipsRelacionadas();
 }
+// filtro genérico (esconde/mostra sem re-renderizar, pra não perder o
+// texto digitado nem a posição do scroll) — usado nos 3 "lookups" do
+// construtor: campos da principal, campos de cada relacionada, e as
+// próprias tabelas relacionadas
+function filtrarPorBuscaRm(containerId, termo, seletorLinha){
+  const t = (termo || '').trim().toLowerCase();
+  document.querySelectorAll(`#${containerId} ${seletorLinha}`).forEach(linha=>{
+    linha.hidden = !!t && !(linha.dataset.busca || '').includes(t);
+  });
+}
+// desenha a lista de campos com busca (nome + rótulo descritivo visíveis)
+// e os chips de "já escolhidos" acima — "montarChamada" recebe o nome do
+// campo e uma expressão JS (texto) pro novo estado, pra funcionar tanto
+// pros campos da principal (toggleRmBdCampoPrincipal) quanto pros de
+// qualquer tabela relacionada (toggleRmBdCampoRelacionado, que precisa
+// também do id da tabela)
+function renderCamposLookupRm(containerId, chipsContainerId, campos, selecionados, montarChamada){
+  renderChipsCamposSelecionadosRm(chipsContainerId, campos, selecionados, montarChamada);
+  const el = document.getElementById(containerId);
+  if(!campos || campos.length === 0){ el.innerHTML = `<div class="empty">Essa tabela ainda não tem campos cadastrados.</div>`; return; }
+  el.innerHTML = campos.map(c=>{
+    const busca = `${c.nome} ${c.rotulo || ''}`.toLowerCase();
+    const rotulo = c.rotulo ? `${escaparHtml(c.rotulo)}<span class="mono-sub">${escaparHtml(c.nome)}</span>` : `<span class="mono-sub">${escaparHtml(c.nome)}</span>`;
+    return `<label class="rm-campo-row" data-busca="${escaparHtml(busca)}"><input type="checkbox" data-campo="${escaparHtml(c.nome)}" ${selecionados.has(c.nome)?'checked':''} onchange="${montarChamada(c.nome,'this.checked')}"> ${rotulo}${c.tipo ? ` <span class="tipo">${escaparHtml(c.tipo)}</span>` : ''}</label>`;
+  }).join('');
+}
+function renderChipsCamposSelecionadosRm(chipsContainerId, campos, selecionados, montarChamada){
+  const chipsEl = document.getElementById(chipsContainerId);
+  if(!chipsEl) return;
+  const escolhidos = campos.filter(c=>selecionados.has(c.nome));
+  chipsEl.innerHTML = escolhidos.length
+    ? escolhidos.map(c=>`<div class="chip on" onclick="${montarChamada(c.nome,'false')}">${escaparHtml(c.rotulo || c.nome)} ✕</div>`).join('')
+    : `<span class="rm-hint-inline">Nenhum campo selecionado ainda.</span>`;
+}
+// mantém o checkbox certo em dia quando o campo é desmarcado pelo chip
+// (✕), sem precisar re-renderizar a lista toda (preserva scroll/busca)
+function sincronizarCheckboxCampoRm(containerId, nome, marcado){
+  const el = document.querySelector(`#${containerId} input[data-campo="${CSS.escape(nome)}"]`);
+  if(el) el.checked = marcado;
+}
 function renderRmBdCamposPrincipal(campos){
   rmBuilder.camposDisponiveisPrincipal = campos || [];
-  const el = document.getElementById('rmBdCamposPrincipal');
-  if(!campos || campos.length === 0){ el.innerHTML = `<div class="empty">Essa tabela ainda não tem campos cadastrados.</div>`; return; }
-  el.innerHTML = campos.map(c=>`
-    <label><input type="checkbox" onchange="toggleRmBdCampoPrincipal('${c.nome}', this.checked)"> ${escaparHtml(c.nome)}${c.tipo ? ` <span class="tipo">${escaparHtml(c.tipo)}</span>` : ''}</label>
-  `).join('');
+  const busca = document.getElementById('rm_bd_busca_campos_principal');
+  if(busca) busca.value = '';
+  renderCamposLookupRm('rmBdCamposPrincipal', 'rmBdChipsCamposPrincipalSelecionados', rmBuilder.camposDisponiveisPrincipal, rmBuilder.camposPrincipal,
+    (nome, estado)=>`toggleRmBdCampoPrincipal('${nome}', ${estado})`);
 }
 function toggleRmBdCampoPrincipal(nome, marcado){
   if(marcado) rmBuilder.camposPrincipal.add(nome); else rmBuilder.camposPrincipal.delete(nome);
+  sincronizarCheckboxCampoRm('rmBdCamposPrincipal', nome, marcado);
+  renderChipsCamposSelecionadosRm('rmBdChipsCamposPrincipalSelecionados', rmBuilder.camposDisponiveisPrincipal, rmBuilder.camposPrincipal,
+    (n, estado)=>`toggleRmBdCampoPrincipal('${n}', ${estado})`);
   atualizarRmBdOrdemDisponiveis();
 }
 function renderRmBdChipsRelacionadas(){
   const el = document.getElementById('rmBdChipsRelacionadas');
   const rels = rmBuilder.relacionamentosDisponiveis || [];
+  document.getElementById('rmBdRelacionadasTotal').textContent = rels.length;
+  const busca = document.getElementById('rm_bd_busca_relacionadas');
+  if(busca) busca.value = '';
   if(rels.length === 0){ el.innerHTML = `<div class="empty">Nenhuma tabela relacionada com essa (cadastre em Cadastros → Relacionamentos RM).</div>`; document.getElementById('rmBdSecoesRelacionadas').innerHTML=''; return; }
-  el.innerHTML = rels.map(r=>`<div class="chip ${rmBuilder.tabelasRelacionadas.has(r.outraTabelaId) ? 'on' : ''}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`).join('');
+  el.innerHTML = rels.map(r=>{
+    const buscaTxt = `${r.outraTabelaNome} ${r.outraTabelaApelido || ''}`.toLowerCase();
+    return `<div class="chip rm-rel-chip ${rmBuilder.tabelasRelacionadas.has(r.outraTabelaId) ? 'on' : ''}" data-busca="${escaparHtml(buscaTxt)}" onclick="toggleRmBdTabelaRelacionada('${r.outraTabelaId}')">${escaparHtml(r.outraTabelaApelido || r.outraTabelaNome)}</div>`;
+  }).join('');
 }
 async function toggleRmBdTabelaRelacionada(tabelaId){
   if(rmBuilder.tabelasRelacionadas.has(tabelaId)){
@@ -6052,16 +6102,23 @@ function renderRmBdSecoesRelacionadas(){
   el.innerHTML = secoes.map(s=>`
     <div class="rm-secao-relacionada">
       <h3>${escaparHtml(s.tabelaApelido || s.tabelaNome)} <span style="color:var(--muted);font-weight:400;">(${s.relacionamento.tipoJoin === 'INNER' ? 'INNER JOIN' : 'LEFT JOIN'})</span></h3>
-      <div class="rm-campos-grid">
-        ${(s.camposDisponiveis||[]).length ? s.camposDisponiveis.map(c=>`
-          <label><input type="checkbox" onchange="toggleRmBdCampoRelacionado('${s.tabelaId}','${c.nome}', this.checked)"> ${escaparHtml(c.nome)}${c.tipo ? ` <span class="tipo">${escaparHtml(c.tipo)}</span>` : ''}</label>
-        `).join('') : `<div class="empty">Essa tabela ainda não tem campos cadastrados.</div>`}
-      </div>
+      <input type="text" id="rm_bd_busca_campos_${s.tabelaId}" placeholder="Buscar campo por nome ou descrição...">
+      <div class="rm-chips-selecionados" id="rmBdChipsSel_${s.tabelaId}"></div>
+      <div class="rm-campos-grid" id="rmBdCampos_${s.tabelaId}"></div>
     </div>`).join('');
+  secoes.forEach(s=>{
+    renderCamposLookupRm(`rmBdCampos_${s.tabelaId}`, `rmBdChipsSel_${s.tabelaId}`, s.camposDisponiveis, s.campos,
+      (nome, estado)=>`toggleRmBdCampoRelacionado('${s.tabelaId}','${nome}', ${estado})`);
+    const buscaEl = document.getElementById(`rm_bd_busca_campos_${s.tabelaId}`);
+    if(buscaEl) buscaEl.addEventListener('input', e=>filtrarPorBuscaRm(`rmBdCampos_${s.tabelaId}`, e.target.value, '.rm-campo-row'));
+  });
 }
 function toggleRmBdCampoRelacionado(tabelaId, nome, marcado){
   const secao = rmBuilder.tabelasRelacionadas.get(tabelaId); if(!secao) return;
   if(marcado) secao.campos.add(nome); else secao.campos.delete(nome);
+  sincronizarCheckboxCampoRm(`rmBdCampos_${tabelaId}`, nome, marcado);
+  renderChipsCamposSelecionadosRm(`rmBdChipsSel_${tabelaId}`, secao.camposDisponiveis, secao.campos,
+    (n, estado)=>`toggleRmBdCampoRelacionado('${tabelaId}','${n}', ${estado})`);
   atualizarRmBdOrdemDisponiveis();
 }
 // lista de campos já escolhidos (principal + relacionadas), disponível
@@ -8167,6 +8224,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('ax_tabela').addEventListener('change', atualizarCamposAuxSelectsRM);
   document.getElementById('btnMarcarTabelaAuxRM').addEventListener('click', marcarTabelaAuxRM);
   document.getElementById('rm_bd_tabela_principal').addEventListener('change', escolherTabelaPrincipalRM);
+  document.getElementById('rm_bd_busca_campos_principal').addEventListener('input', e=>filtrarPorBuscaRm('rmBdCamposPrincipal', e.target.value, '.rm-campo-row'));
+  document.getElementById('rm_bd_busca_relacionadas').addEventListener('input', e=>filtrarPorBuscaRm('rmBdChipsRelacionadas', e.target.value, '.rm-rel-chip'));
   document.getElementById('rm_bd_ordem_add').addEventListener('change', adicionarRmBdOrdem);
   document.getElementById('btnRmBdBaixarSql').addEventListener('click', baixarSqlRm);
   document.getElementById('btnRmBdSalvarConsulta').addEventListener('click', salvarConsultaRm);
