@@ -2354,7 +2354,7 @@ async function acaoRmListarRelacionamentos(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.relacionamentosrm', 'visualizar'))) {
     return { ok: false, erro: 'Você não tem permissão para ver os relacionamentos do RM.' };
   }
-  const limite = Math.min(Number(req.limit) || 50, 200);
+  const limite = Math.min(Number(req.limit) || 50, 1000);
   let idsTabelasFiltro: string[] | null = null;
   if (req.busca) {
     const termo = sanitizarBuscaRm(req.busca);

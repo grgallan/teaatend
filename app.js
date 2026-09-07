@@ -5731,15 +5731,27 @@ async function importarArquivoDicionarioRM(inputEl){
     const linhasDados = linhas.slice(1).filter(l=>(l[iTabela]||'').trim());
     const conta = contaAtual();
     const TAM_LOTE = 1500;
+    let lotesComErro = 0, ultimoErro = '';
     for(let i=0;i<linhasDados.length;i+=TAM_LOTE){
       const lote = linhasDados.slice(i, i+TAM_LOTE).map(l=>({ tabela: l[iTabela]||'', coluna: l[iColuna]||'', descricao: l[iDescricao]||'' }));
       barra.textContent = `Importando ${Math.min(i+TAM_LOTE, linhasDados.length)} / ${linhasDados.length}...`;
-      const r = await api('rmImportarDicionarioLote', { contaId: conta.id, linhas: lote });
-      if(!r.ok){ toast(r.erro || 'Erro ao importar'); return; }
+      let r = await api('rmImportarDicionarioLote', { contaId: conta.id, linhas: lote });
+      // erro pode ser passageiro (ex: outra importação rodando ao mesmo
+      // tempo) — tenta esse lote mais uma vez antes de desistir dele
+      if(!r.ok) r = await api('rmImportarDicionarioLote', { contaId: conta.id, linhas: lote });
+      if(!r.ok){ lotesComErro++; ultimoErro = r.erro || 'erro desconhecido'; continue; }
     }
-    barra.classList.add('ok');
-    barra.textContent = `Importação concluída — ${linhasDados.length} linhas processadas.`;
-    toast('Dicionário importado com sucesso');
+    // um lote com erro NÃO trava o resto da importação — os outros lotes
+    // continuam sendo importados normalmente; só reimportar o arquivo de
+    // novo depois resolve o(s) lote(s) que falhou(aram) (é seguro, não duplica)
+    if(lotesComErro > 0){
+      barra.textContent = `Importação concluída com ${lotesComErro} lote(s) com erro (${ultimoErro}) — importe o arquivo de novo pra completar.`;
+      toast(`${lotesComErro} lote(s) falharam — importe de novo pra completar`);
+    } else {
+      barra.classList.add('ok');
+      barra.textContent = `Importação concluída — ${linhasDados.length} linhas processadas.`;
+      toast('Dicionário importado com sucesso');
+    }
     rmTabelasTodas = null;
     carregarECadTabelasRM();
   } catch(e){
@@ -5837,7 +5849,12 @@ async function carregarECadRelacionamentosRM(){
   await recarregarListaRelacionamentosRM();
 }
 async function recarregarListaRelacionamentosRM(){
-  const r = await api('rmListarRelacionamentos', { contaId: contaAtual().id, busca: rmBuscaRelacionamentosRM });
+  // sem busca, mostra só os 50 mais recentes (31 mil relacionamentos não
+  // caberia numa lista); buscando por uma tabela específica, sobe o
+  // limite bem mais alto — senão uma tabela com centenas de
+  // relacionamentos (comum no RM) aparecia cortada pela metade
+  const limit = rmBuscaRelacionamentosRM ? 1000 : 50;
+  const r = await api('rmListarRelacionamentos', { contaId: contaAtual().id, busca: rmBuscaRelacionamentosRM, limit });
   if(!r.ok){ toast(r.erro || 'Erro ao carregar relacionamentos'); return; }
   renderListRelacionamentosRM(r.relacionamentos);
 }
@@ -5903,15 +5920,22 @@ async function importarArquivoRelacionamentosRM(inputEl){
     const linhasDados = linhas.slice(1).filter(l=>(l[iOrig]||'').trim() && (l[iDest]||'').trim());
     const conta = contaAtual();
     const TAM_LOTE = 1500;
+    let lotesComErro = 0, ultimoErro = '';
     for(let i=0;i<linhasDados.length;i+=TAM_LOTE){
       const lote = linhasDados.slice(i, i+TAM_LOTE).map(l=>({ tabelaOrigem: l[iOrig]||'', tabelaDestino: l[iDest]||'', campoOrigem: l[iCampoOrig]||'', campoDestino: l[iCampoDest]||'' }));
       barra.textContent = `Importando ${Math.min(i+TAM_LOTE, linhasDados.length)} / ${linhasDados.length}...`;
-      const r = await api('rmImportarRelacionamentosLote', { contaId: conta.id, linhas: lote });
-      if(!r.ok){ toast(r.erro || 'Erro ao importar'); return; }
+      let r = await api('rmImportarRelacionamentosLote', { contaId: conta.id, linhas: lote });
+      if(!r.ok) r = await api('rmImportarRelacionamentosLote', { contaId: conta.id, linhas: lote });
+      if(!r.ok){ lotesComErro++; ultimoErro = r.erro || 'erro desconhecido'; continue; }
     }
-    barra.classList.add('ok');
-    barra.textContent = `Importação concluída — ${linhasDados.length} linhas processadas.`;
-    toast('Relacionamentos importados com sucesso');
+    if(lotesComErro > 0){
+      barra.textContent = `Importação concluída com ${lotesComErro} lote(s) com erro (${ultimoErro}) — importe o arquivo de novo pra completar.`;
+      toast(`${lotesComErro} lote(s) falharam — importe de novo pra completar`);
+    } else {
+      barra.classList.add('ok');
+      barra.textContent = `Importação concluída — ${linhasDados.length} linhas processadas.`;
+      toast('Relacionamentos importados com sucesso');
+    }
     rmTabelasTodas = null;
     carregarECadRelacionamentosRM();
   } catch(e){
