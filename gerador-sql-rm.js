@@ -50,7 +50,6 @@ function normalizarCamposRmTexto(s){
 }
 
 let rmTabelasTodas = null;
-let rmConsultasSalvas = [];
 let rmBuilder = { tabelaPrincipal: null, camposPrincipal: new Set(), relacionamentosDisponiveis: [], tabelasRelacionadas: new Map(), ordem: [] };
 
 // carrega TODAS as tabelas cadastradas (pagina de 1000 em 1000)
@@ -80,7 +79,6 @@ async function iniciarGeradorSqlRm(){
   document.getElementById('rmBdResultadosTabelaPrincipal').innerHTML = '';
   await carregarTabelasRMTodas();
   await carregarTabelaPrincipalRM(null);
-  await carregarConsultasSalvasRM();
 }
 
 /* ---------- Etapa 1: tabela principal (lookup) ---------- */
@@ -373,52 +371,6 @@ function baixarSqlRm(){
   const a = document.createElement('a'); a.href = url; a.download = `consulta_rm_${(rmBuilder.tabelaPrincipal.nome||'consulta').toLowerCase()}.sql`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
 }
-async function salvarConsultaRm(){
-  const sql = gerarSqlRm();
-  if(!sql || !rmBuilder.tabelaPrincipal){ toast('Monte a consulta antes de salvar'); return; }
-  const nome = prompt('Nome da consulta:');
-  if(!nome) return;
-  const config = {
-    camposPrincipal: [...rmBuilder.camposPrincipal],
-    tabelasRelacionadas: [...rmBuilder.tabelasRelacionadas.entries()].map(([tabelaId, s])=>({ tabelaId, campos: [...s.campos] })),
-    ordem: rmBuilder.ordem,
-  };
-  const r = await api('rmPublicoSalvarConsulta', { nome, tabelaPrincipalId: rmBuilder.tabelaPrincipal.id, config, sqlGerado: sql });
-  if(!r.ok){ toast(r.erro || 'Erro ao salvar consulta'); return; }
-  toast('Consulta salva');
-  carregarConsultasSalvasRM();
-}
-async function carregarConsultasSalvasRM(){
-  const r = await api('rmPublicoListarConsultasSalvas', {});
-  rmConsultasSalvas = r.ok ? (r.consultas || []) : [];
-  renderConsultasSalvasRM();
-}
-function renderConsultasSalvasRM(){
-  const el = document.getElementById('rmBdConsultasSalvas');
-  if(rmConsultasSalvas.length === 0){ el.innerHTML = `<div class="empty">Nenhuma consulta salva ainda.</div>`; return; }
-  el.innerHTML = rmConsultasSalvas.map(c=>`
-    <div class="cad-item">
-      <div class="info"><b>${escaparHtml(c.nome)}</b><span>${escaparHtml((new Date(c.criadoEm)).toLocaleDateString('pt-BR'))}</span></div>
-      <div class="acts">
-        <button class="ghost" onclick="carregarSqlSalvoRM('${c.id}')">Ver SQL</button>
-        <button class="danger" onclick="removerConsultaRm('${c.id}')">Remover</button>
-      </div>
-    </div>`).join('');
-}
-function carregarSqlSalvoRM(id){
-  const c = rmConsultasSalvas.find(x=>x.id===id); if(!c) return;
-  document.getElementById('rmBdCardSql').style.display = '';
-  document.getElementById('rmBdSqlPreview').textContent = c.sqlGerado;
-  document.getElementById('rmBdCardSql').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-async function removerConsultaRm(id){
-  if(!confirm('Remover essa consulta salva?')) return;
-  const r = await api('rmPublicoRemoverConsulta', { id });
-  if(!r.ok){ toast(r.erro || 'Erro ao remover'); return; }
-  toast('Consulta removida');
-  carregarConsultasSalvasRM();
-}
-
 document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('rm_bd_busca_tabela_principal').addEventListener('input', e=>renderRmBdResultadosTabelaPrincipal(e.target.value));
   document.getElementById('rm_bd_busca_campos_principal').addEventListener('input', e=>filtrarPorBuscaRm('rmBdCamposPrincipal', e.target.value, '.rm-campo-row'));
@@ -427,6 +379,5 @@ document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('rmBdSecoesRelacionadas').addEventListener('input', tratarEdicaoJoinRm);
   document.getElementById('rmBdSecoesRelacionadas').addEventListener('change', tratarEdicaoJoinRm);
   document.getElementById('btnRmBdBaixarSql').addEventListener('click', baixarSqlRm);
-  document.getElementById('btnRmBdSalvarConsulta').addEventListener('click', salvarConsultaRm);
   iniciarGeradorSqlRm();
 });
