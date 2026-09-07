@@ -2167,6 +2167,23 @@ function rmConsultaParaApi(c: any) {
   return { id: c.id, nome: c.nome, tabelaPrincipalId: c.tabela_principal_id, config: c.config, sqlGerado: c.sql_gerado, criadoPor: c.criado_por || '', criadoEm: c.criado_em };
 }
 
+// busca tabelas por nome em pedaços pequenos — um único .in('nome', [...])
+// com centenas/milhares de nomes de uma vez (comum na importação do
+// GLINKSREL, onde cada linha cita 2 tabelas e um lote de 1500 linhas pode
+// citar milhares de nomes distintos) monta uma URL gigante e o servidor
+// recusa a requisição (erro de protocolo HTTP/2)
+async function buscarTabelasExistentesRm(nomes: any[]): Promise<{ mapa: Map<string, string>; erro?: string }> {
+  const mapa = new Map<string, string>();
+  const TAM_PEDACO = 150;
+  for (let i = 0; i < nomes.length; i += TAM_PEDACO) {
+    const pedaco = nomes.slice(i, i + TAM_PEDACO);
+    const { data, error } = await db.from('rm_tabelas').select('id,nome').in('nome', pedaco);
+    if (error) return { mapa, erro: error.message };
+    (data || []).forEach((t: any) => mapa.set(t.nome, t.id));
+  }
+  return { mapa };
+}
+
 async function acaoRmListarTabelas(req: any) {
   if (!(await podeAgirRm(req.contaId, ['utilitarios.sqlrm', 'cadastros.tabelasrm'], 'visualizar'))) {
     return { ok: false, erro: 'Você não tem permissão para ver as tabelas do RM.' };
@@ -2224,14 +2241,13 @@ async function acaoRmImportarDicionarioLote(req: any) {
     .filter((l: any) => l.tabela);
   if (linhas.length === 0) return { ok: true, tabelas: 0, campos: 0 };
 
-  const nomesTabelas = [...new Set(linhas.map((l: any) => l.tabela))];
+  const nomesTabelas = [...new Set(linhas.map((l: any) => l.tabela))] as string[];
   // 1) descobre quem já existe (pelo nome) — só depois disso decide o que
   // é INSERT (nome ainda não existe, precisa de id novo) e o que é UPDATE
   // (nome já existe, usa o id de verdade — nunca gera/upserta sem saber o
   // id certo, que foi exatamente a causa do erro "null value in column id")
-  const { data: existentes, error: erroExistentes } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
-  if (erroExistentes) return { ok: false, erro: erroExistentes.message };
-  const mapaId = new Map((existentes || []).map((t: any) => [t.nome, t.id]));
+  const { mapa: mapaId, erro: erroExistentes } = await buscarTabelasExistentesRm(nomesTabelas);
+  if (erroExistentes) return { ok: false, erro: erroExistentes };
 
   const nomesFaltando = nomesTabelas.filter((nome) => !mapaId.has(nome));
   if (nomesFaltando.length) {
@@ -2429,10 +2445,9 @@ async function acaoRmImportarRelacionamentosLote(req: any) {
   // mesmo padrão do import do dicionário: descobre quem já existe antes de
   // decidir o que precisa de id novo, nunca upserta uma tabela sem saber
   // com certeza o id dela
-  const nomesTabelas = [...new Set(linhas.flatMap((l: any) => [l.tabelaOrigem, l.tabelaDestino]))];
-  const { data: existentes, error: erroExistentes } = await db.from('rm_tabelas').select('id,nome').in('nome', nomesTabelas);
-  if (erroExistentes) return { ok: false, erro: erroExistentes.message };
-  const mapaId = new Map((existentes || []).map((t: any) => [t.nome, t.id]));
+  const nomesTabelas = [...new Set(linhas.flatMap((l: any) => [l.tabelaOrigem, l.tabelaDestino]))] as string[];
+  const { mapa: mapaId, erro: erroExistentes } = await buscarTabelasExistentesRm(nomesTabelas);
+  if (erroExistentes) return { ok: false, erro: erroExistentes };
 
   const nomesFaltando = nomesTabelas.filter((nome) => !mapaId.has(nome));
   if (nomesFaltando.length) {
