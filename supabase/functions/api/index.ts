@@ -94,6 +94,66 @@ function calcularQtd(hi: string, hf: string, inter?: string): number {
   return totalMin / 60;
 }
 
+// duração (em horas) de UMA movimentação com apuração de tempo — usa data +
+// horário dos dois lados (não só horário, como o calcularQtd antigo) porque
+// o período de trabalho registrado pode virar a virada do dia
+function calcularQtdMovimentacao(dataInicial: string, horaInicial: string, dataFinal: string, horaFinal: string, intervaloMin?: number): number {
+  const ini = new Date(`${dataInicial}T${horaInicial}:00`).getTime();
+  const fim = new Date(`${dataFinal}T${horaFinal}:00`).getTime();
+  const totalMin = Math.max(0, (fim - ini) / 60000 - (Number(intervaloMin) || 0));
+  return totalMin / 60;
+}
+
+// true se os dois períodos (cada um com data+horário inicial/final) se
+// cruzam em algum ponto — usado pra impedir duas movimentações do mesmo
+// atendimento cobrindo o mesmo intervalo de tempo
+function periodosSeSobrepoem(aIni: string, aFim: string, bIni: string, bFim: string): boolean {
+  return new Date(aIni).getTime() < new Date(bFim).getTime() && new Date(bIni).getTime() < new Date(aFim).getTime();
+}
+
+// procura, entre as movimentações do mesmo atendimento, uma que sobreponha o
+// período informado — ignorarId serve pra uma movimentação não "colidir
+// consigo mesma" ao ser editada
+async function acharMovimentacaoSobreposta(atendimentoId: string, dataInicial: string, horaInicial: string, dataFinal: string, horaFinal: string, ignorarId?: string) {
+  const { data: movs } = await db.from('movimentacoes')
+    .select('id,autor_nome,data_inicial,hora_inicial,data_final,hora_final')
+    .eq('atendimento_id', atendimentoId);
+  const novaIni = `${dataInicial}T${horaInicial}:00`, novaFim = `${dataFinal}T${horaFinal}:00`;
+  for (const m of (movs || [])) {
+    if (ignorarId && m.id === ignorarId) continue;
+    if (!m.data_inicial || !m.hora_inicial || !m.data_final || !m.hora_final) continue;
+    const ini = `${m.data_inicial}T${m.hora_inicial}:00`, fim = `${m.data_final}T${m.hora_final}:00`;
+    if (periodosSeSobrepoem(novaIni, novaFim, ini, fim)) return m;
+  }
+  return null;
+}
+
+// soma as horas de todas as movimentações do atendimento que já têm
+// Data/Horário Inicial e Final preenchidos — retorna null se nenhuma tiver
+// (nesse caso o chamador deve continuar usando o cálculo antigo, baseado
+// nos campos hi/inter/hf do próprio atendimento)
+async function qtdApartirDeMovimentacoes(atendimentoId: string): Promise<number | null> {
+  const { data: movs } = await db.from('movimentacoes')
+    .select('data_inicial,hora_inicial,data_final,hora_final,intervalo_min')
+    .eq('atendimento_id', atendimentoId);
+  const comTempo = (movs || []).filter((m: any) => m.data_inicial && m.hora_inicial && m.data_final && m.hora_final);
+  if (comTempo.length === 0) return null;
+  return comTempo.reduce((s: number, m: any) => s + calcularQtdMovimentacao(m.data_inicial, m.hora_inicial, m.data_final, m.hora_final, m.intervalo_min), 0);
+}
+
+// chamado depois de criar/editar/remover uma movimentação com tempo — refaz
+// a Qtd do atendimento (e o dinheiro que depende dela) a partir da soma das
+// movimentações; se a que sobrou/removida era a última com tempo apurado,
+// volta a calcular pelos campos antigos hi/inter/hf do atendimento
+async function recalcularQtdAtendimento(atendimentoId: string) {
+  const { data: at } = await db.from('atendimentos').select('vha,vhr,hi,hf,inter').eq('id', atendimentoId).maybeSingle();
+  if (!at) return;
+  const qtdMov = await qtdApartirDeMovimentacoes(atendimentoId);
+  const qtd = qtdMov !== null ? qtdMov : calcularQtd(at.hi, at.hf, at.inter);
+  const vha = Number(at.vha) || 0, vhr = Number(at.vhr) || 0;
+  await db.from('atendimentos').update({ qtd, total_ananda: qtd * vha, total_real: qtd * vhr }).eq('id', atendimentoId);
+}
+
 // conta ADMIN sempre tem acesso total; conta ATENDENTE marcada com o flag
 // "eh_administrador" (Cadastros → Atendentes) passa a ter os mesmos
 // privilégios de administrador do sistema, sem deixar de ser atendente
@@ -576,9 +636,20 @@ async function acaoSalvarAtendimento(req: any) {
     }));
   }
 
-  const qtd = (req.qtdManual !== undefined && req.qtdManual !== null && req.qtdManual !== '')
-    ? Number(req.qtdManual)  // ajuste manual (só o admin tem esse campo no formulário)
-    : calcularQtd(req.hi, req.hf, req.inter);
+  const ehNovo = !req.id;
+  // fonte da quantidade de horas: ajuste manual do admin (maior prioridade) >
+  // soma das movimentações com Data/Horário Inicial e Final preenchidos (a
+  // partir do momento em que o atendimento tem ao menos uma) > os campos
+  // hi/inter/hf do próprio atendimento (só usados enquanto não existir
+  // nenhuma movimentação com apuração de tempo — mantém o cálculo antigo
+  // funcionando pros atendimentos que ainda não usam o campo novo)
+  let qtd: number;
+  if (req.qtdManual !== undefined && req.qtdManual !== null && req.qtdManual !== '') {
+    qtd = Number(req.qtdManual); // ajuste manual (só o admin tem esse campo no formulário)
+  } else {
+    const qtdMovimentacoes = ehNovo ? null : await qtdApartirDeMovimentacoes(req.id);
+    qtd = qtdMovimentacoes !== null ? qtdMovimentacoes : calcularQtd(req.hi, req.hf, req.inter);
+  }
   const partes = String(req.data).split('-');
   const mes = partes.length === 3 ? `${partes[1]}/${partes[0]}` : '';
 
@@ -599,7 +670,6 @@ async function acaoSalvarAtendimento(req: any) {
     if (existenteAnexo) { anexoUrl = existenteAnexo.anexo_url || ''; anexoNome = existenteAnexo.anexo_nome || ''; }
   }
 
-  const ehNovo = !req.id;
   const statusFinal = ehNovo ? 'PENDENTE' : req.status; // todo chamado novo abre PENDENTE — reforçado aqui, não confia só no front
 
   // marca a partir de quando o chamado entrou em "Em Validação" — usado
@@ -1078,6 +1148,8 @@ async function acaoListarMovimentacoes(req: any) {
       id: m.id, atendimentoId: m.atendimento_id, autorNome: m.autor_nome, autorPerfil: m.autor_perfil,
       texto: m.texto, respondendoA: m.respondendo_a || null, criadoEm: m.criado_em,
       anexos: anexosPorMov[m.id] || [],
+      dataInicial: m.data_inicial || '', horaInicial: m.hora_inicial || '',
+      dataFinal: m.data_final || '', horaFinal: m.hora_final || '', intervaloMin: m.intervalo_min || 0,
     })),
   };
 }
@@ -1091,12 +1163,33 @@ async function acaoCriarMovimentacao(req: any) {
   if (!atendimento) return { ok: false, erro: 'Atendimento não encontrado.' };
   if (atendimento.status === 'CONCLUÍDO') return { ok: false, erro: 'Esse atendimento já foi concluído — não é possível adicionar novas movimentações.' };
 
+  // apuração de tempo (Data/Horário Inicial e Final + Intervalo) é exclusiva
+  // de quem atende — pro Usuário a movimentação continua só texto/anexo,
+  // mesmo que o payload venha com esses campos preenchidos
+  const usaTempo = req.autorPerfil !== 'USUARIO' && req.dataInicial && req.horaInicial && req.dataFinal && req.horaFinal;
+  let camposTempo: Record<string, unknown> = { data_inicial: '', hora_inicial: '', data_final: '', hora_final: '', intervalo_min: 0 };
+  if (usaTempo) {
+    if (new Date(`${req.dataFinal}T${req.horaFinal}:00`) <= new Date(`${req.dataInicial}T${req.horaInicial}:00`)) {
+      return { ok: false, erro: 'O horário final precisa ser depois do horário inicial.' };
+    }
+    const intervaloMin = Number(req.intervaloMin) || 0;
+    if (calcularQtdMovimentacao(req.dataInicial, req.horaInicial, req.dataFinal, req.horaFinal, intervaloMin) <= 0) {
+      return { ok: false, erro: 'O intervalo não pode ser maior ou igual ao período todo.' };
+    }
+    const conflito = await acharMovimentacaoSobreposta(req.atendimentoId, req.dataInicial, req.horaInicial, req.dataFinal, req.horaFinal);
+    if (conflito) {
+      return { ok: false, erro: `Esse período sobrepõe uma movimentação de ${conflito.autor_nome} (${conflito.hora_inicial}–${conflito.hora_final} em ${String(conflito.data_inicial).split('-').reverse().join('/')}). Ajuste o horário.` };
+    }
+    camposTempo = { data_inicial: req.dataInicial, hora_inicial: req.horaInicial, data_final: req.dataFinal, hora_final: req.horaFinal, intervalo_min: intervaloMin };
+  }
+
   const registro = {
     id: gerarId(), atendimento_id: req.atendimentoId, autor_nome: req.autorNome, autor_perfil: req.autorPerfil,
-    texto: texto || '(anexo)', respondendo_a: req.respondendoA || null,
+    texto: texto || '(anexo)', respondendo_a: req.respondendoA || null, ...camposTempo,
   };
   const { error } = await db.from('movimentacoes').insert(registro);
   if (error) return { ok: false, erro: error.message };
+  if (usaTempo) await recalcularQtdAtendimento(req.atendimentoId);
 
   // marca a hora da movimentação nova no atendimento (é o que acende a
   // bolinha de "não lida" pra todo mundo, exceto quem acabou de escrever) e
@@ -1138,8 +1231,29 @@ async function acaoAtualizarMovimentacao(req: any) {
 
   const texto = String(req.texto || '').trim();
   if (!texto) return { ok: false, erro: 'Escreva algo.' };
-  const { error } = await db.from('movimentacoes').update({ texto }).eq('id', req.id);
+
+  const atualizacao: Record<string, unknown> = { texto };
+  // só quem já podia ter apurado tempo mexe nesses campos aqui — pra Usuário
+  // (ou quando o payload não manda os 4 campos) não toca no que já estava salvo
+  const usaTempo = mov.autor_perfil !== 'USUARIO' && req.dataInicial && req.horaInicial && req.dataFinal && req.horaFinal;
+  if (usaTempo) {
+    if (new Date(`${req.dataFinal}T${req.horaFinal}:00`) <= new Date(`${req.dataInicial}T${req.horaInicial}:00`)) {
+      return { ok: false, erro: 'O horário final precisa ser depois do horário inicial.' };
+    }
+    const intervaloMin = Number(req.intervaloMin) || 0;
+    if (calcularQtdMovimentacao(req.dataInicial, req.horaInicial, req.dataFinal, req.horaFinal, intervaloMin) <= 0) {
+      return { ok: false, erro: 'O intervalo não pode ser maior ou igual ao período todo.' };
+    }
+    const conflito = await acharMovimentacaoSobreposta(mov.atendimento_id, req.dataInicial, req.horaInicial, req.dataFinal, req.horaFinal, req.id);
+    if (conflito) {
+      return { ok: false, erro: `Esse período sobrepõe uma movimentação de ${conflito.autor_nome} (${conflito.hora_inicial}–${conflito.hora_final} em ${String(conflito.data_inicial).split('-').reverse().join('/')}). Ajuste o horário.` };
+    }
+    Object.assign(atualizacao, { data_inicial: req.dataInicial, hora_inicial: req.horaInicial, data_final: req.dataFinal, hora_final: req.horaFinal, intervalo_min: intervaloMin });
+  }
+
+  const { error } = await db.from('movimentacoes').update(atualizacao).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
+  if (usaTempo || mov.data_inicial) await recalcularQtdAtendimento(mov.atendimento_id);
   return { ok: true };
 }
 
@@ -1156,6 +1270,7 @@ async function acaoRemoverMovimentacao(req: any) {
 
   await db.from('anexos').delete().eq('movimentacao_id', req.id);
   await db.from('movimentacoes').delete().eq('id', req.id);
+  if (mov.data_inicial) await recalcularQtdAtendimento(mov.atendimento_id);
   return { ok: true };
 }
 
