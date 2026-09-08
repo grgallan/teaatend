@@ -1332,7 +1332,18 @@ function atualizarPreview(){
   const hf = document.getElementById('f_hf').value;
   const inter = document.getElementById('f_inter').value;
   const qtdManualStr = document.getElementById('f_qtd_manual').value;
-  const qtd = qtdManualStr !== '' ? Number(qtdManualStr) : calcQtd(hi, hf, inter);
+  // mesma prioridade usada no servidor: ajuste manual > soma das
+  // movimentações com tempo apurado (se o atendimento em edição já tiver
+  // alguma) > cálculo antigo a partir de hi/hf/inter
+  const movsComTempo = editandoId ? (movEstado['_ed'].cache || []).filter(movTemTempo) : [];
+  const qtd = qtdManualStr !== ''
+    ? Number(qtdManualStr)
+    : movsComTempo.length > 0
+      ? movsComTempo.reduce((s,m)=>s+movDuracaoHoras(m), 0)
+      : calcQtd(hi, hf, inter);
+  if(qtdManualStr === '' && editandoId){
+    document.getElementById('f_qtd_manual').placeholder = `Atual: ${qtd.toFixed(2).replace('.',',')}h — deixe em branco pra manter`;
+  }
   const vals = valoresPara(clienteNome, tipoNome, atendenteNome);
   document.getElementById('p_qtd').textContent = qtd.toFixed(2).replace('.',',') + 'h';
   document.getElementById('p_ananda').textContent = fmtMoeda(qtd * vals.ananda);
@@ -1504,7 +1515,7 @@ function editar(id){
   recarregarVideosVinculados(r.id, 'listaVideosVinculo', true);
   document.getElementById('blocoMovimentacoesEdicao').style.display = '';
   movLimparComposer('_ed');
-  carregarMovimentacoes(r.id, '_ed');
+  carregarMovimentacoes(r.id, '_ed').then(atualizarPreview);
   atualizarPreview();
   goView('novo');
 }
@@ -8026,6 +8037,16 @@ function movFmtPeriodo(m){
   const mesmaData = m.dataInicial === m.dataFinal;
   return `${movFmtDataBr(m.dataInicial)} ${m.horaInicial} → ${mesmaData ? '' : movFmtDataBr(m.dataFinal)+' '}${m.horaFinal}`;
 }
+// o campo de Intervalo é um <input type="time"> (mesma cara de Hora
+// Inicial/Final, ex: "00:15") — guardado/enviado sempre em minutos
+function movIntervaloParaMin(hhmm){
+  const [h,m] = String(hhmm||'00:00').split(':').map(Number);
+  return (h||0)*60 + (m||0);
+}
+function movMinParaIntervalo(min){
+  min = Math.max(0, Number(min)||0);
+  return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(Math.round(min%60)).padStart(2,'0')}`;
+}
 // mostra/esconde os campos de Data/Horário Inicial e Final no composer,
 // conforme o perfil de quem está logado — chamada sempre que o composer é
 // preparado (limpo ou entrando em modo de edição de uma movimentação)
@@ -8108,7 +8129,7 @@ function movLimparComposer(sufixo){
   document.getElementById(ids.dataFim).value = hojeLocalISO();
   document.getElementById(ids.horaIni).value = '';
   document.getElementById(ids.horaFim).value = '';
-  document.getElementById(ids.intervalo).value = '0';
+  document.getElementById(ids.intervalo).value = '00:00';
   movAtualizarVisibilidadeTempo(sufixo);
 }
 
@@ -8143,7 +8164,7 @@ function editarMovimentacaoUi(id, sufixo){
   document.getElementById(ids.horaIni).value = m.horaInicial || '';
   document.getElementById(ids.dataFim).value = m.dataFinal || hojeLocalISO();
   document.getElementById(ids.horaFim).value = m.horaFinal || '';
-  document.getElementById(ids.intervalo).value = m.intervaloMin || 0;
+  document.getElementById(ids.intervalo).value = movMinParaIntervalo(m.intervaloMin);
   document.getElementById(ids.texto).focus();
 }
 
@@ -8165,6 +8186,7 @@ async function excluirMovimentacaoUi(id, sufixo){
     const r = await api('removerMovimentacao', { contaId: conta.id, id });
     if(!r.ok){ toast(r.erro || 'Não foi possível excluir.'); return; }
     await carregarMovimentacoes(estado.atendimentoId, sufixo);
+    atualizarPreview();
     toast('Movimentação excluída');
   });
 }
@@ -8192,7 +8214,7 @@ async function enviarMovimentacao(sufixo){
       return;
     }
     if(preenchidos === 4){
-      const intervaloMin = Number(document.getElementById(ids.intervalo).value) || 0;
+      const intervaloMin = movIntervaloParaMin(document.getElementById(ids.intervalo).value);
       if(new Date(`${dataFim}T${horaFim}:00`) <= new Date(`${dataIni}T${horaIni}:00`)){
         toast('O horário final precisa ser depois do horário inicial.');
         return;
@@ -8224,6 +8246,7 @@ async function enviarMovimentacao(sufixo){
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     movLimparComposer(sufixo);
     await carregarMovimentacoes(estado.atendimentoId, sufixo);
+    atualizarPreview();
     if(editando) toast('Movimentação atualizada');
   }catch(e){
     toast(e && e.message ? e.message : 'Não foi possível salvar.');

@@ -931,13 +931,13 @@
           <div id="movCamposTempo_ed" class="mov-campos-tempo" style="display:none;">
             <div class="row">
               <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini_ed"></div>
-              <div class="field"><label>Horário Inicial</label><input type="time" id="mov_hora_ini_ed"></div>
-            </div>
-            <div class="row">
               <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim_ed"></div>
-              <div class="field"><label>Horário Final</label><input type="time" id="mov_hora_fim_ed"></div>
             </div>
-            <div class="field" style="max-width:150px;"><label>Intervalo (min)</label><input type="number" id="mov_intervalo_ed" min="0" step="5" value="0"></div>
+            <div class="row3">
+              <div class="field"><label>Hora Inicial</label><input type="time" id="mov_hora_ini_ed"></div>
+              <div class="field"><label>Intervalo</label><input type="time" id="mov_intervalo_ed" value="00:00"></div>
+              <div class="field"><label>Hora Final</label><input type="time" id="mov_hora_fim_ed"></div>
+            </div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap;">
             <label class="ghost" style="cursor:pointer;font-size:12px;padding:8px 12px;margin:0;">
@@ -2070,13 +2070,13 @@
       <div id="movCamposTempo" class="mov-campos-tempo" style="display:none;">
         <div class="row">
           <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini"></div>
-          <div class="field"><label>Horário Inicial</label><input type="time" id="mov_hora_ini"></div>
-        </div>
-        <div class="row">
           <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim"></div>
-          <div class="field"><label>Horário Final</label><input type="time" id="mov_hora_fim"></div>
         </div>
-        <div class="field" style="max-width:150px;"><label>Intervalo (min)</label><input type="number" id="mov_intervalo" min="0" step="5" value="0"></div>
+        <div class="row3">
+          <div class="field"><label>Hora Inicial</label><input type="time" id="mov_hora_ini"></div>
+          <div class="field"><label>Intervalo</label><input type="time" id="mov_intervalo" value="00:00"></div>
+          <div class="field"><label>Hora Final</label><input type="time" id="mov_hora_fim"></div>
+        </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap;">
         <label class="ghost" style="cursor:pointer;font-size:12px;padding:8px 12px;margin:0;">
