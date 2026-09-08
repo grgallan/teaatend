@@ -3836,6 +3836,43 @@ async function gerarRetornoEvento1200(){
   }
 }
 
+/* ---------- Utilitários › eSocial › Evento S-2299 (Retorno) ----------
+   Mesmo formato de retorno do evento 1200 (retornoEvento + rubricas, com
+   os totalizadores S-5001/S-5003 anexados) — o desligamento (S-2299) também
+   fecha as bases de INSS/FGTS do período, por isso o eSocial devolve os
+   totalizadores no mesmo formato; reaproveita o parser do evento 1200 */
+async function gerarEvento2299Retorno(arquivos){
+  const retornos = [];
+  let todasRubricas = [], todasBasesInss = [], todasBasesFgts = [];
+  for(const arquivo of arquivos){
+    const r = parseRetornoEvento1200Xml(await arquivo.text(), arquivo.name);
+    if(r.retorno) retornos.push(r.retorno);
+    todasRubricas = todasRubricas.concat(r.rubricas);
+    todasBasesInss = todasBasesInss.concat(r.basesInss);
+    todasBasesFgts = todasBasesFgts.concat(r.basesFgts);
+  }
+  if(retornos.length === 0 && todasRubricas.length === 0 && todasBasesInss.length === 0 && todasBasesFgts.length === 0){
+    throw new Error('Nenhum dado reconhecido nesses arquivos — confira se são XMLs de retorno do evento S-2299.');
+  }
+
+  const livro = XLSX.utils.book_new();
+
+  const cabRetorno = ['Arquivo','Insc. Empregador','Ambiente','Data/Hora Recepção','Versão App Recepção','Protocolo Envio Lote','Cód. Resposta','Descrição Resposta','Versão App Processamento','Data/Hora Processamento','Nº Recibo','Hash'];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabRetorno, ...retornos.map(r=>[r.arquivo, r.nrInscEmpregador, r.tpAmb, r.dhRecepcao, r.versaoAppRecepcao, r.protocoloEnvioLote, r.cdResposta, r.descResposta, r.versaoAppProcessamento, r.dhProcessamento, r.nrRecibo, r.hash])]), 'Retorno');
+
+  const cabRubricas = ['Arquivo','Nº Recibo','Natureza Rubrica (ntR)','Nº Recibo Rubrica (nrR)','Tipo Rubrica (tpR)','Período Apuração (prA)','Incidência FGTS (inFGTS)','ID Evento Origem (idE)','Código Rubrica (cdR)','Incidência CP (inCP)','ID Tabela (idT)'];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabRubricas, ...todasRubricas.map(r=>[r.arquivo, r.nrRecibo, r.ntR, r.nrR, r.tpR, r.prA, r.inFGTS, r.idE, r.cdR, r.inCP, r.idT])]), 'Rubricas do Recibo');
+
+  const cabInss = ['Arquivo','Nº Recibo Base','Indicador Apuração','Período Apuração','Insc. Empregador','CPF Trabalhador','Tipo Contrib. (tpCR)','Vr. Contrib. Segurado','Vr. Desc. Segurado','Class. Tributária','Insc. Estabelecimento','Cód. Lotação','Matrícula','Categoria','Origem','Período Referência','Indicador 13º','Tipo Valor','Valor'];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabInss, ...todasBasesInss.map(r=>[r.arquivo, r.nrRecArqBase, r.indApuracao, r.perApur, r.nrInscEmpregador, r.cpfTrab, r.tpCR, r.vrCpSeg, r.vrDescSeg, r.classTrib, r.nrInscEstab, r.codLotacao, r.matricula, r.codCateg, r.origem, r.perRef, r.ind13, r.tpValor, Number(r.valor)||0])]), 'S-5001 Bases INSS');
+
+  const cabFgts = ['Arquivo','Nº Recibo Base','Indicador Apuração','Período Apuração','Insc. Empregador','CPF Trabalhador','Insc. Estabelecimento','Cód. Lotação','Tipo Lotação','Matrícula','Categoria','Tipo Regime Trab.','Tipo Valor','Indicador Incidência','Remuneração FGTS','Depósito FGTS'];
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabFgts, ...todasBasesFgts.map(r=>[r.arquivo, r.nrRecArqBase, r.indApuracao, r.perApur, r.nrInscEmpregador, r.cpfTrab, r.nrInscEstab, r.codLotacao, r.tpLotacao, r.matricula, r.codCateg, r.tpRegTrab, r.tpValor, r.indIncid, Number(r.remFGTS)||0, Number(r.dpsFGTS)||0])]), 'S-5003 Bases FGTS');
+
+  await salvarWorkbook(livro, `s2299-retorno-${hojeLocalISO()}.xlsx`);
+  return `Pronto! ${retornos.length} retorno(s), ${todasRubricas.length} rubrica(s), ${todasBasesInss.length} linha(s) de base INSS e ${todasBasesFgts.length} linha(s) de base FGTS.`;
+}
+
 const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 /* ---------- Utilitários › eSocial › Evento 1210 (Pagamentos) ---------- */
@@ -8548,6 +8585,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnGerarEvento1200Retorno').addEventListener('click', gerarRetornoEvento1200);
 
+  document.querySelector('[data-util-ferr="evento2299retorno"]').addEventListener('click', ()=>{
+    abrirUtilXmlGenerico({
+      titulo: 'Evento S-2299 — Retorno',
+      descricao: 'Envie um ou mais XMLs de retorno do evento S-2299 (desligamento) — o Excel sai com o protocolo/recibo, as rubricas confirmadas e as bases de INSS (S-5001) e FGTS (S-5003), igual ao retorno do evento 1200.',
+      processar: gerarEvento2299Retorno,
+    });
+  });
   document.querySelector('[data-util-ferr="evento1210"]').addEventListener('click', ()=>{
     abrirUtilXmlGenerico({
       titulo: 'Evento 1210 — Pagamentos',
