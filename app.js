@@ -1180,8 +1180,10 @@ function popularSelects(){
   document.getElementById('campoAtendenteInfo').style.display = isUsuario ? '' : 'none';
   document.getElementById('campoAtendente2').style.display = isUsuario ? 'none' : '';
 
-  // usuário não preenche horário trabalhado — isso é registrado por quem atende
-  document.getElementById('campoHorarios').style.display = isUsuario ? 'none' : '';
+  // horário do cadastro só aparece em atendimento já existente (referência
+  // legada, desabilitada) — atendimento novo não tem mais esse campo, o
+  // tempo trabalhado passa a ser lançado direto nas movimentações
+  document.getElementById('campoHorarios').style.display = (isUsuario || !editandoId) ? 'none' : '';
 
   // ajuste manual de horas — só o admin tem esse campo
   const isAdmin = ehAdminEfetivo(conta);
