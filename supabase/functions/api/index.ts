@@ -111,13 +111,21 @@ function periodosSeSobrepoem(aIni: string, aFim: string, bIni: string, bFim: str
   return new Date(aIni).getTime() < new Date(bFim).getTime() && new Date(bIni).getTime() < new Date(aFim).getTime();
 }
 
-// procura, entre as movimentações do mesmo atendimento, uma que sobreponha o
-// período informado — ignorarId serve pra uma movimentação não "colidir
-// consigo mesma" ao ser editada
+// procura, entre as movimentações de TODOS os atendimentos do mesmo cliente
+// (não só deste atendimento — o mesmo cliente não pode ter duas
+// movimentações cobrindo o mesmo período, esteja isso num chamado ou em
+// vários), uma que sobreponha o período informado — ignorarId serve pra uma
+// movimentação não "colidir consigo mesma" ao ser editada
 async function acharMovimentacaoSobreposta(atendimentoId: string, dataInicial: string, horaInicial: string, dataFinal: string, horaFinal: string, ignorarId?: string) {
+  const { data: atendimentoAtual } = await db.from('atendimentos').select('cliente').eq('id', atendimentoId).maybeSingle();
+  if (!atendimentoAtual) return null;
+  const { data: atendimentosMesmoCliente } = await db.from('atendimentos').select('id').eq('cliente', atendimentoAtual.cliente);
+  const idsAtendimentos = (atendimentosMesmoCliente || []).map((a: any) => a.id);
+  if (idsAtendimentos.length === 0) return null;
+
   const { data: movs } = await db.from('movimentacoes')
-    .select('id,autor_nome,data_inicial,hora_inicial,data_final,hora_final')
-    .eq('atendimento_id', atendimentoId);
+    .select('id,autor_nome,atendimento_id,data_inicial,hora_inicial,data_final,hora_final')
+    .in('atendimento_id', idsAtendimentos);
   const novaIni = `${dataInicial}T${horaInicial}:00`, novaFim = `${dataFinal}T${horaFinal}:00`;
   for (const m of (movs || [])) {
     if (ignorarId && m.id === ignorarId) continue;
@@ -1178,7 +1186,8 @@ async function acaoCriarMovimentacao(req: any) {
     }
     const conflito = await acharMovimentacaoSobreposta(req.atendimentoId, req.dataInicial, req.horaInicial, req.dataFinal, req.horaFinal);
     if (conflito) {
-      return { ok: false, erro: `Esse período sobrepõe uma movimentação de ${conflito.autor_nome} (${conflito.hora_inicial}–${conflito.hora_final} em ${String(conflito.data_inicial).split('-').reverse().join('/')}). Ajuste o horário.` };
+      const outroAtendimento = conflito.atendimento_id !== req.atendimentoId ? ` (atendimento #${conflito.atendimento_id})` : '';
+      return { ok: false, erro: `Esse período sobrepõe uma movimentação de ${conflito.autor_nome}${outroAtendimento} (${conflito.hora_inicial}–${conflito.hora_final} em ${String(conflito.data_inicial).split('-').reverse().join('/')}). Ajuste o horário.` };
     }
     camposTempo = { data_inicial: req.dataInicial, hora_inicial: req.horaInicial, data_final: req.dataFinal, hora_final: req.horaFinal, intervalo_min: intervaloMin };
   }
@@ -1246,7 +1255,8 @@ async function acaoAtualizarMovimentacao(req: any) {
     }
     const conflito = await acharMovimentacaoSobreposta(mov.atendimento_id, req.dataInicial, req.horaInicial, req.dataFinal, req.horaFinal, req.id);
     if (conflito) {
-      return { ok: false, erro: `Esse período sobrepõe uma movimentação de ${conflito.autor_nome} (${conflito.hora_inicial}–${conflito.hora_final} em ${String(conflito.data_inicial).split('-').reverse().join('/')}). Ajuste o horário.` };
+      const outroAtendimento = conflito.atendimento_id !== mov.atendimento_id ? ` (atendimento #${conflito.atendimento_id})` : '';
+      return { ok: false, erro: `Esse período sobrepõe uma movimentação de ${conflito.autor_nome}${outroAtendimento} (${conflito.hora_inicial}–${conflito.hora_final} em ${String(conflito.data_inicial).split('-').reverse().join('/')}). Ajuste o horário.` };
     }
     Object.assign(atualizacao, { data_inicial: req.dataInicial, hora_inicial: req.horaInicial, data_final: req.dataFinal, hora_final: req.horaFinal, intervalo_min: intervaloMin });
   }
