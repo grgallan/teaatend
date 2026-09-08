@@ -52,6 +52,12 @@ function gerarId(): string {
   return 'id-' + crypto.randomUUID().slice(0, 10);
 }
 
+// data de hoje em yyyy-MM-dd — usada pra preencher a Data Final (Prevista)
+// automaticamente quando um atendimento vira CONCLUÍDO sem ela já ter sido informada
+function dataAtualIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // tira as tags HTML do editor de texto rico (Detalhe/Solução) pra usar em
 // e-mail de texto simples — sem isso, uma imagem colada aparece como um
 // bloco gigante de texto (o base64 da própria imagem) em vez de sumir
@@ -616,7 +622,9 @@ async function acaoSalvarAtendimento(req: any) {
     hi: req.hi || '00:00', inter: req.inter || '00:00', hf: req.hf || '00:00',
     qtd, vha: ananda, total_ananda: qtd * ananda, vhr: real, total_real: qtd * real, status: statusFinal,
     anexo_url: anexoUrl, anexo_nome: anexoNome, solucao: req.solucao || '',
-    data_prevista: req.dataPrevista || '',
+    // Data Final (Prevista) some auto-preenchida com hoje quando o chamado vira
+    // CONCLUÍDO sem ela ter sido informada (fica só como registro de quando fechou)
+    data_prevista: req.dataPrevista || (statusFinal === 'CONCLUÍDO' ? dataAtualIso() : ''),
     atendente2: contaAtendente2 ? atendente2Nome : '', horas_atendente2: horasAtendente2,
     vha2: ananda2, total_ananda2: horasAtendente2 * ananda2,
     em_validacao_desde: emValidacaoDesde,
@@ -1723,13 +1731,17 @@ async function acaoAlterarStatusEmMassa(req: any) {
   if (ids.length === 0) return { ok: false, erro: 'Nenhum atendimento selecionado.' };
   if (!req.novoStatus) return { ok: false, erro: 'Escolha um status.' };
 
-  const { data: atuais, error: erroSelect } = await db.from('atendimentos').select('id,status').in('id', ids);
+  const { data: atuais, error: erroSelect } = await db.from('atendimentos').select('id,status,data_prevista').in('id', ids);
   if (erroSelect) return { ok: false, erro: 'Erro ao ler atendimentos: ' + erroSelect.message };
 
   let atualizados = 0;
   for (const a of atuais || []) {
     if (a.status === req.novoStatus) continue;
-    const { error } = await db.from('atendimentos').update({ status: req.novoStatus }).eq('id', a.id);
+    const atualizacao: Record<string, unknown> = { status: req.novoStatus };
+    // Data Final (Prevista) some auto-preenchida com hoje quando o chamado vira
+    // CONCLUÍDO sem ela ter sido informada (fica só como registro de quando fechou)
+    if (req.novoStatus === 'CONCLUÍDO' && !a.data_prevista) atualizacao.data_prevista = dataAtualIso();
+    const { error } = await db.from('atendimentos').update(atualizacao).eq('id', a.id);
     if (!error) {
       atualizados++;
       await registrarHistorico(a.id, `Status alterado de ${a.status} para ${req.novoStatus} (alteração em massa por ${conta.nome})`);
