@@ -6115,6 +6115,7 @@ async function carregarTabelaPrincipalRM(tabelaId){
   if(!tabelaId){
     document.getElementById('rmBdCardCampos').style.display = 'none';
     document.getElementById('rmBdCardRelacionadas').style.display = 'none';
+    renderRmBdDiagrama();
     return;
   }
   const tabela = (rmTabelasTodas || []).find(t=>t.id === tabelaId);
@@ -6132,6 +6133,7 @@ async function carregarTabelaPrincipalRM(tabelaId){
   rmBuilder.relacionamentosDisponiveis = rRel.ok ? rRel.relacionamentos : [];
   renderRmBdChipsRelacionadas();
   atualizarRmBdFiltroCampoSelect();
+  renderRmBdDiagrama();
 }
 // filtro genérico (esconde/mostra sem re-renderizar, pra não perder o
 // texto digitado nem a posição do scroll) — usado nos lookups de campos
@@ -6259,7 +6261,7 @@ function renderRmBdSecoesRelacionadas(){
   const secoes = [...rmBuilder.tabelasRelacionadas.values()];
   const principal = rmBuilder.tabelaPrincipal;
   el.innerHTML = secoes.map(s=>`
-    <div class="rm-secao-relacionada">
+    <div class="rm-secao-relacionada" id="rmBdSecaoRel_${s.tabelaId}">
       <h3>${escaparHtml(s.tabelaApelido || s.tabelaNome)}</h3>
       <div class="row">
         <div class="field"><label>Campo em ${escaparHtml(principal.apelido || principal.nome)}</label><input type="text" class="mono" data-join="meuCampo" data-tabela="${s.tabelaId}" value="${escaparHtml(s.meuCampo)}"></div>
@@ -6283,6 +6285,7 @@ function renderRmBdSecoesRelacionadas(){
     const buscaEl = document.getElementById(`rm_bd_busca_campos_${s.tabelaId}`);
     if(buscaEl) buscaEl.addEventListener('input', e=>filtrarPorBuscaRm(`rmBdCampos_${s.tabelaId}`, e.target.value, '.rm-campo-row'));
   });
+  renderRmBdDiagrama();
 }
 // edição do campo/tipo de junção de uma tabela relacionada, só pra essa
 // consulta (não grava nada em Relacionamentos RM) — um único listener
@@ -6292,7 +6295,59 @@ function tratarEdicaoJoinRm(e){
   const campo = e.target.closest('[data-join]'); if(!campo) return;
   const secao = rmBuilder.tabelasRelacionadas.get(campo.dataset.tabela); if(!secao) return;
   secao[campo.dataset.join] = campo.value;
+  renderRmBdDiagrama();
   gerarSqlRm();
+}
+// desenha um SVG simples com a tabela principal à esquerda e cada tabela
+// relacionada à direita, ligadas por uma curva rotulada com o tipo de
+// junção (LEFT tracejado, INNER sólido) e o par de campos usado — clicar
+// num nó de tabela relacionada rola até a seção onde dá pra editar aquele
+// relacionamento (a principal não tem seção própria, por isso não é clicável)
+function truncarTextoRm(s, max){
+  s = String(s || '');
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+function renderRmBdDiagrama(){
+  const wrap = document.getElementById('rmBdDiagramaWrap');
+  const principal = rmBuilder.tabelaPrincipal;
+  if(!principal){ wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+  wrap.style.display = '';
+  const secoes = [...rmBuilder.tabelasRelacionadas.values()];
+  const nodeW = 168, nodeH = 44, rowH = 78, width = 620;
+  const xPrincipal = 96, xRel = width - 116;
+  if(secoes.length === 0){
+    const yUnica = 55;
+    wrap.innerHTML = `<svg viewBox="0 0 ${width} 110" class="rm-diagrama-svg">
+      <rect x="${xPrincipal-nodeW/2}" y="${yUnica-nodeH/2}" width="${nodeW}" height="${nodeH}" rx="10" class="rm-diagrama-no rm-diagrama-no-principal"/>
+      <text x="${xPrincipal}" y="${yUnica+4}" text-anchor="middle" class="rm-diagrama-no-texto">${escaparHtml(truncarTextoRm(principal.apelido || principal.nome, 22))}</text>
+    </svg>`;
+    return;
+  }
+  const height = secoes.length * rowH + 20;
+  const yPrincipal = height / 2;
+  const nos = secoes.map((s, i) => ({ s, y: 20 + i * rowH + nodeH / 2 }));
+  const midX = (xPrincipal + xRel) / 2;
+  const linhas = nos.map(n=>{
+    const inner = n.s.tipoJoin === 'INNER';
+    const cor = inner ? 'var(--ok)' : 'var(--accent)';
+    const tracejado = inner ? '' : `stroke-dasharray="5,4"`;
+    const labelY = (yPrincipal + n.y) / 2;
+    const rotulo = `${truncarTextoRm(n.s.meuCampo, 16)} = ${truncarTextoRm(n.s.campoOutraTabela, 16)}`;
+    return `
+      <path d="M ${xPrincipal + nodeW/2} ${yPrincipal} C ${midX} ${yPrincipal}, ${midX} ${n.y}, ${xRel - nodeW/2} ${n.y}" fill="none" stroke="${cor}" stroke-width="2" ${tracejado}/>
+      <text x="${midX}" y="${labelY - 5}" text-anchor="middle" class="rm-diagrama-label-join" style="fill:${cor}">${n.s.tipoJoin}</text>
+      <text x="${midX}" y="${labelY + 9}" text-anchor="middle" class="rm-diagrama-label-campo">${escaparHtml(rotulo)}</text>
+    `;
+  }).join('');
+  const nodePrincipal = `
+    <rect x="${xPrincipal-nodeW/2}" y="${yPrincipal-nodeH/2}" width="${nodeW}" height="${nodeH}" rx="10" class="rm-diagrama-no rm-diagrama-no-principal"/>
+    <text x="${xPrincipal}" y="${yPrincipal+4}" text-anchor="middle" class="rm-diagrama-no-texto">${escaparHtml(truncarTextoRm(principal.apelido || principal.nome, 20))}</text>
+  `;
+  const nosRelSvg = nos.map(n=>`
+    <rect x="${xRel-nodeW/2}" y="${n.y-nodeH/2}" width="${nodeW}" height="${nodeH}" rx="10" class="rm-diagrama-no" onclick="document.getElementById('rmBdSecaoRel_${n.s.tabelaId}').scrollIntoView({behavior:'smooth',block:'center'})"><title>${escaparHtml(n.s.tabelaApelido || n.s.tabelaNome)}</title></rect>
+    <text x="${xRel}" y="${n.y+4}" text-anchor="middle" class="rm-diagrama-no-texto" style="pointer-events:none;">${escaparHtml(truncarTextoRm(n.s.tabelaApelido || n.s.tabelaNome, 20))}</text>
+  `).join('');
+  wrap.innerHTML = `<svg viewBox="0 0 ${width} ${height}" class="rm-diagrama-svg">${linhas}${nodePrincipal}${nosRelSvg}</svg>`;
 }
 function toggleRmBdCampoRelacionado(tabelaId, nome, marcado){
   const secao = rmBuilder.tabelasRelacionadas.get(tabelaId); if(!secao) return;
