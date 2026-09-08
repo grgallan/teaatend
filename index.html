@@ -845,12 +845,14 @@
         </div>
         <div id="f_detalhe" class="rt-editor" contenteditable="true" data-placeholder="Ex: XML notas importação"></div>
       </div>
-      <div class="row3" id="campoHorarios">
-        <div class="field"><label>Hora inicial</label><input type="time" id="f_hi" value="08:00" disabled></div>
-        <div class="field"><label>Intervalo</label><input type="time" id="f_inter" value="00:00" disabled></div>
-        <div class="field"><label>Hora final</label><input type="time" id="f_hf" value="09:00" disabled></div>
+      <div id="campoHorarios">
+        <div class="row3">
+          <div class="field"><label>Hora inicial</label><input type="time" id="f_hi" value="08:00" disabled></div>
+          <div class="field"><label>Intervalo</label><input type="time" id="f_inter" value="00:00" disabled></div>
+          <div class="field"><label>Hora final</label><input type="time" id="f_hf" value="09:00" disabled></div>
+        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">Esses campos não são mais usados pra contar as horas do atendimento — lance as movimentações com Data/Horário Inicial e Final pra isso.</p>
       </div>
-      <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">Esses campos não são mais usados pra contar as horas do atendimento — lance as movimentações com Data/Horário Inicial e Final pra isso.</p>
       <div class="field" id="campoQtdManual" style="display:none;">
         <label>Qtd Horas (ajuste manual, opcional)</label>
         <input type="number" step="0.01" id="f_qtd_manual" placeholder="Deixe em branco pra calcular pelo horário acima">
