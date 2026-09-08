@@ -63,6 +63,15 @@
   .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;}
   .rm-lookup-item:hover{background:var(--accent-dim);color:var(--accent);}
   .rm-lookup-item[hidden]{display:none;}
+  .rm-diagrama-wrap{margin:14px 0 4px;overflow-x:auto;border:1px solid var(--line);border-radius:11px;background:var(--panel-2);padding:8px;}
+  .rm-diagrama-svg{display:block;width:100%;height:auto;min-width:420px;}
+  .rm-diagrama-no{fill:var(--panel);stroke:var(--line);stroke-width:1.3;cursor:pointer;}
+  .rm-diagrama-no:hover{stroke:var(--accent);}
+  .rm-diagrama-no-principal{fill:var(--accent-dim);stroke:var(--accent);cursor:default;}
+  .rm-diagrama-no-principal:hover{stroke:var(--accent);}
+  .rm-diagrama-no-texto{fill:var(--text);font-size:11px;font-weight:600;font-family:'Space Grotesk',sans-serif;pointer-events:none;}
+  .rm-diagrama-label-join{font-size:9px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:.03em;}
+  .rm-diagrama-label-campo{fill:var(--muted);font-size:9px;font-family:'JetBrains Mono',monospace;}
   .rm-ordem-item{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;margin-bottom:5px;font-size:12.5px;}
   .rm-ordem-item .rm-ordem-nome{flex:1;font-family:'JetBrains Mono',monospace;}
   .rm-ordem-item button{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);min-width:24px;height:24px;font-size:11px;padding:0 6px;cursor:pointer;}
@@ -102,6 +111,7 @@
     <h2><span class="step-num">3</span> Tabelas relacionadas <span class="pill" id="rmBdRelacionadasTotal">0</span></h2>
     <input type="text" id="rm_bd_busca_relacionadas" placeholder="Buscar tabela relacionada por nome ou apelido...">
     <div class="rm-chips-selecionados" id="rmBdChipsRelacionadasSelecionadas"></div>
+    <div class="rm-diagrama-wrap" id="rmBdDiagramaWrap" style="display:none;"></div>
     <div class="rm-lookup-resultados" id="rmBdChipsRelacionadas"></div>
     <div id="rmBdSecoesRelacionadas"></div>
   </div>
