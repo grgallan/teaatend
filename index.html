@@ -342,7 +342,11 @@
   .mov-perfil.USUARIO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
   .mov-perfil.ADMIN{background:var(--panel-2);color:var(--muted);}
   .mov-data{font-size:11px;color:var(--muted);white-space:nowrap;}
-  .mov-tempo{font-size:10.5px;color:var(--muted);margin-bottom:6px;}
+  .mov-tempo{font-size:10.5px;color:var(--accent);margin-bottom:6px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
+  .mov-tempo .mov-tempo-dur{margin-left:auto;background:var(--accent-dim);padding:1px 8px;border-radius:999px;font-weight:600;}
+  .mov-campos-tempo{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
+  .mov-campos-tempo .row{margin-bottom:0;}
+  .mov-campos-tempo .field{margin-bottom:10px;}
   .mov-conteudo{font-size:12.5px;line-height:1.5;margin-bottom:6px;}
   .mov-conteudo img{max-width:100%;border-radius:8px;margin:4px 0;}
   .mov-anexo-item{background:var(--panel-2);border-radius:8px;padding:6px 10px;font-size:11.5px;margin-bottom:6px;}
@@ -924,6 +928,17 @@
             <input type="file" id="mov_texto_ed_imagem" accept="image/*" style="display:none;">
           </div>
           <div id="mov_texto_ed" class="rt-editor" contenteditable="true" data-placeholder="Escreva a movimentação…"></div>
+          <div id="movCamposTempo_ed" class="mov-campos-tempo" style="display:none;">
+            <div class="row">
+              <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini_ed"></div>
+              <div class="field"><label>Horário Inicial</label><input type="time" id="mov_hora_ini_ed"></div>
+            </div>
+            <div class="row">
+              <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim_ed"></div>
+              <div class="field"><label>Horário Final</label><input type="time" id="mov_hora_fim_ed"></div>
+            </div>
+            <div class="field" style="max-width:150px;"><label>Intervalo (min)</label><input type="number" id="mov_intervalo_ed" min="0" step="5" value="0"></div>
+          </div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap;">
             <label class="ghost" style="cursor:pointer;font-size:12px;padding:8px 12px;margin:0;">
               📎 Anexar arquivo<input type="file" id="mov_anexo_ed" style="display:none;">
@@ -2052,6 +2067,17 @@
         <input type="file" id="mov_texto_imagem" accept="image/*" style="display:none;">
       </div>
       <div id="mov_texto" class="rt-editor" contenteditable="true" data-placeholder="Escreva a movimentação…"></div>
+      <div id="movCamposTempo" class="mov-campos-tempo" style="display:none;">
+        <div class="row">
+          <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini"></div>
+          <div class="field"><label>Horário Inicial</label><input type="time" id="mov_hora_ini"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim"></div>
+          <div class="field"><label>Horário Final</label><input type="time" id="mov_hora_fim"></div>
+        </div>
+        <div class="field" style="max-width:150px;"><label>Intervalo (min)</label><input type="number" id="mov_intervalo" min="0" step="5" value="0"></div>
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap;">
         <label class="ghost" style="cursor:pointer;font-size:12px;padding:8px 12px;margin:0;">
           📎 Anexar arquivo<input type="file" id="mov_anexo" style="display:none;">

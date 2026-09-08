@@ -827,3 +827,18 @@ create table if not exists rm_consultas_salvas (
   criado_em timestamptz default now()
 );
 alter table rm_consultas_salvas enable row level security;
+
+-- Movimentações passam a poder registrar um período de trabalho (Data
+-- Inicial, Horário Inicial, Data Final, Horário Final e Intervalo, em
+-- minutos) — a partir do momento em que um atendimento tem ao menos uma
+-- movimentação com esses campos preenchidos, a soma delas vira a Qtd de
+-- horas do atendimento (e o valor cobrado/pago que depende dela), no lugar
+-- dos campos hi/inter/hf do próprio atendimento. Exclusivo de quem atende —
+-- pro Usuário a movimentação continua só texto/anexo, como sempre foi.
+-- As colunas tempo_inicio/tempo_fim que já existiam ficam sem uso (nunca
+-- chegaram a ser preenchidas por nenhuma tela).
+alter table movimentacoes add column if not exists data_inicial text default '';
+alter table movimentacoes add column if not exists hora_inicial text default '';
+alter table movimentacoes add column if not exists data_final text default '';
+alter table movimentacoes add column if not exists hora_final text default '';
+alter table movimentacoes add column if not exists intervalo_min numeric default 0;

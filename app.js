@@ -7849,6 +7849,7 @@ async function abrirDetalhe(atendimentoId){
   document.getElementById('chatTitulo').textContent = `${r.cliente} · ${r.usuario}`;
   document.getElementById('chatSub').textContent = `#${r.id} · Atendente: ${r.atendente || '(a definir)'}${r.atendente2 ? ' + '+r.atendente2+' (2º)' : ''} · ${d}/${m}/${y} · ${r.status}`;
   const horario = `${r.hi}–${r.hf}${r.inter && r.inter!=='00:00' ? ' (intervalo '+r.inter+')' : ''}`;
+  const totalApurado = `${Number(r.qtd||0).toFixed(2).replace('.',',')}h`;
   let dataPrevistaTexto = '';
   if(r.dataPrevista){
     const [py,pm,pd] = String(r.dataPrevista).split('-');
@@ -7857,7 +7858,7 @@ async function abrirDetalhe(atendimentoId){
   document.getElementById('chatResumo').innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:12.5px;margin-bottom:10px;">
       <div><span style="color:var(--muted);">Tipo</span><br>${labelTipo(r.tipo)}</div>
-      <div><span style="color:var(--muted);">Horário</span><br>${horario}</div>
+      <div><span style="color:var(--muted);">Total apurado nas movimentações</span><br>${totalApurado}<span style="color:var(--muted);font-size:10.5px;"> (cadastro: ${horario})</span></div>
       ${dataPrevistaTexto ? `<div><span style="color:var(--muted);">Previsão de conclusão</span><br>${dataPrevistaTexto} ${flagPrazo(r)}</div>` : ''}
     </div>
     ${modSub ? `<div style="color:var(--accent);font-weight:600;font-size:12.5px;margin-bottom:4px;">${modSub}</div>` : ''}
@@ -7974,10 +7975,14 @@ function movIds(sufixo){
     lista:'movLista_ed', composer:'movComposerWrap_ed', respWrap:'movRespondendoWrap_ed', respTexto:'movRespondendoTexto_ed',
     respCancelar:'movCancelarResposta_ed', texto:'mov_texto_ed', anexo:'mov_anexo_ed', anexoNome:'mov_anexo_ed_nome',
     btnEnviar:'btnEnviarMovimentacao_ed', bloqueado:'movBloqueadoAviso_ed',
+    camposTempo:'movCamposTempo_ed', dataIni:'mov_data_ini_ed', horaIni:'mov_hora_ini_ed',
+    dataFim:'mov_data_fim_ed', horaFim:'mov_hora_fim_ed', intervalo:'mov_intervalo_ed',
   } : {
     lista:'movLista', composer:'movComposerWrap', respWrap:'movRespondendoWrap', respTexto:'movRespondendoTexto',
     respCancelar:'movCancelarResposta', texto:'mov_texto', anexo:'mov_anexo', anexoNome:'mov_anexo_nome',
     btnEnviar:'btnEnviarMovimentacao', bloqueado:'movBloqueadoAviso',
+    camposTempo:'movCamposTempo', dataIni:'mov_data_ini', horaIni:'mov_hora_ini',
+    dataFim:'mov_data_fim', horaFim:'mov_hora_fim', intervalo:'mov_intervalo',
   };
 }
 
@@ -7994,6 +7999,39 @@ function movFmtDataHora(iso){
   // fixa o fuso de Fortaleza em vez de confiar no fuso do aparelho —
   // um dispositivo com fuso mal configurado mostrava o horário em UTC (3h adiantado)
   return d.toLocaleDateString('pt-BR', {timeZone:'America/Fortaleza'}) + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Fortaleza'});
+}
+// apuração de tempo da movimentação: só quem atende registra (pro Usuário o
+// campo de movimentação continua só texto/anexo, como sempre foi)
+function movPodeUsarTempo(){
+  const conta = contaAtual();
+  return !!conta && conta.perfil !== 'USUARIO';
+}
+function movTemTempo(m){
+  return !!(m.dataInicial && m.horaInicial && m.dataFinal && m.horaFinal);
+}
+// duração em horas (decimal) de uma movimentação com apuração de tempo —
+// só pra exibir na tela; quem manda de verdade no total é o "qtd" do
+// atendimento, recalculado no servidor
+function movDuracaoHoras(m){
+  if(!movTemTempo(m)) return 0;
+  const ini = new Date(`${m.dataInicial}T${m.horaInicial}:00`).getTime();
+  const fim = new Date(`${m.dataFinal}T${m.horaFinal}:00`).getTime();
+  return Math.max(0, (fim-ini)/60000 - (Number(m.intervaloMin)||0)) / 60;
+}
+function movFmtDataBr(iso){
+  const p = String(iso||'').split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}` : '';
+}
+function movFmtPeriodo(m){
+  const mesmaData = m.dataInicial === m.dataFinal;
+  return `${movFmtDataBr(m.dataInicial)} ${m.horaInicial} → ${mesmaData ? '' : movFmtDataBr(m.dataFinal)+' '}${m.horaFinal}`;
+}
+// mostra/esconde os campos de Data/Horário Inicial e Final no composer,
+// conforme o perfil de quem está logado — chamada sempre que o composer é
+// preparado (limpo ou entrando em modo de edição de uma movimentação)
+function movAtualizarVisibilidadeTempo(sufixo){
+  const ids = movIds(sufixo);
+  document.getElementById(ids.camposTempo).style.display = movPodeUsarTempo() ? '' : 'none';
 }
 async function carregarMovimentacoes(atendimentoId, sufixo){
   sufixo = sufixo || '';
@@ -8043,6 +8081,7 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
         </div>
         <div class="mov-data">${movFmtDataHora(m.criadoEm)}</div>
       </div>
+      ${movTemTempo(m) ? `<div class="mov-tempo">🕐 ${movFmtPeriodo(m)}${m.intervaloMin ? ' · intervalo '+m.intervaloMin+'min' : ''}<span class="mov-tempo-dur">${movDuracaoHoras(m).toFixed(2).replace('.',',')}h</span></div>` : ''}
       <div class="mov-conteudo rt-content">${sanitizarHtml(m.texto)}</div>
       ${(m.anexos && m.anexos.length>0) ? m.anexos.map(a=>`<div class="mov-anexo-item">📎 <a href="${a.url}" target="_blank">${escaparHtml(a.nome)}</a> · <a href="${urlDownloadAnexo(a.url, a.nome)}" title="Baixar arquivo original">⬇ Baixar</a></div>`).join('') : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;">
@@ -8065,6 +8104,12 @@ function movLimparComposer(sufixo){
   estado.editandoId = null;
   estado.anexoArquivo = null;
   document.getElementById(ids.btnEnviar).textContent = 'Enviar';
+  document.getElementById(ids.dataIni).value = hojeLocalISO();
+  document.getElementById(ids.dataFim).value = hojeLocalISO();
+  document.getElementById(ids.horaIni).value = '';
+  document.getElementById(ids.horaFim).value = '';
+  document.getElementById(ids.intervalo).value = '0';
+  movAtualizarVisibilidadeTempo(sufixo);
 }
 
 function responderMovimentacao(id, sufixo){
@@ -8093,6 +8138,12 @@ function editarMovimentacaoUi(id, sufixo){
   document.getElementById(ids.respTexto).textContent = `Editando a movimentação de ${m.autorNome}`;
   document.getElementById(ids.respWrap).style.display = 'flex';
   document.getElementById(ids.btnEnviar).textContent = 'Salvar edição';
+  movAtualizarVisibilidadeTempo(sufixo);
+  document.getElementById(ids.dataIni).value = m.dataInicial || hojeLocalISO();
+  document.getElementById(ids.horaIni).value = m.horaInicial || '';
+  document.getElementById(ids.dataFim).value = m.dataFinal || hojeLocalISO();
+  document.getElementById(ids.horaFim).value = m.horaFinal || '';
+  document.getElementById(ids.intervalo).value = m.intervaloMin || 0;
   document.getElementById(ids.texto).focus();
 }
 
@@ -8128,6 +8179,28 @@ async function enviarMovimentacao(sufixo){
   const textoLimpo = stripHtml(textoHtml).trim();
   if(!textoLimpo && !estado.anexoArquivo){ toast('Escreva algo ou anexe um arquivo'); return; }
 
+  // apuração de tempo é opcional: os 4 campos (data/horário inicial e
+  // final) precisam vir todos preenchidos ou todos vazios — só quem atende
+  // vê esses campos (pro Usuário nem aparecem, então nunca preenchidos)
+  let camposTempo = {};
+  if(movPodeUsarTempo()){
+    const dataIni = document.getElementById(ids.dataIni).value, horaIni = document.getElementById(ids.horaIni).value;
+    const dataFim = document.getElementById(ids.dataFim).value, horaFim = document.getElementById(ids.horaFim).value;
+    const preenchidos = [dataIni, horaIni, dataFim, horaFim].filter(Boolean).length;
+    if(preenchidos > 0 && preenchidos < 4){
+      toast('Preencha Data e Horário Inicial e Final, ou deixe os quatro em branco.');
+      return;
+    }
+    if(preenchidos === 4){
+      const intervaloMin = Number(document.getElementById(ids.intervalo).value) || 0;
+      if(new Date(`${dataFim}T${horaFim}:00`) <= new Date(`${dataIni}T${horaIni}:00`)){
+        toast('O horário final precisa ser depois do horário inicial.');
+        return;
+      }
+      camposTempo = { dataInicial: dataIni, horaInicial: horaIni, dataFinal: dataFim, horaFinal: horaFim, intervaloMin };
+    }
+  }
+
   const btn = document.getElementById(ids.btnEnviar);
   const editando = !!estado.editandoId;
   btn.disabled = true;
@@ -8135,11 +8208,11 @@ async function enviarMovimentacao(sufixo){
   try{
     let r;
     if(editando){
-      r = await api('atualizarMovimentacao', { contaId: conta.id, id: estado.editandoId, texto: textoHtml });
+      r = await api('atualizarMovimentacao', { contaId: conta.id, id: estado.editandoId, texto: textoHtml, ...camposTempo });
     }else{
       const payload = {
         atendimentoId: estado.atendimentoId, texto: textoHtml, autorNome: conta.nome, autorPerfil: conta.perfil,
-        respondendoA: estado.respondendoId, contaId: conta.id,
+        respondendoA: estado.respondendoId, contaId: conta.id, ...camposTempo,
       };
       if(estado.anexoArquivo){
         payload.anexoBase64 = await lerArquivoBase64(estado.anexoArquivo);
