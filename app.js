@@ -2087,7 +2087,7 @@ function renderTabelaAtendimentos(cont, itensOriginais, ctx){
     ? renderNosGrupoTabela(listaAgrupar(itens, listaAgrupamentos), colunas, podeSelecionar, ctx, 0)
     : itens.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('');
 
-  cont.innerHTML = `<div class="card" style="padding:0;overflow-x:auto;"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div>`;
+  cont.innerHTML = `<div class="card" style="padding:0;"><div class="lista-scroll-topo"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div></div>`;
 }
 
 // agrupamento em vários níveis: agrupa pelo primeiro campo, e dentro de
