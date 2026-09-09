@@ -288,6 +288,13 @@
 
   /* Lista em tabela (desktop) — ordenar clicando no cabeçalho, agrupar
      arrastando o cabeçalho até a faixa "Agrupar por" (mesmo padrão do Cubo) */
+  /* rola na horizontal quando a tabela não cabe (colunas de mais) — a barra
+     de rolagem normalmente nasce embaixo, longe do cabeçalho e perto da
+     barra de navegação; o truque do rotateX duplo (vira o container de
+     cabeça pra baixo, depois vira o conteúdo de novo) faz ela nascer em
+     cima, logo abaixo do cabeçalho da tabela, sem afetar a leitura */
+  .lista-scroll-topo{overflow-x:auto;overflow-y:hidden;transform:rotateX(180deg);}
+  .lista-scroll-topo > table{transform:rotateX(180deg);}
   .lista-tabela{width:100%;border-collapse:collapse;}
   .lista-tabela thead th{background:var(--panel-2);text-align:left;padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;white-space:nowrap;}
   .lista-th-arrastavel{cursor:grab;user-select:none;touch-action:none;}
