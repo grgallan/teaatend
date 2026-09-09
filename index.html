@@ -279,7 +279,11 @@
   .item-actions button{flex:1;}
   .acoes-wrap{position:relative;flex:1;}
   .acoes-wrap button{width:100%;}
-  .acoes-menu{position:absolute;bottom:100%;right:0;z-index:15;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:4px;min-width:150px;box-shadow:0 8px 20px rgba(0,0,0,.18);display:none;overflow:hidden;}
+  /* menu de ações único e compartilhado (ver #acoesMenuPortal), fixo na
+     tela e posicionado por JS a partir do botão clicado — assim ele nunca
+     fica cortado por um ancestral com rolagem/overflow (tabela da Lista,
+     coluna do Kanban), aonde quer que o botão esteja */
+  .acoes-menu{position:fixed;z-index:40;background:var(--panel);border:1px solid var(--line);border-radius:10px;min-width:150px;box-shadow:0 8px 20px rgba(0,0,0,.18);display:none;overflow:hidden;}
   .acoes-menu.show{display:block;}
   .acoes-menu-item{padding:10px 12px;font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer;}
   .acoes-menu-item:hover{background:var(--panel-2);}
@@ -360,12 +364,15 @@
   .mov-perfil.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
   .mov-perfil.USUARIO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
   .mov-perfil.ADMIN{background:var(--panel-2);color:var(--muted);}
+  .mov-resposta-tag{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);margin-left:4px;}
   .mov-data{font-size:11px;color:var(--muted);white-space:nowrap;}
   .mov-tempo{font-size:10.5px;color:var(--accent);margin-bottom:6px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
   .mov-tempo .mov-tempo-dur{margin-left:auto;background:var(--accent-dim);padding:1px 8px;border-radius:999px;font-weight:600;}
   .mov-campos-tempo{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);}
   .mov-campos-tempo .row{margin-bottom:0;}
   .mov-campos-tempo .field{margin-bottom:10px;}
+  .mov-check-resposta{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:400;color:var(--text);cursor:pointer;margin-bottom:10px;}
+  .mov-check-resposta input{width:16px;height:16px;flex:none;}
   .mov-conteudo{font-size:12.5px;line-height:1.5;margin-bottom:6px;}
   .mov-conteudo img{max-width:100%;border-radius:8px;margin:4px 0;}
   .mov-anexo-item{background:var(--panel-2);border-radius:8px;padding:6px 10px;font-size:11.5px;margin-bottom:6px;}
@@ -951,14 +958,19 @@
           </div>
           <div id="mov_texto_ed" class="rt-editor" contenteditable="true" data-placeholder="Escreva a movimentação…"></div>
           <div id="movCamposTempo_ed" class="mov-campos-tempo" style="display:none;">
-            <div class="row">
-              <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini_ed"></div>
-              <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim_ed"></div>
-            </div>
-            <div class="row3">
-              <div class="field"><label>Hora Inicial</label><input type="time" id="mov_hora_ini_ed"></div>
-              <div class="field"><label>Intervalo</label><input type="time" id="mov_intervalo_ed" value="00:00"></div>
-              <div class="field"><label>Hora Final</label><input type="time" id="mov_hora_fim_ed"></div>
+            <label class="mov-check-resposta">
+              <input type="checkbox" id="mov_e_resposta_ed"> É uma resposta (sem apuração de horas)
+            </label>
+            <div id="movCamposTempoDatas_ed">
+              <div class="row">
+                <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini_ed"></div>
+                <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim_ed"></div>
+              </div>
+              <div class="row3">
+                <div class="field"><label>Hora Inicial</label><input type="time" id="mov_hora_ini_ed"></div>
+                <div class="field"><label>Intervalo</label><input type="time" id="mov_intervalo_ed" value="00:00"></div>
+                <div class="field"><label>Hora Final</label><input type="time" id="mov_hora_fim_ed"></div>
+              </div>
             </div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap;">
@@ -2030,6 +2042,7 @@
 </nav>
 </div>
 
+<div class="acoes-menu" id="acoesMenuPortal"></div>
 <div class="toast" id="toast"></div>
 
 <div class="previa-popover" id="anexoPreviaPopover" onmouseenter="cancelarEsconderPreviaAnexos()" onmouseleave="agendarEsconderPreviaAnexos()"></div>
@@ -2094,14 +2107,19 @@
       </div>
       <div id="mov_texto" class="rt-editor" contenteditable="true" data-placeholder="Escreva a movimentação…"></div>
       <div id="movCamposTempo" class="mov-campos-tempo" style="display:none;">
-        <div class="row">
-          <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini"></div>
-          <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim"></div>
-        </div>
-        <div class="row3">
-          <div class="field"><label>Hora Inicial</label><input type="time" id="mov_hora_ini"></div>
-          <div class="field"><label>Intervalo</label><input type="time" id="mov_intervalo" value="00:00"></div>
-          <div class="field"><label>Hora Final</label><input type="time" id="mov_hora_fim"></div>
+        <label class="mov-check-resposta">
+          <input type="checkbox" id="mov_e_resposta"> É uma resposta (sem apuração de horas)
+        </label>
+        <div id="movCamposTempoDatas">
+          <div class="row">
+            <div class="field"><label>Data Inicial</label><input type="date" id="mov_data_ini"></div>
+            <div class="field"><label>Data Final</label><input type="date" id="mov_data_fim"></div>
+          </div>
+          <div class="row3">
+            <div class="field"><label>Hora Inicial</label><input type="time" id="mov_hora_ini"></div>
+            <div class="field"><label>Intervalo</label><input type="time" id="mov_intervalo" value="00:00"></div>
+            <div class="field"><label>Hora Final</label><input type="time" id="mov_hora_fim"></div>
+          </div>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px;flex-wrap:wrap;">
