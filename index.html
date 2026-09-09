@@ -320,7 +320,12 @@
   .lista-th-drop-alvo{outline:2px dashed var(--accent);outline-offset:-2px;background:var(--accent-dim);}
   .lista-coluna-ghost{position:fixed;z-index:80;pointer-events:none;background:var(--accent);color:var(--on-accent);font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:8px;box-shadow:0 10px 24px rgba(0,0,0,.3);}
   .lista-tabela .linha-filho{background:var(--panel-2);}
-  .lista-filtro-coluna-dropdown{position:absolute;top:100%;left:0;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:4px;max-height:220px;overflow-y:auto;box-shadow:0 8px 20px rgba(0,0,0,.18);min-width:170px;}
+  /* portal único e compartilhado (ver #filtroColunaPortal), fixo na tela —
+     mesma técnica do #acoesMenuPortal: não pode ser position:absolute
+     dentro do <th>/.lista-scroll-topo pois ambos cortam (overflow:hidden
+     e transform) qualquer popup que tente escapar deles */
+  .lista-filtro-coluna-dropdown{position:fixed;z-index:45;background:var(--panel);border:1px solid var(--line);border-radius:10px;max-height:220px;overflow-y:auto;box-shadow:0 8px 20px rgba(0,0,0,.18);min-width:170px;display:none;}
+  .lista-filtro-coluna-dropdown.show{display:block;}
   .lista-filtro-coluna-item{padding:8px 12px;font-size:12.5px;font-weight:600;color:var(--text);cursor:pointer;white-space:nowrap;text-transform:none;letter-spacing:normal;}
   .lista-filtro-coluna-item:hover{background:var(--panel-2);}
 
@@ -2048,6 +2053,7 @@
 </div>
 
 <div class="acoes-menu" id="acoesMenuPortal"></div>
+<div class="lista-filtro-coluna-dropdown" id="filtroColunaPortal"></div>
 <div class="toast" id="toast"></div>
 
 <div class="previa-popover" id="anexoPreviaPopover" onmouseenter="cancelarEsconderPreviaAnexos()" onmouseleave="agendarEsconderPreviaAnexos()"></div>

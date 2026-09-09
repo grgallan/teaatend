@@ -2053,28 +2053,41 @@ function distintosColunaLista(campo){
   });
   return [...valores].sort((a,b)=>a.localeCompare(b, 'pt-BR'));
 }
-function toggleFiltroColunaLista(campo){
-  listaFiltroColunaAberta = listaFiltroColunaAberta === campo ? null : campo;
-  renderLista();
-}
 function fecharFiltroColunaLista(){
-  if(listaFiltroColunaAberta !== null){ listaFiltroColunaAberta = null; renderLista(); }
+  listaFiltroColunaAberta = null;
+  const portal = document.getElementById('filtroColunaPortal');
+  if(portal){ portal.classList.remove('show'); portal.innerHTML = ''; }
+}
+// portal único fora da tabela (mesmo padrão do #acoesMenuPortal) — o <th>
+// tem overflow:hidden e o wrapper de rolagem tem transform+overflow-y:hidden,
+// então um dropdown position:absolute dentro deles nunca aparece visível
+function toggleFiltroColunaLista(campo, spanEl){
+  const jaAbertoParaEsse = listaFiltroColunaAberta === campo;
+  fecharFiltroColunaLista();
+  if(jaAbertoParaEsse) return;
+  listaFiltroColunaAberta = campo;
+  const portal = document.getElementById('filtroColunaPortal');
+  if(!portal || !spanEl) return;
+  const set = filtroColunaAtivo(campo);
+  const valores = distintosColunaLista(campo);
+  const itensDropdown = valores.map(v=>
+    `<div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="${escaparHtml(v)}">${set.has(v) ? '✓ ' : ''}${escaparHtml(v)}</div>`
+  ).join('');
+  portal.innerHTML = `
+    <div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
+    ${itensDropdown}
+  `;
+  const r = spanEl.getBoundingClientRect();
+  portal.style.left = `${r.left}px`;
+  portal.style.top = `${r.bottom + 4}px`;
+  portal.classList.add('show');
 }
 function celulaFiltroColunaLista(c){
   const campo = c.campo;
   const set = filtroColunaAtivo(campo);
   const ativo = set.size > 0;
-  const aberto = listaFiltroColunaAberta === campo;
-  const valores = distintosColunaLista(campo);
-  const itensDropdown = valores.map(v=>
-    `<div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="${escaparHtml(v)}">${set.has(v) ? '✓ ' : ''}${escaparHtml(v)}</div>`
-  ).join('');
   return `<span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;margin-left:6px;">
-    <span onclick="toggleFiltroColunaLista('${campo}')" style="cursor:pointer;${ativo ? 'color:var(--accent);' : ''}" title="Filtrar ${escaparHtml(c.label)}">▾</span>
-    ${aberto ? `<div class="lista-filtro-coluna-dropdown">
-      <div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
-      ${itensDropdown}
-    </div>` : ''}
+    <span onclick="toggleFiltroColunaLista('${campo}', this)" style="cursor:pointer;${ativo ? 'color:var(--accent);' : ''}" title="Filtrar ${escaparHtml(c.label)}">▾</span>
   </span>`;
 }
 
@@ -9298,6 +9311,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('listaItens').addEventListener('click', e=>{
     const toggleGrupo = e.target.closest('.lista-grupo-toggle');
     if(toggleGrupo){ toggleGrupoListaColapsado(toggleGrupo.dataset.caminho); return; }
+  });
+  document.getElementById('filtroColunaPortal').addEventListener('click', e=>{
     const item = e.target.closest('.lista-filtro-coluna-item');
     if(!item) return;
     const campo = item.dataset.campo;
@@ -9306,9 +9321,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(valor === '') set.clear();
     else if(set.has(valor)) set.delete(valor);
     else set.add(valor);
+    fecharFiltroColunaLista();
     renderLista();
   });
-  document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap')) fecharFiltroColunaLista(); });
+  document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap') && !e.target.closest('#filtroColunaPortal')) fecharFiltroColunaLista(); });
   document.addEventListener('click', e=>{
     if(!e.target.closest('.anexo-badge') && !e.target.closest('#anexoPreviaPopover')) document.getElementById('anexoPreviaPopover').classList.remove('show');
   });
