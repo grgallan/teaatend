@@ -77,8 +77,8 @@ const COLUNAS_LISTA_TABELA = [
   { campo:'status', label:'Status', agrupaComo:'status', filtravel:true },
   { campo:'data', label:'Data', agrupaComo:'mes' },
   { campo:'dataPrevista', label:'Data Final' },
-  { campo:'horas', label:'Horas' },
-  { campo:'valor', label:'Valor Real' },
+  { campo:'horas', label:'Horas', alinhamento:'right' },
+  { campo:'valor', label:'Valor Real', alinhamento:'right' },
 ];
 // ordem atual das colunas na tabela (lista de campos) — muda quando o
 // usuário arrasta um cabeçalho de coluna e solta em cima de outro
@@ -2057,7 +2057,10 @@ function renderCabecalhoColunaLista(c){
   const ordenadoAtivo = listaOrdenacao.campo === c.campo;
   const seta = ordenadoAtivo ? (listaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
   const filtro = c.filtravel ? celulaFiltroColunaLista(c) : '';
-  return `<th class="lista-th-arrastavel${ordenadoAtivo ? ' ordenado' : ''}" data-campo="${c.campo}" data-agrupa="${c.agrupaComo || ''}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}${filtro}</th>`;
+  // colunas numéricas (Horas/Valor) têm a célula alinhada à direita — o
+  // cabeçalho acompanha, senão o rótulo fica na ponta oposta do valor
+  const estilo = c.alinhamento === 'right' ? ' style="text-align:right;"' : '';
+  return `<th class="lista-th-arrastavel${ordenadoAtivo ? ' ordenado' : ''}"${estilo} data-campo="${c.campo}" data-agrupa="${c.agrupaComo || ''}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}${filtro}</th>`;
 }
 
 function renderTabelaAtendimentos(cont, itensOriginais, ctx){
@@ -2084,7 +2087,7 @@ function renderTabelaAtendimentos(cont, itensOriginais, ctx){
     ? renderNosGrupoTabela(listaAgrupar(itens, listaAgrupamentos), colunas, podeSelecionar, ctx, 0)
     : itens.map(r=>renderLinhaComVinculosTabela(r, ctx, colunas, podeSelecionar)).join('');
 
-  cont.innerHTML = `<div class="card" style="padding:0;"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div>`;
+  cont.innerHTML = `<div class="card" style="padding:0;overflow-x:auto;"><table class="lista-tabela"><thead>${headerHtml}</thead><tbody>${corpoHtml}</tbody></table></div>`;
 }
 
 // agrupamento em vários níveis: agrupa pelo primeiro campo, e dentro de
