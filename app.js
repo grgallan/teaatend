@@ -54,7 +54,6 @@ let editandoClienteId = null;
 let excluindoAcao = null;
 let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = new Set(); // vazio = todos
-let filtroId = ''; // vazio = todos — busca por trecho do ID do atendimento
 let filtroAvancado = null; // { operadorGrupos:'E'|'OU', grupos:[{id,operador,condicoes:[{id,campo,operador,valor}]}] } — null = inativo
 let filtroAvancadoRascunho = null; // cópia editada dentro do modal, só vira "filtroAvancado" ao clicar Aplicar
 let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
@@ -77,6 +76,7 @@ const COLUNAS_LISTA_TABELA = [
   { campo:'tipo', label:'Tipo', agrupaComo:'tipo', filtravel:true },
   { campo:'status', label:'Status', agrupaComo:'status', filtravel:true },
   { campo:'data', label:'Data', agrupaComo:'mes' },
+  { campo:'dataPrevista', label:'Data Final' },
   { campo:'horas', label:'Horas' },
   { campo:'valor', label:'Valor Real' },
 ];
@@ -1621,17 +1621,16 @@ function renderFiltros(){
   const el = document.getElementById('filtros');
   const conta = contaAtual();
   aplicarPeriodoPadraoSeVazio();
-  const inputId = `<input type="text" id="filtroIdBusca" placeholder="Filtrar por ID…" autocomplete="off" value="${escaparHtml(filtroId)}" style="min-width:140px;">`;
   // usuário não filtra por cliente (só vê o próprio cliente mesmo) — mas
-  // status, período e ID são liberados abaixo
-  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML = inputId; renderFiltrosStatus(); return; }
+  // status e período são liberados abaixo (a busca por ID virou um campo
+  // do filtro avançado)
+  if(conta && conta.perfil === 'USUARIO'){ el.innerHTML = ''; renderFiltrosStatus(); return; }
   el.innerHTML = `
     <div class="lookup-multi">
       <div class="lookup-tags" id="filtroClienteTags"></div>
       <input type="text" id="filtroClienteBusca" placeholder="Filtrar por cliente…" autocomplete="off">
       <div class="lookup-dropdown" id="filtroClienteDropdown"></div>
-    </div>
-    ${inputId}`;
+    </div>`;
   renderFiltroClienteTags();
   renderFiltroClienteDropdown('');
   renderFiltrosStatus();
@@ -1694,7 +1693,6 @@ function itensAtendimentosFiltrados(){
   // cliente; mas status e período valem pra ele também
   if(!isUsuario && filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
   if(filtroStatus.size > 0) itens = itens.filter(r=>filtroStatus.has(r.status));
-  if(filtroId.trim()) { const t = filtroId.trim().toLowerCase(); itens = itens.filter(r=>String(r.id).toLowerCase().includes(t)); }
   const de = document.getElementById('periodo_de').value;
   const ate = document.getElementById('periodo_ate').value;
   // PENDENTE/EM ANDAMENTO/EM VALIDAÇÃO ainda precisam de atenção, então
@@ -1713,6 +1711,7 @@ function itensAtendimentosFiltrados(){
    se combinam pelo mesmo esquema (operadorGrupos) — só aparece quando há
    mais de um grupo. */
 const FILTRO_AVANCADO_CAMPOS = [
+  { valor:'id', label:'ID do Atendimento', tipo:'texto' },
   { valor:'cliente', label:'Cliente', tipo:'lista' },
   { valor:'usuario', label:'Usuário', tipo:'lista' },
   { valor:'atendente', label:'Atendente', tipo:'lista', permiteVazio:true },
@@ -1818,6 +1817,8 @@ function faCondicaoHtml(g, c){
   if(precisaValor){
     if(def.tipo === 'data'){
       valorHtml = `<input type="date" data-fa="valor" data-grupo="${g.id}" data-cond="${c.id}" value="${escaparHtml(c.valor||'')}">`;
+    } else if(def.tipo === 'texto'){
+      valorHtml = `<input type="text" data-fa="valor" data-grupo="${g.id}" data-cond="${c.id}" value="${escaparHtml(c.valor||'')}" placeholder="Digite o valor...">`;
     } else {
       const opcoes = filtroAvancadoOpcoesValor(c.campo);
       valorHtml = `<select data-fa="valor" data-grupo="${g.id}" data-cond="${c.id}"><option value="">Escolha...</option>${opcoes.map(o=>`<option value="${escaparHtml(o)}" ${c.valor===o?'selected':''}>${escaparHtml(o)}</option>`).join('')}</select>`;
@@ -1936,6 +1937,7 @@ function valorOrdenacaoLista(r, campo){
     case 'tipo': return labelTipo(r.tipo) || '';
     case 'status': return r.status || '';
     case 'data': return `${r.data} ${r.hi}`;
+    case 'dataPrevista': return r.dataPrevista || '';
     case 'horas': return Number(r.qtd) || 0;
     case 'valor': return Number(r.totalReal) || 0;
     default: return '';
@@ -2185,6 +2187,11 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
       case 'tipo': return `<td>${pre}${labelTipo(r.tipo)}</td>`;
       case 'status': return `<td>${pre}<span class="tag status-${statusSlug(r.status)}">${escaparHtml(r.status)}</span></td>`;
       case 'data': return `<td style="font-family:'JetBrains Mono',monospace;">${pre}${d}/${m}/${y}<div style="color:var(--muted);font-size:11px;">${r.hi}–${r.hf}</div></td>`;
+      case 'dataPrevista': {
+        if(!r.dataPrevista) return `<td style="color:var(--muted);">${pre}—</td>`;
+        const [py,pm,pd] = String(r.dataPrevista).split('-');
+        return `<td style="font-family:'JetBrains Mono',monospace;">${pre}${pd}/${pm}/${py} ${flagPrazo(r)}</td>`;
+      }
       case 'horas': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${pre}${Number(r.qtd).toFixed(2).replace('.',',')}h</td>`;
       case 'valor': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--accent);">${pre}${fmtMoeda(Number(r.totalReal))}</td>`;
       default: return '<td></td>';
@@ -9070,7 +9077,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('filtros').addEventListener('input', e=>{
     if(e.target.id === 'filtroClienteBusca') renderFiltroClienteDropdown(e.target.value);
-    if(e.target.id === 'filtroIdBusca'){ filtroId = e.target.value; renderLista(); }
   });
   document.getElementById('filtros').addEventListener('focusin', e=>{
     if(e.target.id !== 'filtroClienteBusca') return;
