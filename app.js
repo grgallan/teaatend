@@ -55,6 +55,8 @@ let excluindoAcao = null;
 let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = new Set(); // vazio = todos
 let filtroId = ''; // vazio = todos — busca por trecho do ID do atendimento
+let filtroAvancado = null; // { operadorGrupos:'E'|'OU', grupos:[{id,operador,condicoes:[{id,campo,operador,valor}]}] } — null = inativo
+let filtroAvancadoRascunho = null; // cópia editada dentro do modal, só vira "filtroAvancado" ao clicar Aplicar
 let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
 // tabela ordenável/agrupável da Lista (só em telas largas — no celular a
 // lista continua em cards, sem essa mecânica)
@@ -1700,8 +1702,183 @@ function itensAtendimentosFiltrados(){
   // encerrados (CONCLUÍDO e demais) respeitam o filtro de período
   if(de) itens = itens.filter(r=>STATUS_SEMPRE_VISIVEL.has(r.status) || String(r.data) >= de);
   if(ate) itens = itens.filter(r=>STATUS_SEMPRE_VISIVEL.has(r.status) || String(r.data) <= ate);
+  if(filtroAvancado) itens = itens.filter(filtroAvancadoBate);
   itens.sort((a,b)=> String(b.data).localeCompare(String(a.data)));
   return itens;
+}
+
+/* ---------- Filtro avançado (Lista de atendimentos) ----------
+   Grupos de condições (campo + operador + valor); dentro de um grupo, TODAS
+   (E) ou QUALQUER UMA (OU) das condições precisa bater; os grupos entre si
+   se combinam pelo mesmo esquema (operadorGrupos) — só aparece quando há
+   mais de um grupo. */
+const FILTRO_AVANCADO_CAMPOS = [
+  { valor:'cliente', label:'Cliente', tipo:'lista' },
+  { valor:'usuario', label:'Usuário', tipo:'lista' },
+  { valor:'atendente', label:'Atendente', tipo:'lista', permiteVazio:true },
+  { valor:'status', label:'Status', tipo:'lista' },
+  { valor:'modulo', label:'Módulo', tipo:'lista', permiteVazio:true },
+  { valor:'submodulo', label:'Sub Módulo', tipo:'lista', permiteVazio:true },
+  { valor:'tipo', label:'Tipo de atendimento', tipo:'lista' },
+  { valor:'data', label:'Data', tipo:'data' },
+  { valor:'dataPrevista', label:'Data Prevista', tipo:'data', permiteVazio:true },
+];
+const FILTRO_AVANCADO_OP_LISTA = [
+  { valor:'=', label:'Igual a' },
+  { valor:'<>', label:'Diferente de' },
+  { valor:'contem', label:'Contém' },
+];
+const FILTRO_AVANCADO_OP_DATA = [
+  { valor:'=', label:'Igual a' },
+  { valor:'<>', label:'Diferente de' },
+  { valor:'>', label:'Depois de' },
+  { valor:'>=', label:'A partir de' },
+  { valor:'<', label:'Antes de' },
+  { valor:'<=', label:'Até' },
+];
+const FILTRO_AVANCADO_OP_VAZIO = [
+  { valor:'vazio', label:'Está vazio' },
+  { valor:'naovazio', label:'Não está vazio' },
+];
+function filtroAvancadoOperadores(def){
+  const base = def.tipo === 'data' ? FILTRO_AVANCADO_OP_DATA : FILTRO_AVANCADO_OP_LISTA;
+  return def.permiteVazio ? [...base, ...FILTRO_AVANCADO_OP_VAZIO] : base;
+}
+function filtroAvancadoOpcoesValor(campo){
+  switch(campo){
+    case 'cliente': return clientes.map(c=>c.nome);
+    case 'usuario': return contas.filter(c=>c.perfil==='USUARIO').map(c=>c.nome);
+    case 'atendente': return contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+    case 'status': return statusList.map(s=>s.nome);
+    case 'modulo': return modulos.map(m=>m.nome);
+    case 'submodulo': return submodulos.map(s=>s.nome);
+    case 'tipo': return tipos.map(t=>t.nome);
+    default: return [];
+  }
+}
+function gerarIdFa(){ return 'fa'+Math.random().toString(36).slice(2,9); }
+function novaCondicaoFa(){ return { id: gerarIdFa(), campo:'cliente', operador:'=', valor:'' }; }
+function novoGrupoFa(){ return { id: gerarIdFa(), operador:'E', condicoes:[novaCondicaoFa()] }; }
+function filtroAvancadoCondicaoBate(r, cond){
+  const def = FILTRO_AVANCADO_CAMPOS.find(c=>c.valor===cond.campo);
+  if(!def) return true;
+  const valorCampo = r[cond.campo] || '';
+  if(cond.operador === 'vazio') return !String(valorCampo).trim();
+  if(cond.operador === 'naovazio') return !!String(valorCampo).trim();
+  if(!String(cond.valor||'').trim()) return true; // condição incompleta não filtra nada
+  if(def.tipo === 'data'){
+    const a = String(valorCampo), b = String(cond.valor);
+    switch(cond.operador){
+      case '=': return a === b;
+      case '<>': return a !== b;
+      case '>': return a > b;
+      case '>=': return a >= b;
+      case '<': return a < b;
+      case '<=': return a <= b;
+      default: return true;
+    }
+  }
+  const a = normalizarBuscaTextoRm(valorCampo), b = normalizarBuscaTextoRm(cond.valor);
+  switch(cond.operador){
+    case '=': return a === b;
+    case '<>': return a !== b;
+    case 'contem': return a.includes(b);
+    default: return true;
+  }
+}
+function filtroAvancadoGrupoBate(r, grupo){
+  if(grupo.condicoes.length === 0) return true;
+  return grupo.operador === 'OU'
+    ? grupo.condicoes.some(c=>filtroAvancadoCondicaoBate(r,c))
+    : grupo.condicoes.every(c=>filtroAvancadoCondicaoBate(r,c));
+}
+function filtroAvancadoBate(r){
+  const grupos = (filtroAvancado.grupos||[]).filter(g=>g.condicoes.length>0);
+  if(grupos.length === 0) return true;
+  return filtroAvancado.operadorGrupos === 'OU'
+    ? grupos.some(g=>filtroAvancadoGrupoBate(r,g))
+    : grupos.every(g=>filtroAvancadoGrupoBate(r,g));
+}
+function abrirFiltroAvancado(){
+  filtroAvancadoRascunho = filtroAvancado
+    ? JSON.parse(JSON.stringify(filtroAvancado))
+    : { operadorGrupos:'E', grupos:[novoGrupoFa()] };
+  renderFiltroAvancadoUi();
+  document.getElementById('filtroAvancadoModal').classList.add('show');
+}
+function fecharFiltroAvancado(){
+  document.getElementById('filtroAvancadoModal').classList.remove('show');
+}
+function faCondicaoHtml(g, c){
+  const def = FILTRO_AVANCADO_CAMPOS.find(x=>x.valor===c.campo) || FILTRO_AVANCADO_CAMPOS[0];
+  const ops = filtroAvancadoOperadores(def);
+  const opSel = ops.find(o=>o.valor===c.operador) ? c.operador : ops[0].valor;
+  const precisaValor = opSel !== 'vazio' && opSel !== 'naovazio';
+  let valorHtml = '<div></div>';
+  if(precisaValor){
+    if(def.tipo === 'data'){
+      valorHtml = `<input type="date" data-fa="valor" data-grupo="${g.id}" data-cond="${c.id}" value="${escaparHtml(c.valor||'')}">`;
+    } else {
+      const opcoes = filtroAvancadoOpcoesValor(c.campo);
+      valorHtml = `<select data-fa="valor" data-grupo="${g.id}" data-cond="${c.id}"><option value="">Escolha...</option>${opcoes.map(o=>`<option value="${escaparHtml(o)}" ${c.valor===o?'selected':''}>${escaparHtml(o)}</option>`).join('')}</select>`;
+    }
+  }
+  return `<div class="fa-condicao">
+    <select data-fa="campo" data-grupo="${g.id}" data-cond="${c.id}">${FILTRO_AVANCADO_CAMPOS.map(f=>`<option value="${f.valor}" ${f.valor===c.campo?'selected':''}>${f.label}</option>`).join('')}</select>
+    <select data-fa="operador" data-grupo="${g.id}" data-cond="${c.id}">${ops.map(o=>`<option value="${o.valor}" ${o.valor===opSel?'selected':''}>${o.label}</option>`).join('')}</select>
+    ${valorHtml}
+    <button type="button" data-fa-remover-condicao data-grupo="${g.id}" data-cond="${c.id}" title="Remover condição">✕</button>
+  </div>`;
+}
+function faGrupoHtml(g, i){
+  return `<div class="fa-grupo" data-grupo="${g.id}">
+    <div class="fa-grupo-header">
+      <span class="fa-grupo-titulo">Grupo ${i+1} · Condição do grupo</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="segmented fa-segmented-mini">
+          <button type="button" class="${g.operador==='E'?'sel':''}" data-fa-operador-grupo="${g.id}" data-valor="E">E</button>
+          <button type="button" class="${g.operador==='OU'?'sel':''}" data-fa-operador-grupo="${g.id}" data-valor="OU">OU</button>
+        </div>
+        <button type="button" class="fa-btn-remover" data-fa-remover-grupo="${g.id}" title="Remover grupo">🗑</button>
+      </div>
+    </div>
+    <div class="fa-condicoes">${g.condicoes.map(c=>faCondicaoHtml(g,c)).join('')}</div>
+    <button type="button" class="ghost fa-btn-add" data-fa-add-condicao="${g.id}">+ Condição</button>
+  </div>`;
+}
+function renderFiltroAvancadoUi(){
+  const d = filtroAvancadoRascunho;
+  const combinarWrap = document.getElementById('faGruposCombinar');
+  combinarWrap.style.display = d.grupos.length > 1 ? '' : 'none';
+  combinarWrap.querySelectorAll('[data-fa-operador-grupos]').forEach(b=>{
+    b.classList.toggle('sel', b.dataset.faOperadorGrupos === d.operadorGrupos);
+  });
+  document.getElementById('faGruposLista').innerHTML = d.grupos.length
+    ? d.grupos.map((g,i)=>faGrupoHtml(g,i)).join('')
+    : `<div class="empty" style="padding:12px 0;font-size:12.5px;">Nenhum grupo ainda — adicione um pra começar.</div>`;
+}
+function aplicarFiltroAvancado(){
+  const grupos = filtroAvancadoRascunho.grupos
+    .map(g=>({ id:g.id, operador:g.operador, condicoes: g.condicoes.filter(c=>c.operador==='vazio'||c.operador==='naovazio'||String(c.valor||'').trim()) }))
+    .filter(g=>g.condicoes.length>0);
+  filtroAvancado = grupos.length > 0 ? { operadorGrupos: filtroAvancadoRascunho.operadorGrupos, grupos } : null;
+  fecharFiltroAvancado();
+  renderFiltroAvancadoResumo();
+  renderLista();
+}
+function limparFiltroAvancado(){
+  filtroAvancado = null;
+  filtroAvancadoRascunho = { operadorGrupos:'E', grupos:[novoGrupoFa()] };
+  renderFiltroAvancadoUi();
+  renderFiltroAvancadoResumo();
+  renderLista();
+}
+function renderFiltroAvancadoResumo(){
+  const el = document.getElementById('filtroAvancadoResumo');
+  if(!filtroAvancado){ el.textContent = ''; return; }
+  const totalCond = filtroAvancado.grupos.reduce((s,g)=>s+g.condicoes.length, 0);
+  const totalGrupos = filtroAvancado.grupos.length;
+  el.textContent = `Filtro avançado ativo — ${totalCond} condição(ões) em ${totalGrupos} grupo(s)`;
 }
 
 function renderLista(){
@@ -8938,6 +9115,69 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('filtrosStatus').addEventListener('focusout', e=>{
     if(e.target.id !== 'filtroStatusBusca') return;
     setTimeout(()=>{ const dd = document.getElementById('filtroStatusDropdown'); if(dd) dd.classList.remove('show'); }, 150);
+  });
+
+  /* ---------- Filtro avançado ---------- */
+  document.getElementById('btnAbrirFiltroAvancado').addEventListener('click', abrirFiltroAvancado);
+  document.getElementById('btnFaFechar').addEventListener('click', fecharFiltroAvancado);
+  document.getElementById('btnFaLimpar').addEventListener('click', limparFiltroAvancado);
+  document.getElementById('btnFaAplicar').addEventListener('click', aplicarFiltroAvancado);
+  document.getElementById('btnFaAdicionarGrupo').addEventListener('click', ()=>{
+    filtroAvancadoRascunho.grupos.push(novoGrupoFa());
+    renderFiltroAvancadoUi();
+  });
+  document.getElementById('faGruposCombinar').addEventListener('click', e=>{
+    const btn = e.target.closest('[data-fa-operador-grupos]');
+    if(!btn) return;
+    filtroAvancadoRascunho.operadorGrupos = btn.dataset.faOperadorGrupos;
+    renderFiltroAvancadoUi();
+  });
+  document.getElementById('faGruposLista').addEventListener('click', e=>{
+    const btnOpGrupo = e.target.closest('[data-fa-operador-grupo]');
+    if(btnOpGrupo){
+      const g = filtroAvancadoRascunho.grupos.find(x=>x.id===btnOpGrupo.dataset.faOperadorGrupo);
+      if(g){ g.operador = btnOpGrupo.dataset.valor; renderFiltroAvancadoUi(); }
+      return;
+    }
+    const btnRemGrupo = e.target.closest('[data-fa-remover-grupo]');
+    if(btnRemGrupo){
+      filtroAvancadoRascunho.grupos = filtroAvancadoRascunho.grupos.filter(g=>g.id!==btnRemGrupo.dataset.faRemoverGrupo);
+      renderFiltroAvancadoUi();
+      return;
+    }
+    const btnAddCond = e.target.closest('[data-fa-add-condicao]');
+    if(btnAddCond){
+      const g = filtroAvancadoRascunho.grupos.find(x=>x.id===btnAddCond.dataset.faAddCondicao);
+      if(g){ g.condicoes.push(novaCondicaoFa()); renderFiltroAvancadoUi(); }
+      return;
+    }
+    const btnRemCond = e.target.closest('[data-fa-remover-condicao]');
+    if(btnRemCond){
+      const g = filtroAvancadoRascunho.grupos.find(x=>x.id===btnRemCond.dataset.grupo);
+      if(g){ g.condicoes = g.condicoes.filter(c=>c.id!==btnRemCond.dataset.cond); renderFiltroAvancadoUi(); }
+    }
+  });
+  document.getElementById('faGruposLista').addEventListener('change', e=>{
+    const el = e.target.closest('[data-fa]');
+    if(!el) return;
+    const g = filtroAvancadoRascunho.grupos.find(x=>x.id===el.dataset.grupo);
+    if(!g) return;
+    const c = g.condicoes.find(x=>x.id===el.dataset.cond);
+    if(!c) return;
+    if(el.dataset.fa === 'campo'){
+      c.campo = el.value;
+      // troca de campo pode mudar o tipo (lista/data) — reseta operador/valor pro padrão do novo campo
+      const def = FILTRO_AVANCADO_CAMPOS.find(f=>f.valor===c.campo);
+      c.operador = filtroAvancadoOperadores(def)[0].valor;
+      c.valor = '';
+      renderFiltroAvancadoUi();
+    } else if(el.dataset.fa === 'operador'){
+      c.operador = el.value;
+      c.valor = '';
+      renderFiltroAvancadoUi();
+    } else if(el.dataset.fa === 'valor'){
+      c.valor = el.value;
+    }
   });
   document.getElementById('r_cliente_chips').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;

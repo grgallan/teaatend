@@ -121,6 +121,18 @@
   .segmented button.sel{background:var(--accent);color:var(--on-accent);}
   .segmented button+button{border-left:1px solid var(--line);}
 
+  /* Filtro avançado (Lista de atendimentos) */
+  .fa-segmented-mini{display:inline-flex;}
+  .fa-segmented-mini button{flex:none;min-width:0;padding:5px 12px;font-size:11.5px;cursor:pointer;}
+  .fa-grupo{border:1px dashed var(--line);border-radius:12px;padding:12px;margin-bottom:12px;background:var(--panel-2);}
+  .fa-grupo-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .fa-grupo-titulo{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;}
+  .fa-btn-remover{flex:none;background:none;border:1px solid var(--line);border-radius:8px;color:var(--bad);width:32px;height:32px;cursor:pointer;font-size:13px;}
+  .fa-condicao{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;margin-bottom:8px;}
+  .fa-condicao button{flex:none;background:none;border:1px solid var(--line);border-radius:8px;color:var(--muted);width:36px;height:38px;cursor:pointer;}
+  .fa-btn-add{width:auto !important;padding:7px 12px !important;font-size:12px !important;margin-top:2px !important;}
+  @media (max-width:620px){ .fa-condicao{grid-template-columns:1fr 1fr;} .fa-condicao button{grid-column:span 2;width:100%;} }
+
   .preview{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px;}
   .preview .stat{flex:1;min-width:110px;background:var(--panel-2);border-radius:10px;padding:10px 12px;border:1px solid var(--line);}
   .preview .stat .k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
@@ -974,6 +986,10 @@
       <div id="linhaFiltrosClienteStatus">
         <div class="filters" id="filtros"></div>
         <div class="filters" id="filtrosStatus" style="margin-bottom:0;"></div>
+      </div>
+      <div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="ghost" id="btnAbrirFiltroAvancado" style="width:auto;padding:8px 14px;">🔎 Filtro avançado</button>
+        <span id="filtroAvancadoResumo" style="font-size:12px;color:var(--accent);font-weight:600;"></span>
       </div>
       <div id="blocoAgruparLista" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);">
         <label style="margin-bottom:6px;">Agrupar por</label>
@@ -2092,6 +2108,27 @@
     <div id="movBloqueadoAviso" style="display:none;">🔒 Atendimento validado — não é mais possível adicionar movimentações.</div>
     <button class="ghost" id="btnPdfAtendimento" style="margin-top:10px;">🖨 Gerar PDF</button>
     <button class="ghost" id="btnFecharChat" style="margin-top:10px;">Fechar</button>
+  </div>
+</div>
+
+<div class="modal-bg" id="filtroAvancadoModal">
+  <div class="modal" style="max-width:680px;">
+    <h3>Filtro avançado</h3>
+    <p style="color:var(--muted);font-size:12.5px;margin:4px 0 14px;">Monte grupos de condições com os campos do atendimento. Dentro de um grupo, escolha se TODAS as condições precisam bater (E) ou se BASTA UMA (OU); com mais de um grupo, escolha como eles se combinam entre si.</p>
+    <div id="faGruposCombinar" style="display:none;margin-bottom:14px;">
+      <label>Combinar os grupos com</label>
+      <div class="segmented fa-segmented-mini">
+        <button type="button" data-fa-operador-grupos="E">E (todos os grupos)</button>
+        <button type="button" data-fa-operador-grupos="OU">OU (qualquer grupo)</button>
+      </div>
+    </div>
+    <div id="faGruposLista"></div>
+    <button type="button" class="ghost" id="btnFaAdicionarGrupo" style="width:100%;margin-top:4px;">+ Adicionar grupo</button>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button class="cancel" id="btnFaLimpar">Limpar tudo</button>
+      <button class="confirm neutro" id="btnFaAplicar">Aplicar filtro</button>
+    </div>
+    <button type="button" class="ghost" id="btnFaFechar" style="width:100%;margin-top:8px;">Fechar sem aplicar</button>
   </div>
 </div>
 
