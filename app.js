@@ -70,15 +70,15 @@ let listaAgrupamentos = []; // ordem dos campos de agrupamento (múltiplos níve
 // próprio, só válido aqui na tabela. Toda coluna pode ser arrastada pra
 // mudar a ordem das colunas, soltando em cima de outra.
 const COLUNAS_LISTA_TABELA = [
-  { campo:'cliente', label:'Cliente', agrupaComo:'cliente', filtravel:true },
-  { campo:'assunto', label:'Assunto' },
-  { campo:'atendente', label:'Atendente', agrupaComo:'atendente', filtravel:true },
-  { campo:'tipo', label:'Tipo', agrupaComo:'tipo', filtravel:true },
-  { campo:'status', label:'Status', agrupaComo:'status', filtravel:true },
-  { campo:'data', label:'Data', agrupaComo:'mes' },
-  { campo:'dataPrevista', label:'Data Final' },
-  { campo:'horas', label:'Horas', alinhamento:'right' },
-  { campo:'valor', label:'Valor Real', alinhamento:'right' },
+  { campo:'cliente', label:'Cliente', agrupaComo:'cliente', filtravel:true, largura:'13%' },
+  { campo:'assunto', label:'Assunto', largura:'19%' },
+  { campo:'atendente', label:'Atendente', agrupaComo:'atendente', filtravel:true, largura:'10%' },
+  { campo:'tipo', label:'Tipo', agrupaComo:'tipo', filtravel:true, largura:'8%' },
+  { campo:'status', label:'Status', agrupaComo:'status', filtravel:true, largura:'12%' },
+  { campo:'data', label:'Data', agrupaComo:'mes', largura:'9%' },
+  { campo:'dataPrevista', label:'Data Final', largura:'12%' },
+  { campo:'horas', label:'Horas', alinhamento:'right', largura:'8%' },
+  { campo:'valor', label:'Valor Real', alinhamento:'right', largura:'9%' },
 ];
 // ordem atual das colunas na tabela (lista de campos) — muda quando o
 // usuário arrasta um cabeçalho de coluna e solta em cima de outro
@@ -265,11 +265,16 @@ function hojeLocalISO(){
 // flag de prazo (🔴 atrasado / 🟢 em dia) comparando hoje com a Data Final
 // Prevista — só faz sentido enquanto o chamado ainda não foi validado, e só
 // se tiver previsão cadastrada
-function flagPrazo(r){
+function flagPrazo(r, semData){
   if(!r.dataPrevista || r.status === 'CONCLUÍDO') return '';
   const [,pm,pd] = String(r.dataPrevista).split('-');
   const previstaFmt = `${pd}/${pm}`;
   const atrasado = hojeLocalISO() > r.dataPrevista;
+  // semData: usado onde a data já aparece do lado (ex: coluna Data Final da
+  // tabela), pra não repetir a mesma data duas vezes bem coladas
+  if(semData) return atrasado
+    ? `<span class="tag" style="background:var(--bad);color:#fff;">🔴 Atrasado</span>`
+    : `<span class="tag" style="background:var(--ok);color:#fff;">🟢 No prazo</span>`;
   return atrasado
     ? `<span class="tag" style="background:var(--bad);color:#fff;">🔴 Atrasado desde ${previstaFmt}</span>`
     : `<span class="tag" style="background:var(--ok);color:#fff;">🟢 Prazo: ${previstaFmt}</span>`;
@@ -2078,9 +2083,11 @@ function renderCabecalhoColunaLista(c){
   const seta = ordenadoAtivo ? (listaOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
   const filtro = c.filtravel ? celulaFiltroColunaLista(c) : '';
   // colunas numéricas (Horas/Valor) têm a célula alinhada à direita — o
-  // cabeçalho acompanha, senão o rótulo fica na ponta oposta do valor
-  const estilo = c.alinhamento === 'right' ? ' style="text-align:right;"' : '';
-  return `<th class="lista-th-arrastavel${ordenadoAtivo ? ' ordenado' : ''}"${estilo} data-campo="${c.campo}" data-agrupa="${c.agrupaComo || ''}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}${filtro}</th>`;
+  // cabeçalho acompanha, senão o rótulo fica na ponta oposta do valor.
+  // Largura em % (tabela com table-layout:fixed) — sem isso a tabela toda
+  // não cabe na tela sem rolar de lado
+  const estilo = `${c.alinhamento === 'right' ? 'text-align:right;' : ''}${c.largura ? `width:${c.largura};` : ''}`;
+  return `<th class="lista-th-arrastavel${ordenadoAtivo ? ' ordenado' : ''}" style="${estilo}" data-campo="${c.campo}" data-agrupa="${c.agrupaComo || ''}" data-label="${escaparHtml(c.label)}">⠿⠿ ${escaparHtml(c.label)}${seta}${filtro}</th>`;
 }
 
 function renderTabelaAtendimentos(cont, itensOriginais, ctx){
@@ -2205,15 +2212,16 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
     const pre = i===0 ? prefixo : '';
     switch(c.campo){
       case 'cliente': return `<td>${pre}${r.naoLidas ? '<span class="dot-naolida" title="Tem movimentação não lida"></span>' : ''}${anexoBadgeHtml(r)}<span style="font-weight:700;">${escaparHtml(r.cliente)}</span><div style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario)}</div></td>`;
-      case 'assunto': return `<td>${pre}${r.assunto ? escaparHtml(r.assunto) : `<span style="color:var(--muted);">—</span>`}</td>`;
+      case 'assunto': return `<td>${pre}${r.assunto ? `<span class="lista-assunto-trunc" title="${escaparHtml(r.assunto)}">${escaparHtml(r.assunto)}</span>` : `<span style="color:var(--muted);">—</span>`}</td>`;
       case 'atendente': return `<td>${pre}${escaparHtml(r.atendente || 'A definir')}${r.atendente2 ? `<div style="color:var(--muted);font-size:11px;">+2º: ${escaparHtml(r.atendente2)}</div>` : ''}</td>`;
       case 'tipo': return `<td>${pre}${labelTipo(r.tipo)}</td>`;
       case 'status': return `<td>${pre}<span class="tag status-${statusSlug(r.status)}">${escaparHtml(r.status)}</span></td>`;
-      case 'data': return `<td style="font-family:'JetBrains Mono',monospace;">${pre}${d}/${m}/${y}<div style="color:var(--muted);font-size:11px;">${r.hi}–${r.hf}</div></td>`;
+      case 'data': return `<td style="font-family:'JetBrains Mono',monospace;">${pre}${d}/${m}/${y}</td>`;
       case 'dataPrevista': {
         if(!r.dataPrevista) return `<td style="color:var(--muted);">${pre}—</td>`;
         const [py,pm,pd] = String(r.dataPrevista).split('-');
-        return `<td style="font-family:'JetBrains Mono',monospace;">${pre}${pd}/${pm}/${py} ${flagPrazo(r)}</td>`;
+        const flag = flagPrazo(r, true);
+        return `<td style="font-family:'JetBrains Mono',monospace;">${pre}${pd}/${pm}/${py}${flag ? `<div style="margin-top:2px;">${flag}</div>` : ''}</td>`;
       }
       case 'horas': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;">${pre}${Number(r.qtd).toFixed(2).replace('.',',')}h</td>`;
       case 'valor': return `<td style="text-align:right;font-family:'JetBrains Mono',monospace;color:var(--accent);">${pre}${fmtMoeda(Number(r.totalReal))}</td>`;
