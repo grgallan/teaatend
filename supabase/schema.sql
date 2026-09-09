@@ -842,3 +842,8 @@ alter table movimentacoes add column if not exists hora_inicial text default '';
 alter table movimentacoes add column if not exists data_final text default '';
 alter table movimentacoes add column if not exists hora_final text default '';
 alter table movimentacoes add column if not exists intervalo_min numeric default 0;
+
+-- flag "é uma resposta" — marcado, a movimentação não apura tempo (vale
+-- 0h), mesmo se algum campo de data/horário tiver ficado preenchido; usado
+-- pra comentário/resposta rápida onde não faz sentido perguntar horário
+alter table movimentacoes add column if not exists eh_resposta boolean default false;

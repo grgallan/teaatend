@@ -1586,16 +1586,35 @@ function pedirConfirmacao(titulo, texto, acao, labelBotao){
   document.getElementById('modalBg').classList.add('show');
 }
 
-/* ---------- menu de ações (Editar/Copiar/Excluir) do item da lista ---------- */
+/* ---------- menu de ações (Editar/Copiar/Excluir) do item da lista ----------
+   Um único menu compartilhado (#acoesMenuPortal), fixo na tela e reaproveitado
+   por qualquer linha/card — evita que o menu abra cortado dentro de um
+   ancestral com rolagem própria (tabela da Lista, coluna do Kanban), já que
+   um menu popup posicionado dentro desses containers seria escondido pelo
+   overflow deles. permissoesAcoesMenu guarda quem pode Editar/Copiar/Excluir
+   pra sessão atual — é o mesmo pra toda a lista, só muda o id do atendimento */
+let permissoesAcoesMenu = { podeEditarBtn:false, isAdmin:false, podeExcluirBtn:false };
 function fecharAcoesMenu(){
-  document.querySelectorAll('.acoes-menu.show').forEach(m=>m.classList.remove('show'));
+  const portal = document.getElementById('acoesMenuPortal');
+  if(portal){ portal.classList.remove('show'); portal.dataset.abertoPara = ''; }
 }
-function toggleAcoesMenu(id){
-  const menu = document.getElementById(`acoesMenu-${id}`);
-  if(!menu) return;
-  const jaAberto = menu.classList.contains('show');
+function toggleAcoesMenu(id, btnEl){
+  const portal = document.getElementById('acoesMenuPortal');
+  if(!portal || !btnEl) return;
+  const jaAbertoParaEsse = portal.classList.contains('show') && portal.dataset.abertoPara === String(id);
   fecharAcoesMenu();
-  if(!jaAberto) menu.classList.add('show');
+  if(jaAbertoParaEsse) return;
+  const { podeEditarBtn, isAdmin, podeExcluirBtn } = permissoesAcoesMenu;
+  portal.innerHTML = `
+    ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();editar('${id}')">✎ Editar</div>` : ''}
+    ${isAdmin ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();copiarAtendimento('${id}')">⧉ Copiar</div>` : ''}
+    ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${id}'))">🗑 Excluir</div>` : ''}
+  `;
+  portal.dataset.abertoPara = String(id);
+  const r = btnEl.getBoundingClientRect();
+  portal.style.right = `${window.innerWidth - r.right}px`;
+  portal.style.bottom = `${window.innerHeight - r.top + 4}px`;
+  portal.classList.add('show');
 }
 
 /* ---------- recolher/expandir as linhas de vínculo, na Lista (qualquer nível) ---------- */
@@ -1895,6 +1914,7 @@ function renderLista(){
   const permAt = permissaoMenu(conta, 'atendimentos');
   const podeEditarBtn = permAt ? permAt.editar : podeEditar;
   const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
+  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn };
 
   const emTabela = visualizacaoAtendimentos !== 'cards' && window.matchMedia('(min-width: 860px)').matches;
   renderAgruparListaBar(emTabela);
@@ -2204,12 +2224,7 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
   const acoesTd = ehFilho ? '<td></td>' : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
     <td onclick="event.stopPropagation();">
       <div class="acoes-wrap">
-        <button class="ghost" onclick="toggleAcoesMenu('${r.id}')">⋮</button>
-        <div class="acoes-menu" id="acoesMenu-${r.id}">
-          ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();editar('${r.id}')">✎ Editar</div>` : ''}
-          ${isAdmin ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();copiarAtendimento('${r.id}')">⧉ Copiar</div>` : ''}
-          ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">🗑 Excluir</div>` : ''}
-        </div>
+        <button class="ghost" onclick="toggleAcoesMenu('${r.id}', this)">⋮</button>
       </div>
     </td>` : '<td></td>');
 
@@ -2325,12 +2340,7 @@ function renderLinhaAtendimento(r, ctx, opts){
     : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
       <div class="item-actions">
         <div class="acoes-wrap">
-          <button class="ghost" onclick="event.stopPropagation();toggleAcoesMenu('${r.id}')">⋮ Ações</button>
-          <div class="acoes-menu" id="acoesMenu-${r.id}">
-            ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();editar('${r.id}')">✎ Editar</div>` : ''}
-            ${isAdmin ? `<div class="acoes-menu-item" onclick="event.stopPropagation();fecharAcoesMenu();copiarAtendimento('${r.id}')">⧉ Copiar</div>` : ''}
-            ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="event.stopPropagation();fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${r.id}'))">🗑 Excluir</div>` : ''}
-          </div>
+          <button class="ghost" onclick="event.stopPropagation();toggleAcoesMenu('${r.id}', this)">⋮ Ações</button>
         </div>
         ${clicavel ? `<button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button>` : ''}
       </div>` : (clicavel ? `
@@ -8177,13 +8187,15 @@ function movIds(sufixo){
     lista:'movLista_ed', composer:'movComposerWrap_ed', respWrap:'movRespondendoWrap_ed', respTexto:'movRespondendoTexto_ed',
     respCancelar:'movCancelarResposta_ed', texto:'mov_texto_ed', anexo:'mov_anexo_ed', anexoNome:'mov_anexo_ed_nome',
     btnEnviar:'btnEnviarMovimentacao_ed', bloqueado:'movBloqueadoAviso_ed',
-    camposTempo:'movCamposTempo_ed', dataIni:'mov_data_ini_ed', horaIni:'mov_hora_ini_ed',
+    camposTempo:'movCamposTempo_ed', datasWrap:'movCamposTempoDatas_ed', ehResposta:'mov_e_resposta_ed',
+    dataIni:'mov_data_ini_ed', horaIni:'mov_hora_ini_ed',
     dataFim:'mov_data_fim_ed', horaFim:'mov_hora_fim_ed', intervalo:'mov_intervalo_ed',
   } : {
     lista:'movLista', composer:'movComposerWrap', respWrap:'movRespondendoWrap', respTexto:'movRespondendoTexto',
     respCancelar:'movCancelarResposta', texto:'mov_texto', anexo:'mov_anexo', anexoNome:'mov_anexo_nome',
     btnEnviar:'btnEnviarMovimentacao', bloqueado:'movBloqueadoAviso',
-    camposTempo:'movCamposTempo', dataIni:'mov_data_ini', horaIni:'mov_hora_ini',
+    camposTempo:'movCamposTempo', datasWrap:'movCamposTempoDatas', ehResposta:'mov_e_resposta',
+    dataIni:'mov_data_ini', horaIni:'mov_hora_ini',
     dataFim:'mov_data_fim', horaFim:'mov_hora_fim', intervalo:'mov_intervalo',
   };
 }
@@ -8245,6 +8257,13 @@ function movAtualizarVisibilidadeTempo(sufixo){
   const ids = movIds(sufixo);
   document.getElementById(ids.camposTempo).style.display = movPodeUsarTempo() ? '' : 'none';
 }
+// marcado como "é uma resposta", esconde Data/Horário Inicial e Final —
+// não faz sentido perguntar horário de uma resposta, o cálculo já é 0h
+function movAtualizarVisibilidadeDatas(sufixo){
+  const ids = movIds(sufixo);
+  const marcado = document.getElementById(ids.ehResposta).checked;
+  document.getElementById(ids.datasWrap).style.display = marcado ? 'none' : '';
+}
 async function carregarMovimentacoes(atendimentoId, sufixo){
   sufixo = sufixo || '';
   const ids = movIds(sufixo);
@@ -8289,7 +8308,7 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
       <div class="mov-topo">
         <div class="mov-autor">
           <div class="mov-avatar">${movIniciais(m.autorNome)}</div>
-          <div><span class="mov-nome">${escaparHtml(m.autorNome)}</span><span class="mov-perfil ${m.autorPerfil}">${movLabelPerfil(m.autorPerfil)}</span></div>
+          <div><span class="mov-nome">${escaparHtml(m.autorNome)}</span><span class="mov-perfil ${m.autorPerfil}">${movLabelPerfil(m.autorPerfil)}</span>${m.ehResposta ? `<span class="mov-perfil mov-resposta-tag">↩ Resposta</span>` : ''}</div>
         </div>
         <div class="mov-data">${movFmtDataHora(m.criadoEm)}</div>
       </div>
@@ -8321,7 +8340,9 @@ function movLimparComposer(sufixo){
   document.getElementById(ids.horaIni).value = '';
   document.getElementById(ids.horaFim).value = '';
   document.getElementById(ids.intervalo).value = '00:00';
+  document.getElementById(ids.ehResposta).checked = false;
   movAtualizarVisibilidadeTempo(sufixo);
+  movAtualizarVisibilidadeDatas(sufixo);
 }
 
 function responderMovimentacao(id, sufixo){
@@ -8356,6 +8377,8 @@ function editarMovimentacaoUi(id, sufixo){
   document.getElementById(ids.dataFim).value = m.dataFinal || hojeLocalISO();
   document.getElementById(ids.horaFim).value = m.horaFinal || '';
   document.getElementById(ids.intervalo).value = movMinParaIntervalo(m.intervaloMin);
+  document.getElementById(ids.ehResposta).checked = !!m.ehResposta;
+  movAtualizarVisibilidadeDatas(sufixo);
   document.getElementById(ids.texto).focus();
 }
 
@@ -8394,9 +8417,11 @@ async function enviarMovimentacao(sufixo){
 
   // apuração de tempo é opcional: os 4 campos (data/horário inicial e
   // final) precisam vir todos preenchidos ou todos vazios — só quem atende
-  // vê esses campos (pro Usuário nem aparecem, então nunca preenchidos)
-  let camposTempo = {};
-  if(movPodeUsarTempo()){
+  // vê esses campos (pro Usuário nem aparecem, então nunca preenchidos).
+  // Marcado como "é uma resposta", nem olha esses campos — vale 0h direto
+  const ehResposta = movPodeUsarTempo() && document.getElementById(ids.ehResposta).checked;
+  let camposTempo = { ehResposta };
+  if(movPodeUsarTempo() && !ehResposta){
     const dataIni = document.getElementById(ids.dataIni).value, horaIni = document.getElementById(ids.horaIni).value;
     const dataFim = document.getElementById(ids.dataFim).value, horaFim = document.getElementById(ids.horaFim).value;
     const preenchidos = [dataIni, horaIni, dataFim, horaFim].filter(Boolean).length;
@@ -8410,7 +8435,7 @@ async function enviarMovimentacao(sufixo){
         toast('O horário final precisa ser depois do horário inicial.');
         return;
       }
-      camposTempo = { dataInicial: dataIni, horaInicial: horaIni, dataFinal: dataFim, horaFinal: horaFim, intervaloMin };
+      camposTempo = { ehResposta, dataInicial: dataIni, horaInicial: horaIni, dataFinal: dataFim, horaFinal: horaFim, intervaloMin };
     }
   }
 
@@ -8763,7 +8788,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   wireLookupSingle('f_atendente2', ()=>{ atualizarVisibilidadeHoras2(); atualizarPreview(); });
   configurarEditorRico();
   configurarPullParaAtualizar();
-  document.addEventListener('click', e=>{ if(!e.target.closest('.acoes-wrap')) fecharAcoesMenu(); });
+  document.addEventListener('click', e=>{ if(!e.target.closest('.acoes-wrap') && !e.target.closest('#acoesMenuPortal')) fecharAcoesMenu(); });
 
   document.getElementById('f_novo_anexo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
@@ -9381,6 +9406,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('statusMassaConfirmar').addEventListener('click', aplicarStatusMassa);
   document.getElementById('btnEnviarMovimentacao').addEventListener('click', ()=>enviarMovimentacao(''));
   document.getElementById('movCancelarResposta').addEventListener('click', ()=>cancelarRespostaMovimentacao(''));
+  document.getElementById('mov_e_resposta').addEventListener('change', ()=>movAtualizarVisibilidadeDatas(''));
   document.getElementById('mov_anexo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
     movEstado[''].anexoArquivo = arquivo || null;
@@ -9388,6 +9414,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnEnviarMovimentacao_ed').addEventListener('click', ()=>enviarMovimentacao('_ed'));
   document.getElementById('movCancelarResposta_ed').addEventListener('click', ()=>cancelarRespostaMovimentacao('_ed'));
+  document.getElementById('mov_e_resposta_ed').addEventListener('change', ()=>movAtualizarVisibilidadeDatas('_ed'));
   document.getElementById('mov_anexo_ed').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
     movEstado['_ed'].anexoArquivo = arquivo || null;

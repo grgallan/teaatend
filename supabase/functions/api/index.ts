@@ -849,9 +849,10 @@ async function enviarEmailsNovoAtendimento(registro: any) {
 
     if (destinatarios.size === 0) { console.log('[email] Nenhum destinatário com e-mail cadastrado pra este atendimento — ninguém tem e-mail preenchido em Cadastros.'); return; }
 
-    const assunto = `Novo atendimento aberto — ${registro.cliente} / ${registro.usuario}`;
+    const assunto = `Novo atendimento aberto #${registro.id} — ${registro.cliente} / ${registro.usuario}`;
     const corpo = [
       'Um novo atendimento foi registrado.', '',
+      `Nº do atendimento: ${registro.id}`,
       `Cliente: ${registro.cliente}`,
       `Usuário solicitante: ${registro.usuario}`,
       `Atendente: ${registro.atendente || '(a definir — qualquer atendente pode assumir)'}`,
@@ -1117,9 +1118,9 @@ async function notificarNovaMovimentacao(atendimento: any, autorNome: string, au
     if (destinatarios.size === 0) { console.log('[email] Nenhum destinatário com e-mail pra essa movimentação.'); return; }
 
     const rotulo = autorPerfil === 'USUARIO' ? 'Usuário' : autorPerfil === 'ATENDENTE' ? 'Atendente' : 'Admin';
-    const assunto = `Nova movimentação — ${atendimento.cliente} / ${atendimento.usuario}`;
+    const assunto = `Nova movimentação #${atendimento.id} — ${atendimento.cliente} / ${atendimento.usuario}`;
     const corpo = [
-      `${autorNome} (${rotulo}) adicionou uma nova movimentação no atendimento:`, '',
+      `${autorNome} (${rotulo}) adicionou uma nova movimentação no atendimento #${atendimento.id}:`, '',
       textoSimples(texto), '', `Acesse o sistema: ${URL_APP}`,
     ].join('\n');
 
@@ -1161,6 +1162,7 @@ async function acaoListarMovimentacoes(req: any) {
       anexos: anexosPorMov[m.id] || [],
       dataInicial: m.data_inicial || '', horaInicial: m.hora_inicial || '',
       dataFinal: m.data_final || '', horaFinal: m.hora_final || '', intervaloMin: m.intervalo_min || 0,
+      ehResposta: !!m.eh_resposta,
     })),
   };
 }
@@ -1170,14 +1172,17 @@ async function acaoCriarMovimentacao(req: any) {
   const texto = String(req.texto || '').trim();
   if (!texto && !req.anexoBase64) return { ok: false, erro: 'Escreva algo ou anexe um arquivo.' };
 
-  const { data: atendimento } = await db.from('atendimentos').select('status,cliente,usuario,atendente').eq('id', req.atendimentoId).maybeSingle();
+  const { data: atendimento } = await db.from('atendimentos').select('id,status,cliente,usuario,atendente').eq('id', req.atendimentoId).maybeSingle();
   if (!atendimento) return { ok: false, erro: 'Atendimento não encontrado.' };
   if (atendimento.status === 'CONCLUÍDO') return { ok: false, erro: 'Esse atendimento já foi concluído — não é possível adicionar novas movimentações.' };
 
   // apuração de tempo (Data/Horário Inicial e Final + Intervalo) é exclusiva
   // de quem atende — pro Usuário a movimentação continua só texto/anexo,
-  // mesmo que o payload venha com esses campos preenchidos
-  const usaTempo = req.autorPerfil !== 'USUARIO' && req.dataInicial && req.horaInicial && req.dataFinal && req.horaFinal;
+  // mesmo que o payload venha com esses campos preenchidos; marcado como
+  // "é uma resposta", nunca apura tempo (fica em 0h), mesmo se algum campo
+  // de data/horário tiver vindo preenchido — não precisa informar horário
+  const ehResposta = !!req.ehResposta;
+  const usaTempo = !ehResposta && req.autorPerfil !== 'USUARIO' && req.dataInicial && req.horaInicial && req.dataFinal && req.horaFinal;
   let camposTempo: Record<string, unknown> = { data_inicial: '', hora_inicial: '', data_final: '', hora_final: '', intervalo_min: 0 };
   if (usaTempo) {
     if (new Date(`${req.dataFinal}T${req.horaFinal}:00`) <= new Date(`${req.dataInicial}T${req.horaInicial}:00`)) {
@@ -1197,7 +1202,7 @@ async function acaoCriarMovimentacao(req: any) {
 
   const registro = {
     id: gerarId(), atendimento_id: req.atendimentoId, autor_nome: req.autorNome, autor_perfil: req.autorPerfil,
-    texto: texto || '(anexo)', respondendo_a: req.respondendoA || null, ...camposTempo,
+    texto: texto || '(anexo)', respondendo_a: req.respondendoA || null, eh_resposta: ehResposta, ...camposTempo,
   };
   const { error } = await db.from('movimentacoes').insert(registro);
   if (error) return { ok: false, erro: error.message };
@@ -1245,9 +1250,14 @@ async function acaoAtualizarMovimentacao(req: any) {
   if (!texto) return { ok: false, erro: 'Escreva algo.' };
 
   const atualizacao: Record<string, unknown> = { texto };
+  // marcado como "é uma resposta", zera qualquer tempo que já estivesse
+  // apurado — não precisa mais informar horário, o cálculo vira 0h
+  const ehResposta = req.ehResposta !== undefined ? !!req.ehResposta : !!mov.eh_resposta;
+  atualizacao.eh_resposta = ehResposta;
   // só quem já podia ter apurado tempo mexe nesses campos aqui — pra Usuário
-  // (ou quando o payload não manda os 4 campos) não toca no que já estava salvo
-  const usaTempo = mov.autor_perfil !== 'USUARIO' && req.dataInicial && req.horaInicial && req.dataFinal && req.horaFinal;
+  // (ou quando o payload não manda os 4 campos, ou virou resposta) não
+  // toca no que já estava salvo, exceto pra zerar quando virou resposta
+  const usaTempo = !ehResposta && mov.autor_perfil !== 'USUARIO' && req.dataInicial && req.horaInicial && req.dataFinal && req.horaFinal;
   if (usaTempo) {
     if (new Date(`${req.dataFinal}T${req.horaFinal}:00`) <= new Date(`${req.dataInicial}T${req.horaInicial}:00`)) {
       return { ok: false, erro: 'O horário final precisa ser depois do horário inicial.' };
@@ -1262,6 +1272,8 @@ async function acaoAtualizarMovimentacao(req: any) {
       return { ok: false, erro: `Esse período sobrepõe uma movimentação de ${conflito.autor_nome}${outroAtendimento} (${conflito.hora_inicial}–${conflito.hora_final} em ${String(conflito.data_inicial).split('-').reverse().join('/')}). Ajuste o horário.` };
     }
     Object.assign(atualizacao, { data_inicial: req.dataInicial, hora_inicial: req.horaInicial, data_final: req.dataFinal, hora_final: req.horaFinal, intervalo_min: intervaloMin });
+  } else if (ehResposta) {
+    Object.assign(atualizacao, { data_inicial: '', hora_inicial: '', data_final: '', hora_final: '', intervalo_min: 0 });
   }
 
   const { error } = await db.from('movimentacoes').update(atualizacao).eq('id', req.id);
