@@ -648,14 +648,17 @@ async function acaoSalvarAtendimento(req: any) {
   // fonte da quantidade de horas: ajuste manual do admin (maior prioridade) >
   // soma das movimentações com Data/Horário Inicial e Final preenchidos (a
   // partir do momento em que o atendimento tem ao menos uma) > os campos
-  // hi/inter/hf do próprio atendimento (só usados enquanto não existir
-  // nenhuma movimentação com apuração de tempo — mantém o cálculo antigo
-  // funcionando pros atendimentos que ainda não usam o campo novo)
+  // hi/inter/hf do próprio atendimento — esses só entram pra atendimento já
+  // existente, que pode ter sido criado antes desse campo existir; um
+  // atendimento NOVO não tem mais tela pra editar hi/hf (o campo nem
+  // aparece), então sempre começa em 0h até a primeira movimentação
   let qtd: number;
   if (req.qtdManual !== undefined && req.qtdManual !== null && req.qtdManual !== '') {
     qtd = Number(req.qtdManual); // ajuste manual (só o admin tem esse campo no formulário)
+  } else if (ehNovo) {
+    qtd = 0;
   } else {
-    const qtdMovimentacoes = ehNovo ? null : await qtdApartirDeMovimentacoes(req.id);
+    const qtdMovimentacoes = await qtdApartirDeMovimentacoes(req.id);
     qtd = qtdMovimentacoes !== null ? qtdMovimentacoes : calcularQtd(req.hi, req.hf, req.inter);
   }
   const partes = String(req.data).split('-');

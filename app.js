@@ -1336,13 +1336,15 @@ function atualizarPreview(){
   const qtdManualStr = document.getElementById('f_qtd_manual').value;
   // mesma prioridade usada no servidor: ajuste manual > soma das
   // movimentações com tempo apurado (se o atendimento em edição já tiver
-  // alguma) > cálculo antigo a partir de hi/hf/inter
+  // alguma) > cálculo antigo a partir de hi/hf/inter (só existe pra
+  // atendimento já existente — um atendimento novo nem tem mais esse campo
+  // na tela, então começa em 0h até a primeira movimentação)
   const movsComTempo = editandoId ? (movEstado['_ed'].cache || []).filter(movTemTempo) : [];
   const qtd = qtdManualStr !== ''
     ? Number(qtdManualStr)
     : movsComTempo.length > 0
       ? movsComTempo.reduce((s,m)=>s+movDuracaoHoras(m), 0)
-      : calcQtd(hi, hf, inter);
+      : editandoId ? calcQtd(hi, hf, inter) : 0;
   if(qtdManualStr === '' && editandoId){
     document.getElementById('f_qtd_manual').placeholder = `Atual: ${qtd.toFixed(2).replace('.',',')}h — deixe em branco pra manter`;
   }
