@@ -263,7 +263,7 @@
   .item .data{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);margin-top:1px;}
   .item .detalhe{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.4;}
   .item .meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;}
-  .tag{font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--muted);font-weight:600;}
+  .tag{font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--muted);font-weight:600;white-space:nowrap;}
   .tag.status-CONCLUIDO{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
   .tag.status-PENDENTE{background:color-mix(in oklch, var(--warn) 13%, transparent);border:1px solid color-mix(in oklch, var(--warn) 32%, transparent);color:var(--warn);}
   .tag.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);border:1px solid color-mix(in oklch, var(--yellow) 32%, transparent);color:var(--yellow);}
@@ -299,16 +299,21 @@
      cima, logo abaixo do cabeçalho da tabela, sem afetar a leitura */
   .lista-scroll-topo{overflow-x:auto;overflow-y:hidden;transform:rotateX(180deg);}
   .lista-scroll-topo > table{transform:rotateX(180deg);}
-  .lista-tabela{width:100%;border-collapse:collapse;}
-  .lista-tabela thead th{background:var(--panel-2);text-align:left;padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700;white-space:nowrap;}
+  .lista-tabela{width:100%;border-collapse:collapse;table-layout:fixed;}
+  .lista-tabela thead th{background:var(--panel-2);text-align:left;padding:9px 8px;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .lista-th-arrastavel{cursor:grab;user-select:none;touch-action:none;}
   .lista-th-arrastavel:hover{color:var(--text);}
   .lista-th-arrastavel.ordenado{color:var(--accent);}
   .lista-tabela tbody tr:not(.lista-grupo){border-top:1px solid var(--line);}
   .lista-tabela tbody tr:not(.lista-grupo):hover{background:var(--panel-2);}
-  .lista-tabela td{padding:10px 14px;font-size:12.5px;}
+  .lista-tabela td{padding:8px 8px;font-size:12px;overflow-wrap:break-word;}
   .lista-tabela tr.lista-grupo{background:var(--accent-dim);}
-  .lista-tabela tr.lista-grupo td{padding:9px 14px;font-weight:700;color:var(--accent);}
+  .lista-tabela tr.lista-grupo td{padding:9px 8px;font-weight:700;color:var(--accent);}
+  /* Assunto trunca numa linha só (com "..." e o texto completo no title,
+     ao passar o mouse) em vez de quebrar em várias linhas — é a coluna que
+     mais varia de tamanho, então é a que mais precisa de um limite fixo
+     pra tabela inteira caber na tela sem precisar rolar de lado */
+  .lista-assunto-trunc{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
   .lista-grupo-contagem{background:var(--panel);color:var(--muted);border-radius:999px;padding:1px 8px;font-size:10.5px;margin-left:6px;font-weight:700;}
   #listaAgruparDrop{min-height:20px;border-radius:10px;transition:background .12s;display:flex;flex-wrap:wrap;gap:6px;}
   #listaAgruparDrop.drag-over{background:var(--accent-dim);outline:2px dashed var(--accent);}
