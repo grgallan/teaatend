@@ -2112,6 +2112,7 @@ function calcularTotaisOrcamento(itens: any[]) {
 function orcamentoParaApi(o: any, totalHoras: number, totalValor: number) {
   return {
     id: o.id, numero: o.numero, cliente: o.cliente, assunto: o.assunto || '',
+    termoReferencia: o.termo_referencia || '',
     responsavel: o.responsavel || '', validade: o.validade || '', condicoes: o.condicoes || '',
     status: o.status || 'RASCUNHO', criadoPor: o.criado_por || '', criadoEm: o.criado_em,
     empresaId: o.empresa_id || '', totalHoras, totalValor,
@@ -2179,6 +2180,7 @@ async function acaoSalvarOrcamento(req: any) {
   if (ehNovo) {
     const registro = {
       id: orcamentoId, numero, cliente: req.cliente, assunto: req.assunto || '',
+      termo_referencia: req.termoReferencia || '',
       responsavel: req.responsavel || (conta ? conta.nome : ''), validade: req.validade || null,
       condicoes: req.condicoes || '', status: req.status || 'RASCUNHO',
       criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
@@ -2187,8 +2189,9 @@ async function acaoSalvarOrcamento(req: any) {
     if (error) return { ok: false, erro: error.message };
   } else {
     const registro = {
-      cliente: req.cliente, assunto: req.assunto || '', responsavel: req.responsavel || '',
-      validade: req.validade || null, condicoes: req.condicoes || '', status: req.status || 'RASCUNHO',
+      cliente: req.cliente, assunto: req.assunto || '', termo_referencia: req.termoReferencia || '',
+      responsavel: req.responsavel || '', validade: req.validade || null,
+      condicoes: req.condicoes || '', status: req.status || 'RASCUNHO',
     };
     const { error } = await db.from('orcamentos').update(registro).eq('id', orcamentoId);
     if (error) return { ok: false, erro: error.message };

@@ -7997,6 +7997,7 @@ function limparFormOrcamento(){
   orcColapsados = new Set();
   document.getElementById('orcFormTitulo').textContent = 'Novo orçamento';
   document.getElementById('orc_assunto').value = '';
+  document.getElementById('orc_termo_referencia').value = '';
   document.getElementById('orc_validade').value = '';
   document.getElementById('orc_condicoes').value = '';
   document.getElementById('btnSalvarOrcamento').textContent = 'Salvar orçamento';
@@ -8026,6 +8027,7 @@ async function editarOrcamentoUi(id){
   popularSelectsOrcamento();
   document.getElementById('orc_cliente').value = r.orcamento.cliente;
   document.getElementById('orc_assunto').value = r.orcamento.assunto || '';
+  document.getElementById('orc_termo_referencia').value = r.orcamento.termoReferencia || '';
   document.getElementById('orc_validade').value = r.orcamento.validade || '';
   document.getElementById('orc_condicoes').value = r.orcamento.condicoes || '';
   document.getElementById('orc_responsavel').value = r.orcamento.responsavel || '';
@@ -8049,6 +8051,7 @@ async function salvarOrcamento(){
   const payload = {
     contaId: conta.id, id: orcEditandoId, numero: orcNumeroEditando,
     cliente, assunto: document.getElementById('orc_assunto').value.trim(),
+    termoReferencia: document.getElementById('orc_termo_referencia').value.trim(),
     responsavel: document.getElementById('orc_responsavel').value,
     validade: document.getElementById('orc_validade').value,
     condicoes: document.getElementById('orc_condicoes').value.trim(),
@@ -8171,6 +8174,7 @@ async function gerarPdfOrcamento(id){
       <div><b>Assunto</b>${escaparHtml(o.assunto || '—')}</div>
       <div><b>Responsável</b>${escaparHtml(o.responsavel || '—')}</div>
     </div>
+    ${o.termoReferencia ? `<div class="orc-print-termo"><b>Termo de Referência do Objeto</b>${escaparHtml(o.termoReferencia).replace(/\n/g,'<br>')}</div>` : ''}
     <table class="orc-print-tabela">
       <thead><tr><th>Descrição</th><th class="num">Qtd horas</th><th class="num">Valor/hora</th><th class="num">Subtotal</th></tr></thead>
       <tbody>

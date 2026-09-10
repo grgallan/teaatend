@@ -807,6 +807,8 @@
     #printOrcamento .orc-print-total td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:14px;padding-top:12px;}
     #printOrcamento .orc-print-condicoes{font-size:11.5px;color:#444;margin-top:18px;padding-top:12px;border-top:1px dashed #ccc;}
     #printOrcamento .orc-print-condicoes b{display:block;text-transform:uppercase;font-size:10px;letter-spacing:.05em;color:#777;margin-bottom:2px;}
+    #printOrcamento .orc-print-termo{font-size:12.5px;color:#333;margin:-8px 0 18px;line-height:1.5;}
+    #printOrcamento .orc-print-termo b{display:block;text-transform:uppercase;font-size:10px;letter-spacing:.05em;color:#777;font-weight:700;margin-bottom:2px;}
     #printOrcamento .orc-print-rodape{margin-top:30px;font-size:10.5px;color:#555;text-align:center;line-height:1.6;}
   }
 </style>
@@ -1593,6 +1595,7 @@
         <div class="field"><label>Assunto <span style="font-weight:400;">(opcional)</span></label><input type="text" id="orc_assunto" placeholder="Ex: Implantação módulo Financeiro"></div>
         <div class="field"><label>Validade da proposta <span style="font-weight:400;">(opcional)</span></label><input type="date" id="orc_validade"></div>
       </div>
+      <div class="field"><label>Termo de Referência do Objeto <span style="font-weight:400;">(opcional)</span></label><textarea id="orc_termo_referencia" style="width:100%;min-height:70px;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;font-family:inherit;"></textarea></div>
       <div class="row">
         <div class="field"><label>Responsável</label><select id="orc_responsavel"></select></div>
         <div class="field"><label>Status</label><select id="orc_status"></select></div>
