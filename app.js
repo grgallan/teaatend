@@ -115,6 +115,7 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'calendario', label:'Agenda' },
   ]},
   { chave:'atividades', label:'Atividades' },
+  { chave:'orcamentos', label:'Orçamentos' },
   { chave:'videos', label:'Vídeos', subContainer:'#vidSubtabs', subDataAttr:'vidsub', submenus:[
     { chave:'novo', label:'Novo Vídeo/Tutorial' },
     { chave:'lista', label:'Vídeos' },
@@ -1123,6 +1124,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('financeiro', menuVisivel(conta, 'financeiro', isAdmin));
   aplicarVisibilidadeMenu('agenda', menuVisivel(conta, 'agenda', podeVerAgenda));
   aplicarVisibilidadeMenu('atividades', menuVisivel(conta, 'atividades', podeVerAgenda));
+  aplicarVisibilidadeMenu('orcamentos', menuVisivel(conta, 'orcamentos', podeVerAgenda));
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
   aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
@@ -6977,7 +6979,7 @@ function renderListEmpresas(){
 function limparFormEmpresa(){
   editandoEmpresaId = null;
   document.getElementById('emp_tituloForm').textContent = 'Nova empresa';
-  ['emp_nome','emp_nome_fantasia','emp_cnpj','emp_endereco','emp_telefone','emp_email','emp_cnae','emp_inscricao_municipal','emp_inscricao_estadual'].forEach(id=>document.getElementById(id).value='');
+  ['emp_nome','emp_nome_fantasia','emp_cnpj','emp_endereco','emp_telefone','emp_email','emp_cidade','emp_cnae','emp_inscricao_municipal','emp_inscricao_estadual'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('emp_horas_validacao').value = 48;
   document.getElementById('emp_padrao').checked = false;
   document.getElementById('emp_logo_arquivo').value = '';
@@ -6998,6 +7000,7 @@ function editarEmpresa(id){
   document.getElementById('emp_endereco').value = e.endereco || '';
   document.getElementById('emp_telefone').value = e.telefone || '';
   document.getElementById('emp_email').value = e.email || '';
+  document.getElementById('emp_cidade').value = e.cidade || '';
   document.getElementById('emp_cnae').value = e.cnae || '';
   document.getElementById('emp_inscricao_municipal').value = e.inscricaoMunicipal || '';
   document.getElementById('emp_inscricao_estadual').value = e.inscricaoEstadual || '';
@@ -7849,6 +7852,372 @@ function renderListaAtividades(){
   const abertas = itens.filter(a=>a.status!=='CONCLUIDA' && a.status!=='CANCELADA');
   const fechadas = itens.filter(a=>a.status==='CONCLUIDA' || a.status==='CANCELADA');
   cont.innerHTML = abertas.map(renderItemAtividade).join('') + fechadas.map(renderItemAtividade).join('');
+}
+
+/* ---------- orçamentos (proposta comercial: itens/subitens por valor-hora,
+   PDF e Excel pra envio ao cliente) — o item pai não tem qtd/valor
+   próprios, o "valor" dele já É a soma dos filhos (só 1 nível) ---------- */
+const ORC_STATUS = [
+  { v:'RASCUNHO', label:'Rascunho', cor:'var(--muted)' },
+  { v:'ENVIADO', label:'Enviado', cor:'var(--blue)' },
+  { v:'APROVADO', label:'Aprovado', cor:'var(--ok)' },
+  { v:'REJEITADO', label:'Rejeitado', cor:'var(--bad)' },
+];
+function orcStatusInfo(v){ return ORC_STATUS.find(s=>s.v===v) || ORC_STATUS[0]; }
+function orcFmtHoras(h){ return Number(h||0).toFixed(2).replace('.',',') + 'h'; }
+function orcGerarTempId(){ return 't'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+
+let orcamentosCache = [];
+let orcEditandoId = null;
+let orcNumeroEditando = '';
+let orcItens = []; // [{tempId, itemPaiTempId, descricao, qtdHoras, valorHora}] — moeda do formulário, nunca vai direto pro banco
+let orcColapsados = new Set();
+
+function popularSelectsOrcamento(){
+  const conta = contaAtual();
+  const selCliente = document.getElementById('orc_cliente');
+  const atual = selCliente.value;
+  selCliente.innerHTML = clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  if([...selCliente.options].some(o=>o.value===atual)) selCliente.value = atual;
+
+  const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+  const selResp = document.getElementById('orc_responsavel');
+  const valorAtual = selResp.value;
+  selResp.innerHTML = atendentesNomes.map(n=>`<option value="${escaparHtml(n)}">${escaparHtml(n)}</option>`).join('');
+  if(atendentesNomes.includes(valorAtual)) selResp.value = valorAtual;
+  else if(conta) selResp.value = conta.nome;
+
+  document.getElementById('orc_status').innerHTML = ORC_STATUS.map(s=>`<option value="${s.v}">${s.label}</option>`).join('');
+}
+
+// soma só os itens "folha" (sem filhos) — um item com filhos não conta
+// direto, o valor dele já É a soma deles (evita contar em dobro)
+function orcCalcularTotais(){
+  const paisComFilhos = new Set(orcItens.filter(it=>it.itemPaiTempId).map(it=>it.itemPaiTempId));
+  let totalHoras = 0, totalValor = 0;
+  orcItens.forEach(it=>{
+    if(paisComFilhos.has(it.tempId)) return;
+    const h = Number(it.qtdHoras) || 0;
+    totalHoras += h;
+    totalValor += h * (Number(it.valorHora) || 0);
+  });
+  return { totalHoras, totalValor };
+}
+
+function orcLinhaHtml(item, opts){
+  const { horas, valor, ehPai, filho } = opts;
+  const classe = ehPai ? 'orc-linha-pai' : (filho ? 'orc-linha-filho' : '');
+  const toggle = ehPai ? `<button type="button" class="orc-toggle" onclick="orcAlternarColapso('${item.tempId}')">${orcColapsados.has(item.tempId)?'▸':'▾'}</button>` : '';
+  const descInput = `<input type="text" data-tempid="${item.tempId}" data-campo="descricao" value="${escaparHtml(item.descricao||'')}" placeholder="Descrição" oninput="orcAtualizarCampo('${item.tempId}','descricao',this.value)">`;
+  const qtdCel = ehPai
+    ? `<span style="font-weight:700;">${orcFmtHoras(horas)}</span>`
+    : `<input type="text" inputmode="decimal" data-tempid="${item.tempId}" data-campo="qtdHoras" value="${item.qtdHoras ?? ''}" style="text-align:right;" oninput="orcAtualizarCampo('${item.tempId}','qtdHoras',this.value)">`;
+  const valorCel = ehPai
+    ? `<span style="color:var(--muted);font-weight:400;">—</span>`
+    : `<input type="text" inputmode="decimal" data-tempid="${item.tempId}" data-campo="valorHora" value="${item.valorHora ?? ''}" style="text-align:right;" oninput="orcAtualizarCampo('${item.tempId}','valorHora',this.value)">`;
+  return `<tr class="${classe}">
+    <td><div class="orc-pai-titulo">${toggle}${descInput}</div></td>
+    <td class="num">${qtdCel}</td>
+    <td class="num">${valorCel}</td>
+    <td class="num">${fmtMoeda(valor)}</td>
+    <td><button type="button" class="orc-remover" onclick="orcRemoverItem('${item.tempId}')" title="Excluir">🗑</button></td>
+  </tr>`;
+}
+
+// re-renderiza a tabela inteira a cada edição (lista curta, não pesa) —
+// preserva o foco/cursor de quem estava digitando, senão o campo perderia
+// o foco a cada letra
+function orcRenderTabela(){
+  const cont = document.getElementById('orcTabelaItens');
+  if(!cont) return;
+  const ativo = document.activeElement;
+  const foco = (ativo && ativo.dataset && ativo.dataset.tempid) ? { tempid: ativo.dataset.tempid, campo: ativo.dataset.campo, s: ativo.selectionStart, e: ativo.selectionEnd } : null;
+
+  const raiz = orcItens.filter(it=>!it.itemPaiTempId);
+  let html = '';
+  raiz.forEach(pai=>{
+    const filhos = orcItens.filter(it=>it.itemPaiTempId===pai.tempId);
+    if(filhos.length > 0){
+      const horas = filhos.reduce((s,f)=>s+(Number(f.qtdHoras)||0), 0);
+      const valor = filhos.reduce((s,f)=>s+(Number(f.qtdHoras)||0)*(Number(f.valorHora)||0), 0);
+      html += orcLinhaHtml(pai, { ehPai:true, horas, valor });
+      if(!orcColapsados.has(pai.tempId)){
+        filhos.forEach(f=>{ html += orcLinhaHtml(f, { filho:true, horas:Number(f.qtdHoras)||0, valor:(Number(f.qtdHoras)||0)*(Number(f.valorHora)||0) }); });
+        html += `<tr><td colspan="5"><button type="button" class="orc-btn-subitem" onclick="orcAdicionarItem('${pai.tempId}')">+ Adicionar subitem</button></td></tr>`;
+      }
+    }else{
+      const horas = Number(pai.qtdHoras)||0, valor = horas*(Number(pai.valorHora)||0);
+      html += orcLinhaHtml(pai, { horas, valor });
+      html += `<tr><td colspan="5"><button type="button" class="orc-btn-subitem" onclick="orcAdicionarItem('${pai.tempId}')">+ Adicionar subitem</button></td></tr>`;
+    }
+  });
+  cont.innerHTML = html || `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px;">Nenhum item ainda.</td></tr>`;
+
+  if(foco){
+    const el = cont.querySelector(`[data-tempid="${foco.tempid}"][data-campo="${foco.campo}"]`);
+    if(el){
+      el.focus();
+      if(typeof foco.s === 'number' && el.setSelectionRange){ try{ el.setSelectionRange(foco.s, foco.e); }catch(e){} }
+    }
+  }
+  document.getElementById('orcTotalValor').textContent = fmtMoeda(orcCalcularTotais().totalValor);
+}
+
+function orcAtualizarCampo(tempId, campo, valor){
+  const item = orcItens.find(it=>it.tempId===tempId);
+  if(!item) return;
+  item[campo] = valor;
+  orcRenderTabela();
+}
+
+// vira subitem de um item que era "folha" (tinha qtd/valor próprios) —
+// esses dois campos somem, o pai passa a valer a soma dos filhos
+function orcAdicionarItem(itemPaiTempId){
+  if(itemPaiTempId){
+    const pai = orcItens.find(it=>it.tempId===itemPaiTempId);
+    if(pai){ pai.qtdHoras = ''; pai.valorHora = ''; }
+    orcColapsados.delete(itemPaiTempId);
+  }
+  orcItens.push({ tempId: orcGerarTempId(), itemPaiTempId: itemPaiTempId||null, descricao:'', qtdHoras:'', valorHora:'' });
+  orcRenderTabela();
+}
+function orcRemoverItem(tempId){
+  orcItens = orcItens.filter(it=>it.tempId!==tempId && it.itemPaiTempId!==tempId);
+  orcRenderTabela();
+}
+function orcAlternarColapso(tempId){
+  if(orcColapsados.has(tempId)) orcColapsados.delete(tempId); else orcColapsados.add(tempId);
+  orcRenderTabela();
+}
+
+function limparFormOrcamento(){
+  orcEditandoId = null;
+  orcNumeroEditando = '';
+  orcItens = [];
+  orcColapsados = new Set();
+  document.getElementById('orcFormTitulo').textContent = 'Novo orçamento';
+  document.getElementById('orc_assunto').value = '';
+  document.getElementById('orc_validade').value = '';
+  document.getElementById('orc_condicoes').value = '';
+  document.getElementById('btnSalvarOrcamento').textContent = 'Salvar orçamento';
+  document.getElementById('btnCancelarEdicaoOrcamento').style.display = 'none';
+  document.getElementById('orcAcoesPdfExcel').style.display = 'none';
+  popularSelectsOrcamento();
+  document.getElementById('orc_status').value = 'RASCUNHO';
+  orcAdicionarItem(null);
+}
+
+async function editarOrcamentoUi(id){
+  const conta = contaAtual();
+  const r = await api('obterOrcamento', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível carregar o orçamento.'); return; }
+  orcEditandoId = id;
+  orcNumeroEditando = r.orcamento.numero;
+  orcColapsados = new Set();
+  // reconstrói o vínculo pai/filho no formato do formulário (tempId) a
+  // partir dos ids reais que vieram do banco
+  const tempPorId = {};
+  r.itens.forEach(it=>{ tempPorId[it.id] = orcGerarTempId(); });
+  orcItens = r.itens.map(it=>({
+    tempId: tempPorId[it.id], itemPaiTempId: it.itemPaiId ? (tempPorId[it.itemPaiId] || null) : null,
+    descricao: it.descricao, qtdHoras: it.qtdHoras ?? '', valorHora: it.valorHora ?? '',
+  }));
+  document.getElementById('orcFormTitulo').textContent = `Editando orçamento Nº ${r.orcamento.numero}`;
+  popularSelectsOrcamento();
+  document.getElementById('orc_cliente').value = r.orcamento.cliente;
+  document.getElementById('orc_assunto').value = r.orcamento.assunto || '';
+  document.getElementById('orc_validade').value = r.orcamento.validade || '';
+  document.getElementById('orc_condicoes').value = r.orcamento.condicoes || '';
+  document.getElementById('orc_responsavel').value = r.orcamento.responsavel || '';
+  document.getElementById('orc_status').value = r.orcamento.status;
+  document.getElementById('btnSalvarOrcamento').textContent = 'Salvar edição';
+  document.getElementById('btnCancelarEdicaoOrcamento').style.display = '';
+  document.getElementById('orcAcoesPdfExcel').style.display = 'flex';
+  orcRenderTabela();
+  document.getElementById('cardFormOrcamento').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function cancelarEdicaoOrcamento(){ limparFormOrcamento(); }
+
+async function salvarOrcamento(){
+  const conta = contaAtual();
+  const cliente = document.getElementById('orc_cliente').value;
+  if(!cliente){ toast('Escolha um cliente'); return; }
+  const itensValidos = orcItens.filter(it=>it.descricao.trim());
+  if(itensValidos.length === 0){ toast('Adicione pelo menos um item'); return; }
+
+  const payload = {
+    contaId: conta.id, id: orcEditandoId, numero: orcNumeroEditando,
+    cliente, assunto: document.getElementById('orc_assunto').value.trim(),
+    responsavel: document.getElementById('orc_responsavel').value,
+    validade: document.getElementById('orc_validade').value,
+    condicoes: document.getElementById('orc_condicoes').value.trim(),
+    status: document.getElementById('orc_status').value,
+    empresaId: empresaAtual ? empresaAtual.id : '',
+    itens: itensValidos.map(it=>({
+      tempId: it.tempId, itemPaiTempId: it.itemPaiTempId,
+      descricao: it.descricao.trim(), qtdHoras: it.qtdHoras, valorHora: it.valorHora,
+    })),
+  };
+  const btn = document.getElementById('btnSalvarOrcamento');
+  btn.disabled = true;
+  try{
+    const r = await api('salvarOrcamento', payload);
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    toast(orcEditandoId ? 'Orçamento atualizado' : `Orçamento Nº ${r.numero} criado`);
+    await carregarOrcamentos();
+    await editarOrcamentoUi(r.id);
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível salvar.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function removerOrcamentoUi(id){
+  const conta = contaAtual();
+  pedirConfirmacao('Excluir orçamento?', 'Essa ação não pode ser desfeita.', async ()=>{
+    const r = await api('removerOrcamento', { contaId: conta.id, id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível excluir.'); return; }
+    if(orcEditandoId === id) limparFormOrcamento();
+    await carregarOrcamentos();
+    toast('Orçamento excluído');
+  });
+}
+
+async function carregarOrcamentos(){
+  const conta = contaAtual();
+  if(!conta) return;
+  const cont = document.getElementById('listaOrcamentos');
+  cont.innerHTML = `<div class="empty" style="padding:14px;">Carregando…</div>`;
+  try{
+    const r = await api('listarOrcamentos', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
+    if(!r.ok){ cont.innerHTML = `<div class="empty">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    orcamentosCache = r.orcamentos || [];
+    renderListaOrcamentos();
+  }catch(e){
+    cont.innerHTML = `<div class="empty">Não foi possível carregar os orçamentos.</div>`;
+  }
+}
+
+function renderListaOrcamentos(){
+  const cont = document.getElementById('listaOrcamentos');
+  if(orcamentosCache.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">🧾</div>Nenhum orçamento ainda.</div>`; return; }
+  cont.innerHTML = orcamentosCache.map(o=>{
+    const status = orcStatusInfo(o.status);
+    const partesValidade = o.validade ? o.validade.split('-') : null;
+    return `<div class="ativ-item">
+      <div class="ativ-corpo" onclick="editarOrcamentoUi('${o.id}')">
+        <div class="ativ-titulo">Nº ${escaparHtml(o.numero)} — ${escaparHtml(o.cliente)}</div>
+        ${o.assunto ? `<div class="ativ-desc">${escaparHtml(o.assunto)}</div>` : ''}
+        <div class="ativ-meta">
+          <span class="tag" style="background:${status.cor};color:#fff;">${escaparHtml(status.label)}</span>
+          ${o.responsavel ? `<span class="tag">${escaparHtml(o.responsavel)}</span>` : ''}
+          <span class="tag">${orcFmtHoras(o.totalHoras)}</span>
+          <span class="tag" style="color:var(--accent);font-weight:700;">${fmtMoeda(o.totalValor)}</span>
+          ${partesValidade ? `<span class="tag">Validade: ${partesValidade[2]}/${partesValidade[1]}</span>` : ''}
+        </div>
+      </div>
+      <div class="ativ-acoes">
+        <button class="ghost" onclick="event.stopPropagation();gerarPdfOrcamento('${o.id}')" title="Gerar PDF">🖨</button>
+        <button class="ghost" onclick="event.stopPropagation();gerarExcelOrcamento('${o.id}')" title="Gerar Excel">📊</button>
+        <button class="ghost" onclick="event.stopPropagation();removerOrcamentoUi('${o.id}')" title="Excluir">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------- PDF/Excel do orçamento ---------- */
+function orcMontarLinhasImpressao(itens){
+  const raiz = itens.filter(it=>!it.itemPaiId);
+  let linhas = '';
+  raiz.forEach(pai=>{
+    const filhos = itens.filter(it=>it.itemPaiId===pai.id);
+    if(filhos.length > 0){
+      const horas = filhos.reduce((s,f)=>s+(Number(f.qtdHoras)||0), 0);
+      const valor = filhos.reduce((s,f)=>s+(Number(f.qtdHoras)||0)*(Number(f.valorHora)||0), 0);
+      linhas += `<tr class="orc-print-pai"><td>${escaparHtml(pai.descricao)}</td><td class="num">${orcFmtHoras(horas)}</td><td class="num">—</td><td class="num">${fmtMoeda(valor)}</td></tr>`;
+      filhos.forEach(f=>{
+        const h = Number(f.qtdHoras)||0;
+        linhas += `<tr class="orc-print-filho"><td>${escaparHtml(f.descricao)}</td><td class="num">${orcFmtHoras(h)}</td><td class="num">${fmtMoeda(Number(f.valorHora)||0)}</td><td class="num">${fmtMoeda(h*(Number(f.valorHora)||0))}</td></tr>`;
+      });
+    }else{
+      const h = Number(pai.qtdHoras)||0;
+      linhas += `<tr><td>${escaparHtml(pai.descricao)}</td><td class="num">${orcFmtHoras(h)}</td><td class="num">${fmtMoeda(Number(pai.valorHora)||0)}</td><td class="num">${fmtMoeda(h*(Number(pai.valorHora)||0))}</td></tr>`;
+    }
+  });
+  return linhas;
+}
+function orcDataPorExtenso(){
+  return new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+}
+
+async function gerarPdfOrcamento(id){
+  const conta = contaAtual();
+  const r = await api('obterOrcamento', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível carregar o orçamento.'); return; }
+  const o = r.orcamento;
+  const [ay,am,ad] = o.validade ? o.validade.split('-') : [];
+  const empresa = empresaAtual || {};
+  const rodapePartes = [
+    empresa.nome, empresa.cnpj ? `CNPJ: ${empresa.cnpj}` : '',
+    empresa.endereco ? `Endereço: ${empresa.endereco}` : '', empresa.telefone ? `Fone: ${empresa.telefone}` : '',
+  ].filter(Boolean);
+
+  document.getElementById('printOrcamento').innerHTML = `
+    <div class="orc-print-info">
+      <div><b>Cliente</b>${escaparHtml(o.cliente)}</div>
+      <div><b>Validade da proposta</b>${ad ? `${ad}/${am}/${ay}` : '—'}</div>
+      <div><b>Assunto</b>${escaparHtml(o.assunto || '—')}</div>
+      <div><b>Responsável</b>${escaparHtml(o.responsavel || '—')}</div>
+    </div>
+    <table class="orc-print-tabela">
+      <thead><tr><th>Descrição</th><th class="num">Qtd horas</th><th class="num">Valor/hora</th><th class="num">Subtotal</th></tr></thead>
+      <tbody>
+        ${orcMontarLinhasImpressao(r.itens)}
+        <tr class="orc-print-total"><td colspan="3">Total do orçamento</td><td class="num">${fmtMoeda(o.totalValor)}</td></tr>
+      </tbody>
+    </table>
+    ${o.condicoes ? `<div class="orc-print-condicoes"><b>Condições / observações</b>${escaparHtml(o.condicoes)}</div>` : ''}
+    <div class="orc-print-rodape">
+      ${empresa.cidade ? `${escaparHtml(empresa.cidade)}, ${orcDataPorExtenso()}<br>` : ''}
+      ${rodapePartes.map(escaparHtml).join(' · ')}
+    </div>
+  `;
+  document.body.classList.add('print-modo-orcamento');
+  window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-orcamento'); }, { once:true });
+  prepararImpressao(`Orçamento Nº ${o.numero}`, '');
+}
+
+async function gerarExcelOrcamento(id){
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+  const conta = contaAtual();
+  const r = await api('obterOrcamento', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível carregar o orçamento.'); return; }
+  const o = r.orcamento;
+  const linhas = [['Descrição','Qtd horas','Valor/hora','Subtotal']];
+  const raiz = r.itens.filter(it=>!it.itemPaiId);
+  raiz.forEach(pai=>{
+    const filhos = r.itens.filter(it=>it.itemPaiId===pai.id);
+    if(filhos.length > 0){
+      const horas = filhos.reduce((s,f)=>s+(Number(f.qtdHoras)||0), 0);
+      const valor = filhos.reduce((s,f)=>s+(Number(f.qtdHoras)||0)*(Number(f.valorHora)||0), 0);
+      linhas.push([pai.descricao, horas, '', valor]);
+      filhos.forEach(f=>{
+        const h = Number(f.qtdHoras)||0;
+        linhas.push(['   ' + f.descricao, h, Number(f.valorHora)||0, h*(Number(f.valorHora)||0)]);
+      });
+    }else{
+      const h = Number(pai.qtdHoras)||0;
+      linhas.push([pai.descricao, h, Number(pai.valorHora)||0, h*(Number(pai.valorHora)||0)]);
+    }
+  });
+  linhas.push([]);
+  linhas.push(['', '', 'Total', o.totalValor]);
+  const planilha = XLSX.utils.aoa_to_sheet(linhas);
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, planilha, 'Orçamento');
+  await salvarWorkbook(livro, `orcamento-${o.numero}.xlsx`);
 }
 
 function renderListTipos(){
@@ -9203,6 +9572,10 @@ function goView(name){
     limparFormAtividade();
     carregarAtividades();
   }
+  if(name==='orcamentos'){
+    limparFormOrcamento();
+    carregarOrcamentos();
+  }
   if(name==='videos'){
     const contaVid = contaAtual();
     const permVid = permissaoMenu(contaVid, 'videos');
@@ -9986,6 +10359,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       endereco: document.getElementById('emp_endereco').value.trim(),
       telefone: document.getElementById('emp_telefone').value.trim(),
       email: document.getElementById('emp_email').value.trim(),
+      cidade: document.getElementById('emp_cidade').value.trim(),
       cnae: document.getElementById('emp_cnae').value.trim(),
       inscricaoMunicipal: document.getElementById('emp_inscricao_municipal').value.trim(),
       inscricaoEstadual: document.getElementById('emp_inscricao_estadual').value.trim(),
@@ -10037,6 +10411,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     renderFiltrosAtividade();
     renderListaAtividades();
   });
+
+  document.getElementById('btnSalvarOrcamento').addEventListener('click', salvarOrcamento);
+  document.getElementById('btnCancelarEdicaoOrcamento').addEventListener('click', cancelarEdicaoOrcamento);
+  document.getElementById('btnOrcAdicionarItem').addEventListener('click', ()=>orcAdicionarItem(null));
+  document.getElementById('btnGerarPdfOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) gerarPdfOrcamento(orcEditandoId); });
+  document.getElementById('btnGerarExcelOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) gerarExcelOrcamento(orcEditandoId); });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();

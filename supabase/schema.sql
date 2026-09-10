@@ -917,3 +917,42 @@ create table if not exists atividade_anexos (
 );
 alter table atividade_anexos enable row level security;
 create index if not exists idx_ativ_anexos_atividade on atividade_anexos (atividade_id);
+
+-- cidade usada na data do rodapé dos orçamentos gerados (ex: "Fortaleza,
+-- 09 de setembro de 2026") — default 'Fortaleza' pra já sair preenchida
+-- pra quem já tem empresa cadastrada
+alter table empresas add column if not exists cidade text default 'Fortaleza';
+
+-- orçamentos (proposta comercial: itens por valor/hora, PDF e Excel pra
+-- envio ao cliente). Cada item pode ter um item_pai_id — quando tem, ele é
+-- um subitem, e o pai (sem qtd_horas/valor_hora próprios) mostra a soma dos
+-- filhos; só um nível de aninhamento (subitem não tem sub-subitem)
+create table if not exists orcamentos (
+  id text primary key,
+  numero text not null,
+  cliente text not null,
+  assunto text default '',
+  responsavel text default '',
+  validade date,
+  condicoes text default '',
+  status text not null default 'RASCUNHO',
+  criado_por text,
+  criado_em timestamptz default now(),
+  empresa_id text references empresas(id)
+);
+alter table orcamentos enable row level security;
+create index if not exists idx_orcamentos_cliente on orcamentos (cliente);
+create index if not exists idx_orcamentos_empresa on orcamentos (empresa_id);
+
+create table if not exists orcamento_itens (
+  id text primary key,
+  orcamento_id text not null references orcamentos(id) on delete cascade,
+  item_pai_id text references orcamento_itens(id) on delete cascade,
+  descricao text not null,
+  qtd_horas numeric,
+  valor_hora numeric,
+  ordem integer not null default 0
+);
+alter table orcamento_itens enable row level security;
+create index if not exists idx_orcamento_itens_orcamento on orcamento_itens (orcamento_id);
+create index if not exists idx_orcamento_itens_pai on orcamento_itens (item_pai_id);

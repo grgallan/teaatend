@@ -231,7 +231,7 @@ function clienteParaApi(c: any) {
 function empresaParaApi(e: any) {
   return {
     id: e.id, nome: e.nome, nomeFantasia: e.nome_fantasia || '', cnpj: e.cnpj || '',
-    endereco: e.endereco || '', telefone: e.telefone || '', email: e.email || '',
+    endereco: e.endereco || '', telefone: e.telefone || '', email: e.email || '', cidade: e.cidade || '',
     cnae: e.cnae || '', inscricaoMunicipal: e.inscricao_municipal || '', inscricaoEstadual: e.inscricao_estadual || '',
     logoUrl: e.logo_url || '', padrao: !!e.padrao,
     horasValidacaoAutomatica: e.horas_validacao_automatica || 48,
@@ -281,6 +281,10 @@ async function rotear(req: any): Promise<any> {
     case 'listarAnexosAtividade': return acaoListarAnexosAtividade(req);
     case 'adicionarAnexoAtividade': return acaoAdicionarAnexoAtividade(req);
     case 'removerAnexoAtividade': return acaoRemoverAnexoAtividade(req);
+    case 'listarOrcamentos': return acaoListarOrcamentos(req);
+    case 'obterOrcamento': return acaoObterOrcamento(req);
+    case 'salvarOrcamento': return acaoSalvarOrcamento(req);
+    case 'removerOrcamento': return acaoRemoverOrcamento(req);
     case 'removerConta': return acaoRemoverConta(req);
     case 'addCliente': return acaoAddCliente(req);
     case 'atualizarCliente': return acaoAtualizarCliente(req);
@@ -2075,6 +2079,144 @@ async function acaoRemoverAnexoAtividade(req: any) {
   return { ok: true };
 }
 
+/* ---------- orçamentos (proposta comercial: itens por valor/hora, PDF e
+   Excel pra envio ao cliente) ---------- */
+async function podeGerenciarOrcamento(contaId: string) {
+  const { data: conta } = await db.from('contas').select('perfil').eq('id', contaId).maybeSingle();
+  return !!(conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE'));
+}
+
+function orcamentoItemParaApi(it: any) {
+  return {
+    id: it.id, itemPaiId: it.item_pai_id || '', descricao: it.descricao,
+    qtdHoras: it.qtd_horas !== null ? Number(it.qtd_horas) : null,
+    valorHora: it.valor_hora !== null ? Number(it.valor_hora) : null,
+    ordem: it.ordem || 0,
+  };
+}
+
+// só os itens "folha" (sem filhos) somam de verdade — um item com filhos
+// não tem qtd_horas/valor_hora próprios, o valor dele já É a soma deles
+function calcularTotaisOrcamento(itens: any[]) {
+  const temFilhos = new Set(itens.filter((it) => it.item_pai_id).map((it) => it.item_pai_id));
+  let totalHoras = 0, totalValor = 0;
+  itens.forEach((it) => {
+    if (temFilhos.has(it.id)) return;
+    const horas = Number(it.qtd_horas) || 0;
+    totalHoras += horas;
+    totalValor += horas * (Number(it.valor_hora) || 0);
+  });
+  return { totalHoras, totalValor };
+}
+
+function orcamentoParaApi(o: any, totalHoras: number, totalValor: number) {
+  return {
+    id: o.id, numero: o.numero, cliente: o.cliente, assunto: o.assunto || '',
+    responsavel: o.responsavel || '', validade: o.validade || '', condicoes: o.condicoes || '',
+    status: o.status || 'RASCUNHO', criadoPor: o.criado_por || '', criadoEm: o.criado_em,
+    empresaId: o.empresa_id || '', totalHoras, totalValor,
+  };
+}
+
+async function gerarNumeroOrcamento(empresaId?: string): Promise<string> {
+  const ano = new Date().getFullYear();
+  let query = db.from('orcamentos').select('numero').ilike('numero', `${ano}-%`);
+  if (empresaId) query = query.eq('empresa_id', empresaId);
+  const { data } = await query;
+  const seq = (data || []).length + 1;
+  return `${ano}-${String(seq).padStart(3, '0')}`;
+}
+
+async function acaoListarOrcamentos(req: any) {
+  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: true, orcamentos: [] };
+  let query = db.from('orcamentos').select('*').order('criado_em', { ascending: false });
+  if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  const { data, error } = await query;
+  if (error) return { ok: false, erro: error.message };
+  const orcamentos = data || [];
+  if (orcamentos.length === 0) return { ok: true, orcamentos: [] };
+
+  const { data: todosItens } = await db.from('orcamento_itens').select('*').in('orcamento_id', orcamentos.map((o: any) => o.id));
+  const itensPorOrcamento: Record<string, any[]> = {};
+  (todosItens || []).forEach((it: any) => { (itensPorOrcamento[it.orcamento_id] = itensPorOrcamento[it.orcamento_id] || []).push(it); });
+
+  return {
+    ok: true,
+    orcamentos: orcamentos.map((o: any) => {
+      const { totalHoras, totalValor } = calcularTotaisOrcamento(itensPorOrcamento[o.id] || []);
+      return orcamentoParaApi(o, totalHoras, totalValor);
+    }),
+  };
+}
+
+async function acaoObterOrcamento(req: any) {
+  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: false, erro: 'Sem permissão pra acessar orçamentos.' };
+  if (!req.id) return { ok: false, erro: 'Orçamento não informado.' };
+  const { data: o } = await db.from('orcamentos').select('*').eq('id', req.id).maybeSingle();
+  if (!o) return { ok: false, erro: 'Orçamento não encontrado.' };
+  const { data: itens, error } = await db.from('orcamento_itens').select('*').eq('orcamento_id', req.id).order('ordem');
+  if (error) return { ok: false, erro: error.message };
+  const { totalHoras, totalValor } = calcularTotaisOrcamento(itens || []);
+  return { ok: true, orcamento: orcamentoParaApi(o, totalHoras, totalValor), itens: (itens || []).map(orcamentoItemParaApi) };
+}
+
+// cria ou atualiza o orçamento inteiro de uma vez (cabeçalho + itens) — os
+// itens são sempre apagados e recriados (lista curta, mais simples e mais
+// seguro que calcular o diff). Cada item chega com um "tempId" só pra essa
+// requisição (não é o id de verdade) — serve pra um subitem conseguir
+// referenciar o pai antes dele existir de fato no banco.
+async function acaoSalvarOrcamento(req: any) {
+  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: false, erro: 'Sem permissão pra gerenciar orçamentos.' };
+  if (!req.cliente) return { ok: false, erro: 'Escolha um cliente.' };
+  const itensReq = Array.isArray(req.itens) ? req.itens.filter((it: any) => String(it.descricao || '').trim()) : [];
+  if (itensReq.length === 0) return { ok: false, erro: 'Adicione pelo menos um item.' };
+
+  const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
+  const ehNovo = !req.id;
+  const orcamentoId = req.id || gerarId();
+  const numero = ehNovo ? await gerarNumeroOrcamento(req.empresaId) : req.numero;
+
+  if (ehNovo) {
+    const registro = {
+      id: orcamentoId, numero, cliente: req.cliente, assunto: req.assunto || '',
+      responsavel: req.responsavel || (conta ? conta.nome : ''), validade: req.validade || null,
+      condicoes: req.condicoes || '', status: req.status || 'RASCUNHO',
+      criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
+    };
+    const { error } = await db.from('orcamentos').insert(registro);
+    if (error) return { ok: false, erro: error.message };
+  } else {
+    const registro = {
+      cliente: req.cliente, assunto: req.assunto || '', responsavel: req.responsavel || '',
+      validade: req.validade || null, condicoes: req.condicoes || '', status: req.status || 'RASCUNHO',
+    };
+    const { error } = await db.from('orcamentos').update(registro).eq('id', orcamentoId);
+    if (error) return { ok: false, erro: error.message };
+  }
+
+  const idPorTemp: Record<string, string> = {};
+  itensReq.forEach((it: any) => { idPorTemp[it.tempId] = gerarId(); });
+  const registrosItens = itensReq.map((it: any, i: number) => ({
+    id: idPorTemp[it.tempId], orcamento_id: orcamentoId,
+    item_pai_id: it.itemPaiTempId ? (idPorTemp[it.itemPaiTempId] || null) : null,
+    descricao: it.descricao, ordem: i,
+    qtd_horas: (it.qtdHoras !== '' && it.qtdHoras != null) ? Number(it.qtdHoras) : null,
+    valor_hora: (it.valorHora !== '' && it.valorHora != null) ? Number(it.valorHora) : null,
+  }));
+
+  await db.from('orcamento_itens').delete().eq('orcamento_id', orcamentoId);
+  const { error: erroItens } = await db.from('orcamento_itens').insert(registrosItens);
+  if (erroItens) return { ok: false, erro: erroItens.message };
+
+  return { ok: true, id: orcamentoId, numero };
+}
+
+async function acaoRemoverOrcamento(req: any) {
+  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover orçamentos.' };
+  await db.from('orcamentos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
 /* ---------- histórico ---------- */
 async function registrarHistorico(atendimentoId: string, descricao: string) {
   await db.from('historico').insert({ id: gerarId(), atendimento_id: atendimentoId, descricao });
@@ -2338,7 +2480,7 @@ async function acaoSalvarEmpresa(req: any) {
 
   const registro = {
     nome, nome_fantasia: req.nomeFantasia || '', cnpj: req.cnpj || '', endereco: req.endereco || '',
-    telefone: req.telefone || '', email: req.email || '', cnae: req.cnae || '',
+    telefone: req.telefone || '', email: req.email || '', cidade: req.cidade || '', cnae: req.cnae || '',
     inscricao_municipal: req.inscricaoMunicipal || '', inscricao_estadual: req.inscricaoEstadual || '',
     logo_url: req.logoUrl || '', horas_validacao_automatica: Number(req.horasValidacaoAutomatica) || 48,
   };
