@@ -277,6 +277,10 @@ async function rotear(req: any): Promise<any> {
     case 'atualizarAtividade': return acaoAtualizarAtividade(req);
     case 'alternarConclusaoAtividade': return acaoAlternarConclusaoAtividade(req);
     case 'removerAtividade': return acaoRemoverAtividade(req);
+    case 'removerSerieAtividade': return acaoRemoverSerieAtividade(req);
+    case 'listarAnexosAtividade': return acaoListarAnexosAtividade(req);
+    case 'adicionarAnexoAtividade': return acaoAdicionarAnexoAtividade(req);
+    case 'removerAnexoAtividade': return acaoRemoverAnexoAtividade(req);
     case 'removerConta': return acaoRemoverConta(req);
     case 'addCliente': return acaoAddCliente(req);
     case 'atualizarCliente': return acaoAtualizarCliente(req);
@@ -1840,14 +1844,16 @@ async function acaoRemoverAgendamento(req: any) {
   return { ok: true };
 }
 
-/* ---------- atividades (tarefas internas — soltas, vinculadas a um
-   atendimento e/ou aparecendo na Agenda, cada uma independente das outras) ---------- */
-function atividadeParaApi(a: any) {
+/* ---------- atividades (tarefas internas — soltas, vinculadas a um ou mais
+   atendimentos e/ou aparecendo na Agenda, cada uma independente das outras) ---------- */
+function atividadeParaApi(a: any, atendimentoIds: string[] = []) {
   return {
     id: a.id, titulo: a.titulo, descricao: a.descricao || '', tipo: a.tipo || 'TAREFA',
     responsavel: a.responsavel || '', status: a.status || 'PENDENTE',
-    atendimentoId: a.atendimento_id || '', naAgenda: !!a.na_agenda,
-    data: a.data || '', horaInicio: a.hora_inicio || '', horaFim: a.hora_fim || '',
+    atendimentoIds, naAgenda: !!a.na_agenda,
+    data: a.data || '', dataEntrega: a.data_entrega || '',
+    diaInteiro: !!a.dia_inteiro, horaInicio: a.hora_inicio || '', horaFim: a.hora_fim || '',
+    repeticao: a.repeticao || 'NENHUMA', repetirAte: a.repetir_ate || '', serieId: a.serie_id || '',
     criadoPor: a.criado_por || '', criadoEm: a.criado_em, concluidoEm: a.concluido_em || '',
     empresaId: a.empresa_id || '',
   };
@@ -1858,10 +1864,48 @@ async function podeGerenciarAtividade(contaId: string) {
   return !!(conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE'));
 }
 
+// mapa atividade_id -> [atendimento_id, ...], pra não fazer uma query por
+// atividade (a lista inteira busca de uma vez só)
+async function atendimentoIdsPorAtividade(atividadeIds: string[]): Promise<Record<string, string[]>> {
+  if (atividadeIds.length === 0) return {};
+  const { data } = await db.from('atividade_atendimentos').select('atividade_id,atendimento_id').in('atividade_id', atividadeIds);
+  const mapa: Record<string, string[]> = {};
+  (data || []).forEach((v: any) => { (mapa[v.atividade_id] = mapa[v.atividade_id] || []).push(v.atendimento_id); });
+  return mapa;
+}
+
 function validarCamposAtividade(req: any) {
   if (!req.titulo || !String(req.titulo).trim()) return 'Preencha o título.';
-  if (req.naAgenda && (!req.data || !req.horaInicio || !req.horaFim)) return 'Preencha data e horário pra colocar na Agenda.';
+  if (req.naAgenda) {
+    if (!req.data) return 'Preencha a data pra colocar na Agenda.';
+    if (!req.diaInteiro && (!req.horaInicio || !req.horaFim)) return 'Preencha o horário pra colocar na Agenda (ou marque "dia inteiro").';
+  }
+  if (req.repeticao && req.repeticao !== 'NENHUMA') {
+    if (!req.data) return 'Preencha a data pra repetir a atividade.';
+    if (!req.repetirAte) return 'Preencha até quando repetir.';
+    if (String(req.repetirAte) < String(req.data)) return '"Repetir até" precisa ser depois da data.';
+  }
   return null;
+}
+
+const REPETICOES_VALIDAS = new Set(['NENHUMA', 'DIARIA', 'SEMANAL', 'MENSAL']);
+// datas das ocorrências SEGUINTES à primeira (essa já é a própria linha
+// criada por fora) — limitado a 365 pra nunca gerar uma quantidade de
+// linhas fora de controle (ex: diária esquecida sem data final perto)
+function proximasOcorrencias(dataInicial: string, repeticao: string, repetirAte: string): string[] {
+  const LIMITE = 365;
+  const datas: string[] = [];
+  const atual = new Date(`${dataInicial}T00:00:00`);
+  const fim = new Date(`${repetirAte}T00:00:00`);
+  for (let i = 0; i < LIMITE; i++) {
+    if (repeticao === 'DIARIA') atual.setDate(atual.getDate() + 1);
+    else if (repeticao === 'SEMANAL') atual.setDate(atual.getDate() + 7);
+    else if (repeticao === 'MENSAL') atual.setMonth(atual.getMonth() + 1);
+    else break;
+    if (atual > fim) break;
+    datas.push(atual.toISOString().slice(0, 10));
+  }
+  return datas;
 }
 
 async function acaoListarAtividades(req: any) {
@@ -1880,7 +1924,8 @@ async function acaoListarAtividades(req: any) {
   if (conta.perfil === 'ATENDENTE') {
     atividades = atividades.filter((a: any) => a.responsavel === conta.nome || a.criado_por === conta.nome);
   }
-  return { ok: true, atividades: atividades.map(atividadeParaApi) };
+  const mapaVinculos = await atendimentoIdsPorAtividade(atividades.map((a: any) => a.id));
+  return { ok: true, atividades: atividades.map((a: any) => atividadeParaApi(a, mapaVinculos[a.id] || [])) };
 }
 
 async function acaoCriarAtividade(req: any) {
@@ -1888,17 +1933,50 @@ async function acaoCriarAtividade(req: any) {
   const erroValidacao = validarCamposAtividade(req);
   if (erroValidacao) return { ok: false, erro: erroValidacao };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
-  const registro = {
-    id: gerarId(), titulo: req.titulo, descricao: req.descricao || '', tipo: req.tipo || 'TAREFA',
+
+  const repeticao = REPETICOES_VALIDAS.has(req.repeticao) ? req.repeticao : 'NENHUMA';
+  const idPrincipal = gerarId();
+  const base = {
+    titulo: req.titulo, descricao: req.descricao || '', tipo: req.tipo || 'TAREFA',
     responsavel: req.responsavel || (conta ? conta.nome : ''), status: req.status || 'PENDENTE',
-    atendimento_id: req.atendimentoId || null, na_agenda: !!req.naAgenda,
-    data: req.data || null, hora_inicio: req.horaInicio || null, hora_fim: req.horaFim || null,
+    na_agenda: !!req.naAgenda, dia_inteiro: !!req.diaInteiro,
+    hora_inicio: (req.naAgenda && !req.diaInteiro) ? req.horaInicio : null,
+    hora_fim: (req.naAgenda && !req.diaInteiro) ? req.horaFim : null,
     criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
+    repeticao, repetir_ate: repeticao !== 'NENHUMA' ? req.repetirAte : null,
     concluido_em: req.status === 'CONCLUIDA' ? new Date().toISOString() : null,
   };
-  const { error } = await db.from('atividades').insert(registro);
+
+  // diferença (em dias) entre Data e Data de entrega — preservada em cada
+  // ocorrência da série, pra manter o mesmo prazo relativo em todas
+  const offsetEntregaDias = (req.data && req.dataEntrega)
+    ? Math.round((new Date(`${req.dataEntrega}T00:00:00`).getTime() - new Date(`${req.data}T00:00:00`).getTime()) / 86400000)
+    : null;
+
+  const datasOcorrencias = (repeticao !== 'NENHUMA' && req.data)
+    ? [req.data, ...proximasOcorrencias(req.data, repeticao, req.repetirAte)]
+    : [req.data || null];
+
+  const registros = datasOcorrencias.map((data, i) => ({
+    id: i === 0 ? idPrincipal : gerarId(),
+    ...base,
+    data,
+    data_entrega: (data && offsetEntregaDias !== null)
+      ? new Date(new Date(`${data}T00:00:00`).getTime() + offsetEntregaDias * 86400000).toISOString().slice(0, 10)
+      : (i === 0 ? (req.dataEntrega || null) : null),
+    serie_id: datasOcorrencias.length > 1 ? idPrincipal : null,
+  }));
+
+  const { error } = await db.from('atividades').insert(registros);
   if (error) return { ok: false, erro: error.message };
-  return { ok: true, id: registro.id };
+
+  const atendimentoIds = Array.isArray(req.atendimentoIds) ? req.atendimentoIds.filter(Boolean) : [];
+  if (atendimentoIds.length > 0) {
+    const vinculos = registros.flatMap((r) => atendimentoIds.map((atendimentoId: string) => ({ id: gerarId(), atividade_id: r.id, atendimento_id: atendimentoId })));
+    await db.from('atividade_atendimentos').insert(vinculos);
+  }
+
+  return { ok: true, id: idPrincipal, ocorrenciasGeradas: registros.length };
 }
 
 async function acaoAtualizarAtividade(req: any) {
@@ -1914,15 +1992,29 @@ async function acaoAtualizarAtividade(req: any) {
   if (statusFinal === 'CONCLUIDA' && existente.status !== 'CONCLUIDA') concluidoEm = new Date().toISOString();
   else if (statusFinal !== 'CONCLUIDA') concluidoEm = null;
 
+  // edição sempre mexe só nessa linha — não regenera nem propaga pra série
+  // (repetição só se aplica na criação; cada ocorrência já gerada vira uma
+  // atividade independente daqui pra frente)
   const atualizado = {
     titulo: req.titulo, descricao: req.descricao || '', tipo: req.tipo || 'TAREFA',
     responsavel: req.responsavel || '', status: statusFinal,
-    atendimento_id: req.atendimentoId || null, na_agenda: !!req.naAgenda,
-    data: req.data || null, hora_inicio: req.horaInicio || null, hora_fim: req.horaFim || null,
+    na_agenda: !!req.naAgenda, dia_inteiro: !!req.diaInteiro,
+    data: req.data || null, data_entrega: req.dataEntrega || null,
+    hora_inicio: (req.naAgenda && !req.diaInteiro) ? req.horaInicio : null,
+    hora_fim: (req.naAgenda && !req.diaInteiro) ? req.horaFim : null,
     concluido_em: concluidoEm,
   };
   const { error } = await db.from('atividades').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
+
+  // sincroniza os vínculos com atendimento — apaga tudo e recria (lista
+  // curta, mais simples e mais seguro que calcular o diff)
+  await db.from('atividade_atendimentos').delete().eq('atividade_id', req.id);
+  const atendimentoIds = Array.isArray(req.atendimentoIds) ? req.atendimentoIds.filter(Boolean) : [];
+  if (atendimentoIds.length > 0) {
+    await db.from('atividade_atendimentos').insert(atendimentoIds.map((atendimentoId: string) => ({ id: gerarId(), atividade_id: req.id, atendimento_id: atendimentoId })));
+  }
+
   return { ok: true };
 }
 
@@ -1944,6 +2036,42 @@ async function acaoAlternarConclusaoAtividade(req: any) {
 async function acaoRemoverAtividade(req: any) {
   if (!(await podeGerenciarAtividade(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover atividades.' };
   await db.from('atividades').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+// remove de uma vez todas as ocorrências geradas junto (mesmo serie_id) —
+// diferente de acaoRemoverAtividade, que só tira essa ocorrência
+async function acaoRemoverSerieAtividade(req: any) {
+  if (!(await podeGerenciarAtividade(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover atividades.' };
+  if (!req.serieId) return { ok: false, erro: 'Série não informada.' };
+  await db.from('atividades').delete().eq('serie_id', req.serieId);
+  return { ok: true };
+}
+
+/* ---------- anexos de atividade — tabela própria (atividade_anexos), não
+   reaproveita "anexos" porque lá atendimento_id é obrigatório ---------- */
+async function acaoListarAnexosAtividade(req: any) {
+  if (!req.atividadeId) return { ok: false, erro: 'Atividade não informada.' };
+  const { data, error } = await db.from('atividade_anexos').select('*').eq('atividade_id', req.atividadeId).order('criado_em');
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, anexos: (data || []).map((a: any) => ({ id: a.id, atividadeId: a.atividade_id, nome: a.nome, url: a.url })) };
+}
+
+async function acaoAdicionarAnexoAtividade(req: any) {
+  if (!req.atividadeId) return { ok: false, erro: 'Atividade não informada.' };
+  try {
+    const salvo = await salvarAnexo(req.base64, req.tipo, req.nome);
+    const registro = { id: gerarId(), atividade_id: req.atividadeId, nome: salvo.nome, url: salvo.url };
+    const { error } = await db.from('atividade_anexos').insert(registro);
+    if (error) return { ok: false, erro: error.message };
+    return { ok: true, anexo: { id: registro.id, atividadeId: req.atividadeId, nome: registro.nome, url: registro.url } };
+  } catch (e) {
+    return { ok: false, erro: 'Não foi possível enviar o anexo.' };
+  }
+}
+
+async function acaoRemoverAnexoAtividade(req: any) {
+  await db.from('atividade_anexos').delete().eq('id', req.id);
   return { ok: true };
 }
 

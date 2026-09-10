@@ -880,3 +880,40 @@ create index if not exists idx_atividades_responsavel on atividades (responsavel
 create index if not exists idx_atividades_status on atividades (status);
 create index if not exists idx_atividades_atendimento on atividades (atendimento_id);
 create index if not exists idx_atividades_data on atividades (data);
+
+-- atividade agora vincula MAIS DE UM atendimento — a coluna atendimento_id
+-- acima fica sem uso (não apagada, só não é mais lida/escrita), o vínculo
+-- de verdade passa a ser essa tabela (mesmo padrão de atendimento_videos)
+create table if not exists atividade_atendimentos (
+  id text primary key,
+  atividade_id text not null references atividades(id) on delete cascade,
+  atendimento_id text not null references atendimentos(id) on delete cascade
+);
+alter table atividade_atendimentos enable row level security;
+create index if not exists idx_ativ_atend_atividade on atividade_atendimentos (atividade_id);
+create index if not exists idx_ativ_atend_atendimento on atividade_atendimentos (atendimento_id);
+create unique index if not exists idx_ativ_atend_unico on atividade_atendimentos (atividade_id, atendimento_id);
+
+-- data de entrega (prazo, separada da "data" que é quando a tarefa
+-- acontece/é planejada); dia_inteiro dispensa hora_inicio/hora_fim quando
+-- colocada na Agenda; repeticao + repetir_ate geram, na criação, uma
+-- atividade independente por ocorrência, todas marcadas com o mesmo
+-- serie_id (pra permitir excluir a série inteira de uma vez)
+alter table atividades add column if not exists data_entrega date;
+alter table atividades add column if not exists dia_inteiro boolean not null default false;
+alter table atividades add column if not exists repeticao text not null default 'NENHUMA';
+alter table atividades add column if not exists repetir_ate date;
+alter table atividades add column if not exists serie_id text;
+create index if not exists idx_atividades_serie on atividades (serie_id);
+
+-- anexos de atividade — tabela própria (não reaproveita "anexos", que é
+-- amarrada a atendimento_id not null) pra não mexer no que já funciona
+create table if not exists atividade_anexos (
+  id text primary key,
+  atividade_id text not null references atividades(id) on delete cascade,
+  nome text not null,
+  url text not null,
+  criado_em timestamptz default now()
+);
+alter table atividade_anexos enable row level security;
+create index if not exists idx_ativ_anexos_atividade on atividade_anexos (atividade_id);
