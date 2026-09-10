@@ -956,3 +956,6 @@ create table if not exists orcamento_itens (
 alter table orcamento_itens enable row level security;
 create index if not exists idx_orcamento_itens_orcamento on orcamento_itens (orcamento_id);
 create index if not exists idx_orcamento_itens_pai on orcamento_itens (item_pai_id);
+
+-- texto longo, aparece no PDF logo abaixo da linha do Assunto
+alter table orcamentos add column if not exists termo_referencia text default '';
