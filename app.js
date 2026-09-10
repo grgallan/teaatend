@@ -1923,7 +1923,7 @@ function renderLista(){
 
   const emTabela = visualizacaoAtendimentos !== 'cards' && window.matchMedia('(min-width: 860px)').matches;
   renderAgruparListaBar(emTabela);
-  toggleFiltrosClienteStatusUI(emTabela);
+  toggleFiltrosClienteStatusUI(emTabela || visualizacaoAtendimentos === 'cards');
 
   document.getElementById('listaItens').style.display = visualizacaoAtendimentos==='cards' ? 'none' : '';
   document.getElementById('kanbanBoard').style.display = visualizacaoAtendimentos==='cards' ? '' : 'none';
@@ -2025,12 +2025,14 @@ function reordenarColunaLista(campoArrastado, campoAlvo){
 
 // na tabela, Cliente e Status já têm o filtro estilo Excel no cabeçalho da
 // coluna — os campos "Filtrar por cliente/status" de cima ficam redundantes
-// e somem; em Cards/mobile (sem cabeçalho de coluna) eles continuam.
-function toggleFiltrosClienteStatusUI(emTabela){
+// e somem; em Cards (colunas por status) o Filtro avançado já cobre os
+// mesmos campos, então também somem; só continuam na Lista em cards
+// (mobile/tela estreita), onde não tem nem cabeçalho nem coluna por status.
+function toggleFiltrosClienteStatusUI(esconder){
   const clienteWrap = document.querySelector('#filtros .lookup-multi');
-  if(clienteWrap) clienteWrap.style.display = emTabela ? 'none' : '';
+  if(clienteWrap) clienteWrap.style.display = esconder ? 'none' : '';
   const statusEl = document.getElementById('filtrosStatus');
-  if(statusEl) statusEl.style.display = emTabela ? 'none' : '';
+  if(statusEl) statusEl.style.display = esconder ? 'none' : '';
 }
 
 // filtro de coluna estilo Excel — Cliente/Status reaproveitam os mesmos
@@ -2450,7 +2452,7 @@ function renderKanbanBoard(itens, opts){
     const cards = lista.map(r=>renderKanbanCard(r, opts)).join('');
     return `
     <div class="kanban-col">
-      <div class="kanban-col-header">
+      <div class="kanban-col-header status-${statusSlug(nome)}">
         <div class="titulo"><span class="kanban-col-dot" style="background:${corStatusDot(nome)};"></span><span>${escaparHtml(nome)}</span></div>
         <span class="kanban-col-count">${lista.length}</span>
       </div>
