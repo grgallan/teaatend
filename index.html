@@ -428,6 +428,24 @@
   .ativ-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
   .ativ-acoes{display:flex;gap:4px;flex:none;}
   .ativ-acoes button{padding:6px 8px;font-size:12px;}
+  /* ---------- orçamentos ---------- */
+  .orc-tabela{width:100%;border-collapse:collapse;margin-top:6px;}
+  .orc-tabela th{background:var(--panel-2);text-align:left;padding:8px;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:700;}
+  .orc-tabela th.num, .orc-tabela td.num{text-align:right;}
+  .orc-tabela td{padding:7px 8px;font-size:12.5px;border-top:1px solid var(--line);}
+  .orc-tabela input{width:100%;border:1px solid transparent;background:transparent;font-size:12.5px;color:inherit;padding:4px;font-family:inherit;box-sizing:border-box;}
+  .orc-tabela input:focus{border-color:var(--line);background:var(--bg);border-radius:6px;}
+  .orc-remover{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;}
+  .orc-linha-pai{background:var(--panel-2);}
+  .orc-linha-pai td{font-weight:700;}
+  .orc-toggle{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;margin-right:6px;width:14px;flex:none;}
+  .orc-pai-titulo{display:flex;align-items:center;}
+  .orc-linha-filho .orc-pai-titulo{padding-left:22px;}
+  .orc-btn-subitem{background:none;border:none;color:var(--accent);cursor:pointer;font-size:11.5px;padding:6px 8px 6px 30px;font-family:inherit;}
+  .orc-total-linha{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:2px solid var(--line);}
+  .orc-total-label{font-size:12.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+  .orc-total-valor{font-size:20px;font-weight:800;color:var(--accent);}
+  #printOrcamento{display:none;}
   .vid-embed{width:100%;aspect-ratio:16/9;border-radius:12px;border:none;display:block;}
   .vid-titulo{font-weight:700;font-size:14px;margin-top:10px;}
   .vid-descricao{color:var(--muted);font-size:12.5px;margin-top:4px;}
@@ -772,6 +790,24 @@
     .modal-bg.show .modal{position:static !important;max-width:100% !important;max-height:none !important;box-shadow:none !important;border:none !important;border-radius:0 !important;padding:0 !important;}
     /* ao gerar PDF de um atendimento específico, esconde a tela de fundo (Lista/Resumo/etc.) */
     body.print-modo-atendimento .view{display:none !important;}
+
+    /* orçamento: mesmo esquema — #printHeader (logo/título padrão) por
+       cima, #printOrcamento (itens/subitens + condições + rodapé) embaixo,
+       escondendo a tela de fundo (Orçamentos/Lista/etc.) */
+    body.print-modo-orcamento .view{display:none !important;}
+    body.print-modo-orcamento #printOrcamento{display:block !important;}
+    #printOrcamento .orc-print-info{display:grid;grid-template-columns:1fr 1fr;gap:8px 18px;font-size:12.5px;margin-bottom:18px;}
+    #printOrcamento .orc-print-info b{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#777;font-weight:700;margin-bottom:2px;}
+    #printOrcamento .orc-print-tabela{width:100%;border-collapse:collapse;margin-bottom:14px;}
+    #printOrcamento .orc-print-tabela th{text-align:left;background:#f2f2f2 !important;padding:8px;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:#555;border-bottom:2px solid #ccc;}
+    #printOrcamento .orc-print-tabela th.num, #printOrcamento .orc-print-tabela td.num{text-align:right;}
+    #printOrcamento .orc-print-tabela td{padding:7px 8px;font-size:12.5px;color:#111;border-bottom:1px solid #e8e8e8;}
+    #printOrcamento .orc-print-pai td{font-weight:700;background:#f7f7f7 !important;border-top:1px solid #ddd;border-bottom:1px solid #ddd;}
+    #printOrcamento .orc-print-filho td:first-child{padding-left:22px;color:#444;}
+    #printOrcamento .orc-print-total td{border-top:2px solid #111;border-bottom:none;font-weight:800;font-size:14px;padding-top:12px;}
+    #printOrcamento .orc-print-condicoes{font-size:11.5px;color:#444;margin-top:18px;padding-top:12px;border-top:1px dashed #ccc;}
+    #printOrcamento .orc-print-condicoes b{display:block;text-transform:uppercase;font-size:10px;letter-spacing:.05em;color:#777;margin-bottom:2px;}
+    #printOrcamento .orc-print-rodape{margin-top:30px;font-size:10.5px;color:#555;text-align:center;line-height:1.6;}
   }
 </style>
 </head>
@@ -851,6 +887,7 @@
   <div class="side-item navbtn" data-view="financeiro" id="sideFinanceiro"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M16 13h.01"></path><path d="M3 9h18"></path></svg></span>Financeiro</div>
   <div class="side-item navbtn" data-view="agenda" id="sideAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
   <div class="side-item navbtn" data-view="atividades" id="sideAtividades"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg></span>Atividades</div>
+  <div class="side-item navbtn" data-view="orcamentos" id="sideOrcamentos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"></path><path d="M9 13l2 2 4-4"></path></svg></span>Orçamentos</div>
   <div class="side-item navbtn" data-view="videos" id="sideVideos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5v-7z" fill="currentColor" stroke="none"></path></svg></span>Vídeos</div>
   <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>Cadastros</div>
   <div class="side-item navbtn" data-view="utilitarios" id="sideUtilitarios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.6-.6-.6-2.6z"></path></svg></span>Utilitários</div>
@@ -858,6 +895,7 @@
 
 <main>
   <div id="printHeader"></div>
+  <div id="printOrcamento"></div>
   <div class="install-banner" id="installBanner">
     <span>Instale este app na tela inicial para usar offline.</span>
     <button id="installBtn">Instalar</button>
@@ -874,6 +912,7 @@
     <div class="tab" data-view="financeiro" id="tabFinanceiro">Financeiro</div>
     <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
     <div class="tab" data-view="atividades" id="tabAtividades">Atividades</div>
+    <div class="tab" data-view="orcamentos" id="tabOrcamentos">Orçamentos</div>
     <div class="tab" data-view="videos" id="tabVideos">Vídeos</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
     <div class="tab" data-view="utilitarios" id="tabUtilitarios">Utilitários</div>
@@ -1544,6 +1583,48 @@
     <div id="listaAtividades"></div>
   </section>
 
+  <!-- ORÇAMENTOS (proposta comercial: itens/subitens por valor-hora, PDF e
+       Excel pra envio ao cliente) — visível pra Atendente/Admin ---------- -->
+  <section class="view" id="view-orcamentos">
+    <div class="card" id="cardFormOrcamento">
+      <h2 id="orcFormTitulo">Novo orçamento</h2>
+      <div class="row3">
+        <div class="field"><label>Cliente</label><select id="orc_cliente"></select></div>
+        <div class="field"><label>Assunto <span style="font-weight:400;">(opcional)</span></label><input type="text" id="orc_assunto" placeholder="Ex: Implantação módulo Financeiro"></div>
+        <div class="field"><label>Validade da proposta <span style="font-weight:400;">(opcional)</span></label><input type="date" id="orc_validade"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Responsável</label><select id="orc_responsavel"></select></div>
+        <div class="field"><label>Status</label><select id="orc_status"></select></div>
+      </div>
+
+      <label style="margin-bottom:6px;">Itens</label>
+      <table class="orc-tabela">
+        <thead><tr><th style="width:42%;">Descrição</th><th class="num" style="width:16%;">Qtd horas</th><th class="num" style="width:16%;">Valor/hora</th><th class="num" style="width:18%;">Subtotal</th><th style="width:8%;"></th></tr></thead>
+        <tbody id="orcTabelaItens"></tbody>
+      </table>
+      <button type="button" class="ghost" id="btnOrcAdicionarItem" style="margin-top:8px;">+ Adicionar item</button>
+
+      <div class="orc-total-linha">
+        <span class="orc-total-label">Total do orçamento</span>
+        <span class="orc-total-valor" id="orcTotalValor">R$ 0,00</span>
+      </div>
+
+      <div class="field" style="margin-top:14px;"><label>Condições / observações <span style="font-weight:400;">(opcional)</span></label><textarea id="orc_condicoes" style="width:100%;min-height:60px;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;font-family:inherit;"></textarea></div>
+
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+        <button class="primary" id="btnSalvarOrcamento" style="flex:1;">Salvar orçamento</button>
+        <button type="button" class="ghost" id="btnCancelarEdicaoOrcamento" style="display:none;flex:none;width:auto;">Cancelar edição</button>
+        <span id="orcAcoesPdfExcel" style="display:none;gap:8px;">
+          <button type="button" class="ghost" id="btnGerarPdfOrcamentoAtual" style="width:auto;">🖨 Gerar PDF</button>
+          <button type="button" class="ghost" id="btnGerarExcelOrcamentoAtual" style="width:auto;">📊 Gerar Excel</button>
+        </span>
+      </div>
+    </div>
+
+    <div id="listaOrcamentos"></div>
+  </section>
+
   <!-- VÍDEOS / TUTORIAIS (cadastro só admin; lista pra todo mundo autorizado) -->
   <section class="view" id="view-videos">
     <div class="subtabs" id="vidSubtabs">
@@ -1828,6 +1909,7 @@
           <div class="field"><label>Telefone</label><input type="text" id="emp_telefone"></div>
           <div class="field"><label>E-mail</label><input type="text" id="emp_email"></div>
         </div>
+        <div class="field"><label>Cidade <span style="font-weight:400;">(usada na data do rodapé de orçamentos)</span></label><input type="text" id="emp_cidade"></div>
         <div class="row">
           <div class="field"><label>CNAE</label><input type="text" id="emp_cnae"></div>
           <div class="field"><label>Inscrição Municipal</label><input type="text" id="emp_inscricao_municipal"></div>
@@ -2160,6 +2242,7 @@
   <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M16 13h.01"></path><path d="M3 9h18"></path></svg></span>Financ.</div>
   <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
   <div class="navbtn" data-view="atividades" id="navAtividades"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg></span>Ativid.</div>
+  <div class="navbtn" data-view="orcamentos" id="navOrcamentos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"></path><path d="M9 13l2 2 4-4"></path></svg></span>Orçam.</div>
   <div class="navbtn" data-view="videos" id="navVideos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5v-7z" fill="currentColor" stroke="none"></path></svg></span>Vídeos</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>Cadastros</div>
   <div class="navbtn" data-view="utilitarios" id="navUtilitarios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.6-.6-.6-2.6z"></path></svg></span>Util.</div>
