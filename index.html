@@ -204,6 +204,22 @@
   .kanban-col-body{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px;min-height:70px;transition:background .12s;}
   .kanban-col-body.drag-over{background:var(--accent-dim);}
   .kanban-col-empty{text-align:center;color:var(--muted);font-size:11.5px;padding:14px 4px;}
+  /* cabeçalho da coluna tingido com a mesma cor do status (igual às tags
+     .tag.status-* usadas na Lista) — ajuda a achar a coluna certa de relance */
+  .kanban-col-header.status-CONCLUIDO{background:color-mix(in oklch, var(--ok) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--ok) 32%, transparent);}
+  .kanban-col-header.status-CONCLUIDO .titulo{color:var(--ok);}
+  .kanban-col-header.status-PENDENTE{background:color-mix(in oklch, var(--warn) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--warn) 32%, transparent);}
+  .kanban-col-header.status-PENDENTE .titulo{color:var(--warn);}
+  .kanban-col-header.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--yellow) 32%, transparent);}
+  .kanban-col-header.status-EM-ANDAMENTO .titulo{color:var(--yellow);}
+  .kanban-col-header.status-EM-VALIDACAO{background:color-mix(in oklch, var(--blue) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--blue) 32%, transparent);}
+  .kanban-col-header.status-EM-VALIDACAO .titulo{color:var(--blue);}
+  .kanban-col-header.status-CANCELADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--bad) 32%, transparent);}
+  .kanban-col-header.status-CANCELADO .titulo{color:var(--bad);}
+  .kanban-col-header.status-NAO-VALIDADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--bad) 32%, transparent);}
+  .kanban-col-header.status-NAO-VALIDADO .titulo{color:var(--bad);}
+  .kanban-col-header.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--purple) 32%, transparent);}
+  .kanban-col-header.status-AGENDADO .titulo{color:var(--purple);}
   .kanban-card{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px 9px 6px;display:flex;gap:4px;cursor:pointer;}
   .kanban-card.dragging{opacity:.35;}
   .kanban-card-handle{flex-shrink:0;width:18px;text-align:center;color:var(--muted);cursor:grab;touch-action:none;user-select:none;font-size:14px;line-height:1.5;padding:2px 0;}
