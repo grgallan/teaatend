@@ -8182,10 +8182,10 @@ async function gerarPdfOrcamento(id){
         <tr class="orc-print-total"><td colspan="3">Total do orçamento</td><td class="num">${fmtMoeda(o.totalValor)}</td></tr>
       </tbody>
     </table>
-    ${o.condicoes ? `<div class="orc-print-condicoes"><b>Condições / observações</b>${escaparHtml(o.condicoes)}</div>` : ''}
+    ${o.condicoes ? `<div class="orc-print-condicoes"><b>Condições / observações</b>${escaparHtml(o.condicoes).replace(/\n/g,'<br>')}</div>` : ''}
     <div class="orc-print-rodape">
       ${empresa.cidade ? `${escaparHtml(empresa.cidade)}, ${orcDataPorExtenso()}<br>` : ''}
-      ${rodapePartes.map(escaparHtml).join(' · ')}
+      ${rodapePartes.map(escaparHtml).join('<br>')}
     </div>
   `;
   document.body.classList.add('print-modo-orcamento');
