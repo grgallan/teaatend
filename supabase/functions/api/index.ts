@@ -307,6 +307,7 @@ async function rotear(req: any): Promise<any> {
     case 'criarVideo': return acaoCriarVideo(req);
     case 'atualizarVideo': return acaoAtualizarVideo(req);
     case 'removerVideo': return acaoRemoverVideo(req);
+    case 'registrarVisualizacaoVideo': return acaoRegistrarVisualizacaoVideo(req);
     case 'listarComentariosVideo': return acaoListarComentariosVideo(req);
     case 'criarComentarioVideo': return acaoCriarComentarioVideo(req);
     case 'removerComentarioVideo': return acaoRemoverComentarioVideo(req);
@@ -1330,6 +1331,7 @@ function videoParaApi(v: any) {
     id: v.id, titulo: v.titulo, descricao: v.descricao || '', urlYoutube: v.url_youtube,
     cliente: v.cliente || '', modulo: v.modulo || '', visivelPerfis: v.visivel_perfis || [],
     ordem: v.ordem || 0, criadoPor: v.criado_por || '', empresaId: v.empresa_id || '',
+    visualizacoes: v.visualizacoes || 0,
   };
 }
 
@@ -1398,6 +1400,19 @@ async function acaoRemoverVideo(req: any) {
   if (!(await podeAgir(req.contaId, 'videos', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover vídeos.' };
   await db.from('videos_tutoriais').delete().eq('id', req.id);
   return { ok: true };
+}
+
+// contador de visualizações — incrementado quando o vídeo vira o destaque
+// no player do front (sem exigir login de perfil específico: qualquer
+// conta que já pôde listar o vídeo pode contar como visualização dele)
+async function acaoRegistrarVisualizacaoVideo(req: any) {
+  if (!req.videoId) return { ok: false, erro: 'Vídeo não informado.' };
+  const { data: video } = await db.from('videos_tutoriais').select('visualizacoes').eq('id', req.videoId).maybeSingle();
+  if (!video) return { ok: false, erro: 'Vídeo não encontrado.' };
+  const visualizacoes = (video.visualizacoes || 0) + 1;
+  const { error } = await db.from('videos_tutoriais').update({ visualizacoes }).eq('id', req.videoId);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, visualizacoes };
 }
 
 /* ---------- comentários de vídeo ---------- */

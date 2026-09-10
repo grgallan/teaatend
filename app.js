@@ -7127,6 +7127,7 @@ let videosCache = [];
 let editandoVideoId = null;
 let vidFiltroModulo = 'TODOS';
 let vidSelecionadoId = null; // aula em destaque no player, na visão "Vídeos"
+let vidUltimaVisualizacaoRegistrada = null; // evita contar de novo a cada re-render do mesmo vídeo
 
 function extrairIdYoutube(url){
   if(!url) return '';
@@ -7215,7 +7216,7 @@ function renderVidPlayer(isAdmin){
       ${videoId ? `<a href="${linkOriginal}" target="_blank" rel="noopener" class="vid-link-alternativo">▶ Não carregou? Assistir direto no YouTube</a>` : ''}
       <div class="vid-titulo">${escaparHtml(v.titulo)}</div>
       ${v.descricao ? `<div class="vid-descricao">${escaparHtml(v.descricao)}</div>` : ''}
-      <div class="vid-meta">${v.cliente ? escaparHtml(v.cliente) : 'Todos os clientes'}${v.modulo ? ' · '+escaparHtml(v.modulo) : ''}${isAdmin ? ' · Visível pra: '+escaparHtml(perfisTexto) : ''}</div>
+      <div class="vid-meta">${v.cliente ? escaparHtml(v.cliente) : 'Todos os clientes'}${v.modulo ? ' · '+escaparHtml(v.modulo) : ''} · 👁 ${v.visualizacoes||0} visualiza${(v.visualizacoes||0)===1?'ção':'ções'}${isAdmin ? ' · Visível pra: '+escaparHtml(perfisTexto) : ''}</div>
       ${isAdmin ? `<div class="vid-acoes">
         <button class="ghost" onclick="editarVideoUi('${v.id}')">Editar</button>
         <button class="ghost" onclick="pedirConfirmacao('Remover vídeo?','Isso não pode ser desfeito.', ()=>removerVideoUi('${v.id}'))">Excluir</button>
@@ -7223,6 +7224,28 @@ function renderVidPlayer(isAdmin){
       <div class="vid-comentarios" id="vidComentarios_${v.id}"></div>
     </div>`;
   carregarComentariosVideo(v.id);
+  registrarVisualizacaoVideoSeNecessario(v.id);
+}
+
+// conta uma visualização só na primeira vez que o vídeo vira destaque no
+// player (seleção nova) — evita somar de novo a cada re-render à toa
+// (comentário enviado, vídeo editado etc.) enquanto o mesmo vídeo continua em foco
+async function registrarVisualizacaoVideoSeNecessario(videoId){
+  if(vidUltimaVisualizacaoRegistrada === videoId) return;
+  vidUltimaVisualizacaoRegistrada = videoId;
+  try{
+    const r = await api('registrarVisualizacaoVideo', { videoId });
+    if(r.ok){
+      const v = videosCache.find(x=>x.id===videoId);
+      if(v){
+        v.visualizacoes = r.visualizacoes;
+        const metaEl = document.querySelector('#vidPlayerArea .vid-meta');
+        if(metaEl) metaEl.textContent = metaEl.textContent.replace(/👁 \d+ visualizaç(ão|ões)/, `👁 ${r.visualizacoes} visualiza${r.visualizacoes===1?'ção':'ções'}`);
+        const linhaDesc = document.querySelector(`.vid-aula-item[data-id="${CSS.escape(videoId)}"] .vid-aula-views`);
+        if(linhaDesc) linhaDesc.textContent = `👁 ${r.visualizacoes}`;
+      }
+    }
+  }catch(e){ /* contador é só informativo — falha aqui não deve travar o player */ }
 }
 
 // lista de "aulas" agrupada por módulo, abaixo/ao lado do player — clicar
@@ -7261,6 +7284,7 @@ function renderVidAulaLinha(v, numero, isAdmin){
     <div class="vid-aula-info">
       <div class="vid-aula-titulo">${numero}. ${escaparHtml(v.titulo)}</div>
       ${v.descricao ? `<div class="vid-aula-desc">${escaparHtml(v.descricao)}</div>` : ''}
+      <div class="vid-aula-views">👁 ${v.visualizacoes||0}</div>
     </div>
     ${isAdmin ? `<div class="vid-aula-acoes" onclick="event.stopPropagation();">
       <button class="ghost" onclick="editarVideoUi('${v.id}')" title="Editar">✎</button>
