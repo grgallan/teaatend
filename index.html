@@ -305,7 +305,8 @@
   .lista-th-arrastavel:hover{color:var(--text);}
   .lista-th-arrastavel.ordenado{color:var(--accent);}
   .lista-tabela tbody tr:not(.lista-grupo){border-top:1px solid var(--line);}
-  .lista-tabela tbody tr:not(.lista-grupo):hover{background:var(--panel-2);}
+  .lista-tabela tbody tr:not(.lista-grupo):not(.linha-filho):nth-of-type(even){background:var(--panel-2);}
+  .lista-tabela tbody tr:not(.lista-grupo):hover{background:var(--panel-2);box-shadow:inset 3px 0 0 var(--accent);}
   .lista-tabela td{padding:8px 8px;font-size:12px;overflow-wrap:break-word;}
   .lista-tabela tr.lista-grupo{background:var(--accent-dim);}
   .lista-tabela tr.lista-grupo td{padding:9px 8px;font-weight:700;color:var(--accent);}
