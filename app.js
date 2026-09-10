@@ -7999,10 +7999,13 @@ function limparFormOrcamento(){
   document.getElementById('orc_assunto').value = '';
   document.getElementById('orc_termo_referencia').value = '';
   document.getElementById('orc_validade').value = '';
+  document.getElementById('orc_data_aceite').value = '';
   document.getElementById('orc_condicoes').value = '';
   document.getElementById('btnSalvarOrcamento').textContent = 'Salvar orçamento';
   document.getElementById('btnCancelarEdicaoOrcamento').style.display = 'none';
   document.getElementById('orcAcoesPdfExcel').style.display = 'none';
+  document.getElementById('orcAnexosLista').innerHTML = '';
+  document.getElementById('orcAnexoAviso').style.display = '';
   popularSelectsOrcamento();
   document.getElementById('orc_status').value = 'RASCUNHO';
   orcAdicionarItem(null);
@@ -8029,13 +8032,16 @@ async function editarOrcamentoUi(id){
   document.getElementById('orc_assunto').value = r.orcamento.assunto || '';
   document.getElementById('orc_termo_referencia').value = r.orcamento.termoReferencia || '';
   document.getElementById('orc_validade').value = r.orcamento.validade || '';
+  document.getElementById('orc_data_aceite').value = r.orcamento.dataAceite || '';
   document.getElementById('orc_condicoes').value = r.orcamento.condicoes || '';
   document.getElementById('orc_responsavel').value = r.orcamento.responsavel || '';
   document.getElementById('orc_status').value = r.orcamento.status;
   document.getElementById('btnSalvarOrcamento').textContent = 'Salvar edição';
   document.getElementById('btnCancelarEdicaoOrcamento').style.display = '';
   document.getElementById('orcAcoesPdfExcel').style.display = 'flex';
+  document.getElementById('orcAnexoAviso').style.display = 'none';
   orcRenderTabela();
+  carregarAnexosOrcamento(id);
   document.getElementById('cardFormOrcamento').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
@@ -8064,12 +8070,15 @@ async function copiarOrcamentoUi(id){
   document.getElementById('orc_assunto').value = r.orcamento.assunto || '';
   document.getElementById('orc_termo_referencia').value = r.orcamento.termoReferencia || '';
   document.getElementById('orc_validade').value = ''; // proposta nova — validade em branco pra não herdar prazo vencido
+  document.getElementById('orc_data_aceite').value = ''; // idem — aceite é da proposta original, não da cópia
   document.getElementById('orc_condicoes').value = r.orcamento.condicoes || '';
   document.getElementById('orc_responsavel').value = r.orcamento.responsavel || '';
   document.getElementById('orc_status').value = 'RASCUNHO';
   document.getElementById('btnSalvarOrcamento').textContent = 'Salvar orçamento';
   document.getElementById('btnCancelarEdicaoOrcamento').style.display = '';
   document.getElementById('orcAcoesPdfExcel').style.display = 'none';
+  document.getElementById('orcAnexosLista').innerHTML = ''; // anexos não são copiados — são do orçamento original
+  document.getElementById('orcAnexoAviso').style.display = '';
   orcRenderTabela();
   document.getElementById('cardFormOrcamento').scrollIntoView({ behavior:'smooth', block:'start' });
   toast('Orçamento copiado — revise e salve pra criar um novo');
@@ -8088,6 +8097,7 @@ async function salvarOrcamento(){
     termoReferencia: document.getElementById('orc_termo_referencia').value.trim(),
     responsavel: document.getElementById('orc_responsavel').value,
     validade: document.getElementById('orc_validade').value,
+    dataAceite: document.getElementById('orc_data_aceite').value,
     condicoes: document.getElementById('orc_condicoes').value.trim(),
     status: document.getElementById('orc_status').value,
     empresaId: empresaAtual ? empresaAtual.id : '',
@@ -8143,6 +8153,7 @@ function renderListaOrcamentos(){
   cont.innerHTML = orcamentosCache.map(o=>{
     const status = orcStatusInfo(o.status);
     const partesValidade = o.validade ? o.validade.split('-') : null;
+    const partesAceite = o.dataAceite ? o.dataAceite.split('-') : null;
     return `<div class="ativ-item">
       <div class="ativ-corpo" onclick="editarOrcamentoUi('${o.id}')">
         <div class="ativ-titulo">Nº ${escaparHtml(o.numero)} — ${escaparHtml(o.cliente)}</div>
@@ -8153,6 +8164,7 @@ function renderListaOrcamentos(){
           <span class="tag">${orcFmtHoras(o.totalHoras)}</span>
           <span class="tag" style="color:var(--accent);font-weight:700;">${fmtMoeda(o.totalValor)}</span>
           ${partesValidade ? `<span class="tag">Validade: ${partesValidade[2]}/${partesValidade[1]}</span>` : ''}
+          ${partesAceite ? `<span class="tag" style="background:var(--ok);color:#fff;">✓ Aceito em ${partesAceite[2]}/${partesAceite[1]}</span>` : ''}
         </div>
       </div>
       <div class="ativ-acoes">
@@ -8257,6 +8269,49 @@ async function gerarExcelOrcamento(id){
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, planilha, 'Orçamento');
   await salvarWorkbook(livro, `orcamento-${o.numero}.xlsx`);
+}
+
+/* ---------- anexos do orçamento (tabela própria — orcamento_anexos) ---------- */
+async function carregarAnexosOrcamento(orcamentoId){
+  const cont = document.getElementById('orcAnexosLista');
+  cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
+  try{
+    const r = await api('listarAnexosOrcamento', { orcamentoId });
+    if(!r.ok){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    renderAnexosOrcamentoLista(r.anexos, orcamentoId);
+  }catch(e){
+    cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar os anexos.</div>`;
+  }
+}
+function renderAnexosOrcamentoLista(lista, orcamentoId){
+  const cont = document.getElementById('orcAnexosLista');
+  if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum anexo ainda.</div>`; return; }
+  cont.innerHTML = lista.map(a=>`
+    <div class="anexo-item">
+      <a href="${a.url}" target="_blank">📎 ${escaparHtml(a.nome||'anexo')}</a>
+      <a href="${urlDownloadAnexo(a.url, a.nome)}" title="Baixar arquivo original">⬇ Baixar</a>
+      <button type="button" onclick="removerAnexoOrcamentoUi('${a.id}','${orcamentoId}')">remover</button>
+    </div>`).join('');
+}
+async function adicionarAnexoOrcamentoUi(orcamentoId, arquivo){
+  if(!orcamentoId){ toast('Salve o orçamento antes de anexar arquivos.'); return; }
+  if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); return; }
+  toast('Enviando anexo…');
+  try{
+    const base64 = await lerArquivoBase64(arquivo);
+    const r = await api('adicionarAnexoOrcamento', { orcamentoId, base64, tipo: arquivo.type, nome: arquivo.name });
+    if(!r.ok){ toast(r.erro || 'Não foi possível enviar o anexo.'); return; }
+    await carregarAnexosOrcamento(orcamentoId);
+    toast('Anexo adicionado');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível enviar o anexo.');
+  }
+}
+async function removerAnexoOrcamentoUi(id, orcamentoId){
+  const r = await api('removerAnexoOrcamento', { id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarAnexosOrcamento(orcamentoId);
+  toast('Anexo removido');
 }
 
 function renderListTipos(){
@@ -10457,6 +10512,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnGerarPdfOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) gerarPdfOrcamento(orcEditandoId); });
   document.getElementById('btnGerarExcelOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) gerarExcelOrcamento(orcEditandoId); });
   document.getElementById('btnCopiarOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) copiarOrcamentoUi(orcEditandoId); });
+  document.getElementById('orc_anexo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    if(arquivo) adicionarAnexoOrcamentoUi(orcEditandoId, arquivo);
+    e.target.value = '';
+  });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
