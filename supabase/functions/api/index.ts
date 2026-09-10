@@ -285,6 +285,9 @@ async function rotear(req: any): Promise<any> {
     case 'obterOrcamento': return acaoObterOrcamento(req);
     case 'salvarOrcamento': return acaoSalvarOrcamento(req);
     case 'removerOrcamento': return acaoRemoverOrcamento(req);
+    case 'listarAnexosOrcamento': return acaoListarAnexosOrcamento(req);
+    case 'adicionarAnexoOrcamento': return acaoAdicionarAnexoOrcamento(req);
+    case 'removerAnexoOrcamento': return acaoRemoverAnexoOrcamento(req);
     case 'removerConta': return acaoRemoverConta(req);
     case 'addCliente': return acaoAddCliente(req);
     case 'atualizarCliente': return acaoAtualizarCliente(req);
@@ -2113,7 +2116,8 @@ function orcamentoParaApi(o: any, totalHoras: number, totalValor: number) {
   return {
     id: o.id, numero: o.numero, cliente: o.cliente, assunto: o.assunto || '',
     termoReferencia: o.termo_referencia || '',
-    responsavel: o.responsavel || '', validade: o.validade || '', condicoes: o.condicoes || '',
+    responsavel: o.responsavel || '', validade: o.validade || '', dataAceite: o.data_aceite || '',
+    condicoes: o.condicoes || '',
     status: o.status || 'RASCUNHO', criadoPor: o.criado_por || '', criadoEm: o.criado_em,
     empresaId: o.empresa_id || '', totalHoras, totalValor,
   };
@@ -2182,6 +2186,7 @@ async function acaoSalvarOrcamento(req: any) {
       id: orcamentoId, numero, cliente: req.cliente, assunto: req.assunto || '',
       termo_referencia: req.termoReferencia || '',
       responsavel: req.responsavel || (conta ? conta.nome : ''), validade: req.validade || null,
+      data_aceite: req.dataAceite || null,
       condicoes: req.condicoes || '', status: req.status || 'RASCUNHO',
       criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
     };
@@ -2190,7 +2195,7 @@ async function acaoSalvarOrcamento(req: any) {
   } else {
     const registro = {
       cliente: req.cliente, assunto: req.assunto || '', termo_referencia: req.termoReferencia || '',
-      responsavel: req.responsavel || '', validade: req.validade || null,
+      responsavel: req.responsavel || '', validade: req.validade || null, data_aceite: req.dataAceite || null,
       condicoes: req.condicoes || '', status: req.status || 'RASCUNHO',
     };
     const { error } = await db.from('orcamentos').update(registro).eq('id', orcamentoId);
@@ -2217,6 +2222,32 @@ async function acaoSalvarOrcamento(req: any) {
 async function acaoRemoverOrcamento(req: any) {
   if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover orçamentos.' };
   await db.from('orcamentos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+/* ---------- anexos do orçamento — tabela própria (orcamento_anexos) ---------- */
+async function acaoListarAnexosOrcamento(req: any) {
+  if (!req.orcamentoId) return { ok: false, erro: 'Orçamento não informado.' };
+  const { data, error } = await db.from('orcamento_anexos').select('*').eq('orcamento_id', req.orcamentoId).order('criado_em');
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, anexos: (data || []).map((a: any) => ({ id: a.id, orcamentoId: a.orcamento_id, nome: a.nome, url: a.url })) };
+}
+
+async function acaoAdicionarAnexoOrcamento(req: any) {
+  if (!req.orcamentoId) return { ok: false, erro: 'Orçamento não informado.' };
+  try {
+    const salvo = await salvarAnexo(req.base64, req.tipo, req.nome);
+    const registro = { id: gerarId(), orcamento_id: req.orcamentoId, nome: salvo.nome, url: salvo.url };
+    const { error } = await db.from('orcamento_anexos').insert(registro);
+    if (error) return { ok: false, erro: error.message };
+    return { ok: true, anexo: { id: registro.id, orcamentoId: req.orcamentoId, nome: registro.nome, url: registro.url } };
+  } catch (e) {
+    return { ok: false, erro: 'Não foi possível enviar o anexo.' };
+  }
+}
+
+async function acaoRemoverAnexoOrcamento(req: any) {
+  await db.from('orcamento_anexos').delete().eq('id', req.id);
   return { ok: true };
 }
 

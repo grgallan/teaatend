@@ -959,3 +959,19 @@ create index if not exists idx_orcamento_itens_pai on orcamento_itens (item_pai_
 
 -- texto longo, aparece no PDF logo abaixo da linha do Assunto
 alter table orcamentos add column if not exists termo_referencia text default '';
+
+-- anexos do orçamento — tabela própria (não reaproveita "anexos", que é
+-- amarrada a atendimento_id not null), mesmo padrão de atividade_anexos
+create table if not exists orcamento_anexos (
+  id text primary key,
+  orcamento_id text not null references orcamentos(id) on delete cascade,
+  nome text not null,
+  url text not null,
+  criado_em timestamptz default now()
+);
+alter table orcamento_anexos enable row level security;
+create index if not exists idx_orc_anexos_orcamento on orcamento_anexos (orcamento_id);
+
+-- data em que o cliente aceitou/aprovou a proposta (controle interno —
+-- não sai no PDF, que é o documento enviado antes do aceite)
+alter table orcamentos add column if not exists data_aceite date;
