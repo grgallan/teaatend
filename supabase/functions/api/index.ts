@@ -272,6 +272,11 @@ async function rotear(req: any): Promise<any> {
     case 'criarAgendamento': return acaoCriarAgendamento(req);
     case 'atualizarAgendamento': return acaoAtualizarAgendamento(req);
     case 'removerAgendamento': return acaoRemoverAgendamento(req);
+    case 'listarAtividades': return acaoListarAtividades(req);
+    case 'criarAtividade': return acaoCriarAtividade(req);
+    case 'atualizarAtividade': return acaoAtualizarAtividade(req);
+    case 'alternarConclusaoAtividade': return acaoAlternarConclusaoAtividade(req);
+    case 'removerAtividade': return acaoRemoverAtividade(req);
     case 'removerConta': return acaoRemoverConta(req);
     case 'addCliente': return acaoAddCliente(req);
     case 'atualizarCliente': return acaoAtualizarCliente(req);
@@ -1832,6 +1837,113 @@ async function acaoAtualizarAgendamento(req: any) {
 async function acaoRemoverAgendamento(req: any) {
   if (!(await podeGerenciarAgenda(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover agendamento.' };
   await db.from('agendamentos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+/* ---------- atividades (tarefas internas — soltas, vinculadas a um
+   atendimento e/ou aparecendo na Agenda, cada uma independente das outras) ---------- */
+function atividadeParaApi(a: any) {
+  return {
+    id: a.id, titulo: a.titulo, descricao: a.descricao || '', tipo: a.tipo || 'TAREFA',
+    responsavel: a.responsavel || '', status: a.status || 'PENDENTE',
+    atendimentoId: a.atendimento_id || '', naAgenda: !!a.na_agenda,
+    data: a.data || '', horaInicio: a.hora_inicio || '', horaFim: a.hora_fim || '',
+    criadoPor: a.criado_por || '', criadoEm: a.criado_em, concluidoEm: a.concluido_em || '',
+    empresaId: a.empresa_id || '',
+  };
+}
+
+async function podeGerenciarAtividade(contaId: string) {
+  const { data: conta } = await db.from('contas').select('perfil').eq('id', contaId).maybeSingle();
+  return !!(conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE'));
+}
+
+function validarCamposAtividade(req: any) {
+  if (!req.titulo || !String(req.titulo).trim()) return 'Preencha o título.';
+  if (req.naAgenda && (!req.data || !req.horaInicio || !req.horaFim)) return 'Preencha data e horário pra colocar na Agenda.';
+  return null;
+}
+
+async function acaoListarAtividades(req: any) {
+  const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
+  if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
+  if (conta.perfil === 'USUARIO') return { ok: true, atividades: [] }; // tarefa interna da equipe — usuário solicitante não acessa
+
+  let query = db.from('atividades').select('*').order('data', { ascending: true }).order('criado_em', { ascending: false });
+  if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  const { data, error } = await query;
+  if (error) return { ok: false, erro: error.message };
+  let atividades = data || [];
+  // atendente só vê as que é responsável ou que ele mesmo criou (senão uma
+  // atividade que ele cria pra outro colega "some" da própria lista dele);
+  // admin vê tudo
+  if (conta.perfil === 'ATENDENTE') {
+    atividades = atividades.filter((a: any) => a.responsavel === conta.nome || a.criado_por === conta.nome);
+  }
+  return { ok: true, atividades: atividades.map(atividadeParaApi) };
+}
+
+async function acaoCriarAtividade(req: any) {
+  if (!(await podeGerenciarAtividade(req.contaId))) return { ok: false, erro: 'Sem permissão pra criar atividades.' };
+  const erroValidacao = validarCamposAtividade(req);
+  if (erroValidacao) return { ok: false, erro: erroValidacao };
+  const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
+  const registro = {
+    id: gerarId(), titulo: req.titulo, descricao: req.descricao || '', tipo: req.tipo || 'TAREFA',
+    responsavel: req.responsavel || (conta ? conta.nome : ''), status: req.status || 'PENDENTE',
+    atendimento_id: req.atendimentoId || null, na_agenda: !!req.naAgenda,
+    data: req.data || null, hora_inicio: req.horaInicio || null, hora_fim: req.horaFim || null,
+    criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
+    concluido_em: req.status === 'CONCLUIDA' ? new Date().toISOString() : null,
+  };
+  const { error } = await db.from('atividades').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, id: registro.id };
+}
+
+async function acaoAtualizarAtividade(req: any) {
+  if (!(await podeGerenciarAtividade(req.contaId))) return { ok: false, erro: 'Sem permissão pra editar atividades.' };
+  if (!req.id) return { ok: false, erro: 'Atividade não informada.' };
+  const erroValidacao = validarCamposAtividade(req);
+  if (erroValidacao) return { ok: false, erro: erroValidacao };
+  const { data: existente } = await db.from('atividades').select('status,concluido_em').eq('id', req.id).maybeSingle();
+  if (!existente) return { ok: false, erro: 'Atividade não encontrada.' };
+
+  const statusFinal = req.status || 'PENDENTE';
+  let concluidoEm = existente.concluido_em;
+  if (statusFinal === 'CONCLUIDA' && existente.status !== 'CONCLUIDA') concluidoEm = new Date().toISOString();
+  else if (statusFinal !== 'CONCLUIDA') concluidoEm = null;
+
+  const atualizado = {
+    titulo: req.titulo, descricao: req.descricao || '', tipo: req.tipo || 'TAREFA',
+    responsavel: req.responsavel || '', status: statusFinal,
+    atendimento_id: req.atendimentoId || null, na_agenda: !!req.naAgenda,
+    data: req.data || null, hora_inicio: req.horaInicio || null, hora_fim: req.horaFim || null,
+    concluido_em: concluidoEm,
+  };
+  const { error } = await db.from('atividades').update(atualizado).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+
+// alternar concluída/pendente com um clique só (checklist), sem precisar
+// abrir e reenviar o formulário inteiro
+async function acaoAlternarConclusaoAtividade(req: any) {
+  if (!(await podeGerenciarAtividade(req.contaId))) return { ok: false, erro: 'Sem permissão pra editar atividades.' };
+  if (!req.id) return { ok: false, erro: 'Atividade não informada.' };
+  const { data: existente } = await db.from('atividades').select('status').eq('id', req.id).maybeSingle();
+  if (!existente) return { ok: false, erro: 'Atividade não encontrada.' };
+  const novoStatus = existente.status === 'CONCLUIDA' ? 'PENDENTE' : 'CONCLUIDA';
+  const { error } = await db.from('atividades')
+    .update({ status: novoStatus, concluido_em: novoStatus === 'CONCLUIDA' ? new Date().toISOString() : null })
+    .eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, status: novoStatus };
+}
+
+async function acaoRemoverAtividade(req: any) {
+  if (!(await podeGerenciarAtividade(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover atividades.' };
+  await db.from('atividades').delete().eq('id', req.id);
   return { ok: true };
 }
 
