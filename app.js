@@ -465,16 +465,19 @@ function descreverAtendimentoParaVinculo(r){
   return `${d}/${m}/${y} · ${r.cliente} · ${r.usuario}${resumoDetalhe ? ' · '+resumoDetalhe : ''}`;
 }
 
-// busca genérica — usada tanto no formulário de edição quanto na tela de
-// detalhe; cada contexto tem seu próprio input/lista de resultados
+// busca genérica — usada no formulário de edição, na tela de detalhe e no
+// vínculo (múltiplo) de atendimentos numa atividade; obterAtendimentoIdAtual
+// pode devolver um id só (exclui ele da busca) ou uma lista (exclui todos —
+// usado quando já pode ter mais de um vínculo, como nas atividades)
 function configurarBuscaVinculo(buscaInputId, resultadosId, obterAtendimentoIdAtual, aoSelecionar){
   document.getElementById(buscaInputId).addEventListener('input', e=>{
     const termo = e.target.value.trim().toLowerCase();
     const cont = document.getElementById(resultadosId);
     if(termo.length < 2){ cont.innerHTML = ''; return; }
-    const atualId = obterAtendimentoIdAtual();
+    const atual = obterAtendimentoIdAtual();
+    const idsExcluir = new Set((Array.isArray(atual) ? atual : [atual]).filter(v=>v!=null).map(String));
     const resultados = atendimentos
-      .filter(r => String(r.id) !== String(atualId))
+      .filter(r => !idsExcluir.has(String(r.id)))
       .filter(r => `${r.cliente} ${r.usuario} ${r.assunto||''} ${stripHtml(r.detalhe||'')} ${r.tipo}`.toLowerCase().includes(termo))
       .slice(0, 8);
     if(resultados.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum chamado encontrado.</div>`; return; }
@@ -5501,11 +5504,11 @@ function popularSelectsAgenda(){
 // abrirEditarAgendamento (ver agRenderBloco/renderAgendaMes e a flag _atividade)
 function atividadesComoEventosAgenda(){
   return atividadesCache
-    .filter(a => a.naAgenda && a.data && a.horaInicio && a.horaFim && a.status !== 'CANCELADA')
+    .filter(a => a.naAgenda && a.data && a.status !== 'CANCELADA' && (a.diaInteiro || (a.horaInicio && a.horaFim)))
     .map(a => ({
       id: a.id, titulo: `📌 ${a.titulo}`, descricao: a.descricao, cliente: '',
-      atendente: a.responsavel, data: a.data, horaInicio: a.horaInicio, horaFim: a.horaFim,
-      cor: '#616161', _atividade: true,
+      atendente: a.responsavel, data: a.data, horaInicio: a.horaInicio || '00:00', horaFim: a.horaFim || '23:59',
+      cor: '#616161', _atividade: true, _diaInteiro: !!a.diaInteiro,
     }));
 }
 
@@ -5671,9 +5674,12 @@ function renderGradeHoraria(dias){
   </div>`;
 }
 
+// a grade de horas (Dia/Semana) não tem uma "faixa de dia inteiro" separada
+// como o Google Agenda — um item "dia inteiro" não cabe direito nela, então
+// só aparece na visão de Mês (onde é só mais uma linha na lista do dia)
 function renderAgendaDia(itens){
   const dataStr = agIsoLocal(agDataRef);
-  const doDia = itens.filter(a=>a.data===dataStr);
+  const doDia = itens.filter(a=>a.data===dataStr && !a._diaInteiro);
   const label = agDataRef.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'});
   return renderGradeHoraria([{ label, eventos: doDia }]);
 }
@@ -5686,7 +5692,7 @@ function renderAgendaSemana(itens){
     const dataStr = agIsoLocal(d);
     dias.push({
       label: `${d.toLocaleDateString('pt-BR',{weekday:'short'}).toUpperCase()} ${d.getDate()}`,
-      eventos: itens.filter(a=>a.data===dataStr),
+      eventos: itens.filter(a=>a.data===dataStr && !a._diaInteiro),
     });
   }
   return renderGradeHoraria(dias);
@@ -5707,7 +5713,7 @@ function renderAgendaMes(itens){
     const foraDoMes = d.getMonth() !== mes;
     celulas += `<div class="ag-mes-dia ${foraDoMes?'fora-do-mes':''} ${dataStr===hojeStr?'hoje':''}">
       <div class="ag-mes-numero">${d.getDate()}</div>
-      ${doDia.slice(0,3).map(a=>`<div class="ag-mes-item" onclick="${a._atividade ? `abrirAtividadeNaAgenda('${a.id}')` : `abrirEditarAgendamento('${a.id}')`}" title="${escaparHtml(a.titulo)}" style="background:${corDoEvento(a)};color:#fff;">${a.horaInicio} ${escaparHtml(a.titulo)}</div>`).join('')}
+      ${doDia.slice(0,3).map(a=>`<div class="ag-mes-item" onclick="${a._atividade ? `abrirAtividadeNaAgenda('${a.id}')` : `abrirEditarAgendamento('${a.id}')`}" title="${escaparHtml(a.titulo)}" style="background:${corDoEvento(a)};color:#fff;">${a._diaInteiro ? 'Dia todo' : a.horaInicio} ${escaparHtml(a.titulo)}</div>`).join('')}
       ${doDia.length>3 ? `<div style="color:var(--muted);font-size:9.5px;">+${doDia.length-3} mais</div>` : ''}
     </div>`;
   }
@@ -7494,12 +7500,18 @@ const ATIV_STATUS = [
   { v:'CONCLUIDA', label:'Concluída', cor:'var(--ok)' },
   { v:'CANCELADA', label:'Cancelada', cor:'var(--bad)' },
 ];
+const ATIV_REPETICOES = [
+  { v:'NENHUMA', label:'Não repete' },
+  { v:'DIARIA', label:'Diariamente' },
+  { v:'SEMANAL', label:'Semanalmente' },
+  { v:'MENSAL', label:'Mensalmente' },
+];
 function ativTipoInfo(v){ return ATIV_TIPOS.find(t=>t.v===v) || ATIV_TIPOS[0]; }
 function ativStatusInfo(v){ return ATIV_STATUS.find(s=>s.v===v) || ATIV_STATUS[0]; }
 
 let atividadesCache = [];
 let ativEditandoId = null;
-let ativVinculoAtendimentoId = null;
+let ativVinculoAtendimentoIds = [];
 let ativFiltroStatus = 'TODOS';
 let ativFiltroResponsavel = 'TODOS';
 
@@ -7508,6 +7520,7 @@ function popularSelectsAtividade(){
   const isAdmin = ehAdminEfetivo(conta);
   document.getElementById('ativ_tipo').innerHTML = ATIV_TIPOS.map(t=>`<option value="${t.v}">${t.icone} ${t.label}</option>`).join('');
   document.getElementById('ativ_status').innerHTML = ATIV_STATUS.map(s=>`<option value="${s.v}">${s.label}</option>`).join('');
+  document.getElementById('ativ_repeticao').innerHTML = ATIV_REPETICOES.map(r=>`<option value="${r.v}">${r.label}</option>`).join('');
 
   const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
   const nomesResponsavel = isAdmin ? atendentesNomes : [conta.nome];
@@ -7519,20 +7532,39 @@ function popularSelectsAtividade(){
   else if(!isAdmin) selResp.value = conta.nome;
 }
 
-function renderVinculoAtividadeChip(){
+function ativRemoverVinculo(id){
+  ativVinculoAtendimentoIds = ativVinculoAtendimentoIds.filter(x=>String(x)!==String(id));
+  renderVinculosAtividadeChips();
+}
+function renderVinculosAtividadeChips(){
   const wrap = document.getElementById('ativVinculoChipWrap');
-  if(!ativVinculoAtendimentoId){ wrap.innerHTML = ''; return; }
-  const r = atendimentos.find(x=>String(x.id)===String(ativVinculoAtendimentoId));
-  wrap.innerHTML = `<span class="lookup-tag">${r ? `#${escaparHtml(String(r.id))} — ${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}` : `#${escaparHtml(String(ativVinculoAtendimentoId))}`}<button type="button" onclick="ativVinculoAtendimentoId=null;renderVinculoAtividadeChip();">×</button></span>`;
+  wrap.innerHTML = ativVinculoAtendimentoIds.map(id=>{
+    const r = atendimentos.find(x=>String(x.id)===String(id));
+    const texto = r ? `#${escaparHtml(String(r.id))} — ${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}` : `#${escaparHtml(String(id))}`;
+    return `<span class="lookup-tag">${texto}<button type="button" onclick="ativRemoverVinculo('${id}')">×</button></span>`;
+  }).join('');
 }
 
+// "Dia inteiro" dispensa Hora início/fim; "Também colocar na Agenda"
+// desmarcado esconde o bloco inteiro (incluindo o checkbox de dia inteiro)
 function ativAtualizarVisibilidadeAgenda(){
-  document.getElementById('ativCamposAgenda').style.display = document.getElementById('ativ_na_agenda').checked ? '' : 'none';
+  const naAgenda = document.getElementById('ativ_na_agenda').checked;
+  document.getElementById('ativCamposAgenda').style.display = naAgenda ? '' : 'none';
+  ativAtualizarVisibilidadeHora();
+}
+function ativAtualizarVisibilidadeHora(){
+  document.getElementById('ativCamposHora').style.display = document.getElementById('ativ_dia_inteiro').checked ? 'none' : '';
+}
+// "Repetição" só faz sentido ao criar (editar nunca regenera a série) —
+// esconde o grupo inteiro em modo de edição
+function ativAtualizarVisibilidadeRepeticao(){
+  document.getElementById('ativGrupoRepeticao').style.display = ativEditandoId ? 'none' : '';
+  document.getElementById('ativ_repetir_ate').style.display = document.getElementById('ativ_repeticao').value === 'NENHUMA' ? 'none' : '';
 }
 
 function limparFormAtividade(){
   ativEditandoId = null;
-  ativVinculoAtendimentoId = null;
+  ativVinculoAtendimentoIds = [];
   document.getElementById('ativFormTitulo').textContent = 'Nova atividade';
   document.getElementById('ativ_titulo').value = '';
   document.getElementById('ativ_descricao').value = '';
@@ -7540,22 +7572,29 @@ function limparFormAtividade(){
   document.getElementById('ativ_status').value = 'PENDENTE';
   document.getElementById('ativ_vinculo_busca').value = '';
   document.getElementById('ativVinculoResultados').innerHTML = '';
-  document.getElementById('ativ_na_agenda').checked = false;
   document.getElementById('ativ_data').value = hojeLocalISO();
+  document.getElementById('ativ_data_entrega').value = '';
+  document.getElementById('ativ_repeticao').value = 'NENHUMA';
+  document.getElementById('ativ_repetir_ate').value = '';
+  document.getElementById('ativ_na_agenda').checked = false;
+  document.getElementById('ativ_dia_inteiro').checked = false;
   document.getElementById('ativ_hora_inicio').value = '';
   document.getElementById('ativ_hora_fim').value = '';
   document.getElementById('btnSalvarAtividade').textContent = 'Salvar atividade';
   document.getElementById('btnCancelarEdicaoAtividade').style.display = 'none';
+  document.getElementById('ativAnexosLista').innerHTML = '';
+  document.getElementById('ativAnexoAviso').style.display = '';
   popularSelectsAtividade();
-  renderVinculoAtividadeChip();
+  renderVinculosAtividadeChips();
   ativAtualizarVisibilidadeAgenda();
+  ativAtualizarVisibilidadeRepeticao();
 }
 
 function editarAtividadeUi(id){
   const a = atividadesCache.find(x=>x.id===id);
   if(!a) return;
   ativEditandoId = id;
-  ativVinculoAtendimentoId = a.atendimentoId || null;
+  ativVinculoAtendimentoIds = (a.atendimentoIds || []).slice();
   document.getElementById('ativFormTitulo').textContent = 'Editar atividade';
   document.getElementById('ativ_titulo').value = a.titulo;
   document.getElementById('ativ_descricao').value = stripHtml(a.descricao || '');
@@ -7563,14 +7602,19 @@ function editarAtividadeUi(id){
   document.getElementById('ativ_tipo').value = a.tipo;
   document.getElementById('ativ_responsavel').value = a.responsavel;
   document.getElementById('ativ_status').value = a.status;
+  document.getElementById('ativ_data').value = a.data || '';
+  document.getElementById('ativ_data_entrega').value = a.dataEntrega || '';
   document.getElementById('ativ_na_agenda').checked = !!a.naAgenda;
-  document.getElementById('ativ_data').value = a.data || hojeLocalISO();
+  document.getElementById('ativ_dia_inteiro').checked = !!a.diaInteiro;
   document.getElementById('ativ_hora_inicio').value = a.horaInicio || '';
   document.getElementById('ativ_hora_fim').value = a.horaFim || '';
   document.getElementById('btnSalvarAtividade').textContent = 'Salvar edição';
   document.getElementById('btnCancelarEdicaoAtividade').style.display = '';
-  renderVinculoAtividadeChip();
+  document.getElementById('ativAnexoAviso').style.display = 'none';
+  renderVinculosAtividadeChips();
   ativAtualizarVisibilidadeAgenda();
+  ativAtualizarVisibilidadeRepeticao();
+  carregarAnexosAtividade(id);
   document.getElementById('cardFormAtividade').scrollIntoView({ behavior:'smooth', block:'start' });
 }
 
@@ -7588,16 +7632,29 @@ async function salvarAtividade(){
   const titulo = document.getElementById('ativ_titulo').value.trim();
   if(!titulo){ toast('Preencha o título'); return; }
   const naAgenda = document.getElementById('ativ_na_agenda').checked;
+  const diaInteiro = document.getElementById('ativ_dia_inteiro').checked;
   const data = document.getElementById('ativ_data').value;
+  const dataEntrega = document.getElementById('ativ_data_entrega').value;
   const horaInicio = document.getElementById('ativ_hora_inicio').value;
   const horaFim = document.getElementById('ativ_hora_fim').value;
-  if(naAgenda && (!data || !horaInicio || !horaFim)){ toast('Preencha data e horário pra colocar na Agenda'); return; }
+  if(naAgenda && !data){ toast('Preencha a data pra colocar na Agenda'); return; }
+  if(naAgenda && !diaInteiro && (!horaInicio || !horaFim)){ toast('Preencha o horário pra colocar na Agenda (ou marque "dia inteiro")'); return; }
+  // repetição só existe na criação — em modo de edição o grupo fica
+  // escondido, então tanto faz o valor que estiver nesses campos
+  const repeticao = ativEditandoId ? 'NENHUMA' : document.getElementById('ativ_repeticao').value;
+  const repetirAte = document.getElementById('ativ_repetir_ate').value;
+  if(!ativEditandoId && repeticao !== 'NENHUMA'){
+    if(!data){ toast('Preencha a data pra repetir a atividade'); return; }
+    if(!repetirAte){ toast('Preencha até quando repetir'); return; }
+  }
 
   const payload = {
     contaId: conta.id, titulo, descricao: document.getElementById('ativ_descricao').value.trim(),
     tipo: document.getElementById('ativ_tipo').value, responsavel: document.getElementById('ativ_responsavel').value,
-    status: document.getElementById('ativ_status').value, atendimentoId: ativVinculoAtendimentoId || '',
-    naAgenda, data: naAgenda ? data : '', horaInicio: naAgenda ? horaInicio : '', horaFim: naAgenda ? horaFim : '',
+    status: document.getElementById('ativ_status').value, atendimentoIds: ativVinculoAtendimentoIds,
+    data, dataEntrega, naAgenda, diaInteiro,
+    horaInicio: naAgenda && !diaInteiro ? horaInicio : '', horaFim: naAgenda && !diaInteiro ? horaFim : '',
+    repeticao, repetirAte: repeticao !== 'NENHUMA' ? repetirAte : '',
     empresaId: empresaAtual ? empresaAtual.id : '',
   };
   const btn = document.getElementById('btnSalvarAtividade');
@@ -7607,7 +7664,7 @@ async function salvarAtividade(){
       ? await api('atualizarAtividade', { ...payload, id: ativEditandoId })
       : await api('criarAtividade', payload);
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
-    toast(ativEditandoId ? 'Atividade atualizada' : 'Atividade criada');
+    toast(ativEditandoId ? 'Atividade atualizada' : (r.ocorrenciasGeradas > 1 ? `${r.ocorrenciasGeradas} atividades criadas (série)` : 'Atividade criada'));
     limparFormAtividade();
     await carregarAtividades();
   }catch(e){
@@ -7633,6 +7690,62 @@ function removerAtividadeUi(id){
     await carregarAtividades();
     toast('Atividade excluída');
   });
+}
+
+// exclui de uma vez todas as ocorrências geradas junto (mesma série),
+// diferente do botão normal de excluir que só tira essa ocorrência
+function removerSerieAtividadeUi(serieId){
+  const conta = contaAtual();
+  pedirConfirmacao('Excluir toda a série?', 'Remove essa e todas as outras ocorrências geradas junto. Essa ação não pode ser desfeita.', async ()=>{
+    const r = await api('removerSerieAtividade', { contaId: conta.id, serieId });
+    if(!r.ok){ toast(r.erro || 'Não foi possível excluir a série.'); return; }
+    if(ativEditandoId && atividadesCache.find(x=>x.id===ativEditandoId)?.serieId === serieId) limparFormAtividade();
+    await carregarAtividades();
+    toast('Série excluída');
+  });
+}
+
+/* ---------- anexos da atividade (tabela própria — atividade_anexos) ---------- */
+async function carregarAnexosAtividade(atividadeId){
+  const cont = document.getElementById('ativAnexosLista');
+  cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
+  try{
+    const r = await api('listarAnexosAtividade', { atividadeId });
+    if(!r.ok){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    renderAnexosAtividadeLista(r.anexos, atividadeId);
+  }catch(e){
+    cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar os anexos.</div>`;
+  }
+}
+function renderAnexosAtividadeLista(lista, atividadeId){
+  const cont = document.getElementById('ativAnexosLista');
+  if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum anexo ainda.</div>`; return; }
+  cont.innerHTML = lista.map(a=>`
+    <div class="anexo-item">
+      <a href="${a.url}" target="_blank">📎 ${escaparHtml(a.nome||'anexo')}</a>
+      <a href="${urlDownloadAnexo(a.url, a.nome)}" title="Baixar arquivo original">⬇ Baixar</a>
+      <button type="button" onclick="removerAnexoAtividadeUi('${a.id}','${atividadeId}')">remover</button>
+    </div>`).join('');
+}
+async function adicionarAnexoAtividadeUi(atividadeId, arquivo){
+  if(!atividadeId){ toast('Salve a atividade antes de anexar arquivos.'); return; }
+  if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); return; }
+  toast('Enviando anexo…');
+  try{
+    const base64 = await lerArquivoBase64(arquivo);
+    const r = await api('adicionarAnexoAtividade', { atividadeId, base64, tipo: arquivo.type, nome: arquivo.name });
+    if(!r.ok){ toast(r.erro || 'Não foi possível enviar o anexo.'); return; }
+    await carregarAnexosAtividade(atividadeId);
+    toast('Anexo adicionado');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível enviar o anexo.');
+  }
+}
+async function removerAnexoAtividadeUi(id, atividadeId){
+  const r = await api('removerAnexoAtividade', { id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarAnexosAtividade(atividadeId);
+  toast('Anexo removido');
 }
 
 // carrega o cache de atividades sem mexer na tela de Atividades — usado só
@@ -7685,30 +7798,44 @@ function atividadesFiltradas(){
   return itens;
 }
 
+function ativFmtDataBr(iso){
+  const p = String(iso||'').split('-');
+  return p.length === 3 ? `${p[2]}/${p[1]}` : '';
+}
 function renderItemAtividade(a){
   const tipo = ativTipoInfo(a.tipo);
   const status = ativStatusInfo(a.status);
-  const done = a.status === 'CONCLUIDA';
-  const r = a.atendimentoId ? atendimentos.find(x=>String(x.id)===String(a.atendimentoId)) : null;
+  const done = a.status === 'CONCLUIDA' || a.status === 'CANCELADA';
+  const vinculos = (a.atendimentoIds||[]).map(id=>atendimentos.find(x=>String(x.id)===String(id))).filter(Boolean);
+  const MAX_CHIPS_VINCULO = 2;
+
   let agendaTxt = '';
   if(a.naAgenda && a.data){
-    const [y,m,d] = a.data.split('-');
-    agendaTxt = `📅 ${d}/${m}${a.horaInicio ? ' '+a.horaInicio : ''}`;
+    agendaTxt = a.diaInteiro ? `📅 ${ativFmtDataBr(a.data)} (dia todo)` : `📅 ${ativFmtDataBr(a.data)}${a.horaInicio ? ' '+a.horaInicio : ''}`;
   }
+  let entregaTxt = '';
+  if(a.dataEntrega){
+    const atrasada = !done && a.dataEntrega < hojeLocalISO();
+    entregaTxt = `<span class="tag" style="${atrasada ? `background:var(--bad);color:#fff;` : ''}" title="Data de entrega">🏁 ${ativFmtDataBr(a.dataEntrega)}</span>`;
+  }
+
   return `<div class="ativ-item">
-    <button type="button" class="ativ-check ${done?'done':''}" title="${done?'Marcar como pendente':'Marcar como concluída'}" onclick="alternarConclusaoAtividadeUi('${a.id}')">${done?'✓':''}</button>
+    <button type="button" class="ativ-check ${a.status==='CONCLUIDA'?'done':''}" title="${a.status==='CONCLUIDA'?'Marcar como pendente':'Marcar como concluída'}" onclick="alternarConclusaoAtividadeUi('${a.id}')">${a.status==='CONCLUIDA'?'✓':''}</button>
     <div class="ativ-corpo" onclick="editarAtividadeUi('${a.id}')">
-      <div class="ativ-titulo ${done?'done':''}">${escaparHtml(a.titulo)}</div>
+      <div class="ativ-titulo ${done?'done':''}">${escaparHtml(a.titulo)}${a.serieId ? ' <span title="Faz parte de uma série repetida">🔁</span>' : ''}</div>
       ${a.descricao ? `<div class="ativ-desc">${escaparHtml(stripHtml(a.descricao))}</div>` : ''}
       <div class="ativ-meta">
         <span class="tag">${tipo.icone} ${escaparHtml(tipo.label)}</span>
         <span class="tag" style="background:${status.cor};color:#fff;">${escaparHtml(status.label)}</span>
         ${a.responsavel ? `<span class="tag">${escaparHtml(a.responsavel)}</span>` : ''}
-        ${r ? `<span class="tag" title="Vinculada a este atendimento" onclick="event.stopPropagation();abrirDetalhe('${r.id}')" style="cursor:pointer;">🔗 #${escaparHtml(String(r.id))} ${escaparHtml(r.cliente)}</span>` : ''}
+        ${vinculos.slice(0, MAX_CHIPS_VINCULO).map(r=>`<span class="tag" title="Vinculada a este atendimento" onclick="event.stopPropagation();abrirDetalhe('${r.id}')" style="cursor:pointer;">🔗 #${escaparHtml(String(r.id))} ${escaparHtml(r.cliente)}</span>`).join('')}
+        ${vinculos.length > MAX_CHIPS_VINCULO ? `<span class="tag">+${vinculos.length - MAX_CHIPS_VINCULO} atendimento${vinculos.length - MAX_CHIPS_VINCULO > 1 ? 's' : ''}</span>` : ''}
         ${agendaTxt ? `<span class="tag" title="Aparece na Agenda">${agendaTxt}</span>` : ''}
+        ${entregaTxt}
       </div>
     </div>
     <div class="ativ-acoes">
+      ${a.serieId ? `<button class="ghost" onclick="event.stopPropagation();removerSerieAtividadeUi('${a.serieId}')" title="Excluir toda a série">🔁🗑</button>` : ''}
       <button class="ghost" onclick="removerAtividadeUi('${a.id}')" title="Excluir">🗑</button>
     </div>
   </div>`;
@@ -9887,9 +10014,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnSalvarAtividade').addEventListener('click', salvarAtividade);
   document.getElementById('btnCancelarEdicaoAtividade').addEventListener('click', cancelarEdicaoAtividade);
   document.getElementById('ativ_na_agenda').addEventListener('change', ativAtualizarVisibilidadeAgenda);
-  configurarBuscaVinculo('ativ_vinculo_busca', 'ativVinculoResultados', ()=>null, (id)=>{
-    ativVinculoAtendimentoId = id;
-    renderVinculoAtividadeChip();
+  document.getElementById('ativ_dia_inteiro').addEventListener('change', ativAtualizarVisibilidadeHora);
+  document.getElementById('ativ_repeticao').addEventListener('change', ativAtualizarVisibilidadeRepeticao);
+  configurarBuscaVinculo('ativ_vinculo_busca', 'ativVinculoResultados', ()=>ativVinculoAtendimentoIds, (id)=>{
+    if(!ativVinculoAtendimentoIds.includes(id)) ativVinculoAtendimentoIds.push(id);
+    renderVinculosAtividadeChips();
+  });
+  document.getElementById('ativ_anexo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    if(arquivo) adicionarAnexoAtividadeUi(ativEditandoId, arquivo);
+    e.target.value = '';
   });
   document.getElementById('ativFiltroStatus').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;

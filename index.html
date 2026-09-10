@@ -1484,22 +1484,49 @@
       </div>
       <div class="field"><label>Descrição <span style="font-weight:400;">(opcional)</span></label><textarea id="ativ_descricao" style="width:100%;min-height:60px;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;font-family:inherit;"></textarea></div>
 
+      <div class="row">
+        <div class="field"><label>Data <span style="font-weight:400;">(opcional)</span></label><input type="date" id="ativ_data"></div>
+        <div class="field"><label>Data de entrega <span style="font-weight:400;">(opcional)</span></label><input type="date" id="ativ_data_entrega"></div>
+      </div>
+
+      <div class="field" id="ativGrupoRepeticao">
+        <label>Repetição</label>
+        <div class="row">
+          <select id="ativ_repeticao"></select>
+          <input type="date" id="ativ_repetir_ate" placeholder="Repetir até" style="display:none;">
+        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:6px 0 0;">Cria uma atividade independente por ocorrência. Só vale na criação — editar depois não regenera a série.</p>
+      </div>
+
       <div class="field">
-        <label>Vincular a um atendimento <span style="font-weight:400;">(opcional)</span></label>
+        <label>Vincular a atendimentos <span style="font-weight:400;">(opcional, pode ser mais de um)</span></label>
         <input type="text" id="ativ_vinculo_busca" placeholder="Buscar chamado pra vincular...">
         <div id="ativVinculoResultados" style="margin-top:6px;"></div>
-        <div id="ativVinculoChipWrap" style="margin-top:6px;"></div>
+        <div id="ativVinculoChipWrap" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;"></div>
       </div>
 
       <div class="field" style="margin-top:4px;margin-bottom:0;">
         <label class="ativ-check-agenda">
           <input type="checkbox" id="ativ_na_agenda"> Também colocar na Agenda
         </label>
-        <div class="row3" id="ativCamposAgenda" style="display:none;">
-          <div class="field" style="margin-bottom:0;"><label>Data</label><input type="date" id="ativ_data"></div>
-          <div class="field" style="margin-bottom:0;"><label>Hora início</label><input type="time" id="ativ_hora_inicio"></div>
-          <div class="field" style="margin-bottom:0;"><label>Hora fim</label><input type="time" id="ativ_hora_fim"></div>
+        <div id="ativCamposAgenda" style="display:none;">
+          <label class="ativ-check-agenda">
+            <input type="checkbox" id="ativ_dia_inteiro"> Dia inteiro
+          </label>
+          <div class="row3" id="ativCamposHora">
+            <div class="field" style="margin-bottom:0;"><label>Hora início</label><input type="time" id="ativ_hora_inicio"></div>
+            <div class="field" style="margin-bottom:0;"><label>Hora fim</label><input type="time" id="ativ_hora_fim"></div>
+          </div>
         </div>
+      </div>
+
+      <div class="field" id="ativGrupoAnexos" style="margin-top:12px;">
+        <label>Anexos</label>
+        <div id="ativAnexosLista"></div>
+        <label class="ghost" style="cursor:pointer;font-size:12px;padding:8px 12px;margin:0;display:inline-block;">
+          📎 Anexar arquivo<input type="file" id="ativ_anexo" style="display:none;">
+        </label>
+        <p id="ativAnexoAviso" style="color:var(--muted);font-size:11.5px;margin:6px 0 0;display:none;">Salve a atividade antes de anexar arquivos.</p>
       </div>
 
       <div style="display:flex;gap:8px;margin-top:14px;">
