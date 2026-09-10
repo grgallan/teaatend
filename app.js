@@ -8521,13 +8521,16 @@ async function enviarMovimentacao(sufixo, finalizar){
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     if(finalizar){
       toast('Atendimento finalizado — aguardando validação do usuário');
-      // o status virou "EM VALIDAÇÃO" no servidor — recarrega tudo pra
-      // refletir em todas as telas (lista, kanban, etc); no formulário de
-      // edição, também atualiza o select de Status, senão um "Salvar" logo
-      // em seguida reenviaria o status antigo e desfaria a mudança
+      // o status virou "EM VALIDAÇÃO" e a Solução foi preenchida com o texto
+      // dessa movimentação no servidor — recarrega tudo pra refletir em
+      // todas as telas (lista, kanban, etc); no formulário de edição,
+      // também atualiza Status e Solução na tela, senão um "Salvar" logo em
+      // seguida reenviaria os valores antigos e desfaria a mudança
       if(sufixo === '_ed'){
         const fStatus = document.getElementById('f_status');
         if(fStatus) fStatus.value = 'EM VALIDAÇÃO';
+        const fSolucao = document.getElementById('f_solucao');
+        if(fSolucao) fSolucao.innerHTML = sanitizarHtml(textoParaEnviar);
       }
       await carregarTudo();
       renderLista();

@@ -1241,10 +1241,20 @@ async function acaoCriarMovimentacao(req: any) {
 
   await notificarNovaMovimentacao(atendimento, req.autorNome, req.autorPerfil, texto);
 
-  if (finalizar && atendimento.status !== 'EM VALIDAÇÃO') {
-    await db.from('atendimentos').update({ status: 'EM VALIDAÇÃO', em_validacao_desde: agora }).eq('id', req.atendimentoId);
-    await registrarHistorico(req.atendimentoId, `Status alterado de ${atendimento.status} para EM VALIDAÇÃO`);
-    await notificarStatusAlterado({ ...atendimento, status: 'EM VALIDAÇÃO' }, atendimento.status);
+  if (finalizar) {
+    // a movimentação que finaliza o atendimento vira também o registro de
+    // Solução — replicada pra não depender de reescrever o mesmo texto de
+    // novo lá no formulário de edição
+    const dadosFinal: Record<string, unknown> = { solucao: registro.texto };
+    if (atendimento.status !== 'EM VALIDAÇÃO') {
+      dadosFinal.status = 'EM VALIDAÇÃO';
+      dadosFinal.em_validacao_desde = agora;
+    }
+    await db.from('atendimentos').update(dadosFinal).eq('id', req.atendimentoId);
+    if (atendimento.status !== 'EM VALIDAÇÃO') {
+      await registrarHistorico(req.atendimentoId, `Status alterado de ${atendimento.status} para EM VALIDAÇÃO`);
+      await notificarStatusAlterado({ ...atendimento, status: 'EM VALIDAÇÃO' }, atendimento.status);
+    }
   }
 
   return { ok: true, id: registro.id, anexo: anexoSalvo, finalizado: finalizar };
