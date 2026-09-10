@@ -847,3 +847,8 @@ alter table movimentacoes add column if not exists intervalo_min numeric default
 -- 0h), mesmo se algum campo de data/horário tiver ficado preenchido; usado
 -- pra comentário/resposta rápida onde não faz sentido perguntar horário
 alter table movimentacoes add column if not exists eh_resposta boolean default false;
+
+-- contador de visualizações do vídeo/tutorial — incrementado toda vez que
+-- o vídeo vira o destaque no player (clicado na lista de aulas, ou o
+-- primeiro carregado ao abrir a tela)
+alter table videos_tutoriais add column if not exists visualizacoes integer not null default 0;
