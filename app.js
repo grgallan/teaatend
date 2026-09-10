@@ -114,6 +114,7 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'novo', label:'Novo Agendamento' },
     { chave:'calendario', label:'Agenda' },
   ]},
+  { chave:'atividades', label:'Atividades' },
   { chave:'videos', label:'Vídeos', subContainer:'#vidSubtabs', subDataAttr:'vidsub', submenus:[
     { chave:'novo', label:'Novo Vídeo/Tutorial' },
     { chave:'lista', label:'Vídeos' },
