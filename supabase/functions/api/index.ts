@@ -1176,6 +1176,14 @@ async function acaoCriarMovimentacao(req: any) {
   if (!atendimento) return { ok: false, erro: 'Atendimento não encontrado.' };
   if (atendimento.status === 'CONCLUÍDO') return { ok: false, erro: 'Esse atendimento já foi concluído — não é possível adicionar novas movimentações.' };
 
+  // "finalizar": quem atende indica, junto com a movimentação, que terminou
+  // — o chamado vai pra EM VALIDAÇÃO aguardando o usuário confirmar (ou
+  // rejeitar, via acaoRejeitarValidacao). Só quem atende finaliza.
+  const finalizar = !!req.finalizar;
+  if (finalizar && req.autorPerfil === 'USUARIO') {
+    return { ok: false, erro: 'Só quem atende pode finalizar o atendimento.' };
+  }
+
   // apuração de tempo (Data/Horário Inicial e Final + Intervalo) é exclusiva
   // de quem atende — pro Usuário a movimentação continua só texto/anexo,
   // mesmo que o payload venha com esses campos preenchidos; marcado como
@@ -1232,7 +1240,14 @@ async function acaoCriarMovimentacao(req: any) {
   }
 
   await notificarNovaMovimentacao(atendimento, req.autorNome, req.autorPerfil, texto);
-  return { ok: true, id: registro.id, anexo: anexoSalvo };
+
+  if (finalizar && atendimento.status !== 'EM VALIDAÇÃO') {
+    await db.from('atendimentos').update({ status: 'EM VALIDAÇÃO', em_validacao_desde: agora }).eq('id', req.atendimentoId);
+    await registrarHistorico(req.atendimentoId, `Status alterado de ${atendimento.status} para EM VALIDAÇÃO`);
+    await notificarStatusAlterado({ ...atendimento, status: 'EM VALIDAÇÃO' }, atendimento.status);
+  }
+
+  return { ok: true, id: registro.id, anexo: anexoSalvo, finalizado: finalizar };
 }
 
 async function acaoAtualizarMovimentacao(req: any) {
