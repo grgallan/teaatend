@@ -8041,6 +8041,40 @@ async function editarOrcamentoUi(id){
 
 function cancelarEdicaoOrcamento(){ limparFormOrcamento(); }
 
+// abre uma cópia no formulário pra revisar antes de salvar — não grava
+// nada sozinho; "Salvar" cria um orçamento novo (numeração própria), não
+// sobrescreve o original. Útil pra reaproveitar itens de uma proposta
+// parecida sem digitar tudo de novo.
+async function copiarOrcamentoUi(id){
+  const conta = contaAtual();
+  const r = await api('obterOrcamento', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível carregar o orçamento.'); return; }
+  orcEditandoId = null;
+  orcNumeroEditando = '';
+  orcColapsados = new Set();
+  const tempPorId = {};
+  r.itens.forEach(it=>{ tempPorId[it.id] = orcGerarTempId(); });
+  orcItens = r.itens.map(it=>({
+    tempId: tempPorId[it.id], itemPaiTempId: it.itemPaiId ? (tempPorId[it.itemPaiId] || null) : null,
+    descricao: it.descricao, qtdHoras: it.qtdHoras ?? '', valorHora: it.valorHora ?? '',
+  }));
+  document.getElementById('orcFormTitulo').textContent = 'Novo orçamento (cópia)';
+  popularSelectsOrcamento();
+  document.getElementById('orc_cliente').value = r.orcamento.cliente;
+  document.getElementById('orc_assunto').value = r.orcamento.assunto || '';
+  document.getElementById('orc_termo_referencia').value = r.orcamento.termoReferencia || '';
+  document.getElementById('orc_validade').value = ''; // proposta nova — validade em branco pra não herdar prazo vencido
+  document.getElementById('orc_condicoes').value = r.orcamento.condicoes || '';
+  document.getElementById('orc_responsavel').value = r.orcamento.responsavel || '';
+  document.getElementById('orc_status').value = 'RASCUNHO';
+  document.getElementById('btnSalvarOrcamento').textContent = 'Salvar orçamento';
+  document.getElementById('btnCancelarEdicaoOrcamento').style.display = '';
+  document.getElementById('orcAcoesPdfExcel').style.display = 'none';
+  orcRenderTabela();
+  document.getElementById('cardFormOrcamento').scrollIntoView({ behavior:'smooth', block:'start' });
+  toast('Orçamento copiado — revise e salve pra criar um novo');
+}
+
 async function salvarOrcamento(){
   const conta = contaAtual();
   const cliente = document.getElementById('orc_cliente').value;
@@ -8122,6 +8156,7 @@ function renderListaOrcamentos(){
         </div>
       </div>
       <div class="ativ-acoes">
+        <button class="ghost" onclick="event.stopPropagation();copiarOrcamentoUi('${o.id}')" title="Copiar orçamento">⧉</button>
         <button class="ghost" onclick="event.stopPropagation();gerarPdfOrcamento('${o.id}')" title="Gerar PDF">🖨</button>
         <button class="ghost" onclick="event.stopPropagation();gerarExcelOrcamento('${o.id}')" title="Gerar Excel">📊</button>
         <button class="ghost" onclick="event.stopPropagation();removerOrcamentoUi('${o.id}')" title="Excluir">🗑</button>
@@ -10421,6 +10456,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnOrcAdicionarItem').addEventListener('click', ()=>orcAdicionarItem(null));
   document.getElementById('btnGerarPdfOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) gerarPdfOrcamento(orcEditandoId); });
   document.getElementById('btnGerarExcelOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) gerarExcelOrcamento(orcEditandoId); });
+  document.getElementById('btnCopiarOrcamentoAtual').addEventListener('click', ()=>{ if(orcEditandoId) copiarOrcamentoUi(orcEditandoId); });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
