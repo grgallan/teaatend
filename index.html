@@ -343,6 +343,12 @@
 
   .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:none;align-items:flex-end;overflow-y:auto;}
   .modal-bg.show{display:flex;}
+  /* #modalBg é o "pedirConfirmacao()" — pode ser aberto por cima de QUALQUER
+     outro modal (chatModal, senhaModal, etc.), então precisa ficar sempre no
+     topo; com o mesmo z-index de todos os outros, quem ganhava era o último
+     no HTML (chatModal), e a confirmação só aparecia "vazando" pela folga
+     abaixo da caixa do chat em vez de cobrir a tela toda */
+  #modalBg{z-index:80;}
   .modal{background:var(--panel);border-radius:18px 18px 0 0;padding:20px 18px calc(env(safe-area-inset-bottom) + 20px);width:100%;max-width:640px;margin:0 auto;border:1px solid var(--line);border-bottom:none;max-height:90vh;overflow-y:auto;}
   .modal h3{margin:0 0 4px;font-size:16px;}
   .modal p{color:var(--muted);font-size:13px;margin:0 0 16px;}
