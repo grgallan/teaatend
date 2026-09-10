@@ -8207,14 +8207,14 @@ function movIds(sufixo){
   return sufixo === '_ed' ? {
     lista:'movLista_ed', composer:'movComposerWrap_ed', respWrap:'movRespondendoWrap_ed', respTexto:'movRespondendoTexto_ed',
     respCancelar:'movCancelarResposta_ed', texto:'mov_texto_ed', anexo:'mov_anexo_ed', anexoNome:'mov_anexo_ed_nome',
-    btnEnviar:'btnEnviarMovimentacao_ed', bloqueado:'movBloqueadoAviso_ed',
+    btnEnviar:'btnEnviarMovimentacao_ed', btnFinalizar:'btnFinalizarAtendimento_ed', bloqueado:'movBloqueadoAviso_ed',
     camposTempo:'movCamposTempo_ed', datasWrap:'movCamposTempoDatas_ed', ehResposta:'mov_e_resposta_ed',
     dataIni:'mov_data_ini_ed', horaIni:'mov_hora_ini_ed',
     dataFim:'mov_data_fim_ed', horaFim:'mov_hora_fim_ed', intervalo:'mov_intervalo_ed',
   } : {
     lista:'movLista', composer:'movComposerWrap', respWrap:'movRespondendoWrap', respTexto:'movRespondendoTexto',
     respCancelar:'movCancelarResposta', texto:'mov_texto', anexo:'mov_anexo', anexoNome:'mov_anexo_nome',
-    btnEnviar:'btnEnviarMovimentacao', bloqueado:'movBloqueadoAviso',
+    btnEnviar:'btnEnviarMovimentacao', btnFinalizar:'btnFinalizarAtendimento', bloqueado:'movBloqueadoAviso',
     camposTempo:'movCamposTempo', datasWrap:'movCamposTempoDatas', ehResposta:'mov_e_resposta',
     dataIni:'mov_data_ini', horaIni:'mov_hora_ini',
     dataFim:'mov_data_fim', horaFim:'mov_hora_fim', intervalo:'mov_intervalo',
@@ -8285,6 +8285,18 @@ function movAtualizarVisibilidadeDatas(sufixo){
   const marcado = document.getElementById(ids.ehResposta).checked;
   document.getElementById(ids.datasWrap).style.display = marcado ? 'none' : '';
 }
+// botão "Finalizar atendimento" só aparece pra quem atende (não Usuário),
+// escrevendo uma movimentação nova (não editando uma já existente) e com o
+// chamado ainda não em validação/concluído — senão seria redundante
+function movAtualizarVisibilidadeFinalizar(sufixo){
+  const ids = movIds(sufixo);
+  const estado = movEstado[sufixo];
+  const btn = document.getElementById(ids.btnFinalizar);
+  if(!btn) return;
+  const r = atendimentos.find(x=>String(x.id)===String(estado.atendimentoId));
+  const podeFinalizar = movPodeUsarTempo() && !estado.editandoId && r && r.status !== 'CONCLUÍDO' && r.status !== 'EM VALIDAÇÃO';
+  btn.style.display = podeFinalizar ? '' : 'none';
+}
 async function carregarMovimentacoes(atendimentoId, sufixo){
   sufixo = sufixo || '';
   const ids = movIds(sufixo);
@@ -8296,6 +8308,7 @@ async function carregarMovimentacoes(atendimentoId, sufixo){
   const bloqueado = r && r.status === 'CONCLUÍDO';
   document.getElementById(ids.composer).style.display = bloqueado ? 'none' : '';
   document.getElementById(ids.bloqueado).style.display = bloqueado ? '' : 'none';
+  movAtualizarVisibilidadeFinalizar(sufixo);
 
   let resp;
   try{
@@ -8364,6 +8377,7 @@ function movLimparComposer(sufixo){
   document.getElementById(ids.ehResposta).checked = false;
   movAtualizarVisibilidadeTempo(sufixo);
   movAtualizarVisibilidadeDatas(sufixo);
+  movAtualizarVisibilidadeFinalizar(sufixo);
 }
 
 function responderMovimentacao(id, sufixo){
@@ -8400,6 +8414,7 @@ function editarMovimentacaoUi(id, sufixo){
   document.getElementById(ids.intervalo).value = movMinParaIntervalo(m.intervaloMin);
   document.getElementById(ids.ehResposta).checked = !!m.ehResposta;
   movAtualizarVisibilidadeDatas(sufixo);
+  movAtualizarVisibilidadeFinalizar(sufixo);
   document.getElementById(ids.texto).focus();
 }
 
@@ -8411,6 +8426,7 @@ function cancelarRespostaMovimentacao(sufixo){
   estado.editandoId = null;
   document.getElementById(ids.respWrap).style.display = 'none';
   document.getElementById(ids.btnEnviar).textContent = 'Enviar';
+  movAtualizarVisibilidadeFinalizar(sufixo);
 }
 
 async function excluirMovimentacaoUi(id, sufixo){
@@ -8426,15 +8442,34 @@ async function excluirMovimentacaoUi(id, sufixo){
   });
 }
 
-async function enviarMovimentacao(sufixo){
+// pedido de confirmação antes de finalizar — muda o status do chamado pra
+// "EM VALIDAÇÃO" (aguardando o usuário aprovar/rejeitar), então merece um
+// passo a mais antes de disparar
+function finalizarAtendimentoUi(sufixo){
   sufixo = sufixo || '';
+  pedirConfirmacao(
+    'Finalizar atendimento?',
+    'O chamado vai para "Em Validação", aguardando o usuário confirmar que ficou tudo certo.',
+    ()=>enviarMovimentacao(sufixo, true),
+    'Finalizar'
+  );
+}
+
+async function enviarMovimentacao(sufixo, finalizar){
+  sufixo = sufixo || '';
+  finalizar = !!finalizar;
   const ids = movIds(sufixo);
   const estado = movEstado[sufixo];
   if(!estado.atendimentoId) return;
   const conta = contaAtual();
   const textoHtml = sanitizarHtml(document.getElementById(ids.texto).innerHTML.trim());
   const textoLimpo = stripHtml(textoHtml).trim();
-  if(!textoLimpo && !estado.anexoArquivo){ toast('Escreva algo ou anexe um arquivo'); return; }
+  // finalizar sem escrever nada: usa um texto padrão em vez de travar o
+  // clique — é comum querer só apertar o botão sem digitar comentário
+  const textoParaEnviar = (!textoLimpo && !estado.anexoArquivo && finalizar)
+    ? 'Atendimento finalizado — aguardando validação do usuário.'
+    : textoHtml;
+  if(!textoLimpo && !estado.anexoArquivo && !finalizar){ toast('Escreva algo ou anexe um arquivo'); return; }
 
   // apuração de tempo é opcional: os 4 campos (data/horário inicial e
   // final) precisam vir todos preenchidos ou todos vazios — só quem atende
@@ -8461,17 +8496,20 @@ async function enviarMovimentacao(sufixo){
   }
 
   const btn = document.getElementById(ids.btnEnviar);
+  const btnFinalizar = document.getElementById(ids.btnFinalizar);
   const editando = !!estado.editandoId;
   btn.disabled = true;
+  if(btnFinalizar) btnFinalizar.disabled = true;
   btn.textContent = editando ? 'Salvando…' : 'Enviando…';
+  if(finalizar && btnFinalizar) btnFinalizar.textContent = 'Finalizando…';
   try{
     let r;
     if(editando){
       r = await api('atualizarMovimentacao', { contaId: conta.id, id: estado.editandoId, texto: textoHtml, ...camposTempo });
     }else{
       const payload = {
-        atendimentoId: estado.atendimentoId, texto: textoHtml, autorNome: conta.nome, autorPerfil: conta.perfil,
-        respondendoA: estado.respondendoId, contaId: conta.id, ...camposTempo,
+        atendimentoId: estado.atendimentoId, texto: textoParaEnviar, autorNome: conta.nome, autorPerfil: conta.perfil,
+        respondendoA: estado.respondendoId, contaId: conta.id, finalizar, ...camposTempo,
       };
       if(estado.anexoArquivo){
         payload.anexoBase64 = await lerArquivoBase64(estado.anexoArquivo);
@@ -8481,6 +8519,24 @@ async function enviarMovimentacao(sufixo){
       r = await api('criarMovimentacao', payload);
     }
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    if(finalizar){
+      toast('Atendimento finalizado — aguardando validação do usuário');
+      // o status virou "EM VALIDAÇÃO" no servidor — recarrega tudo pra
+      // refletir em todas as telas (lista, kanban, etc); no formulário de
+      // edição, também atualiza o select de Status, senão um "Salvar" logo
+      // em seguida reenviaria o status antigo e desfaria a mudança
+      if(sufixo === '_ed'){
+        const fStatus = document.getElementById('f_status');
+        if(fStatus) fStatus.value = 'EM VALIDAÇÃO';
+      }
+      await carregarTudo();
+      renderLista();
+      if(sufixo === ''){ fecharChat(); return; }
+      movLimparComposer(sufixo);
+      await carregarMovimentacoes(estado.atendimentoId, sufixo);
+      atualizarPreview();
+      return;
+    }
     movLimparComposer(sufixo);
     await carregarMovimentacoes(estado.atendimentoId, sufixo);
     atualizarPreview();
@@ -8490,6 +8546,7 @@ async function enviarMovimentacao(sufixo){
   } finally {
     btn.disabled = false;
     btn.textContent = 'Enviar';
+    if(btnFinalizar){ btnFinalizar.disabled = false; btnFinalizar.textContent = '✅ Finalizar atendimento'; }
   }
 }
 
