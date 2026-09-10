@@ -415,6 +415,19 @@
   #movRespondendoWrap{background:var(--panel-2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:6px 10px;margin-bottom:8px;font-size:11.5px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:8px;}
   #movCancelarResposta{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px;}
   #movBloqueadoAviso{color:var(--muted);font-size:12px;background:var(--panel-2);border-radius:8px;padding:10px;text-align:center;}
+  /* ---------- atividades (tarefas internas da equipe) ---------- */
+  .ativ-check-agenda{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:400;color:var(--text);cursor:pointer;margin-bottom:10px;}
+  .ativ-check-agenda input{width:16px;height:16px;flex:none;}
+  .ativ-item{display:flex;align-items:flex-start;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--panel);}
+  .ativ-check{width:19px;height:19px;border-radius:50%;border:2px solid var(--line);flex:none;margin-top:1px;background:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;}
+  .ativ-check.done{background:var(--ok);border-color:var(--ok);}
+  .ativ-corpo{flex:1;min-width:0;cursor:pointer;}
+  .ativ-titulo{font-weight:700;font-size:13px;}
+  .ativ-titulo.done{text-decoration:line-through;color:var(--muted);}
+  .ativ-desc{color:var(--muted);font-size:11.5px;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ativ-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+  .ativ-acoes{display:flex;gap:4px;flex:none;}
+  .ativ-acoes button{padding:6px 8px;font-size:12px;}
   .vid-embed{width:100%;aspect-ratio:16/9;border-radius:12px;border:none;display:block;}
   .vid-titulo{font-weight:700;font-size:14px;margin-top:10px;}
   .vid-descricao{color:var(--muted);font-size:12.5px;margin-top:4px;}
@@ -837,6 +850,7 @@
   <div class="side-item navbtn" data-view="cubo" id="sideCubo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"></path><path d="M12 2v20"></path><path d="M4 6.5l8 4.5 8-4.5"></path></svg></span>Cubo</div>
   <div class="side-item navbtn" data-view="financeiro" id="sideFinanceiro"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M16 13h.01"></path><path d="M3 9h18"></path></svg></span>Financeiro</div>
   <div class="side-item navbtn" data-view="agenda" id="sideAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
+  <div class="side-item navbtn" data-view="atividades" id="sideAtividades"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg></span>Atividades</div>
   <div class="side-item navbtn" data-view="videos" id="sideVideos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5v-7z" fill="currentColor" stroke="none"></path></svg></span>Vídeos</div>
   <div class="side-item navbtn" data-view="cadastros" id="sideCadastros"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>Cadastros</div>
   <div class="side-item navbtn" data-view="utilitarios" id="sideUtilitarios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.6-.6-.6-2.6z"></path></svg></span>Utilitários</div>
@@ -859,6 +873,7 @@
     <div class="tab" data-view="cubo" id="tabCubo">Cubo</div>
     <div class="tab" data-view="financeiro" id="tabFinanceiro">Financeiro</div>
     <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
+    <div class="tab" data-view="atividades" id="tabAtividades">Atividades</div>
     <div class="tab" data-view="videos" id="tabVideos">Vídeos</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
     <div class="tab" data-view="utilitarios" id="tabUtilitarios">Utilitários</div>
@@ -1454,6 +1469,52 @@
         <div id="agendaConteudo"></div>
       </div>
     </div>
+  </section>
+
+  <!-- ATIVIDADES (tarefas internas da equipe — soltas, vinculadas a um
+       atendimento e/ou aparecendo na Agenda; usuário solicitante não acessa) -->
+  <section class="view" id="view-atividades">
+    <div class="card" id="cardFormAtividade">
+      <h2 id="ativFormTitulo">Nova atividade</h2>
+      <div class="field"><label>Título</label><input type="text" id="ativ_titulo" placeholder="Ex: Ligar pra confirmar visita técnica"></div>
+      <div class="row3">
+        <div class="field"><label>Tipo</label><select id="ativ_tipo"></select></div>
+        <div class="field"><label>Responsável</label><select id="ativ_responsavel"></select></div>
+        <div class="field"><label>Status</label><select id="ativ_status"></select></div>
+      </div>
+      <div class="field"><label>Descrição <span style="font-weight:400;">(opcional)</span></label><textarea id="ativ_descricao" style="width:100%;min-height:60px;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;font-family:inherit;"></textarea></div>
+
+      <div class="field">
+        <label>Vincular a um atendimento <span style="font-weight:400;">(opcional)</span></label>
+        <input type="text" id="ativ_vinculo_busca" placeholder="Buscar chamado pra vincular...">
+        <div id="ativVinculoResultados" style="margin-top:6px;"></div>
+        <div id="ativVinculoChipWrap" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="field" style="margin-top:4px;margin-bottom:0;">
+        <label class="ativ-check-agenda">
+          <input type="checkbox" id="ativ_na_agenda"> Também colocar na Agenda
+        </label>
+        <div class="row3" id="ativCamposAgenda" style="display:none;">
+          <div class="field" style="margin-bottom:0;"><label>Data</label><input type="date" id="ativ_data"></div>
+          <div class="field" style="margin-bottom:0;"><label>Hora início</label><input type="time" id="ativ_hora_inicio"></div>
+          <div class="field" style="margin-bottom:0;"><label>Hora fim</label><input type="time" id="ativ_hora_fim"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:14px;">
+        <button class="primary" id="btnSalvarAtividade" style="flex:1;">Salvar atividade</button>
+        <button type="button" class="ghost" id="btnCancelarEdicaoAtividade" style="display:none;flex:none;width:auto;">Cancelar edição</button>
+      </div>
+    </div>
+
+    <div class="card" id="cardFiltrosAtividade">
+      <h2>Filtros</h2>
+      <div class="filters" id="ativFiltroStatus"></div>
+      <div class="filters" id="ativFiltroResponsavelWrap" style="margin-bottom:0;"></div>
+    </div>
+
+    <div id="listaAtividades"></div>
   </section>
 
   <!-- VÍDEOS / TUTORIAIS (cadastro só admin; lista pra todo mundo autorizado) -->
@@ -2071,6 +2132,7 @@
   <div class="navbtn" data-view="cubo" id="navCubo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"></path><path d="M12 2v20"></path><path d="M4 6.5l8 4.5 8-4.5"></path></svg></span>Cubo</div>
   <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M16 13h.01"></path><path d="M3 9h18"></path></svg></span>Financ.</div>
   <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
+  <div class="navbtn" data-view="atividades" id="navAtividades"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg></span>Ativid.</div>
   <div class="navbtn" data-view="videos" id="navVideos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5v-7z" fill="currentColor" stroke="none"></path></svg></span>Vídeos</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>Cadastros</div>
   <div class="navbtn" data-view="utilitarios" id="navUtilitarios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.6-.6-.6-2.6z"></path></svg></span>Util.</div>

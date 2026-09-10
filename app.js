@@ -1118,6 +1118,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('cubo', isAdmin);
   aplicarVisibilidadeMenu('financeiro', menuVisivel(conta, 'financeiro', isAdmin));
   aplicarVisibilidadeMenu('agenda', menuVisivel(conta, 'agenda', podeVerAgenda));
+  aplicarVisibilidadeMenu('atividades', menuVisivel(conta, 'atividades', podeVerAgenda));
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
   aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
@@ -5492,8 +5493,23 @@ function popularSelectsAgenda(){
   document.getElementById('cardNovoAgendamento').style.display = podeGerenciar ? '' : 'none';
 }
 
+// atividades marcadas "Também colocar na Agenda" aparecem misturadas com os
+// agendamentos de verdade — só leitura aqui (editar é sempre na tela de
+// Atividades), por isso tem o prefixo 📌 e cor fixa pra não confundir com
+// um agendamento normal, e o clique abre editarAtividadeUi em vez de
+// abrirEditarAgendamento (ver agRenderBloco/renderAgendaMes e a flag _atividade)
+function atividadesComoEventosAgenda(){
+  return atividadesCache
+    .filter(a => a.naAgenda && a.data && a.horaInicio && a.horaFim && a.status !== 'CANCELADA')
+    .map(a => ({
+      id: a.id, titulo: `📌 ${a.titulo}`, descricao: a.descricao, cliente: '',
+      atendente: a.responsavel, data: a.data, horaInicio: a.horaInicio, horaFim: a.horaFim,
+      cor: '#616161', _atividade: true,
+    }));
+}
+
 function agendamentosFiltrados(){
-  let itens = agendamentosCache.slice();
+  let itens = agendamentosCache.slice().concat(atividadesComoEventosAgenda());
   if(agFiltroAtendente !== 'TODOS') itens = itens.filter(a=>a.atendente===agFiltroAtendente);
   return itens;
 }
@@ -5605,7 +5621,8 @@ function agRenderBloco(p){
   const largura = 100/totalColunas;
   const esquerda = largura*col;
   const cor = corDoEvento(ev);
-  return `<div class="ag-bloco-evento" style="top:${top}px;height:${altura}px;left:calc(${esquerda}% + 1px);width:calc(${largura}% - 2px);background:${cor};" onclick="abrirEditarAgendamento('${ev.id}')" title="${escaparHtml(ev.titulo)} · ${ev.horaInicio}–${ev.horaFim}">
+  const aoClicar = ev._atividade ? `abrirAtividadeNaAgenda('${ev.id}')` : `abrirEditarAgendamento('${ev.id}')`;
+  return `<div class="ag-bloco-evento" style="top:${top}px;height:${altura}px;left:calc(${esquerda}% + 1px);width:calc(${largura}% - 2px);background:${cor};" onclick="${aoClicar}" title="${escaparHtml(ev.titulo)} · ${ev.horaInicio}–${ev.horaFim}">
     <div class="ag-bloco-titulo">${escaparHtml(ev.titulo)}</div>
     <div class="ag-bloco-hora">${ev.horaInicio}–${ev.horaFim}${ev.cliente ? ' · '+escaparHtml(ev.cliente) : ''}</div>
   </div>`;
@@ -5689,7 +5706,7 @@ function renderAgendaMes(itens){
     const foraDoMes = d.getMonth() !== mes;
     celulas += `<div class="ag-mes-dia ${foraDoMes?'fora-do-mes':''} ${dataStr===hojeStr?'hoje':''}">
       <div class="ag-mes-numero">${d.getDate()}</div>
-      ${doDia.slice(0,3).map(a=>`<div class="ag-mes-item" onclick="abrirEditarAgendamento('${a.id}')" title="${escaparHtml(a.titulo)}" style="background:${corDoEvento(a)};color:#fff;">${a.horaInicio} ${escaparHtml(a.titulo)}</div>`).join('')}
+      ${doDia.slice(0,3).map(a=>`<div class="ag-mes-item" onclick="${a._atividade ? `abrirAtividadeNaAgenda('${a.id}')` : `abrirEditarAgendamento('${a.id}')`}" title="${escaparHtml(a.titulo)}" style="background:${corDoEvento(a)};color:#fff;">${a.horaInicio} ${escaparHtml(a.titulo)}</div>`).join('')}
       ${doDia.length>3 ? `<div style="color:var(--muted);font-size:9.5px;">+${doDia.length-3} mais</div>` : ''}
     </div>`;
   }
@@ -7460,6 +7477,252 @@ async function removerComentarioVideoUi(id, videoId){
   await carregarComentariosVideo(videoId);
 }
 
+/* ---------- atividades (tarefas internas da equipe) — soltas, vinculadas a
+   um atendimento e/ou aparecendo na Agenda; cada uma independente das
+   outras. Usuário solicitante não tem acesso (é ferramenta interna). ---------- */
+const ATIV_TIPOS = [
+  { v:'TAREFA', label:'Tarefa', icone:'🗒' },
+  { v:'LIGACAO', label:'Ligação', icone:'📞' },
+  { v:'REUNIAO', label:'Reunião', icone:'🤝' },
+  { v:'VISITA', label:'Visita', icone:'📍' },
+  { v:'OUTRO', label:'Outro', icone:'📌' },
+];
+const ATIV_STATUS = [
+  { v:'PENDENTE', label:'Pendente', cor:'var(--warn)' },
+  { v:'EM_ANDAMENTO', label:'Em andamento', cor:'var(--yellow)' },
+  { v:'CONCLUIDA', label:'Concluída', cor:'var(--ok)' },
+  { v:'CANCELADA', label:'Cancelada', cor:'var(--bad)' },
+];
+function ativTipoInfo(v){ return ATIV_TIPOS.find(t=>t.v===v) || ATIV_TIPOS[0]; }
+function ativStatusInfo(v){ return ATIV_STATUS.find(s=>s.v===v) || ATIV_STATUS[0]; }
+
+let atividadesCache = [];
+let ativEditandoId = null;
+let ativVinculoAtendimentoId = null;
+let ativFiltroStatus = 'TODOS';
+let ativFiltroResponsavel = 'TODOS';
+
+function popularSelectsAtividade(){
+  const conta = contaAtual();
+  const isAdmin = ehAdminEfetivo(conta);
+  document.getElementById('ativ_tipo').innerHTML = ATIV_TIPOS.map(t=>`<option value="${t.v}">${t.icone} ${t.label}</option>`).join('');
+  document.getElementById('ativ_status').innerHTML = ATIV_STATUS.map(s=>`<option value="${s.v}">${s.label}</option>`).join('');
+
+  const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+  const nomesResponsavel = isAdmin ? atendentesNomes : [conta.nome];
+  const selResp = document.getElementById('ativ_responsavel');
+  const valorAtual = selResp.value;
+  selResp.innerHTML = nomesResponsavel.map(n=>`<option value="${escaparHtml(n)}">${escaparHtml(n)}</option>`).join('');
+  selResp.disabled = !isAdmin; // atendente comum só cria/edita pra si mesmo
+  if(nomesResponsavel.includes(valorAtual)) selResp.value = valorAtual;
+  else if(!isAdmin) selResp.value = conta.nome;
+}
+
+function renderVinculoAtividadeChip(){
+  const wrap = document.getElementById('ativVinculoChipWrap');
+  if(!ativVinculoAtendimentoId){ wrap.innerHTML = ''; return; }
+  const r = atendimentos.find(x=>String(x.id)===String(ativVinculoAtendimentoId));
+  wrap.innerHTML = `<span class="lookup-tag">${r ? `#${escaparHtml(String(r.id))} — ${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}` : `#${escaparHtml(String(ativVinculoAtendimentoId))}`}<button type="button" onclick="ativVinculoAtendimentoId=null;renderVinculoAtividadeChip();">×</button></span>`;
+}
+
+function ativAtualizarVisibilidadeAgenda(){
+  document.getElementById('ativCamposAgenda').style.display = document.getElementById('ativ_na_agenda').checked ? '' : 'none';
+}
+
+function limparFormAtividade(){
+  ativEditandoId = null;
+  ativVinculoAtendimentoId = null;
+  document.getElementById('ativFormTitulo').textContent = 'Nova atividade';
+  document.getElementById('ativ_titulo').value = '';
+  document.getElementById('ativ_descricao').value = '';
+  document.getElementById('ativ_tipo').value = 'TAREFA';
+  document.getElementById('ativ_status').value = 'PENDENTE';
+  document.getElementById('ativ_vinculo_busca').value = '';
+  document.getElementById('ativVinculoResultados').innerHTML = '';
+  document.getElementById('ativ_na_agenda').checked = false;
+  document.getElementById('ativ_data').value = hojeLocalISO();
+  document.getElementById('ativ_hora_inicio').value = '';
+  document.getElementById('ativ_hora_fim').value = '';
+  document.getElementById('btnSalvarAtividade').textContent = 'Salvar atividade';
+  document.getElementById('btnCancelarEdicaoAtividade').style.display = 'none';
+  popularSelectsAtividade();
+  renderVinculoAtividadeChip();
+  ativAtualizarVisibilidadeAgenda();
+}
+
+function editarAtividadeUi(id){
+  const a = atividadesCache.find(x=>x.id===id);
+  if(!a) return;
+  ativEditandoId = id;
+  ativVinculoAtendimentoId = a.atendimentoId || null;
+  document.getElementById('ativFormTitulo').textContent = 'Editar atividade';
+  document.getElementById('ativ_titulo').value = a.titulo;
+  document.getElementById('ativ_descricao').value = stripHtml(a.descricao || '');
+  popularSelectsAtividade();
+  document.getElementById('ativ_tipo').value = a.tipo;
+  document.getElementById('ativ_responsavel').value = a.responsavel;
+  document.getElementById('ativ_status').value = a.status;
+  document.getElementById('ativ_na_agenda').checked = !!a.naAgenda;
+  document.getElementById('ativ_data').value = a.data || hojeLocalISO();
+  document.getElementById('ativ_hora_inicio').value = a.horaInicio || '';
+  document.getElementById('ativ_hora_fim').value = a.horaFim || '';
+  document.getElementById('btnSalvarAtividade').textContent = 'Salvar edição';
+  document.getElementById('btnCancelarEdicaoAtividade').style.display = '';
+  renderVinculoAtividadeChip();
+  ativAtualizarVisibilidadeAgenda();
+  document.getElementById('cardFormAtividade').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+// clicada no calendário da Agenda (ela só aparece lá pra leitura/atalho) —
+// edição de atividade sempre acontece na tela de Atividades mesmo
+function abrirAtividadeNaAgenda(id){
+  goView('atividades');
+  editarAtividadeUi(id);
+}
+
+function cancelarEdicaoAtividade(){ limparFormAtividade(); }
+
+async function salvarAtividade(){
+  const conta = contaAtual();
+  const titulo = document.getElementById('ativ_titulo').value.trim();
+  if(!titulo){ toast('Preencha o título'); return; }
+  const naAgenda = document.getElementById('ativ_na_agenda').checked;
+  const data = document.getElementById('ativ_data').value;
+  const horaInicio = document.getElementById('ativ_hora_inicio').value;
+  const horaFim = document.getElementById('ativ_hora_fim').value;
+  if(naAgenda && (!data || !horaInicio || !horaFim)){ toast('Preencha data e horário pra colocar na Agenda'); return; }
+
+  const payload = {
+    contaId: conta.id, titulo, descricao: document.getElementById('ativ_descricao').value.trim(),
+    tipo: document.getElementById('ativ_tipo').value, responsavel: document.getElementById('ativ_responsavel').value,
+    status: document.getElementById('ativ_status').value, atendimentoId: ativVinculoAtendimentoId || '',
+    naAgenda, data: naAgenda ? data : '', horaInicio: naAgenda ? horaInicio : '', horaFim: naAgenda ? horaFim : '',
+    empresaId: empresaAtual ? empresaAtual.id : '',
+  };
+  const btn = document.getElementById('btnSalvarAtividade');
+  btn.disabled = true;
+  try{
+    const r = ativEditandoId
+      ? await api('atualizarAtividade', { ...payload, id: ativEditandoId })
+      : await api('criarAtividade', payload);
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    toast(ativEditandoId ? 'Atividade atualizada' : 'Atividade criada');
+    limparFormAtividade();
+    await carregarAtividades();
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível salvar.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function alternarConclusaoAtividadeUi(id){
+  const conta = contaAtual();
+  const r = await api('alternarConclusaoAtividade', { contaId: conta.id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível atualizar.'); return; }
+  await carregarAtividades();
+}
+
+function removerAtividadeUi(id){
+  const conta = contaAtual();
+  pedirConfirmacao('Excluir atividade?', 'Essa ação não pode ser desfeita.', async ()=>{
+    const r = await api('removerAtividade', { contaId: conta.id, id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível excluir.'); return; }
+    if(ativEditandoId === id) limparFormAtividade();
+    await carregarAtividades();
+    toast('Atividade excluída');
+  });
+}
+
+// carrega o cache de atividades sem mexer na tela de Atividades — usado só
+// pra alimentar as que aparecem misturadas no calendário da Agenda (mesma
+// ideia do carregarVideosCacheParaVinculo)
+async function carregarAtividadesCacheParaAgenda(){
+  const conta = contaAtual();
+  if(!conta || conta.perfil === 'USUARIO') return;
+  try{
+    const r = await api('listarAtividades', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
+    if(r.ok) atividadesCache = r.atividades || [];
+  }catch(e){ /* a Agenda mostra só os agendamentos, sem as atividades, se isso falhar */ }
+}
+
+async function carregarAtividades(){
+  const conta = contaAtual();
+  if(!conta) return;
+  const cont = document.getElementById('listaAtividades');
+  cont.innerHTML = `<div class="empty" style="padding:14px;">Carregando…</div>`;
+  try{
+    const r = await api('listarAtividades', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
+    if(!r.ok){ cont.innerHTML = `<div class="empty">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    atividadesCache = r.atividades || [];
+    renderFiltrosAtividade();
+    renderListaAtividades();
+  }catch(e){
+    cont.innerHTML = `<div class="empty">Não foi possível carregar as atividades.</div>`;
+  }
+}
+
+function renderFiltrosAtividade(){
+  const conta = contaAtual();
+  const isAdmin = ehAdminEfetivo(conta);
+  const contStatus = document.getElementById('ativFiltroStatus');
+  contStatus.innerHTML = `<div class="chip ${ativFiltroStatus==='TODOS'?'on':''}" data-valor="TODOS">Todos os status</div>` +
+    ATIV_STATUS.map(s=>`<div class="chip ${ativFiltroStatus===s.v?'on':''}" data-valor="${s.v}">${escaparHtml(s.label)}</div>`).join('');
+
+  const wrapResp = document.getElementById('ativFiltroResponsavelWrap');
+  if(!isAdmin){ wrapResp.style.display = 'none'; wrapResp.innerHTML = ''; return; }
+  wrapResp.style.display = '';
+  const nomes = [...new Set(atividadesCache.map(a=>a.responsavel).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  wrapResp.innerHTML = `<div class="chip ${ativFiltroResponsavel==='TODOS'?'on':''}" data-valor-resp="TODOS">Todos os responsáveis</div>` +
+    nomes.map(n=>`<div class="chip ${ativFiltroResponsavel===n?'on':''}" data-valor-resp="${escaparHtml(n)}">${escaparHtml(n)}</div>`).join('');
+}
+
+function atividadesFiltradas(){
+  let itens = atividadesCache.slice();
+  if(ativFiltroStatus !== 'TODOS') itens = itens.filter(a=>a.status===ativFiltroStatus);
+  if(ativFiltroResponsavel !== 'TODOS') itens = itens.filter(a=>a.responsavel===ativFiltroResponsavel);
+  return itens;
+}
+
+function renderItemAtividade(a){
+  const tipo = ativTipoInfo(a.tipo);
+  const status = ativStatusInfo(a.status);
+  const done = a.status === 'CONCLUIDA';
+  const r = a.atendimentoId ? atendimentos.find(x=>String(x.id)===String(a.atendimentoId)) : null;
+  let agendaTxt = '';
+  if(a.naAgenda && a.data){
+    const [y,m,d] = a.data.split('-');
+    agendaTxt = `📅 ${d}/${m}${a.horaInicio ? ' '+a.horaInicio : ''}`;
+  }
+  return `<div class="ativ-item">
+    <button type="button" class="ativ-check ${done?'done':''}" title="${done?'Marcar como pendente':'Marcar como concluída'}" onclick="alternarConclusaoAtividadeUi('${a.id}')">${done?'✓':''}</button>
+    <div class="ativ-corpo" onclick="editarAtividadeUi('${a.id}')">
+      <div class="ativ-titulo ${done?'done':''}">${escaparHtml(a.titulo)}</div>
+      ${a.descricao ? `<div class="ativ-desc">${escaparHtml(stripHtml(a.descricao))}</div>` : ''}
+      <div class="ativ-meta">
+        <span class="tag">${tipo.icone} ${escaparHtml(tipo.label)}</span>
+        <span class="tag" style="background:${status.cor};color:#fff;">${escaparHtml(status.label)}</span>
+        ${a.responsavel ? `<span class="tag">${escaparHtml(a.responsavel)}</span>` : ''}
+        ${r ? `<span class="tag" title="Vinculada a este atendimento" onclick="event.stopPropagation();abrirDetalhe('${r.id}')" style="cursor:pointer;">🔗 #${escaparHtml(String(r.id))} ${escaparHtml(r.cliente)}</span>` : ''}
+        ${agendaTxt ? `<span class="tag" title="Aparece na Agenda">${agendaTxt}</span>` : ''}
+      </div>
+    </div>
+    <div class="ativ-acoes">
+      <button class="ghost" onclick="removerAtividadeUi('${a.id}')" title="Excluir">🗑</button>
+    </div>
+  </div>`;
+}
+
+function renderListaAtividades(){
+  const cont = document.getElementById('listaAtividades');
+  const itens = atividadesFiltradas();
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">✅</div>Nenhuma atividade encontrada.</div>`; return; }
+  // pendentes/em andamento primeiro, concluídas/canceladas no fim
+  const abertas = itens.filter(a=>a.status!=='CONCLUIDA' && a.status!=='CANCELADA');
+  const fechadas = itens.filter(a=>a.status==='CONCLUIDA' || a.status==='CANCELADA');
+  cont.innerHTML = abertas.map(renderItemAtividade).join('') + fechadas.map(renderItemAtividade).join('');
+}
+
 function renderListTipos(){
   const el = document.getElementById('listTipos');
   if(tipos.length===0){ el.innerHTML = `<div class="empty">Nenhum tipo cadastrado.</div>`; return; }
@@ -8804,7 +9067,13 @@ function goView(name){
     goAgSub(primeiraSubAbaVisivel('agenda', agAba));
     popularSelectsAgenda();
     renderSeletorCores('ag_cores', document.getElementById('ag_cor_selecionada').value);
-    carregarAgendamentos().then(renderAgenda);
+    Promise.all([carregarAgendamentos(), carregarAtividadesCacheParaAgenda()]).then(renderAgenda);
+  }
+  if(name==='atividades'){
+    ativFiltroStatus = 'TODOS';
+    ativFiltroResponsavel = 'TODOS';
+    limparFormAtividade();
+    carregarAtividades();
   }
   if(name==='videos'){
     const contaVid = contaAtual();
@@ -9612,6 +9881,26 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     vidFiltroModulo = chip.dataset.valor;
     renderFiltroModuloVideo();
     renderListaVideos();
+  });
+
+  document.getElementById('btnSalvarAtividade').addEventListener('click', salvarAtividade);
+  document.getElementById('btnCancelarEdicaoAtividade').addEventListener('click', cancelarEdicaoAtividade);
+  document.getElementById('ativ_na_agenda').addEventListener('change', ativAtualizarVisibilidadeAgenda);
+  configurarBuscaVinculo('ativ_vinculo_busca', 'ativVinculoResultados', ()=>null, (id)=>{
+    ativVinculoAtendimentoId = id;
+    renderVinculoAtividadeChip();
+  });
+  document.getElementById('ativFiltroStatus').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    ativFiltroStatus = chip.dataset.valor;
+    renderFiltrosAtividade();
+    renderListaAtividades();
+  });
+  document.getElementById('ativFiltroResponsavelWrap').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    ativFiltroResponsavel = chip.dataset.valorResp;
+    renderFiltrosAtividade();
+    renderListaAtividades();
   });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{

@@ -852,3 +852,31 @@ alter table movimentacoes add column if not exists eh_resposta boolean default f
 -- o vídeo vira o destaque no player (clicado na lista de aulas, ou o
 -- primeiro carregado ao abrir a tela)
 alter table videos_tutoriais add column if not exists visualizacoes integer not null default 0;
+
+-- controle de atividades/tarefas internas da equipe — mais genérico que
+-- movimentação: pode existir solta (sem nenhum atendimento), vinculada a
+-- um atendimento (não some se o atendimento for excluído — só desvincula,
+-- "on delete set null"), e/ou aparecer na Agenda quando marcada com
+-- data/horário (na_agenda=true)
+create table if not exists atividades (
+  id text primary key,
+  titulo text not null,
+  descricao text default '',
+  tipo text not null default 'TAREFA',
+  responsavel text,
+  status text not null default 'PENDENTE',
+  atendimento_id text references atendimentos(id) on delete set null,
+  na_agenda boolean not null default false,
+  data date,
+  hora_inicio text,
+  hora_fim text,
+  criado_por text,
+  criado_em timestamptz default now(),
+  concluido_em timestamptz,
+  empresa_id text references empresas(id)
+);
+alter table atividades enable row level security;
+create index if not exists idx_atividades_responsavel on atividades (responsavel);
+create index if not exists idx_atividades_status on atividades (status);
+create index if not exists idx_atividades_atendimento on atividades (atendimento_id);
+create index if not exists idx_atividades_data on atividades (data);
