@@ -8524,10 +8524,12 @@ const CUBO_DIMENSOES = {
   atendente: r => r.atendente || '(a definir)',
   tipo: r => labelTipo(r.tipo),
   status: r => r.status,
+  segmento: r => r.segmento || '(sem segmento)',
   modulo: r => r.modulo || '(sem módulo)',
+  submodulo: r => r.submodulo || '(sem rotina)',
   mes: r => r.mes || '(sem mês)',
 };
-const CUBO_DIMENSOES_LABEL = { cliente:'Cliente', usuario:'Usuário solicitante', atendente:'Atendente', tipo:'Tipo', status:'Status', modulo:'Módulo', mes:'Mês' };
+const CUBO_DIMENSOES_LABEL = { cliente:'Cliente', usuario:'Usuário solicitante', atendente:'Atendente', tipo:'Tipo', status:'Status', segmento:'Segmento', modulo:'Módulo', submodulo:'Rotina', mes:'Mês' };
 const CUBO_MEDIDAS = {
   qtd_chamados: { label:'Qtd. de chamados', valor: () => 1, formatar: v => String(v) },
   soma_horas: { label:'Horas', valor: r => Number(r.qtd) || 0, formatar: v => v.toFixed(2).replace('.', ',') + 'h' },
