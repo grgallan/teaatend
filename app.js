@@ -1790,6 +1790,7 @@ const FILTRO_AVANCADO_CAMPOS = [
   { valor:'usuario', label:'Usuário', tipo:'lista' },
   { valor:'atendente', label:'Atendente', tipo:'lista', permiteVazio:true },
   { valor:'status', label:'Status', tipo:'lista' },
+  { valor:'segmento', label:'Segmento', tipo:'lista', permiteVazio:true },
   { valor:'modulo', label:'Módulo', tipo:'lista', permiteVazio:true },
   { valor:'submodulo', label:'Rotina', tipo:'lista', permiteVazio:true },
   { valor:'tipo', label:'Tipo de atendimento', tipo:'lista' },
@@ -1823,6 +1824,7 @@ function filtroAvancadoOpcoesValor(campo){
     case 'usuario': return contas.filter(c=>c.perfil==='USUARIO').map(c=>c.nome);
     case 'atendente': return contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
     case 'status': return statusList.map(s=>s.nome);
+    case 'segmento': return segmentos.map(s=>s.nome);
     case 'modulo': return modulos.map(m=>m.nome);
     case 'submodulo': return submodulos.map(s=>s.nome);
     case 'tipo': return tipos.map(t=>t.nome);
