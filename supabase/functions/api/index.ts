@@ -207,7 +207,7 @@ function valorParaApi(v: any) {
 function atendimentoParaApi(a: any) {
   return {
     id: a.id, data: a.data, mes: a.mes, cliente: a.cliente, usuario: a.usuario, tipo: a.tipo,
-    modulo: a.modulo, submodulo: a.submodulo, atendente: a.atendente, assunto: a.assunto || '', detalhe: a.detalhe,
+    segmento: a.segmento || '', modulo: a.modulo, submodulo: a.submodulo, atendente: a.atendente, assunto: a.assunto || '', detalhe: a.detalhe,
     hi: a.hi, inter: a.inter, hf: a.hf, qtd: a.qtd, vha: a.vha, totalAnanda: a.total_ananda,
     vhr: a.vhr, totalReal: a.total_real, status: a.status, anexoUrl: a.anexo_url, anexoNome: a.anexo_nome,
     solucao: a.solucao || '', dataPrevista: a.data_prevista || '',
@@ -224,6 +224,15 @@ function historicoParaApi(h: any) {
 }
 function simplesParaApi(x: any) {
   return { id: x.id, nome: x.nome };
+}
+// módulo/rotina (submódulo) agora ligados numa taxonomia de 3 níveis —
+// Segmento > Módulo > Rotina — pra alimentar os selects em cascata do
+// formulário de atendimento e das telas de Cadastros
+function moduloParaApi(m: any) {
+  return { id: m.id, nome: m.nome, segmentoId: m.segmento_id || '' };
+}
+function submoduloParaApi(s: any) {
+  return { id: s.id, nome: s.nome, moduloId: s.modulo_id || '' };
 }
 function clienteParaApi(c: any) {
   return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0 };
@@ -294,9 +303,13 @@ async function rotear(req: any): Promise<any> {
     case 'removerCliente': return acaoRemoverCliente(req);
     case 'addTipo': return acaoAddSimples('tipos', 'cadastros.tipos', req);
     case 'removerTipo': return acaoRemoverTipo(req);
-    case 'addModulo': return acaoAddSimples('modulos', 'cadastros.modulos', req);
+    case 'addSegmento': return acaoAddSimples('segmentos', 'cadastros.segmentos', req);
+    case 'removerSegmento': return acaoRemoverSimples('segmentos', 'cadastros.segmentos', req);
+    case 'addModulo': return acaoAddModulo(req);
+    case 'atualizarModulo': return acaoAtualizarModulo(req);
     case 'removerModulo': return acaoRemoverSimples('modulos', 'cadastros.modulos', req);
-    case 'addSubModulo': return acaoAddSimples('submodulos', 'cadastros.submodulos', req);
+    case 'addSubModulo': return acaoAddSubModulo(req);
+    case 'atualizarSubModulo': return acaoAtualizarSubModulo(req);
     case 'removerSubModulo': return acaoRemoverSimples('submodulos', 'cadastros.submodulos', req);
     case 'addStatus': return acaoAddSimples('status_list', 'cadastros.status', req);
     case 'removerStatus': return acaoRemoverSimples('status_list', 'cadastros.status', req);
@@ -433,10 +446,11 @@ async function acaoDados(req: any) {
   const empresaId = req.empresaId || null;
   let clientesQuery = db.from('clientes').select('*').order('nome');
   if (empresaId) clientesQuery = clientesQuery.eq('empresa_id', empresaId);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }] = await Promise.all([
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
+    db.from('segmentos').select('*').order('nome'),
     db.from('modulos').select('*').order('nome'),
     db.from('submodulos').select('*').order('nome'),
     db.from('status_list').select('*').order('ordem').order('nome'),
@@ -580,8 +594,9 @@ async function acaoDados(req: any) {
     contas: contasVisiveis.map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [], empresaIdsPorConta[c.id] || [])),
     clientes: (clientes || []).map(clienteParaApi),
     tipos: (tipos || []).map(simplesParaApi),
-    modulos: (modulos || []).map(simplesParaApi),
-    submodulos: (submodulos || []).map(simplesParaApi),
+    segmentos: (segmentos || []).map(simplesParaApi),
+    modulos: (modulos || []).map(moduloParaApi),
+    submodulos: (submodulos || []).map(submoduloParaApi),
     statusList: (statusList || []).map(simplesParaApi),
     valores,
     atendimentos,
@@ -715,7 +730,7 @@ async function acaoSalvarAtendimento(req: any) {
   const registro = {
     id: req.id || gerarId(),
     data: req.data, mes, cliente: req.cliente, usuario: req.usuario, tipo: req.tipo,
-    modulo: req.modulo || '', submodulo: req.submodulo || '',
+    segmento: req.segmento || '', modulo: req.modulo || '', submodulo: req.submodulo || '',
     atendente: req.atendente || '', assunto: req.assunto || '', detalhe: req.detalhe || '',
     hi: req.hi || '00:00', inter: req.inter || '00:00', hf: req.hf || '00:00',
     qtd, vha: ananda, total_ananda: qtd * ananda, vhr: real, total_real: qtd * real, status: statusFinal,
@@ -2577,6 +2592,38 @@ async function acaoAddSimples(tabela: string, menu: string, req: any) {
 async function acaoRemoverSimples(tabela: string, menu: string, req: any) {
   if (!(await podeAgir(req.contaId, menu, 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover isso.' };
   await db.from(tabela).delete().eq('id', req.id);
+  return { ok: true };
+}
+
+// módulo agora pertence a um Segmento (taxonomia Segmento > Módulo >
+// Rotina) — precisa de campo extra, por isso não usa mais acaoAddSimples
+async function acaoAddModulo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.modulos', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar isso.' };
+  const registro = { id: gerarId(), nome: req.nome, segmento_id: req.segmentoId || null };
+  const { error } = await db.from('modulos').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: moduloParaApi(registro) };
+}
+async function acaoAtualizarModulo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.modulos', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar isso.' };
+  if (!req.id) return { ok: false, erro: 'Módulo não informado.' };
+  const { error } = await db.from('modulos').update({ nome: req.nome, segmento_id: req.segmentoId || null }).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+// rotina (submódulo) pertence a um Módulo — mesma ideia
+async function acaoAddSubModulo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.submodulos', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar isso.' };
+  const registro = { id: gerarId(), nome: req.nome, modulo_id: req.moduloId || null };
+  const { error } = await db.from('submodulos').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: submoduloParaApi(registro) };
+}
+async function acaoAtualizarSubModulo(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.submodulos', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar isso.' };
+  if (!req.id) return { ok: false, erro: 'Rotina não informada.' };
+  const { error } = await db.from('submodulos').update({ nome: req.nome, modulo_id: req.moduloId || null }).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
 async function acaoRemoverCliente(req: any) {

@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [];
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
 let rmTabelasTodas = null; // cache — todas as tabelas cadastradas, carregado 1x (usado pra preencher os <select> de escolher tabela); null = ainda não carregado
@@ -124,8 +124,9 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'atendentes', label:'Atendentes' },
     { chave:'clientes', label:'Clientes' },
     { chave:'tipos', label:'Tipos' },
+    { chave:'segmentos', label:'Segmentos' },
     { chave:'modulos', label:'Módulos' },
-    { chave:'submodulos', label:'Sub Módulos' },
+    { chave:'submodulos', label:'Rotinas' },
     { chave:'status', label:'Status' },
     { chave:'valores', label:'Valores' },
     { chave:'usuarios', label:'Usuários (login)' },
@@ -751,7 +752,7 @@ async function carregarTudo(){
   const empresaId = empresaAtual ? empresaAtual.id : '';
   const r = await api('dados', { contaId, empresaId });
   if(!r.ok) return false;
-  contas = r.contas; clientes = r.clientes; tipos = r.tipos; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
+  contas = r.contas; clientes = r.clientes; tipos = r.tipos; segmentos = r.segmentos||[]; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
   atualizarBadgeAtendimentos();
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
@@ -1157,6 +1158,44 @@ function entrarNoApp(){
   goView(podeAbrirAlvoPadrao ? alvoPadrao : 'lista');
 }
 
+/* ---------- taxonomia Segmento > Módulo > Rotina (cascata no formulário
+   de atendimento) — módulo/rotina continuam salvos como texto (nome) no
+   atendimento, igual sempre foi; só a LISTAGEM de opções agora é filtrada
+   pelo pai escolhido. Um valor já salvo que não bate com o pai atual
+   (cadastro antigo, sem segmento/módulo vinculado) continua aparecendo
+   como opção extra, pra nunca "sumir" um dado histórico ao abrir editar. ---------- */
+function popularSelectSegmento(valorAtual){
+  const sel = document.getElementById('f_segmento');
+  let opcoes = `<option value="">(selecione)</option>` + segmentos.map(s=>`<option value="${escaparHtml(s.nome)}">${escaparHtml(s.nome)}</option>`).join('');
+  if(valorAtual && !segmentos.some(s=>s.nome===valorAtual)){
+    opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  }
+  sel.innerHTML = opcoes;
+  sel.value = valorAtual || '';
+}
+function popularSelectModuloPorSegmento(segmentoNome, valorAtual){
+  const segmento = segmentos.find(s=>s.nome===segmentoNome);
+  const lista = segmento ? modulos.filter(m=>m.segmentoId===segmento.id) : [];
+  const sel = document.getElementById('f_modulo');
+  let opcoes = `<option value="">(selecione)</option>` + lista.map(m=>`<option value="${escaparHtml(m.nome)}">${escaparHtml(m.nome)}</option>`).join('');
+  if(valorAtual && !lista.some(m=>m.nome===valorAtual)){
+    opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  }
+  sel.innerHTML = opcoes;
+  sel.value = valorAtual || '';
+}
+function popularSelectRotinaPorModulo(moduloNome, valorAtual){
+  const modulo = modulos.find(m=>m.nome===moduloNome);
+  const lista = modulo ? submodulos.filter(s=>s.moduloId===modulo.id) : [];
+  const sel = document.getElementById('f_submodulo');
+  let opcoes = `<option value="">(selecione)</option>` + lista.map(s=>`<option value="${escaparHtml(s.nome)}">${escaparHtml(s.nome)}</option>`).join('');
+  if(valorAtual && !lista.some(s=>s.nome===valorAtual)){
+    opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  }
+  sel.innerHTML = opcoes;
+  sel.value = valorAtual || '';
+}
+
 /* ---------- selects dinâmicos (form Novo) ---------- */
 function popularSelects(){
   const conta = contaAtual();
@@ -1169,8 +1208,9 @@ function popularSelects(){
     selCliente.disabled = false;
   }
   popularUsuariosSolicitantes();
-  document.getElementById('f_modulo').innerHTML = modulos.map(m=>`<option value="${m.nome}">${m.nome}</option>`).join('');
-  document.getElementById('f_submodulo').innerHTML = submodulos.map(s=>`<option value="${s.nome}">${s.nome}</option>`).join('');
+  popularSelectSegmento('');
+  popularSelectModuloPorSegmento('', '');
+  popularSelectRotinaPorModulo('', '');
   document.getElementById('f_status').innerHTML = statusList.map(s=>`<option value="${s.nome}">${s.nome}</option>`).join('');
 
   const isUsuario = conta && conta.perfil === 'USUARIO';
@@ -1432,6 +1472,7 @@ async function salvarRegistro(){
   const clienteId = document.getElementById('f_cliente').value;
   const cliente = clientes.find(c=>String(c.id)===String(clienteId))?.nome || '';
   const usuario = document.getElementById('f_usuario').value;
+  const segmento = document.getElementById('f_segmento').value;
   const modulo = document.getElementById('f_modulo').value;
   const submodulo = document.getElementById('f_submodulo').value;
   const tipo = getLookupSingleValor('f_tipo');
@@ -1458,7 +1499,7 @@ async function salvarRegistro(){
   btn.textContent = 'Salvando…';
   try{
     const dataPrevista = isUsuario ? '' : document.getElementById('f_data_prevista').value;
-    const payload = { id: editandoId, data, cliente, usuario, modulo, submodulo, tipo, atendente, assunto, detalhe, solucao, hi, inter, hf, status,
+    const payload = { id: editandoId, data, cliente, usuario, segmento, modulo, submodulo, tipo, atendente, assunto, detalhe, solucao, hi, inter, hf, status,
       dataPrevista, atendente2, horasAtendente2, empresaId: empresaAtual ? empresaAtual.id : '',
       qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
@@ -1499,8 +1540,9 @@ function editar(id){
   if(cliente) document.getElementById('f_cliente').value = cliente.id;
   popularUsuariosSolicitantes();
   document.getElementById('f_usuario').value = r.usuario;
-  document.getElementById('f_modulo').value = r.modulo || '';
-  document.getElementById('f_submodulo').value = r.submodulo || '';
+  popularSelectSegmento(r.segmento || '');
+  popularSelectModuloPorSegmento(r.segmento || '', r.modulo || '');
+  popularSelectRotinaPorModulo(r.modulo || '', r.submodulo || '');
   setLookupSingleValor('f_tipo', r.tipo);
   setLookupSingleValor('f_atendente', r.atendente);
   setLookupSingleValor('f_atendente2', r.atendente2 || 'Nenhum');
@@ -1553,8 +1595,9 @@ function copiarAtendimento(id){
   if(cliente) document.getElementById('f_cliente').value = cliente.id;
   popularUsuariosSolicitantes();
   document.getElementById('f_usuario').value = r.usuario;
-  document.getElementById('f_modulo').value = r.modulo || '';
-  document.getElementById('f_submodulo').value = r.submodulo || '';
+  popularSelectSegmento(r.segmento || '');
+  popularSelectModuloPorSegmento(r.segmento || '', r.modulo || '');
+  popularSelectRotinaPorModulo(r.modulo || '', r.submodulo || '');
   setLookupSingleValor('f_tipo', r.tipo);
   setLookupSingleValor('f_atendente', r.atendente);
   setLookupSingleValor('f_atendente2', r.atendente2 || 'Nenhum');
@@ -1748,7 +1791,7 @@ const FILTRO_AVANCADO_CAMPOS = [
   { valor:'atendente', label:'Atendente', tipo:'lista', permiteVazio:true },
   { valor:'status', label:'Status', tipo:'lista' },
   { valor:'modulo', label:'Módulo', tipo:'lista', permiteVazio:true },
-  { valor:'submodulo', label:'Sub Módulo', tipo:'lista', permiteVazio:true },
+  { valor:'submodulo', label:'Rotina', tipo:'lista', permiteVazio:true },
   { valor:'tipo', label:'Tipo de atendimento', tipo:'lista' },
   { valor:'data', label:'Data', tipo:'data' },
   { valor:'dataPrevista', label:'Data Prevista', tipo:'data', permiteVazio:true },
@@ -5894,7 +5937,7 @@ function exportarCsv(){
 
 /* ================= CADASTROS (somente ADMIN) ================= */
 function renderCadastrosTudo(){
-  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso(); renderListEmpresas();
+  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListSegmentos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso(); renderListEmpresas();
   renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
   renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
   renderEmpresasCheckboxes('at_empresas', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.empresaIds||[]) : (empresaAtual ? [empresaAtual.id] : []));
@@ -8328,32 +8371,108 @@ async function removerTipo(id){
   toast('Tipo removido');
 }
 
+function renderListSegmentos(){
+  const el = document.getElementById('listSegmentos');
+  if(segmentos.length===0){ el.innerHTML = `<div class="empty">Nenhum segmento cadastrado.</div>`; return; }
+  el.innerHTML = segmentos.map(s=>`
+    <div class="cad-item"><div class="info"><b>${s.nome}</b></div>
+    <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover segmento?','Remove das opções futuras de lançamento.', ()=>removerSegmento('${s.id}'))">Remover</button></div></div>`).join('');
+}
+async function removerSegmento(id){
+  const r = await api('removerSegmento', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  toast('Segmento removido');
+}
+
+let editandoModuloId = null;
+function popularSelectSegmentoModulo(valorAtual){
+  document.getElementById('md_segmento').innerHTML = `<option value="">(nenhum)</option>` +
+    segmentos.map(s=>`<option value="${s.id}">${escaparHtml(s.nome)}</option>`).join('');
+  document.getElementById('md_segmento').value = valorAtual || '';
+}
 function renderListModulos(){
+  popularSelectSegmentoModulo(document.getElementById('md_segmento')?.value);
   const el = document.getElementById('listModulos');
   if(modulos.length===0){ el.innerHTML = `<div class="empty">Nenhum módulo cadastrado.</div>`; return; }
-  el.innerHTML = modulos.map(m=>`
-    <div class="cad-item"><div class="info"><b>${m.nome}</b></div>
-    <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover módulo?','Remove das opções futuras de lançamento.', ()=>removerModulo('${m.id}'))">Remover</button></div></div>`).join('');
+  el.innerHTML = modulos.map(m=>{
+    const segNome = segmentos.find(s=>String(s.id)===String(m.segmentoId))?.nome;
+    return `<div class="cad-item"><div class="info"><b>${m.nome}</b>${segNome ? ` <span style="color:var(--muted);font-weight:400;">(${escaparHtml(segNome)})</span>` : ''}</div>
+    <div class="acts">
+      <button class="ghost" onclick="editarModulo('${m.id}')">Editar</button>
+      <button class="danger" onclick="pedirConfirmacao('Remover módulo?','Remove das opções futuras de lançamento.', ()=>removerModulo('${m.id}'))">Remover</button>
+    </div></div>`;
+  }).join('');
+}
+function editarModulo(id){
+  const m = modulos.find(x=>String(x.id)===String(id));
+  if(!m) return;
+  editandoModuloId = id;
+  document.getElementById('md_tituloForm').textContent = 'Editar módulo';
+  document.getElementById('md_nome').value = m.nome;
+  popularSelectSegmentoModulo(m.segmentoId || '');
+  document.getElementById('btnAddModulo').textContent = 'Salvar módulo';
+  document.getElementById('btnCancelarEdicaoModulo').style.display = '';
+}
+function cancelarEdicaoModulo(){
+  editandoModuloId = null;
+  document.getElementById('md_tituloForm').textContent = 'Novo módulo';
+  document.getElementById('md_nome').value = '';
+  popularSelectSegmentoModulo('');
+  document.getElementById('btnAddModulo').textContent = 'Adicionar módulo';
+  document.getElementById('btnCancelarEdicaoModulo').style.display = 'none';
 }
 async function removerModulo(id){
   const r = await api('removerModulo', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  if(String(editandoModuloId)===String(id)) cancelarEdicaoModulo();
   await carregarTudo(); renderCadastrosTudo(); popularSelects();
   toast('Módulo removido');
 }
 
+let editandoSubmoduloId = null;
+function popularSelectModuloSubmodulo(valorAtual){
+  document.getElementById('sm_modulo').innerHTML = `<option value="">(nenhum)</option>` +
+    modulos.map(m=>`<option value="${m.id}">${escaparHtml(m.nome)}</option>`).join('');
+  document.getElementById('sm_modulo').value = valorAtual || '';
+}
 function renderListSubModulos(){
+  popularSelectModuloSubmodulo(document.getElementById('sm_modulo')?.value);
   const el = document.getElementById('listSubModulos');
-  if(submodulos.length===0){ el.innerHTML = `<div class="empty">Nenhum sub módulo cadastrado.</div>`; return; }
-  el.innerHTML = submodulos.map(s=>`
-    <div class="cad-item"><div class="info"><b>${s.nome}</b></div>
-    <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover sub módulo?','Remove das opções futuras de lançamento.', ()=>removerSubModulo('${s.id}'))">Remover</button></div></div>`).join('');
+  if(submodulos.length===0){ el.innerHTML = `<div class="empty">Nenhuma rotina cadastrada.</div>`; return; }
+  el.innerHTML = submodulos.map(s=>{
+    const modNome = modulos.find(m=>String(m.id)===String(s.moduloId))?.nome;
+    return `<div class="cad-item"><div class="info"><b>${s.nome}</b>${modNome ? ` <span style="color:var(--muted);font-weight:400;">(${escaparHtml(modNome)})</span>` : ''}</div>
+    <div class="acts">
+      <button class="ghost" onclick="editarSubModulo('${s.id}')">Editar</button>
+      <button class="danger" onclick="pedirConfirmacao('Remover rotina?','Remove das opções futuras de lançamento.', ()=>removerSubModulo('${s.id}'))">Remover</button>
+    </div></div>`;
+  }).join('');
+}
+function editarSubModulo(id){
+  const s = submodulos.find(x=>String(x.id)===String(id));
+  if(!s) return;
+  editandoSubmoduloId = id;
+  document.getElementById('sm_tituloForm').textContent = 'Editar rotina';
+  document.getElementById('sm_nome').value = s.nome;
+  popularSelectModuloSubmodulo(s.moduloId || '');
+  document.getElementById('btnAddSubModulo').textContent = 'Salvar rotina';
+  document.getElementById('btnCancelarEdicaoSubModulo').style.display = '';
+}
+function cancelarEdicaoSubModulo(){
+  editandoSubmoduloId = null;
+  document.getElementById('sm_tituloForm').textContent = 'Nova rotina';
+  document.getElementById('sm_nome').value = '';
+  popularSelectModuloSubmodulo('');
+  document.getElementById('btnAddSubModulo').textContent = 'Adicionar rotina';
+  document.getElementById('btnCancelarEdicaoSubModulo').style.display = 'none';
 }
 async function removerSubModulo(id){
   const r = await api('removerSubModulo', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  if(String(editandoSubmoduloId)===String(id)) cancelarEdicaoSubModulo();
   await carregarTudo(); renderCadastrosTudo(); popularSelects();
-  toast('Sub módulo removido');
+  toast('Rotina removida');
 }
 
 function renderListStatus(){
@@ -8760,7 +8879,7 @@ const COLUNAS_RELATORIO = [
   { key:'atendente', label:'Atendente', formatar:r=>r.atendente || '(a definir)' },
   { key:'tipo', label:'Tipo', formatar:r=>labelTipo(r.tipo) },
   { key:'modulo', label:'Módulo', formatar:r=>r.modulo||'' },
-  { key:'submodulo', label:'Sub Módulo', formatar:r=>r.submodulo||'' },
+  { key:'submodulo', label:'Rotina', formatar:r=>r.submodulo||'' },
   { key:'assunto', label:'Assunto', formatar:r=>r.assunto||'' },
   { key:'detalhe', label:'Detalhe', formatar:r=>stripHtml(r.detalhe||'') },
   { key:'solucao', label:'Solução', formatar:r=>stripHtml(r.solucao||'') },
@@ -9788,6 +9907,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
 
   document.getElementById('f_cliente').addEventListener('change', ()=>{ popularUsuariosSolicitantes(); atualizarPreview(); });
+  document.getElementById('f_segmento').addEventListener('change', e=>{
+    popularSelectModuloPorSegmento(e.target.value, '');
+    popularSelectRotinaPorModulo('', '');
+  });
+  document.getElementById('f_modulo').addEventListener('change', e=>{
+    popularSelectRotinaPorModulo(e.target.value, '');
+  });
   document.getElementById('f_hi').addEventListener('change', atualizarPreview);
   document.getElementById('f_hf').addEventListener('change', atualizarPreview);
   document.getElementById('f_inter').addEventListener('change', atualizarPreview);
@@ -10547,25 +10673,43 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast('Tipo adicionado');
   });
 
+  document.getElementById('btnAddSegmento').addEventListener('click', async ()=>{
+    const nome = document.getElementById('sg_nome').value.trim();
+    if(!nome){ toast('Informe o nome do segmento'); return; }
+    const r = await api('addSegmento', { contaId: contaAtual().id, nome });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    document.getElementById('sg_nome').value='';
+    await carregarTudo(); renderListSegmentos(); popularSelects();
+    toast('Segmento adicionado');
+  });
+
   document.getElementById('btnAddModulo').addEventListener('click', async ()=>{
     const nome = document.getElementById('md_nome').value.trim();
+    const segmentoId = document.getElementById('md_segmento').value || null;
     if(!nome){ toast('Informe o nome do módulo'); return; }
-    const r = await api('addModulo', { contaId: contaAtual().id, nome });
+    const acao = editandoModuloId ? 'atualizarModulo' : 'addModulo';
+    const payload = editandoModuloId ? { contaId: contaAtual().id, id: editandoModuloId, nome, segmentoId } : { contaId: contaAtual().id, nome, segmentoId };
+    const r = await api(acao, payload);
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
-    document.getElementById('md_nome').value='';
-    await carregarTudo(); renderListModulos(); popularSelects();
-    toast('Módulo adicionado');
+    cancelarEdicaoModulo();
+    await carregarTudo(); renderCadastrosTudo(); popularSelects();
+    toast(editandoModuloId ? 'Módulo atualizado' : 'Módulo adicionado');
   });
+  document.getElementById('btnCancelarEdicaoModulo').addEventListener('click', cancelarEdicaoModulo);
 
   document.getElementById('btnAddSubModulo').addEventListener('click', async ()=>{
     const nome = document.getElementById('sm_nome').value.trim();
-    if(!nome){ toast('Informe o nome do sub módulo'); return; }
-    const r = await api('addSubModulo', { contaId: contaAtual().id, nome });
+    const moduloId = document.getElementById('sm_modulo').value || null;
+    if(!nome){ toast('Informe o nome da rotina'); return; }
+    const acao = editandoSubmoduloId ? 'atualizarSubModulo' : 'addSubModulo';
+    const payload = editandoSubmoduloId ? { contaId: contaAtual().id, id: editandoSubmoduloId, nome, moduloId } : { contaId: contaAtual().id, nome, moduloId };
+    const r = await api(acao, payload);
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
-    document.getElementById('sm_nome').value='';
-    await carregarTudo(); renderListSubModulos(); popularSelects();
-    toast('Sub módulo adicionado');
+    cancelarEdicaoSubModulo();
+    await carregarTudo(); renderCadastrosTudo(); popularSelects();
+    toast(editandoSubmoduloId ? 'Rotina atualizada' : 'Rotina adicionada');
   });
+  document.getElementById('btnCancelarEdicaoSubModulo').addEventListener('click', cancelarEdicaoSubModulo);
 
   document.getElementById('btnAddStatus').addEventListener('click', async ()=>{
     const nome = document.getElementById('st_nome').value.trim();
