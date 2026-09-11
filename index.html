@@ -930,13 +930,14 @@
         <div class="field"><label>Usuário solicitante</label><select id="f_usuario"></select></div>
       </div>
       <div class="row3">
+        <div class="field"><label>Segmento</label><select id="f_segmento"></select></div>
         <div class="field"><label>Módulo</label><select id="f_modulo"></select></div>
-        <div class="field"><label>Sub Módulo</label><select id="f_submodulo"></select></div>
-        <div class="field" id="campoTipo"><label>Tipo de atendimento</label><div class="lookup-multi" id="f_tipo"></div></div>
+        <div class="field"><label>Rotina</label><select id="f_submodulo"></select></div>
       </div>
-      <div class="row">
+      <div class="row3">
         <div class="field" id="campoAtendente"><label>Atendente</label><div class="lookup-multi" id="f_atendente"></div></div>
         <div class="field" id="campoAtendente2"><label>Segundo atendente <span style="font-weight:400;">(opcional)</span></label><div class="lookup-multi" id="f_atendente2"></div></div>
+        <div class="field" id="campoTipo"><label>Tipo de atendimento</label><div class="lookup-multi" id="f_tipo"></div></div>
       </div>
       <div class="field" id="campoTipoFixo" style="display:none;">
         <label>Tipo de atendimento</label>
@@ -1723,8 +1724,9 @@
       <div class="subtab active" data-sub="atendentes">Atendentes</div>
       <div class="subtab" data-sub="clientes">Clientes</div>
       <div class="subtab" data-sub="tipos">Tipos</div>
+      <div class="subtab" data-sub="segmentos">Segmentos</div>
       <div class="subtab" data-sub="modulos">Módulos</div>
-      <div class="subtab" data-sub="submodulos">Sub Módulos</div>
+      <div class="subtab" data-sub="submodulos">Rotinas</div>
       <div class="subtab" data-sub="status">Status</div>
       <div class="subtab" data-sub="valores">Valores</div>
       <div class="subtab" data-sub="usuarios">Usuários (login)</div>
@@ -1796,20 +1798,33 @@
       <div id="listTipos"></div>
     </div>
 
+    <div class="cad-view" id="cad-segmentos" style="display:none;">
+      <div class="card">
+        <h2>Novo segmento</h2>
+        <div class="field"><label>Nome do segmento</label><input type="text" id="sg_nome" placeholder="Ex: RH"></div>
+        <button class="primary" id="btnAddSegmento">Adicionar segmento</button>
+      </div>
+      <div id="listSegmentos"></div>
+    </div>
+
     <div class="cad-view" id="cad-modulos" style="display:none;">
       <div class="card">
-        <h2>Novo módulo</h2>
-        <div class="field"><label>Nome do módulo</label><input type="text" id="md_nome" placeholder="Ex: RM Nucleus"></div>
+        <h2 id="md_tituloForm">Novo módulo</h2>
+        <div class="field"><label>Segmento</label><select id="md_segmento"><option value="">(nenhum)</option></select></div>
+        <div class="field"><label>Nome do módulo</label><input type="text" id="md_nome" placeholder="Ex: Automação de Ponto"></div>
         <button class="primary" id="btnAddModulo">Adicionar módulo</button>
+        <button class="ghost" id="btnCancelarEdicaoModulo" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
       <div id="listModulos"></div>
     </div>
 
     <div class="cad-view" id="cad-submodulos" style="display:none;">
       <div class="card">
-        <h2>Novo sub módulo</h2>
-        <div class="field"><label>Nome do sub módulo</label><input type="text" id="sm_nome" placeholder="Ex: RM Reports"></div>
-        <button class="primary" id="btnAddSubModulo">Adicionar sub módulo</button>
+        <h2 id="sm_tituloForm">Nova rotina</h2>
+        <div class="field"><label>Módulo</label><select id="sm_modulo"><option value="">(nenhum)</option></select></div>
+        <div class="field"><label>Nome da rotina</label><input type="text" id="sm_nome" placeholder="Ex: Integração"></div>
+        <button class="primary" id="btnAddSubModulo">Adicionar rotina</button>
+        <button class="ghost" id="btnCancelarEdicaoSubModulo" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
       <div id="listSubModulos"></div>
     </div>

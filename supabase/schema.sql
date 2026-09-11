@@ -975,3 +975,52 @@ create index if not exists idx_orc_anexos_orcamento on orcamento_anexos (orcamen
 -- data em que o cliente aceitou/aprovou a proposta (controle interno —
 -- não sai no PDF, que é o documento enviado antes do aceite)
 alter table orcamentos add column if not exists data_aceite date;
+
+-- taxonomia de módulo dos atendimentos em 3 níveis: Segmento > Módulo >
+-- Rotina (a tabela continua se chamando "submodulos" internamente — o
+-- nome visível pro usuário virou "Rotina" — pra não precisar renomear a
+-- coluna "submodulo" já usada em atendimentos/relatórios/filtros/Cubo).
+-- Módulos e rotinas cadastrados antes dessa mudança continuam existindo
+-- soltos (segmento_id/modulo_id nulos) — dá pra encaixar depois editando.
+create table if not exists segmentos (
+  id text primary key,
+  nome text not null
+);
+alter table segmentos enable row level security;
+
+alter table modulos add column if not exists segmento_id text references segmentos(id);
+alter table submodulos add column if not exists modulo_id text references modulos(id);
+alter table atendimentos add column if not exists segmento text default '';
+
+insert into segmentos (id, nome) values
+  ('seg-rh', 'RH'),
+  ('seg-backoffice', 'BACKOFFICE'),
+  ('seg-framework', 'FRAMEWORK')
+on conflict (id) do nothing;
+
+insert into modulos (id, nome, segmento_id) values
+  ('md-ponto', 'Automação de Ponto', 'seg-rh'),
+  ('md-folha', 'Folha de Pagamento', 'seg-rh'),
+  ('md-gp', 'Gestão de Pessoas', 'seg-rh'),
+  ('md-sso', 'Segurança e Saúde Ocupacional', 'seg-rh'),
+  ('md-contabil', 'Gestão Contábil', 'seg-backoffice'),
+  ('md-estoque', 'Gestão Estoque, Compras e Faturamento', 'seg-backoffice'),
+  ('md-financeira', 'Gestão Financeira', 'seg-backoffice'),
+  ('md-bd-fw', 'Banco de Dados', 'seg-framework'),
+  ('md-rmreports-fw', 'RM Reports', 'seg-framework')
+on conflict (id) do nothing;
+
+insert into submodulos (id, nome, modulo_id) values
+  ('sm-ponto-integracao', 'Integração', 'md-ponto'),
+  ('sm-ponto-calculo', 'Cálculo', 'md-ponto'),
+  ('sm-ponto-movimento', 'Movimento', 'md-ponto'),
+  ('sm-folha-calculo', 'Cálculo', 'md-folha'),
+  ('sm-folha-esocial', 'eSocial', 'md-folha'),
+  ('sm-gp-definir', 'Definir', 'md-gp'),
+  ('sm-sso-definir', 'Definir', 'md-sso'),
+  ('sm-contabil-definir', 'Definir', 'md-contabil'),
+  ('sm-estoque-definir', 'Definir', 'md-estoque'),
+  ('sm-financeira-definir', 'Definir', 'md-financeira'),
+  ('sm-bd-fw-definir', 'Definir', 'md-bd-fw'),
+  ('sm-rmreports-fw-definir', 'Definir', 'md-rmreports-fw')
+on conflict (id) do nothing;
