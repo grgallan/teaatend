@@ -56,7 +56,7 @@ let filtroCliente = new Set(); // vazio = todos
 let filtroStatus = new Set(); // vazio = todos
 let filtroAvancado = null; // { operadorGrupos:'E'|'OU', grupos:[{id,operador,condicoes:[{id,campo,operador,valor}]}] } — null = inativo
 let filtroAvancadoRascunho = null; // cópia editada dentro do modal, só vira "filtroAvancado" ao clicar Aplicar
-let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards'
+let visualizacaoAtendimentos = 'lista'; // 'lista' | 'cards' | 'meus'
 // tabela ordenável/agrupável da Lista (só em telas largas — no celular a
 // lista continua em cards, sem essa mecânica)
 let listaOrdenacao = { campo: 'data', direcao: 'desc' }; // igual à ordenação padrão de sempre
@@ -1092,6 +1092,9 @@ function entrarNoApp(){
   // continuar numa visualização (Cards) escolhida pela pessoa anterior
   visualizacaoAtendimentos = 'lista';
   document.querySelectorAll('#listaVisualizacaoToggle button').forEach(b=>b.classList.toggle('sel', b.dataset.val==='lista'));
+  // "Meus Atendimentos" só faz sentido pra quem atende — é filtrado pelo
+  // nome bater no campo Atendente/Segundo atendente do chamado
+  document.getElementById('btnVisualizacaoMeus').style.display = conta.perfil === 'ATENDENTE' ? '' : 'none';
 
   document.getElementById('screen-login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -1767,6 +1770,11 @@ function itensAtendimentosFiltrados(){
   // cliente aqui, senão descarta os atendimentos dos outros do mesmo
   // cliente; mas status e período valem pra ele também
   if(!isUsuario && filtroCliente.size > 0) itens = itens.filter(r=>filtroCliente.has(r.cliente));
+  // "Meus Atendimentos": só os chamados vinculados a quem está logado,
+  // seja como atendente principal ou segundo atendente
+  if(visualizacaoAtendimentos === 'meus' && conta){
+    itens = itens.filter(r=> r.atendente===conta.nome || r.atendente2===conta.nome);
+  }
   if(filtroStatus.size > 0) itens = itens.filter(r=>filtroStatus.has(r.status));
   const de = document.getElementById('periodo_de').value;
   const ate = document.getElementById('periodo_ate').value;
