@@ -1433,10 +1433,9 @@ function resetForm(){
   document.getElementById('f_detalhe').innerHTML = '';
   document.getElementById('f_solucao').innerHTML = '';
   const conta = contaAtual();
-  const isUsuario = conta && conta.perfil === 'USUARIO';
-  document.getElementById('f_hi').value = isUsuario ? '00:00' : '08:00';
+  document.getElementById('f_hi').value = '00:00';
   document.getElementById('f_inter').value = '00:00';
-  document.getElementById('f_hf').value = isUsuario ? '00:00' : '09:00';
+  document.getElementById('f_hf').value = '00:00';
   document.getElementById('f_status').value = 'PENDENTE';
   document.getElementById('f_qtd_manual').value = '';
   document.getElementById('f_anexo').value = '';
