@@ -213,6 +213,24 @@ function atualizarGruposSidebarVisiveis(){
   });
 }
 
+// menu lateral (desktop) recolhido — mostra só os ícones, com um botão pra
+// expandir e ver os nomes quando quiser; a escolha fica salva só nesse
+// navegador (localStorage), igual ao tema claro/escuro
+function aplicarSidebarColapsada(colapsada){
+  document.getElementById('sidebar').classList.toggle('collapsed', colapsada);
+  document.body.classList.toggle('sidebar-colapsada', colapsada);
+}
+function alternarSidebarColapsada(){
+  const colapsada = !document.getElementById('sidebar').classList.contains('collapsed');
+  aplicarSidebarColapsada(colapsada);
+  try{ localStorage.setItem('sidebarColapsada', colapsada ? '1' : '0'); }catch(e){ /* sem localStorage, só não persiste entre sessões */ }
+}
+function carregarSidebarColapsadaSalva(){
+  let colapsada = true; // padrão: só ícones — expande sob demanda
+  try{ const salvo = localStorage.getItem('sidebarColapsada'); if(salvo !== null) colapsada = salvo === '1'; }catch(e){ /* ok, usa o padrão */ }
+  aplicarSidebarColapsada(colapsada);
+}
+
 // mesma ideia do menuVisivel/aplicarVisibilidadeMenu, mas pras abas internas
 // (submenus) de Dashboard/Financeiro/Agenda/Vídeos/Cadastros/Utilitários —
 // cada submenu usa a chave composta "menu.submenu"; os dois únicos que já
@@ -1149,6 +1167,7 @@ function entrarNoApp(){
   // permissão "menu.submenu" configurável no Perfil de Acesso
   aplicarVisibilidadeSubmenus(conta);
   atualizarGruposSidebarVisiveis();
+  carregarSidebarColapsadaSalva();
 
   // valores/hora (R$) só aparecem para o admin — atendentes veem só a quantidade de horas
   document.getElementById('stat_ananda').style.display = isAdmin ? '' : 'none';
@@ -10515,6 +10534,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnLogout').addEventListener('click', ()=>pedirConfirmacao('Sair da conta?','Você poderá entrar novamente quando quiser.', sair, 'Sair'));
   document.getElementById('btnTema').addEventListener('click', alternarTema);
+  document.getElementById('btnSidebarToggle').addEventListener('click', alternarSidebarColapsada);
   document.getElementById('btnMinhaSenha').addEventListener('click', abrirModalSenha);
   document.getElementById('btnNotificacoes').addEventListener('click', alternarNotificacoes);
   document.getElementById('senhaCancelar').addEventListener('click', fecharModalSenha);
