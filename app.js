@@ -202,6 +202,17 @@ function aplicarVisibilidadeMenu(viewName, visivel){
   document.querySelectorAll(`[data-view="${viewName}"]`).forEach(el=>{ el.style.display = visivel ? '' : 'none'; });
 }
 
+// o menu lateral (desktop) é agrupado em seções (Operação/Relatórios/Gestão/
+// Sistema) — chame depois de toda chamada de aplicarVisibilidadeMenu pra
+// esconder também o cabeçalho de um grupo que ficou sem nenhum item visível
+// (perfil de acesso sem permissão pra nada daquele grupo)
+function atualizarGruposSidebarVisiveis(){
+  document.querySelectorAll('#sidebar .nav-group').forEach(grupo=>{
+    const temVisivel = [...grupo.querySelectorAll('.side-item')].some(item=>item.style.display !== 'none');
+    grupo.style.display = temVisivel ? '' : 'none';
+  });
+}
+
 // mesma ideia do menuVisivel/aplicarVisibilidadeMenu, mas pras abas internas
 // (submenus) de Dashboard/Financeiro/Agenda/Vídeos/Cadastros/Utilitários —
 // cada submenu usa a chave composta "menu.submenu"; os dois únicos que já
@@ -1137,6 +1148,7 @@ function entrarNoApp(){
   // Agenda, Vídeos, Cadastros, Utilitários) — cada uma com sua própria
   // permissão "menu.submenu" configurável no Perfil de Acesso
   aplicarVisibilidadeSubmenus(conta);
+  atualizarGruposSidebarVisiveis();
 
   // valores/hora (R$) só aparecem para o admin — atendentes veem só a quantidade de horas
   document.getElementById('stat_ananda').style.display = isAdmin ? '' : 'none';
