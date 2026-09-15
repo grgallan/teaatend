@@ -611,6 +611,12 @@ async function acaoDados(req: any) {
 }
 
 /* ---------- atendimento ---------- */
+// status que representam o chamado "fechado" pelo atendente — só podem
+// ser alcançados através de uma movimentação de finalização (ver
+// acaoCriarMovimentacao), nunca editando o atendimento direto, senão a
+// Solução fica sem rastro de qual movimentação resolveu o quê
+const STATUS_FECHAMENTO = new Set(['EM VALIDAÇÃO', 'CONCLUÍDO']);
+
 async function acaoSalvarAtendimento(req: any) {
   let clienteQuery = db.from('clientes').select('*').eq('nome', req.cliente);
   if (req.empresaId) clienteQuery = clienteQuery.eq('empresa_id', req.empresaId);
@@ -714,6 +720,23 @@ async function acaoSalvarAtendimento(req: any) {
   }
 
   const statusFinal = ehNovo ? 'PENDENTE' : req.status; // todo chamado novo abre PENDENTE — reforçado aqui, não confia só no front
+
+  // Solução só pode vir de uma movimentação de finalização — o formulário
+  // geral do atendimento não pode alterar esse campo à mão, nem fechar o
+  // chamado (EM VALIDAÇÃO/CONCLUÍDO) sem uma solução já registrada
+  if (!ehNovo) {
+    const { data: existenteSolucao } = await db.from('atendimentos').select('status,solucao').eq('id', req.id).maybeSingle();
+    if (existenteSolucao) {
+      const solucaoRecebida = String(req.solucao || '').trim();
+      const solucaoAtual = String(existenteSolucao.solucao || '').trim();
+      if (solucaoRecebida !== solucaoAtual) {
+        return { ok: false, erro: 'A Solução só pode ser preenchida através de uma movimentação de finalização — abra o chat do atendimento e clique em "Finalizar atendimento".' };
+      }
+      if (STATUS_FECHAMENTO.has(statusFinal) && existenteSolucao.status !== statusFinal && !solucaoAtual) {
+        return { ok: false, erro: 'Não é possível fechar o atendimento sem uma Solução — informe pelo menos uma movimentação de finalização.' };
+      }
+    }
+  }
 
   // marca a partir de quando o chamado entrou em "Em Validação" — usado
   // pra saber quando expira o prazo de validação automática; sai desse
@@ -2342,12 +2365,15 @@ async function acaoAlterarStatusEmMassa(req: any) {
   if (ids.length === 0) return { ok: false, erro: 'Nenhum atendimento selecionado.' };
   if (!req.novoStatus) return { ok: false, erro: 'Escolha um status.' };
 
-  const { data: atuais, error: erroSelect } = await db.from('atendimentos').select('id,status,data_prevista').in('id', ids);
+  const { data: atuais, error: erroSelect } = await db.from('atendimentos').select('id,status,data_prevista,solucao').in('id', ids);
   if (erroSelect) return { ok: false, erro: 'Erro ao ler atendimentos: ' + erroSelect.message };
 
-  let atualizados = 0;
+  let atualizados = 0, semSolucao = 0;
   for (const a of atuais || []) {
     if (a.status === req.novoStatus) continue;
+    // fechar (EM VALIDAÇÃO/CONCLUÍDO) sem solução não é permitido nem em
+    // massa — só via movimentação de finalização, atendimento por atendimento
+    if (STATUS_FECHAMENTO.has(req.novoStatus) && !String(a.solucao || '').trim()) { semSolucao++; continue; }
     const atualizacao: Record<string, unknown> = { status: req.novoStatus };
     // Data Final (Prevista) some auto-preenchida com hoje quando o chamado vira
     // CONCLUÍDO sem ela ter sido informada (fica só como registro de quando fechou)
@@ -2359,7 +2385,7 @@ async function acaoAlterarStatusEmMassa(req: any) {
     }
   }
 
-  return { ok: true, total: ids.length, atualizados };
+  return { ok: true, total: ids.length, atualizados, semSolucao };
 }
 
 /* ---------- mensagens (bate-papo) ---------- */

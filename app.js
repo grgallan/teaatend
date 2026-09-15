@@ -451,7 +451,8 @@ async function aplicarStatusMassa(){
     limparSelecao();
     await carregarTudo();
     renderLista(); renderResumo();
-    toast(`${r.atualizados} de ${r.total} atendimentos atualizados`);
+    const aviso = r.semSolucao > 0 ? ` — ${r.semSolucao} não fechado${r.semSolucao>1?'s':''} por falta de Solução (finalize pelo chat)` : '';
+    toast(`${r.atualizados} de ${r.total} atendimentos atualizados${aviso}`);
   }catch(e){
     toast(e && e.message ? e.message : 'Não foi possível alterar o status.');
   } finally {
@@ -2607,7 +2608,11 @@ async function soltarDragKanban(e){
     await carregarTudo();
     renderLista();
     renderResumo();
-    toast(`Status alterado para ${novoStatus}`);
+    if(r.semSolucao > 0){
+      toast('Não é possível fechar sem Solução — finalize pelo chat, com uma movimentação.');
+    }else{
+      toast(`Status alterado para ${novoStatus}`);
+    }
   }catch(err){
     toast('Não foi possível mudar o status.');
   }
