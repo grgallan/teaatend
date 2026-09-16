@@ -1564,10 +1564,13 @@ async function salvarRegistro(){
     if(vincularProjeto && r.id){
       projVincularAposSalvarAtendimento = null;
       await api('vincularAtendimentoProjeto', { projetoId: vincularProjeto.projetoId, atendimentoId: r.id, contaId: conta.id });
+      if(vincularProjeto.tarefaId){
+        await api('vincularAtendimentoTarefa', { tarefaId: vincularProjeto.tarefaId, atendimentoId: r.id, contaId: conta.id });
+      }
       goView('projetos');
       await abrirProjetoDetalhe(vincularProjeto.projetoId);
       goProjSub('atendimentos');
-      toast('Atendimento vinculado ao projeto');
+      toast('Atendimento vinculado ao projeto e à tarefa');
     } else {
       goView('lista');
     }
@@ -8589,6 +8592,42 @@ const PROJ_STATUS = [
 ];
 const PROJ_TAREFA_STATUS = ['A FAZER', 'EM ANDAMENTO', 'CONCLUÍDA'];
 
+// indicador visual de % concluída estilo bateria de celular — vermelho
+// <34%, amarelo <67%, verde a partir daí
+function projBateriaHtml(pct){
+  const p = Math.max(0, Math.min(100, Number(pct)||0));
+  const cor = p < 34 ? 'var(--bad)' : (p < 67 ? 'var(--warn)' : 'var(--ok)');
+  return `<span class="proj-bateria" title="${p}% concluído"><span class="proj-bateria-fill" style="width:${p}%;background:${cor};"></span></span>`;
+}
+
+// selects em cascata de Segmento/Módulo/Rotina — versão genérica (recebe o
+// id do elemento) da mesma lógica usada no formulário de atendimento
+// (popularSelectSegmento/popularSelectModuloPorSegmento/popularSelectRotinaPorModulo)
+function opcoesSegmento(valorAtual){
+  let opcoes = `<option value="">(selecione)</option>` + segmentos.map(s=>`<option value="${escaparHtml(s.nome)}">${escaparHtml(s.nome)}</option>`).join('');
+  if(valorAtual && !segmentos.some(s=>s.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  return opcoes;
+}
+function opcoesModuloPorSegmentoGenerico(segmentoNome, valorAtual){
+  const segmento = segmentos.find(s=>s.nome===segmentoNome);
+  const lista = segmento ? modulos.filter(m=>m.segmentoId===segmento.id) : [];
+  let opcoes = `<option value="">(selecione)</option>` + lista.map(m=>`<option value="${escaparHtml(m.nome)}">${escaparHtml(m.nome)}</option>`).join('');
+  if(valorAtual && !lista.some(m=>m.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  return opcoes;
+}
+function opcoesRotinaPorModuloGenerico(moduloNome, valorAtual){
+  const modulo = modulos.find(m=>m.nome===moduloNome);
+  const lista = modulo ? submodulos.filter(s=>s.moduloId===modulo.id) : [];
+  let opcoes = `<option value="">(selecione)</option>` + lista.map(s=>`<option value="${escaparHtml(s.nome)}">${escaparHtml(s.nome)}</option>`).join('');
+  if(valorAtual && !lista.some(s=>s.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  return opcoes;
+}
+function projPitPopularSegmentoModuloRotina(segmentoAtual, moduloAtual, submoduloAtual){
+  document.getElementById('pit_segmento').innerHTML = opcoesSegmento(segmentoAtual);
+  document.getElementById('pit_modulo').innerHTML = opcoesModuloPorSegmentoGenerico(segmentoAtual, moduloAtual);
+  document.getElementById('pit_submodulo').innerHTML = opcoesRotinaPorModuloGenerico(moduloAtual, submoduloAtual);
+}
+
 let projetos = [];
 let projEditandoId = null;
 let projetoAtualId = null;
@@ -8747,7 +8786,7 @@ async function abrirProjetoDetalhe(id){
   ].filter(Boolean).join(' · ');
   document.getElementById('projDetalheInfo').textContent = info;
 
-  goProjSub('tarefas');
+  goProjSub('dashboard');
 }
 
 function fecharProjetoDetalhe(){
@@ -8769,7 +8808,8 @@ function goProjSub(sub){
   projSubAba = sub;
   document.querySelectorAll('#projSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.projsub===sub));
   document.querySelectorAll('.proj-sub-view').forEach(v=>{ v.style.display = (v.id === 'proj-sub-'+sub) ? '' : 'none'; });
-  if(sub==='tarefas') renderTabelaTarefas();
+  if(sub==='dashboard') renderDashboardProjeto();
+  else if(sub==='tarefas') renderTabelaTarefas();
   else if(sub==='kanban') renderKanbanProjeto();
   else if(sub==='gantt'){
     if(!document.getElementById('proj_gantt_de').value){
@@ -8779,8 +8819,10 @@ function goProjSub(sub){
     }
     renderGanttProjeto();
   }
+  else if(sub==='mapa') renderMapaMentalProjeto();
   else if(sub==='recursos') renderRecursosCadastroProjeto();
   else if(sub==='atendimentos') renderVinculosProjetoChips();
+  else if(sub==='anexos') carregarAnexosProjeto(projetoAtualId);
 }
 
 /* ---------- cadastro de recursos do projeto (nome + custo padrão) —
@@ -8900,24 +8942,28 @@ function projTarefaLinhaHtml(t, nivel){
     .join(',');
   const linha = `
     <tr class="status-${statusSlug(t.status)}" data-id="${t.id}">
-      <td>${filhos.length > 0 ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '▸' : '▾'}</button>` : ''}</td>
+      <td>${filhos.length > 0 ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '+' : '−'}</button>` : ''}</td>
       <td style="text-align:center;color:var(--muted);">${numero}</td>
-      <td>
-        <select onchange="projSalvarCampoTarefa('${t.id}','modo',this.value)">
-          <option value="AUTOMÁTICO" ${t.modo!=='MANUAL'?'selected':''}>Automático</option>
-          <option value="MANUAL" ${t.modo==='MANUAL'?'selected':''}>Manual</option>
-        </select>
-      </td>
       <td>
         <div class="proj-tarefa-nome-linha" style="padding-left:${nivel*16}px;">
           <input type="text" class="proj-tarefa-titulo" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
         </div>
       </td>
+      <td>
+        <select class="proj-status-select" onchange="projSalvarCampoTarefa('${t.id}','status',this.value)">
+          ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </td>
       <td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>
       <td><input type="date" value="${t.dataInicio||''}" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)"></td>
       <td><input type="date" value="${t.dataFim||''}" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)"></td>
       <td class="anotacoes-col"><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>
-      <td class="num"><input type="number" min="0" max="100" step="1" value="${t.percentualConcluido||0}" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)"></td>
+      <td class="num">
+        <div class="proj-bateria-wrap">
+          ${projBateriaHtml(t.percentualConcluido||0)}
+          <input type="number" min="0" max="100" step="1" value="${t.percentualConcluido||0}" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)">
+        </div>
+      </td>
       <td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>
       <td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>
       <td class="proj-tarefa-acoes-cel">
@@ -9019,10 +9065,13 @@ function projAbrirInfoTarefa(id){
   document.getElementById('pit_inicio').value = t.dataInicio || '';
   document.getElementById('pit_fim').value = t.dataFim || '';
   document.getElementById('pit_anotacoes').value = t.descricao || '';
+  projPitPopularSegmentoModuloRotina(t.segmento || '', t.modulo || '', t.submodulo || '');
 
   projPitGoTab('geral');
   projPitRenderPredecessoras();
   projPitRenderRecursos();
+  projPitRenderAtendimentos();
+  carregarAnexosTarefa(id);
   document.getElementById('projInfoTarefaModal').classList.add('show');
 }
 function projPitFechar(){
@@ -9145,6 +9194,9 @@ async function projPitSalvar(){
     inativa: document.getElementById('pit_inativa').checked,
     modo: modoEl ? modoEl.value : 'AUTOMÁTICO',
     descricao: document.getElementById('pit_anotacoes').value,
+    segmento: document.getElementById('pit_segmento').value,
+    modulo: document.getElementById('pit_modulo').value,
+    submodulo: document.getElementById('pit_submodulo').value,
     predecessoras: pitPredecessoras.filter(p=>p.predecessoraId),
     recursos: pitRecursos.filter(r=>r.nome && r.nome.trim()),
   };
@@ -9162,12 +9214,21 @@ async function projPitSalvar(){
 // projeto, se bater com um cadastrado) — ao salvar, o atendimento novo
 // volta a ser vinculado a este projeto automaticamente (ver salvarRegistro)
 function projCriarAtendimentoParaRecurso(nomeAtendente){
-  if(!projetoAtualId) return;
-  projVincularAposSalvarAtendimento = { projetoId: projetoAtualId };
+  if(!projetoAtualId || !pitTarefaId) return;
+  const tarefa = projetoTarefas.find(x=>String(x.id)===String(pitTarefaId));
+  projVincularAposSalvarAtendimento = { projetoId: projetoAtualId, tarefaId: pitTarefaId };
   projPitFechar();
   goView('novo');
   resetForm();
   setLookupSingleValor('f_atendente', nomeAtendente);
+  if(tarefa){
+    document.getElementById('f_assunto').value = tarefa.titulo || '';
+    if(tarefa.segmento){
+      popularSelectSegmento(tarefa.segmento);
+      popularSelectModuloPorSegmento(tarefa.segmento, tarefa.modulo || '');
+      popularSelectRotinaPorModulo(tarefa.modulo || '', tarefa.submodulo || '');
+    }
+  }
   if(projetoAtual && projetoAtual.cliente){
     const cli = clientes.find(c=>c.nome===projetoAtual.cliente);
     if(cli){
@@ -9175,7 +9236,71 @@ function projCriarAtendimentoParaRecurso(nomeAtendente){
       popularUsuariosSolicitantes();
     }
   }
-  toast('Preencha os dados e salve — o atendimento será vinculado a este projeto automaticamente.');
+  toast('Preencha os dados e salve — o atendimento será vinculado a este projeto e a esta tarefa automaticamente.');
+}
+
+function projPitRenderAtendimentos(){
+  const cont = document.getElementById('pitAtendimentosLista');
+  const t = projetoTarefas.find(x=>String(x.id)===String(pitTarefaId));
+  const ids = t ? (t.atendimentoIds || []) : [];
+  if(ids.length===0){ cont.innerHTML = `<span style="color:var(--muted);font-size:12px;">Nenhum atendimento vinculado ainda.</span>`; return; }
+  cont.innerHTML = ids.map(id=>{
+    const at = atendimentos.find(x=>String(x.id)===String(id));
+    const texto = at ? `#${escaparHtml(String(at.id))} — ${escaparHtml(at.cliente)} · ${escaparHtml(at.usuario)}` : `#${escaparHtml(String(id))}`;
+    return `<span class="lookup-tag" style="cursor:pointer;" onclick="abrirDetalhe('${id}')">${texto}<button type="button" onclick="event.stopPropagation();projPitDesvincularAtendimento('${id}')">×</button></span>`;
+  }).join('');
+}
+async function projPitDesvincularAtendimento(atendimentoId){
+  if(!pitTarefaId) return;
+  const conta = contaAtual();
+  const r = await api('desvincularAtendimentoTarefa', { tarefaId: pitTarefaId, atendimentoId, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover o vínculo.'); return; }
+  const t = projetoTarefas.find(x=>String(x.id)===String(pitTarefaId));
+  if(t) t.atendimentoIds = (t.atendimentoIds||[]).filter(x=>String(x)!==String(atendimentoId));
+  projPitRenderAtendimentos();
+}
+
+/* ---------- anexos da tarefa — tabela própria (projeto_tarefa_anexos),
+   mesmo padrão de anexos de orçamento/atividade ---------- */
+async function carregarAnexosTarefa(tarefaId){
+  const cont = document.getElementById('pitAnexosLista');
+  cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
+  try{
+    const r = await api('listarAnexosTarefa', { tarefaId });
+    if(!r.ok){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    renderAnexosTarefaLista(r.anexos, tarefaId);
+  }catch(e){
+    cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar os anexos.</div>`;
+  }
+}
+function renderAnexosTarefaLista(lista, tarefaId){
+  const cont = document.getElementById('pitAnexosLista');
+  if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum anexo ainda.</div>`; return; }
+  cont.innerHTML = lista.map(a=>`
+    <div class="anexo-item">
+      <a href="${a.url}" target="_blank">📎 ${escaparHtml(a.nome||'anexo')}</a>
+      <a href="${urlDownloadAnexo(a.url, a.nome)}" title="Baixar arquivo original">⬇ Baixar</a>
+      <button type="button" onclick="removerAnexoTarefaUi('${a.id}','${tarefaId}')">remover</button>
+    </div>`).join('');
+}
+async function adicionarAnexoTarefaUi(tarefaId, arquivo){
+  if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); return; }
+  toast('Enviando anexo…');
+  try{
+    const base64 = await lerArquivoBase64(arquivo);
+    const r = await api('adicionarAnexoTarefa', { tarefaId, base64, tipo: arquivo.type, nome: arquivo.name });
+    if(!r.ok){ toast(r.erro || 'Não foi possível enviar o anexo.'); return; }
+    await carregarAnexosTarefa(tarefaId);
+    toast('Anexo adicionado');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível enviar o anexo.');
+  }
+}
+async function removerAnexoTarefaUi(id, tarefaId){
+  const r = await api('removerAnexoTarefa', { id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarAnexosTarefa(tarefaId);
+  toast('Anexo removido');
 }
 
 /* ---------- Kanban de tarefas (3 colunas fixas — status de tarefa não é
@@ -9355,6 +9480,193 @@ function renderGanttProjeto(){
   `;
 }
 
+/* ---------- Dashboard do projeto — panorama de status, cronograma, custo
+   de recursos e financeiro real (a partir dos atendimentos vinculados),
+   tudo calculado em cima do que já está carregado (sem chamada extra) ---------- */
+function renderDashboardProjeto(){
+  const cont = document.getElementById('projDashboardConteudo');
+  const p = projetoAtual;
+  if(!p){ cont.innerHTML = ''; return; }
+  const tarefas = projetoTarefas;
+  const totalTarefas = tarefas.length;
+  const concluidas = tarefas.filter(t=>t.status==='CONCLUÍDA').length;
+  const emAndamento = tarefas.filter(t=>t.status==='EM ANDAMENTO').length;
+  const aFazer = tarefas.filter(t=>t.status==='A FAZER').length;
+  const pctGeral = totalTarefas>0 ? Math.round((concluidas/totalTarefas)*100) : 0;
+
+  const hojeIso = new Date().toISOString().slice(0,10);
+  const atrasadas = tarefas.filter(t=>t.dataFim && t.dataFim < hojeIso && t.status!=='CONCLUÍDA');
+
+  let prazoLabel = 'Prazo', prazoTexto = '—', prazoSub = 'sem previsão definida';
+  if(p.dataPrevistaFim){
+    const diff = Math.round((new Date(p.dataPrevistaFim+'T00:00:00') - new Date(hojeIso+'T00:00:00')) / 86400000);
+    if(diff >= 0){ prazoTexto = diff; prazoSub = 'dias até o previsto'; }
+    else { prazoLabel = 'Atraso'; prazoTexto = Math.abs(diff); prazoSub = 'dias além do previsto'; }
+  }
+
+  // custo planejado: soma de custo x % de unidades de cada recurso atribuído em cada tarefa
+  let custoPlanejado = 0;
+  const custoPorRecurso = {};
+  tarefas.forEach(t=>(t.recursos||[]).forEach(r=>{
+    const valor = (Number(r.custo)||0) * ((Number(r.unidades)||100)/100);
+    custoPlanejado += valor;
+    const chave = r.nome || '(sem nome)';
+    custoPorRecurso[chave] = (custoPorRecurso[chave]||0) + valor;
+  }));
+  const topRecursos = Object.entries(custoPorRecurso).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  const maiorCustoRecurso = topRecursos.length ? topRecursos[0][1] : 0;
+
+  // financeiro real: soma dos atendimentos já vinculados ao projeto
+  const atendsVinculados = projetoAtendimentoIds.map(id=>atendimentos.find(a=>String(a.id)===String(id))).filter(Boolean);
+  const totalReal = atendsVinculados.reduce((s,a)=>s+Number(a.totalReal||0),0);
+  const totalAnanda = atendsVinculados.reduce((s,a)=>s+Number(a.totalAnanda||0),0);
+  const horasApuradas = atendsVinculados.reduce((s,a)=>s+Number(a.qtd||0),0);
+
+  // saúde do projeto: compara % concluído com % do prazo já decorrido
+  let saudeTexto = 'Sem dados suficientes pra avaliar', saudeCor = 'var(--muted)', saudeIcone = '❔';
+  if(p.dataInicio && p.dataPrevistaFim){
+    const ini = new Date(p.dataInicio+'T00:00:00'), fim = new Date(p.dataPrevistaFim+'T00:00:00'), hoje = new Date(hojeIso+'T00:00:00');
+    const totalDias = Math.max(1, Math.round((fim-ini)/86400000));
+    const decorridos = Math.max(0, Math.min(totalDias, Math.round((hoje-ini)/86400000)));
+    const pctEsperado = Math.round((decorridos/totalDias)*100);
+    const gap = pctGeral - pctEsperado;
+    if(atrasadas.length===0 && gap >= -5){ saudeTexto = 'No prazo'; saudeCor = 'var(--ok)'; saudeIcone = '✓'; }
+    else if(gap >= -20){ saudeTexto = 'Atenção — ligeiramente atrás do cronograma'; saudeCor = 'var(--warn)'; saudeIcone = '⚠'; }
+    else { saudeTexto = 'Crítico — bem atrás do cronograma'; saudeCor = 'var(--bad)'; saudeIcone = '⛔'; }
+  } else if(atrasadas.length > 0){
+    saudeTexto = `${atrasadas.length} tarefa(s) em atraso`; saudeCor = 'var(--warn)'; saudeIcone = '⚠';
+  } else if(totalTarefas > 0){
+    saudeTexto = 'Sem atrasos registrados'; saudeCor = 'var(--ok)'; saudeIcone = '✓';
+  }
+
+  const proximasTarefas = tarefas.filter(t=>t.dataFim && t.status!=='CONCLUÍDA').sort((a,b)=>String(a.dataFim).localeCompare(String(b.dataFim))).slice(0,5);
+
+  cont.innerHTML = `
+    <div class="proj-dash-saude" style="background:color-mix(in oklch, ${saudeCor} 15%, transparent);color:${saudeCor};">
+      <span style="font-size:20px;">${saudeIcone}</span>
+      <span>${escaparHtml(saudeTexto)}</span>
+    </div>
+
+    <div class="proj-dash-grid" style="margin-top:14px;">
+      <div class="proj-dash-tile"><div class="k">Status</div><div class="v" style="font-size:15px;">${escaparHtml(p.status)}</div></div>
+      <div class="proj-dash-tile"><div class="k">Progresso geral</div><div class="v">${pctGeral}%</div><div class="sub">${concluidas}/${totalTarefas} tarefas</div></div>
+      <div class="proj-dash-tile"><div class="k">${escaparHtml(prazoLabel)}</div><div class="v">${prazoTexto}</div><div class="sub">${prazoSub}</div></div>
+      <div class="proj-dash-tile"><div class="k">Tarefas em atraso</div><div class="v" style="color:${atrasadas.length>0?'var(--bad)':'inherit'};">${atrasadas.length}</div></div>
+      <div class="proj-dash-tile"><div class="k">Custo planejado (recursos)</div><div class="v" style="font-size:16px;">${fmtMoeda(custoPlanejado)}</div></div>
+      <div class="proj-dash-tile"><div class="k">Atendimentos vinculados</div><div class="v">${atendsVinculados.length}</div><div class="sub">${horasApuradas.toFixed(1)}h apuradas</div></div>
+      <div class="proj-dash-tile"><div class="k">Faturado ao cliente</div><div class="v" style="font-size:16px;">${fmtMoeda(totalReal)}</div></div>
+      <div class="proj-dash-tile"><div class="k">Custo interno (atendentes)</div><div class="v" style="font-size:16px;">${fmtMoeda(totalAnanda)}</div></div>
+    </div>
+
+    <div class="proj-dash-secao">
+      <h3>Tarefas por status</h3>
+      ${totalTarefas===0 ? `<div class="empty" style="padding:6px 0;">Nenhuma tarefa ainda.</div>` : [['A FAZER',aFazer,'var(--muted)'],['EM ANDAMENTO',emAndamento,'var(--warn)'],['CONCLUÍDA',concluidas,'var(--ok)']].map(([nome,qtd,cor])=>{
+        const pct = totalTarefas>0 ? Math.round((qtd/totalTarefas)*100) : 0;
+        return `<div class="proj-dash-barra-linha">
+          <div class="proj-dash-barra-label">${escaparHtml(nome)}</div>
+          <div class="proj-dash-barra-trilha"><div class="proj-dash-barra-fill" style="width:${pct}%;background:${cor};"></div></div>
+          <div class="proj-dash-barra-valor">${qtd} (${pct}%)</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    ${topRecursos.length > 0 ? `
+    <div class="proj-dash-secao">
+      <h3>Custo por recurso</h3>
+      ${topRecursos.map(([nome,custo])=>{
+        const pct = maiorCustoRecurso>0 ? Math.round((custo/maiorCustoRecurso)*100) : 0;
+        return `<div class="proj-dash-barra-linha">
+          <div class="proj-dash-barra-label">${escaparHtml(nome)}</div>
+          <div class="proj-dash-barra-trilha"><div class="proj-dash-barra-fill" style="width:${pct}%;background:var(--blue);"></div></div>
+          <div class="proj-dash-barra-valor">${fmtMoeda(custo)}</div>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
+
+    <div class="proj-dash-secao">
+      <h3>Próximas tarefas a vencer</h3>
+      ${proximasTarefas.length===0 ? `<div class="empty" style="padding:6px 0;">Nenhuma tarefa pendente com data de término.</div>` : proximasTarefas.map(t=>{
+        const atrasada = t.dataFim < hojeIso;
+        return `<div class="proj-dash-lista-alerta">
+          <span>${escaparHtml(t.titulo)}</span>
+          <span style="color:${atrasada?'var(--bad)':'var(--muted)'};font-weight:${atrasada?700:400};">${String(t.dataFim).split('-').reverse().join('/')}${atrasada?' (atrasada)':''}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+/* ---------- Mapa Mental das tarefas — hierarquia (pai/filho) por posição
+   em árvore + linhas de predecessoras desenhadas por cima em SVG. Div-based
+   (sem lib externa), mesmo espírito do Gantt já existente. ---------- */
+function renderMapaMentalProjeto(){
+  const wrap = document.getElementById('projMapaMentalWrap');
+  if(projetoTarefas.length===0){ wrap.innerHTML = `<div class="empty" style="padding:24px;"><div class="big">🧠</div>Nenhuma tarefa ainda.</div>`; return; }
+
+  const LARGURA_NODE = 160, ALTURA_NODE = 46, ESPACO_X = 60, ESPACO_Y = 20;
+  const colunaPorNivel = {};
+  const posicoes = {};
+  let maxNivel = 0;
+
+  (function posicionar(paiId, nivel){
+    const filhos = projFilhosDe(paiId);
+    filhos.forEach(t=>{
+      maxNivel = Math.max(maxNivel, nivel);
+      const linha = colunaPorNivel[nivel] || 0;
+      posicoes[t.id] = {
+        x: nivel * (LARGURA_NODE + ESPACO_X) + 16,
+        y: linha * (ALTURA_NODE + ESPACO_Y) + 16,
+      };
+      colunaPorNivel[nivel] = linha + 1;
+      posicionar(t.id, nivel + 1);
+    });
+  })(null, 0);
+
+  const maxLinhas = Math.max(1, ...Object.values(colunaPorNivel));
+  const larguraTotal = (maxNivel + 1) * (LARGURA_NODE + ESPACO_X) + 16;
+  const alturaTotal = maxLinhas * (ALTURA_NODE + ESPACO_Y) + 16;
+
+  // linhas de hierarquia (pai -> filho) e de predecessoras (predecessora -> sucessora)
+  let linhasSvg = '';
+  projetoTarefas.forEach(t=>{
+    const pos = posicoes[t.id];
+    if(!pos) return;
+    if(t.tarefaPaiId && posicoes[t.tarefaPaiId]){
+      const pai = posicoes[t.tarefaPaiId];
+      const x1 = pai.x + LARGURA_NODE, y1 = pai.y + ALTURA_NODE/2;
+      const x2 = pos.x, y2 = pos.y + ALTURA_NODE/2;
+      linhasSvg += `<path d="M${x1},${y1} C${x1+30},${y1} ${x2-30},${y2} ${x2},${y2}" stroke="var(--line)" stroke-width="2" fill="none"/>`;
+    }
+    (t.predecessorasIds||[]).forEach(pid=>{
+      const pred = posicoes[pid];
+      if(!pred) return;
+      const x1 = pred.x + LARGURA_NODE, y1 = pred.y + ALTURA_NODE/2;
+      const x2 = pos.x, y2 = pos.y + ALTURA_NODE/2;
+      linhasSvg += `<path d="M${x1},${y1} C${x1+40},${y1} ${x2-40},${y2} ${x2},${y2}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4,3" fill="none" marker-end="url(#projMapaSeta)"/>`;
+    });
+  });
+
+  const nodesHtml = projetoTarefas.map(t=>{
+    const pos = posicoes[t.id];
+    if(!pos) return '';
+    const numero = projTarefaNumeros.get(String(t.id)) || '';
+    return `<div class="proj-mapa-node status-${statusSlug(t.status)}" style="left:${pos.x}px;top:${pos.y}px;width:${LARGURA_NODE}px;min-height:${ALTURA_NODE}px;border-left:4px solid ${corStatusDot(t.status)};" title="${escaparHtml(t.titulo)}">
+      <div class="titulo">${numero ? `#${numero} ` : ''}${escaparHtml(t.titulo)}</div>
+      <div class="meta">${escaparHtml(t.status)}${t.percentualConcluido?' · '+t.percentualConcluido+'%':''}</div>
+    </div>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div style="position:relative;width:${larguraTotal}px;height:${alturaTotal}px;">
+      <svg class="proj-mapa-svg" width="${larguraTotal}" height="${alturaTotal}" style="position:absolute;left:0;top:0;">
+        <defs><marker id="projMapaSeta" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--accent)"/></marker></defs>
+        ${linhasSvg}
+      </svg>
+      ${nodesHtml}
+    </div>
+  `;
+}
+
 /* ---------- vínculo do projeto com atendimentos existentes (muitos-pra-
    muitos, mesmo padrão de vínculo de Atividades) ---------- */
 function renderVinculosProjetoChips(){
@@ -9362,7 +9674,7 @@ function renderVinculosProjetoChips(){
   wrap.innerHTML = projetoAtendimentoIds.map(id=>{
     const r = atendimentos.find(x=>String(x.id)===String(id));
     const texto = r ? `#${escaparHtml(String(r.id))} — ${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}` : `#${escaparHtml(String(id))}`;
-    return `<span class="lookup-tag">${texto}<button type="button" onclick="projRemoverVinculoAtendimento('${id}')">×</button></span>`;
+    return `<span class="lookup-tag" style="cursor:pointer;" onclick="abrirDetalhe('${id}')">${texto}<button type="button" onclick="event.stopPropagation();projRemoverVinculoAtendimento('${id}')">×</button></span>`;
   }).join('');
 }
 async function projRemoverVinculoAtendimento(atendimentoId){
@@ -9378,6 +9690,49 @@ async function projAdicionarVinculoAtendimento(atendimentoId){
   if(!r.ok){ toast(r.erro || 'Não foi possível vincular.'); return; }
   projetoAtendimentoIds.push(atendimentoId);
   renderVinculosProjetoChips();
+}
+
+/* ---------- anexos do projeto — tabela própria (projeto_anexos), mesmo
+   padrão de anexos de orçamento/atividade/tarefa ---------- */
+async function carregarAnexosProjeto(projetoId){
+  const cont = document.getElementById('projAnexosLista');
+  cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
+  try{
+    const r = await api('listarAnexosProjeto', { projetoId });
+    if(!r.ok){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    renderAnexosProjetoLista(r.anexos, projetoId);
+  }catch(e){
+    cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar os anexos.</div>`;
+  }
+}
+function renderAnexosProjetoLista(lista, projetoId){
+  const cont = document.getElementById('projAnexosLista');
+  if(!lista || lista.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhum anexo ainda.</div>`; return; }
+  cont.innerHTML = lista.map(a=>`
+    <div class="anexo-item">
+      <a href="${a.url}" target="_blank">📎 ${escaparHtml(a.nome||'anexo')}</a>
+      <a href="${urlDownloadAnexo(a.url, a.nome)}" title="Baixar arquivo original">⬇ Baixar</a>
+      <button type="button" onclick="removerAnexoProjetoUi('${a.id}','${projetoId}')">remover</button>
+    </div>`).join('');
+}
+async function adicionarAnexoProjetoUi(projetoId, arquivo){
+  if(arquivo.size > 8 * 1024 * 1024){ toast('Anexo muito grande (máx. 8MB)'); return; }
+  toast('Enviando anexo…');
+  try{
+    const base64 = await lerArquivoBase64(arquivo);
+    const r = await api('adicionarAnexoProjeto', { projetoId, base64, tipo: arquivo.type, nome: arquivo.name });
+    if(!r.ok){ toast(r.erro || 'Não foi possível enviar o anexo.'); return; }
+    await carregarAnexosProjeto(projetoId);
+    toast('Anexo adicionado');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível enviar o anexo.');
+  }
+}
+async function removerAnexoProjetoUi(id, projetoId){
+  const r = await api('removerAnexoProjeto', { id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarAnexosProjeto(projetoId);
+  toast('Anexo removido');
 }
 
 /* ---------- Cubo de Atendimentos (tabela cruzada — só admin) ---------- */
@@ -11549,6 +11904,23 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPitAddRecurso').addEventListener('click', projPitAdicionarRecurso);
   document.getElementById('btnPitCancelar').addEventListener('click', projPitFechar);
   document.getElementById('btnPitSalvar').addEventListener('click', projPitSalvar);
+  document.getElementById('pit_segmento').addEventListener('change', e=>{
+    document.getElementById('pit_modulo').innerHTML = opcoesModuloPorSegmentoGenerico(e.target.value, '');
+    document.getElementById('pit_submodulo').innerHTML = opcoesRotinaPorModuloGenerico('', '');
+  });
+  document.getElementById('pit_modulo').addEventListener('change', e=>{
+    document.getElementById('pit_submodulo').innerHTML = opcoesRotinaPorModuloGenerico(e.target.value, '');
+  });
+  document.getElementById('pit_anexo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    if(arquivo && pitTarefaId) adicionarAnexoTarefaUi(pitTarefaId, arquivo);
+    e.target.value = '';
+  });
+  document.getElementById('proj_anexo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    if(arquivo && projetoAtualId) adicionarAnexoProjetoUi(projetoAtualId, arquivo);
+    e.target.value = '';
+  });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();

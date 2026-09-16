@@ -1168,3 +1168,46 @@ create unique index if not exists idx_proj_recursos_cadastro_unico on projeto_re
 -- automaticamente vinculado a este projeto
 alter table projeto_recursos_cadastro add column if not exists atendente_id text references contas(id);
 create index if not exists idx_proj_recursos_cadastro_atendente on projeto_recursos_cadastro (atendente_id);
+
+-- =========================================================
+-- Segmento/Módulo/Rotina na tarefa (mesmo padrão de atendimentos — texto
+-- livre, não FK) — usados pra já vir preenchido no atendimento criado a
+-- partir da tarefa (aba Recursos → "Criar atendimento")
+alter table projeto_tarefas add column if not exists segmento text default '';
+alter table projeto_tarefas add column if not exists modulo text default '';
+alter table projeto_tarefas add column if not exists submodulo text default '';
+
+-- vínculo tarefa -> atendimento — pra abrir o atendimento direto de dentro
+-- da tarefa que o gerou (além do vínculo já existente projeto_atendimentos,
+-- no nível do projeto inteiro)
+create table if not exists projeto_tarefa_atendimentos (
+  id text primary key,
+  tarefa_id text not null references projeto_tarefas(id) on delete cascade,
+  atendimento_id text not null references atendimentos(id) on delete cascade
+);
+alter table projeto_tarefa_atendimentos enable row level security;
+create index if not exists idx_proj_tarefa_atend_tarefa on projeto_tarefa_atendimentos (tarefa_id);
+create index if not exists idx_proj_tarefa_atend_atendimento on projeto_tarefa_atendimentos (atendimento_id);
+create unique index if not exists idx_proj_tarefa_atend_unico on projeto_tarefa_atendimentos (tarefa_id, atendimento_id);
+
+-- anexos do projeto e das tarefas — tabelas próprias, mesmo padrão de
+-- orcamento_anexos/atividade_anexos
+create table if not exists projeto_anexos (
+  id text primary key,
+  projeto_id text not null references projetos(id) on delete cascade,
+  nome text not null,
+  url text not null,
+  criado_em timestamptz default now()
+);
+alter table projeto_anexos enable row level security;
+create index if not exists idx_proj_anexos_projeto on projeto_anexos (projeto_id);
+
+create table if not exists projeto_tarefa_anexos (
+  id text primary key,
+  tarefa_id text not null references projeto_tarefas(id) on delete cascade,
+  nome text not null,
+  url text not null,
+  criado_em timestamptz default now()
+);
+alter table projeto_tarefa_anexos enable row level security;
+create index if not exists idx_proj_tarefa_anexos_tarefa on projeto_tarefa_anexos (tarefa_id);

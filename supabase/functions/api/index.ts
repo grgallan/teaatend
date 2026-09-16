@@ -303,6 +303,14 @@ async function rotear(req: any): Promise<any> {
     case 'criarRecursoProjeto': return acaoCriarRecursoProjeto(req);
     case 'atualizarRecursoProjeto': return acaoAtualizarRecursoProjeto(req);
     case 'removerRecursoProjeto': return acaoRemoverRecursoProjeto(req);
+    case 'vincularAtendimentoTarefa': return acaoVincularAtendimentoTarefa(req);
+    case 'desvincularAtendimentoTarefa': return acaoDesvincularAtendimentoTarefa(req);
+    case 'listarAnexosProjeto': return acaoListarAnexosProjeto(req);
+    case 'adicionarAnexoProjeto': return acaoAdicionarAnexoProjeto(req);
+    case 'removerAnexoProjeto': return acaoRemoverAnexoProjeto(req);
+    case 'listarAnexosTarefa': return acaoListarAnexosTarefa(req);
+    case 'adicionarAnexoTarefa': return acaoAdicionarAnexoTarefa(req);
+    case 'removerAnexoTarefa': return acaoRemoverAnexoTarefa(req);
     case 'listarOrcamentos': return acaoListarOrcamentos(req);
     case 'obterOrcamento': return acaoObterOrcamento(req);
     case 'salvarOrcamento': return acaoSalvarOrcamento(req);
@@ -2155,7 +2163,7 @@ function projetoParaApi(p: any, extra: { tarefasTotal?: number; tarefasConcluida
   };
 }
 
-function tarefaParaApi(t: any, predecessoras: any[] = [], recursos: any[] = []) {
+function tarefaParaApi(t: any, predecessoras: any[] = [], recursos: any[] = [], atendimentoIds: string[] = []) {
   return {
     id: t.id, projetoId: t.projeto_id, tarefaPaiId: t.tarefa_pai_id || '',
     titulo: t.titulo, descricao: t.descricao || '', responsavel: t.responsavel || '',
@@ -2164,12 +2172,14 @@ function tarefaParaApi(t: any, predecessoras: any[] = [], recursos: any[] = []) 
     duracaoDias: t.duracao_dias || 1, percentualConcluido: t.percentual_concluido || 0,
     modo: t.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO',
     prioridade: t.prioridade ?? 500, duracaoEstimada: !!t.duracao_estimada, inativa: !!t.inativa,
+    segmento: t.segmento || '', modulo: t.modulo || '', submodulo: t.submodulo || '',
     // predecessoras: forma rica (tela "Informações sobre a tarefa", com Tipo
     // FS/SS/FF/SF e Latência); predecessorasIds: só os ids, pra manter a
     // edição rápida (digitar números na tabela) funcionando sem mudança
     predecessoras: (predecessoras || []).map((p: any) => ({ predecessoraId: p.predecessora_id, tipo: p.tipo || 'FS', latenciaDias: p.latencia_dias || 0 })),
     predecessorasIds: (predecessoras || []).map((p: any) => p.predecessora_id),
     recursos: (recursos || []).map((r: any) => ({ nome: r.nome, unidades: r.unidades ?? 100, custo: r.custo || 0 })),
+    atendimentoIds: atendimentoIds || [],
   };
 }
 
@@ -2291,6 +2301,14 @@ async function recursosPorTarefa(tarefaIds: string[]) {
   return mapa;
 }
 
+async function atendimentosPorTarefa(tarefaIds: string[]) {
+  if (tarefaIds.length === 0) return {} as Record<string, string[]>;
+  const { data } = await db.from('projeto_tarefa_atendimentos').select('tarefa_id,atendimento_id').in('tarefa_id', tarefaIds);
+  const mapa: Record<string, string[]> = {};
+  (data || []).forEach((v: any) => { (mapa[v.tarefa_id] = mapa[v.tarefa_id] || []).push(v.atendimento_id); });
+  return mapa;
+}
+
 const TIPOS_PREDECESSORA_VALIDOS = new Set(['FS', 'SS', 'FF', 'SF']);
 
 // aceita tanto a forma rica (req.predecessoras, vinda da tela "Informações
@@ -2348,7 +2366,7 @@ async function recalcularEPersistirProjeto(projetoId: string) {
   const { data: tarefasDb } = await db.from('projeto_tarefas').select('*').eq('projeto_id', projetoId).order('criado_em', { ascending: true });
   const tarefas = tarefasDb || [];
   const ids = tarefas.map((t: any) => t.id);
-  const [predsMap, recursosMap] = await Promise.all([predecessorasPorTarefa(ids), recursosPorTarefa(ids)]);
+  const [predsMap, recursosMap, atendimentosMap] = await Promise.all([predecessorasPorTarefa(ids), recursosPorTarefa(ids), atendimentosPorTarefa(ids)]);
 
   const antes = new Map<string, { data_inicio: string | null; data_fim: string | null }>(
     tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim }]),
@@ -2362,7 +2380,7 @@ async function recalcularEPersistirProjeto(projetoId: string) {
     }
   }
 
-  return tarefas.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || []));
+  return tarefas.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [], atendimentosMap[t.id] || []));
 }
 
 async function acaoListarProjetos(req: any) {
@@ -2405,11 +2423,11 @@ async function acaoObterProjeto(req: any) {
   const total = lista.length;
   const concluidas = lista.filter((t: any) => t.status === 'CONCLUÍDA').length;
   const idsTarefas = lista.map((t: any) => t.id);
-  const [predsMap, recursosMap] = await Promise.all([predecessorasPorTarefa(idsTarefas), recursosPorTarefa(idsTarefas)]);
+  const [predsMap, recursosMap, atendimentosMap] = await Promise.all([predecessorasPorTarefa(idsTarefas), recursosPorTarefa(idsTarefas), atendimentosPorTarefa(idsTarefas)]);
   return {
     ok: true,
     projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
-    tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [])),
+    tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [], atendimentosMap[t.id] || [])),
     atendimentoIds: (vinculos || []).map((v: any) => v.atendimento_id),
     recursosCadastro: (recursosCadastro || []).map((r: any) => ({ id: r.id, projetoId: r.projeto_id, nome: r.nome, custo: r.custo || 0, atendenteId: r.atendente_id || '' })),
   };
@@ -2493,6 +2511,7 @@ async function acaoCriarTarefa(req: any) {
     status, data_inicio: req.dataInicio || null, data_fim: req.dataFim || null,
     duracao_dias: duracaoDias, percentual_concluido: percentual, modo,
     prioridade, duracao_estimada: !!req.duracaoEstimada, inativa: !!req.inativa,
+    segmento: req.segmento || '', modulo: req.modulo || '', submodulo: req.submodulo || '',
     concluido_em: status === 'CONCLUÍDA' ? new Date().toISOString() : null,
   };
   const { error } = await db.from('projeto_tarefas').insert(registro);
@@ -2542,6 +2561,9 @@ async function acaoAtualizarTarefa(req: any) {
   }
   if (req.duracaoEstimada !== undefined) atualizacao.duracao_estimada = !!req.duracaoEstimada;
   if (req.inativa !== undefined) atualizacao.inativa = !!req.inativa;
+  if (req.segmento !== undefined) atualizacao.segmento = req.segmento || '';
+  if (req.modulo !== undefined) atualizacao.modulo = req.modulo || '';
+  if (req.submodulo !== undefined) atualizacao.submodulo = req.submodulo || '';
   if (req.dataInicio !== undefined || req.dataFim !== undefined || req.duracaoDias !== undefined) {
     const sync = calcularSincroniaTarefa(existente, req);
     atualizacao.data_inicio = sync.data_inicio;
@@ -2568,6 +2590,75 @@ async function acaoRemoverTarefa(req: any) {
   await db.from('projeto_tarefas').delete().eq('id', req.id);
   const tarefas = existente ? await recalcularEPersistirProjeto(existente.projeto_id) : [];
   return { ok: true, tarefas };
+}
+
+// vínculo tarefa -> atendimento — pra abrir o atendimento direto de dentro
+// da tarefa que o gerou (aba Recursos da tela de informações, quando o
+// atendimento foi criado a partir de um recurso vinculado a um atendente)
+async function acaoVincularAtendimentoTarefa(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
+  if (!req.tarefaId || !req.atendimentoId) return { ok: false, erro: 'Tarefa e atendimento são obrigatórios.' };
+  const { error } = await db.from('projeto_tarefa_atendimentos').insert({ id: gerarId(), tarefa_id: req.tarefaId, atendimento_id: req.atendimentoId });
+  if (error && !String(error.message).includes('duplicate')) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+
+async function acaoDesvincularAtendimentoTarefa(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
+  await db.from('projeto_tarefa_atendimentos').delete().eq('tarefa_id', req.tarefaId).eq('atendimento_id', req.atendimentoId);
+  return { ok: true };
+}
+
+/* ---------- anexos do projeto e das tarefas — tabelas próprias, mesmo
+   padrão de orcamento_anexos/atividade_anexos ---------- */
+async function acaoListarAnexosProjeto(req: any) {
+  if (!req.projetoId) return { ok: false, erro: 'Projeto não informado.' };
+  const { data, error } = await db.from('projeto_anexos').select('*').eq('projeto_id', req.projetoId).order('criado_em');
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, anexos: (data || []).map((a: any) => ({ id: a.id, projetoId: a.projeto_id, nome: a.nome, url: a.url })) };
+}
+
+async function acaoAdicionarAnexoProjeto(req: any) {
+  if (!req.projetoId) return { ok: false, erro: 'Projeto não informado.' };
+  try {
+    const salvo = await salvarAnexo(req.base64, req.tipo, req.nome);
+    const registro = { id: gerarId(), projeto_id: req.projetoId, nome: salvo.nome, url: salvo.url };
+    const { error } = await db.from('projeto_anexos').insert(registro);
+    if (error) return { ok: false, erro: error.message };
+    return { ok: true, anexo: { id: registro.id, projetoId: req.projetoId, nome: registro.nome, url: registro.url } };
+  } catch (e) {
+    return { ok: false, erro: 'Não foi possível enviar o anexo.' };
+  }
+}
+
+async function acaoRemoverAnexoProjeto(req: any) {
+  await db.from('projeto_anexos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+async function acaoListarAnexosTarefa(req: any) {
+  if (!req.tarefaId) return { ok: false, erro: 'Tarefa não informada.' };
+  const { data, error } = await db.from('projeto_tarefa_anexos').select('*').eq('tarefa_id', req.tarefaId).order('criado_em');
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, anexos: (data || []).map((a: any) => ({ id: a.id, tarefaId: a.tarefa_id, nome: a.nome, url: a.url })) };
+}
+
+async function acaoAdicionarAnexoTarefa(req: any) {
+  if (!req.tarefaId) return { ok: false, erro: 'Tarefa não informada.' };
+  try {
+    const salvo = await salvarAnexo(req.base64, req.tipo, req.nome);
+    const registro = { id: gerarId(), tarefa_id: req.tarefaId, nome: salvo.nome, url: salvo.url };
+    const { error } = await db.from('projeto_tarefa_anexos').insert(registro);
+    if (error) return { ok: false, erro: error.message };
+    return { ok: true, anexo: { id: registro.id, tarefaId: req.tarefaId, nome: registro.nome, url: registro.url } };
+  } catch (e) {
+    return { ok: false, erro: 'Não foi possível enviar o anexo.' };
+  }
+}
+
+async function acaoRemoverAnexoTarefa(req: any) {
+  await db.from('projeto_tarefa_anexos').delete().eq('id', req.id);
+  return { ok: true };
 }
 
 // cadastro de recursos do projeto (nome + custo padrão) — alimenta a aba
