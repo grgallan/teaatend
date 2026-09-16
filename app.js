@@ -8582,6 +8582,7 @@ let projetoAtualId = null;
 let projetoAtual = null;
 let projetoTarefas = [];
 let projetoAtendimentoIds = [];
+let projRecursosCadastro = [];
 let projTarefaColapsadas = new Set();
 let projSubAba = 'tarefas';
 
@@ -8713,6 +8714,7 @@ async function abrirProjetoDetalhe(id){
   projetoAtual = r.projeto;
   projetoTarefas = r.tarefas || [];
   projetoAtendimentoIds = r.atendimentoIds || [];
+  projRecursosCadastro = r.recursosCadastro || [];
   projTarefaColapsadas = new Set();
 
   document.getElementById('cardFormProjeto').style.display = 'none';
@@ -8737,6 +8739,7 @@ function fecharProjetoDetalhe(){
   projetoAtual = null;
   projetoTarefas = [];
   projetoAtendimentoIds = [];
+  projRecursosCadastro = [];
   document.getElementById('projetoDetalhe').style.display = 'none';
   document.getElementById('cardFormProjeto').style.display = '';
   document.getElementById('listaProjetos').style.display = '';
@@ -8759,7 +8762,52 @@ function goProjSub(sub){
     }
     renderGanttProjeto();
   }
+  else if(sub==='recursos') renderRecursosCadastroProjeto();
   else if(sub==='atendimentos') renderVinculosProjetoChips();
+}
+
+/* ---------- cadastro de recursos do projeto (nome + custo padrão) —
+   alimenta a aba Recursos da tela de informações da tarefa, pra selecionar
+   em vez de digitar toda vez ---------- */
+function renderRecursosCadastroProjeto(){
+  const corpo = document.getElementById('projRecursosCadastroCorpo');
+  if(projRecursosCadastro.length===0){ corpo.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso cadastrado.</td></tr>`; return; }
+  corpo.innerHTML = projRecursosCadastro.map(r=>`
+    <tr>
+      <td><input type="text" value="${escaparHtml(r.nome)}" onblur="projRecursoCadastroSalvarCampo('${r.id}','nome',this.value)"></td>
+      <td class="num"><input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projRecursoCadastroSalvarCampo('${r.id}','custo',this.value)"></td>
+      <td><button class="danger" onclick="projRecursoCadastroRemover('${r.id}')">🗑</button></td>
+    </tr>`).join('');
+}
+async function projRecursoCadastroAdicionar(){
+  const nome = document.getElementById('projrec_nome').value.trim();
+  const custo = document.getElementById('projrec_custo').value;
+  if(!nome){ toast('Informe o nome do recurso'); return; }
+  const conta = contaAtual();
+  const r = await api('criarRecursoProjeto', { projetoId: projetoAtualId, nome, custo, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível adicionar.'); return; }
+  projRecursosCadastro.push({ id: r.id, projetoId: projetoAtualId, nome, custo: parseFloat(custo)||0 });
+  document.getElementById('projrec_nome').value = '';
+  document.getElementById('projrec_custo').value = '';
+  renderRecursosCadastroProjeto();
+}
+async function projRecursoCadastroSalvarCampo(id, campo, valor){
+  const conta = contaAtual();
+  const r = await api('atualizarRecursoProjeto', { id, [campo]: valor, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); renderRecursosCadastroProjeto(); return; }
+  const rc = projRecursosCadastro.find(x=>String(x.id)===String(id));
+  if(rc) rc[campo] = campo==='custo' ? (parseFloat(valor)||0) : valor;
+  renderRecursosCadastroProjeto();
+}
+function projRecursoCadastroRemover(id){
+  pedirConfirmacao('Remover recurso?', 'Não afeta recursos já atribuídos em tarefas — só some da lista de seleção.', async ()=>{
+    const conta = contaAtual();
+    const r = await api('removerRecursoProjeto', { id, contaId: conta.id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+    projRecursosCadastro = projRecursosCadastro.filter(x=>String(x.id)!==String(id));
+    renderRecursosCadastroProjeto();
+    toast('Recurso removido');
+  }, 'Remover');
 }
 
 /* ---------- tabela de tarefas/subtarefas — estilo MS Project (Modo, Nome,
@@ -9017,16 +9065,28 @@ function projPitRenderRecursos(){
   if(pitRecursos.length===0){ corpo.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso.</td></tr>`; return; }
   corpo.innerHTML = pitRecursos.map((r,i)=>`
     <tr>
-      <td><input type="text" value="${escaparHtml(r.nome||'')}" onblur="projPitAlterarRecursoCampo(${i},'nome',this.value)"></td>
+      <td>
+        <select onchange="projPitSelecionarRecursoCadastro(${i},this.value)">
+          <option value="">Selecione...</option>
+          ${projRecursosCadastro.map(rc=>`<option value="${escaparHtml(rc.nome)}" ${rc.nome===r.nome?'selected':''}>${escaparHtml(rc.nome)}</option>`).join('')}
+        </select>
+      </td>
       <td><input type="number" min="0" max="100" value="${r.unidades??100}" onchange="projPitAlterarRecursoCampo(${i},'unidades',parseInt(this.value,10)||0)" style="width:64px;"></td>
       <td>R$ <input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projPitAlterarRecursoCampo(${i},'custo',parseFloat(this.value)||0)" style="width:80px;"></td>
       <td><button type="button" class="danger" onclick="projPitRemoverRecurso(${i})">🗑</button></td>
     </tr>`).join('');
 }
+function projPitSelecionarRecursoCadastro(i, nome){
+  const rc = projRecursosCadastro.find(x=>x.nome===nome);
+  pitRecursos[i].nome = nome;
+  if(rc) pitRecursos[i].custo = rc.custo;
+  projPitRenderRecursos();
+}
 function projPitAlterarRecursoCampo(i, campo, valor){
   pitRecursos[i][campo] = valor;
 }
 function projPitAdicionarRecurso(){
+  if(projRecursosCadastro.length===0){ toast('Cadastre um recurso na aba Recursos do projeto primeiro.'); return; }
   pitRecursos.push({ nome: '', unidades: 100, custo: 0 });
   projPitRenderRecursos();
 }
@@ -11420,6 +11480,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const tab = e.target.closest('.subtab'); if(!tab) return;
     projPitGoTab(tab.dataset.infotab);
   });
+  document.getElementById('btnProjRecursoAdicionar').addEventListener('click', projRecursoCadastroAdicionar);
   document.getElementById('btnPitAddPredecessora').addEventListener('click', projPitAdicionarPredecessora);
   document.getElementById('btnPitAddRecurso').addEventListener('click', projPitAdicionarRecurso);
   document.getElementById('btnPitCancelar').addEventListener('click', projPitFechar);
