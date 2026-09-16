@@ -1024,3 +1024,59 @@ insert into submodulos (id, nome, modulo_id) values
   ('sm-bd-fw-definir', 'Definir', 'md-bd-fw'),
   ('sm-rmreports-fw-definir', 'Definir', 'md-rmreports-fw')
 on conflict (id) do nothing;
+
+-- =========================================================
+-- Gerenciamento de Projetos — módulo novo e independente (não usa
+-- acaoDados/carregarTudo, carrega sob demanda igual Atividades/Orçamentos).
+-- Projeto tem uma árvore de tarefas (tarefa_pai_id se auto-referencia, sem
+-- limite de profundidade — diferente do orcamento_itens, que só permite um
+-- nível), cada uma com status fixo (não é um cadastro, ao contrário do
+-- status de atendimento) pra alimentar o Kanban/Gantt com colunas/cores
+-- previsíveis. Cliente e responsável são texto (nome), igual atendimentos/
+-- orçamentos — não é FK.
+create table if not exists projetos (
+  id text primary key,
+  nome text not null,
+  descricao text default '',
+  cliente text default '',
+  responsavel text default '',
+  status text not null default 'PLANEJAMENTO',
+  data_inicio date,
+  data_prevista_fim date,
+  data_conclusao date,
+  criado_por text,
+  criado_em timestamptz default now(),
+  empresa_id text references empresas(id)
+);
+alter table projetos enable row level security;
+create index if not exists idx_projetos_empresa on projetos (empresa_id);
+
+create table if not exists projeto_tarefas (
+  id text primary key,
+  projeto_id text not null references projetos(id) on delete cascade,
+  tarefa_pai_id text references projeto_tarefas(id) on delete cascade,
+  titulo text not null,
+  descricao text default '',
+  responsavel text default '',
+  status text not null default 'A FAZER',
+  data_inicio date,
+  data_fim date,
+  ordem integer not null default 0,
+  criado_em timestamptz default now(),
+  concluido_em timestamptz
+);
+alter table projeto_tarefas enable row level security;
+create index if not exists idx_projeto_tarefas_projeto on projeto_tarefas (projeto_id);
+create index if not exists idx_projeto_tarefas_pai on projeto_tarefas (tarefa_pai_id);
+
+-- vínculo do projeto com atendimentos já existentes — muitos-pra-muitos,
+-- mesmo padrão de atividade_atendimentos
+create table if not exists projeto_atendimentos (
+  id text primary key,
+  projeto_id text not null references projetos(id) on delete cascade,
+  atendimento_id text not null references atendimentos(id) on delete cascade
+);
+alter table projeto_atendimentos enable row level security;
+create index if not exists idx_proj_atend_projeto on projeto_atendimentos (projeto_id);
+create index if not exists idx_proj_atend_atendimento on projeto_atendimentos (atendimento_id);
+create unique index if not exists idx_proj_atend_unico on projeto_atendimentos (projeto_id, atendimento_id);

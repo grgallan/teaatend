@@ -116,6 +116,7 @@ const MENUS_PERFIL_ACESSO = [
   ]},
   { chave:'atividades', label:'Atividades' },
   { chave:'orcamentos', label:'Orçamentos' },
+  { chave:'projetos', label:'Projetos' },
   { chave:'videos', label:'Vídeos', subContainer:'#vidSubtabs', subDataAttr:'vidsub', submenus:[
     { chave:'novo', label:'Novo Vídeo/Tutorial' },
     { chave:'lista', label:'Vídeos' },
@@ -1159,6 +1160,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('agenda', menuVisivel(conta, 'agenda', podeVerAgenda));
   aplicarVisibilidadeMenu('atividades', menuVisivel(conta, 'atividades', podeVerAgenda));
   aplicarVisibilidadeMenu('orcamentos', menuVisivel(conta, 'orcamentos', podeVerAgenda));
+  aplicarVisibilidadeMenu('projetos', menuVisivel(conta, 'projetos', podeVerAgenda));
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
   aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
@@ -8562,6 +8564,512 @@ let filtroGanttCliente = new Set();
 let filtroGanttTipo = new Set();
 let filtroGanttStatus = new Set();
 
+/* ---------- projetos (gerenciamento de projetos: tarefas em árvore sem
+   limite de profundidade, Kanban e Cronograma próprios, vínculo com
+   cliente e atendimentos) — módulo independente, carregado sob demanda
+   igual Atividades/Orçamentos ---------- */
+const PROJ_STATUS = [
+  { v:'PLANEJAMENTO', label:'Planejamento' },
+  { v:'EM ANDAMENTO', label:'Em Andamento' },
+  { v:'CONCLUÍDO', label:'Concluído' },
+  { v:'CANCELADO', label:'Cancelado' },
+];
+const PROJ_TAREFA_STATUS = ['A FAZER', 'EM ANDAMENTO', 'CONCLUÍDA'];
+
+let projetos = [];
+let projEditandoId = null;
+let projetoAtualId = null;
+let projetoAtual = null;
+let projetoTarefas = [];
+let projetoAtendimentoIds = [];
+let projTarefaColapsadas = new Set();
+let projSubAba = 'tarefas';
+
+function popularSelectsProjeto(){
+  const conta = contaAtual();
+  const selCliente = document.getElementById('proj_cliente');
+  const clienteAtual = selCliente.value;
+  selCliente.innerHTML = `<option value="">(nenhum)</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  if([...selCliente.options].some(o=>o.value===clienteAtual)) selCliente.value = clienteAtual;
+
+  const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+  const selResp = document.getElementById('proj_responsavel');
+  const respAtual = selResp.value;
+  selResp.innerHTML = atendentesNomes.map(n=>`<option value="${escaparHtml(n)}">${escaparHtml(n)}</option>`).join('');
+  if(atendentesNomes.includes(respAtual)) selResp.value = respAtual;
+  else if(conta) selResp.value = conta.nome;
+
+  document.getElementById('proj_status').innerHTML = PROJ_STATUS.map(s=>`<option value="${s.v}">${s.label}</option>`).join('');
+}
+
+async function carregarProjetos(){
+  const conta = contaAtual();
+  const r = await api('listarProjetos', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
+  if(!r.ok) return;
+  projetos = r.projetos || [];
+  renderListaProjetos();
+}
+
+function limparFormProjeto(){
+  projEditandoId = null;
+  document.getElementById('projFormTitulo').textContent = 'Novo projeto';
+  document.getElementById('proj_nome').value = '';
+  document.getElementById('proj_descricao').value = '';
+  document.getElementById('proj_cliente').value = '';
+  document.getElementById('proj_status').value = 'PLANEJAMENTO';
+  document.getElementById('proj_data_inicio').value = '';
+  document.getElementById('proj_data_prevista_fim').value = '';
+  document.getElementById('btnSalvarProjeto').textContent = 'Salvar projeto';
+  document.getElementById('btnCancelarEdicaoProjeto').style.display = 'none';
+  const conta = contaAtual();
+  const selResp = document.getElementById('proj_responsavel');
+  if(conta && [...selResp.options].some(o=>o.value===conta.nome)) selResp.value = conta.nome;
+}
+
+function editarProjetoUi(id){
+  const p = projetos.find(x=>String(x.id)===String(id));
+  if(!p) return;
+  fecharProjetoDetalhe();
+  projEditandoId = id;
+  document.getElementById('projFormTitulo').textContent = 'Editar projeto';
+  document.getElementById('proj_nome').value = p.nome;
+  document.getElementById('proj_descricao').value = p.descricao || '';
+  document.getElementById('proj_cliente').value = p.cliente || '';
+  document.getElementById('proj_responsavel').value = p.responsavel || '';
+  document.getElementById('proj_status').value = p.status;
+  document.getElementById('proj_data_inicio').value = p.dataInicio || '';
+  document.getElementById('proj_data_prevista_fim').value = p.dataPrevistaFim || '';
+  document.getElementById('btnSalvarProjeto').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoProjeto').style.display = '';
+  document.getElementById('cardFormProjeto').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+async function salvarProjeto(){
+  const nome = document.getElementById('proj_nome').value.trim();
+  if(!nome){ toast('Informe o nome do projeto'); return; }
+  const conta = contaAtual();
+  const payload = {
+    contaId: conta.id, id: projEditandoId,
+    nome, descricao: document.getElementById('proj_descricao').value,
+    cliente: document.getElementById('proj_cliente').value,
+    responsavel: document.getElementById('proj_responsavel').value,
+    status: document.getElementById('proj_status').value,
+    dataInicio: document.getElementById('proj_data_inicio').value,
+    dataPrevistaFim: document.getElementById('proj_data_prevista_fim').value,
+    empresaId: empresaAtual ? empresaAtual.id : '',
+  };
+  const btn = document.getElementById('btnSalvarProjeto');
+  btn.disabled = true;
+  try{
+    const r = await api(projEditandoId ? 'atualizarProjeto' : 'criarProjeto', payload);
+    if(!r.ok) return;
+    toast(projEditandoId ? 'Projeto atualizado' : 'Projeto criado');
+    limparFormProjeto();
+    await carregarProjetos();
+  } finally { btn.disabled = false; }
+}
+
+function removerProjetoUi(id){
+  pedirConfirmacao('Remover projeto?', 'Remove o projeto e todas as suas tarefas — não dá pra desfazer.', async ()=>{
+    const conta = contaAtual();
+    const r = await api('removerProjeto', { id, contaId: conta.id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+    if(String(projetoAtualId)===String(id)) fecharProjetoDetalhe();
+    await carregarProjetos();
+    toast('Projeto removido');
+  }, 'Remover');
+}
+
+function renderListaProjetos(){
+  const cont = document.getElementById('listaProjetos');
+  if(projetos.length===0){ cont.innerHTML = `<div class="empty"><div class="big">📁</div>Nenhum projeto cadastrado.</div>`; return; }
+  cont.innerHTML = projetos.map(p=>{
+    const pct = p.tarefasTotal > 0 ? Math.round((p.tarefasConcluidas / p.tarefasTotal) * 100) : 0;
+    return `
+    <div class="proj-card" onclick="abrirProjetoDetalhe('${p.id}')">
+      <div class="proj-card-topo">
+        <div>
+          <div class="proj-card-nome">${escaparHtml(p.nome)}</div>
+          <div class="proj-card-sub">${p.cliente ? escaparHtml(p.cliente)+' · ' : ''}${escaparHtml(p.responsavel || 'A definir')}</div>
+        </div>
+        <div class="proj-card-acoes" onclick="event.stopPropagation();">
+          <span class="tag status-${statusSlug(p.status)}">${escaparHtml(p.status)}</span>
+          <button class="ghost" onclick="editarProjetoUi('${p.id}')">Editar</button>
+          <button class="danger" onclick="removerProjetoUi('${p.id}')">Remover</button>
+        </div>
+      </div>
+      <div class="proj-progresso">
+        <div class="proj-progresso-barra"><div class="proj-progresso-fill" style="width:${pct}%;"></div></div>
+        <div class="proj-progresso-texto">${p.tarefasConcluidas}/${p.tarefasTotal} tarefas concluídas${p.dataPrevistaFim ? ' · previsão '+String(p.dataPrevistaFim).split('-').reverse().join('/') : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function abrirProjetoDetalhe(id){
+  const r = await api('obterProjeto', { id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível abrir o projeto.'); return; }
+  projetoAtualId = id;
+  projetoAtual = r.projeto;
+  projetoTarefas = r.tarefas || [];
+  projetoAtendimentoIds = r.atendimentoIds || [];
+  projTarefaColapsadas = new Set();
+
+  document.getElementById('cardFormProjeto').style.display = 'none';
+  document.getElementById('listaProjetos').style.display = 'none';
+  document.getElementById('projetoDetalhe').style.display = '';
+  document.getElementById('projDetalheNome').textContent = projetoAtual.nome;
+  const info = [
+    projetoAtual.cliente ? `Cliente: ${projetoAtual.cliente}` : '',
+    `Responsável: ${projetoAtual.responsavel || 'A definir'}`,
+    `Status: ${projetoAtual.status}`,
+    projetoAtual.dataInicio ? `Início: ${String(projetoAtual.dataInicio).split('-').reverse().join('/')}` : '',
+    projetoAtual.dataPrevistaFim ? `Previsão: ${String(projetoAtual.dataPrevistaFim).split('-').reverse().join('/')}` : '',
+  ].filter(Boolean).join(' · ');
+  document.getElementById('projDetalheInfo').textContent = info;
+
+  goProjSub('tarefas');
+}
+
+function fecharProjetoDetalhe(){
+  const tinhaProjetoAberto = !!projetoAtualId;
+  projetoAtualId = null;
+  projetoAtual = null;
+  projetoTarefas = [];
+  projetoAtendimentoIds = [];
+  document.getElementById('projetoDetalhe').style.display = 'none';
+  document.getElementById('cardFormProjeto').style.display = '';
+  document.getElementById('listaProjetos').style.display = '';
+  // progresso (tarefasTotal/tarefasConcluidas) pode ter mudado enquanto o
+  // projeto estava aberto — recarrega a lista pra refletir na volta
+  if(tinhaProjetoAberto) carregarProjetos();
+}
+
+function goProjSub(sub){
+  projSubAba = sub;
+  document.querySelectorAll('#projSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.projsub===sub));
+  document.querySelectorAll('.proj-sub-view').forEach(v=>{ v.style.display = (v.id === 'proj-sub-'+sub) ? '' : 'none'; });
+  if(sub==='tarefas') renderArvoreTarefas();
+  else if(sub==='kanban') renderKanbanProjeto();
+  else if(sub==='gantt'){
+    if(!document.getElementById('proj_gantt_de').value){
+      const hoje = new Date();
+      document.getElementById('proj_gantt_de').value = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0,10);
+      document.getElementById('proj_gantt_ate').value = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).toISOString().slice(0,10);
+    }
+    renderGanttProjeto();
+  }
+  else if(sub==='atendimentos') renderVinculosProjetoChips();
+}
+
+/* ---------- árvore de tarefas/subtarefas — sem limite de profundidade
+   (diferente do item/subitem do orçamento, que só tem um nível) ---------- */
+function projFilhosDe(tarefaPaiId){
+  return projetoTarefas
+    .filter(t=>String(t.tarefaPaiId||'')===String(tarefaPaiId||''))
+    .sort((a,b)=>String(a.criadoEm).localeCompare(String(b.criadoEm)));
+}
+function projProfundidade(tarefa){
+  let nivel = 0, atual = tarefa;
+  while(atual && atual.tarefaPaiId){
+    atual = projetoTarefas.find(x=>String(x.id)===String(atual.tarefaPaiId));
+    nivel++;
+    if(nivel > 30) break; // proteção, não deveria acontecer
+  }
+  return nivel;
+}
+function renderArvoreTarefas(){
+  const cont = document.getElementById('projTarefasArvore');
+  const raiz = projFilhosDe(null);
+  if(raiz.length===0){ cont.innerHTML = `<div class="empty">Nenhuma tarefa ainda.</div>`; return; }
+  cont.innerHTML = raiz.map(t=>projTarefaHtml(t, 0)).join('');
+}
+function projTarefaHtml(t, nivel){
+  const filhos = projFilhosDe(t.id);
+  const colapsada = projTarefaColapsadas.has(t.id);
+  const nomesAtendentes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+  const linha = `
+    <div class="proj-tarefa status-${statusSlug(t.status)}" style="margin-left:${nivel*22}px;">
+      ${filhos.length > 0 ? `<button type="button" class="proj-tarefa-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '▸' : '▾'}</button>` : `<span style="width:16px;flex:none;"></span>`}
+      <div class="proj-tarefa-corpo">
+        <div class="proj-tarefa-titulo-linha">
+          <input type="text" class="proj-tarefa-titulo" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
+        </div>
+        <div class="proj-tarefa-meta">
+          <select onchange="projSalvarCampoTarefa('${t.id}','status',this.value)">
+            ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
+          </select>
+          <select onchange="projSalvarCampoTarefa('${t.id}','responsavel',this.value)">
+            <option value="">(sem responsável)</option>
+            ${nomesAtendentes.map(n=>`<option value="${escaparHtml(n)}" ${n===t.responsavel?'selected':''}>${escaparHtml(n)}</option>`).join('')}
+          </select>
+          <input type="date" value="${t.dataInicio||''}" title="Início" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)">
+          <input type="date" value="${t.dataFim||''}" title="Fim" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)">
+        </div>
+      </div>
+      <div class="proj-tarefa-acoes">
+        <button class="ghost" title="Nova subtarefa" onclick="projAdicionarTarefaUi('${t.id}')">+ Sub</button>
+        <button class="danger" title="Remover" onclick="projRemoverTarefaUi('${t.id}')">🗑</button>
+      </div>
+    </div>`;
+  const filhosHtml = (!colapsada && filhos.length > 0) ? filhos.map(f=>projTarefaHtml(f, nivel+1)).join('') : '';
+  return linha + filhosHtml;
+}
+function projAlternarColapso(id){
+  if(projTarefaColapsadas.has(id)) projTarefaColapsadas.delete(id);
+  else projTarefaColapsadas.add(id);
+  renderArvoreTarefas();
+}
+async function projAdicionarTarefaUi(tarefaPaiId){
+  const conta = contaAtual();
+  const r = await api('criarTarefa', { projetoId: projetoAtualId, tarefaPaiId: tarefaPaiId || '', titulo: 'Nova tarefa', contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível criar a tarefa.'); return; }
+  projetoTarefas.push({
+    id: r.id, projetoId: projetoAtualId, tarefaPaiId: tarefaPaiId || '', titulo: 'Nova tarefa',
+    descricao: '', responsavel: '', status: 'A FAZER', dataInicio: '', dataFim: '', ordem: 0,
+    criadoEm: new Date().toISOString(), concluidoEm: '',
+  });
+  if(tarefaPaiId) projTarefaColapsadas.delete(tarefaPaiId);
+  renderArvoreTarefas();
+  const inputs = document.querySelectorAll('#projTarefasArvore .proj-tarefa-titulo');
+  const ultimo = inputs[inputs.length-1];
+  if(ultimo){ ultimo.focus(); ultimo.select(); }
+}
+async function projSalvarCampoTarefa(id, campo, valor){
+  const conta = contaAtual();
+  const r = await api('atualizarTarefa', { id, [campo]: valor, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); renderArvoreTarefas(); return; }
+  const t = projetoTarefas.find(x=>String(x.id)===String(id));
+  if(t){
+    t[campo] = valor;
+    if(campo==='status') t.concluidoEm = valor==='CONCLUÍDA' ? new Date().toISOString() : '';
+  }
+  if(campo==='status'){ renderArvoreTarefas(); if(projSubAba==='kanban') renderKanbanProjeto(); }
+}
+function projDescendentesDe(id){
+  const diretos = projFilhosDe(id);
+  return diretos.concat(diretos.flatMap(f=>projDescendentesDe(f.id)));
+}
+function projRemoverTarefaUi(id){
+  const temFilhos = projFilhosDe(id).length > 0;
+  pedirConfirmacao(
+    'Remover tarefa?',
+    temFilhos ? 'Remove essa tarefa e todas as subtarefas dela — não dá pra desfazer.' : 'Não dá pra desfazer.',
+    async ()=>{
+      const conta = contaAtual();
+      const r = await api('removerTarefa', { id, contaId: conta.id });
+      if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+      const idsRemovidos = new Set([id, ...projDescendentesDe(id).map(t=>t.id)]);
+      projetoTarefas = projetoTarefas.filter(t=>!idsRemovidos.has(t.id));
+      renderArvoreTarefas();
+      toast('Tarefa removida');
+    },
+    'Remover'
+  );
+}
+
+/* ---------- Kanban de tarefas (3 colunas fixas — status de tarefa não é
+   um cadastro, ao contrário do status de atendimento) ---------- */
+function renderKanbanProjeto(){
+  const board = document.getElementById('projKanbanBoard');
+  const porStatus = {};
+  projetoTarefas.forEach(t=>{ (porStatus[t.status] = porStatus[t.status] || []).push(t); });
+  board.innerHTML = PROJ_TAREFA_STATUS.map(nome=>{
+    const lista = porStatus[nome] || [];
+    const cards = lista.map(t=>projKanbanCardHtml(t)).join('');
+    return `
+    <div class="kanban-col">
+      <div class="kanban-col-header status-${statusSlug(nome)}">
+        <div class="titulo"><span class="kanban-col-dot" style="background:${corStatusDot(nome)};"></span><span>${escaparHtml(nome)}</span></div>
+        <span class="kanban-col-count">${lista.length}</span>
+      </div>
+      <div class="kanban-col-body" data-status="${escaparHtml(nome)}">
+        ${cards || `<div class="kanban-col-empty">Nenhuma tarefa</div>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+function projKanbanCardHtml(t){
+  const pai = t.tarefaPaiId ? projetoTarefas.find(x=>String(x.id)===String(t.tarefaPaiId)) : null;
+  return `
+    <div class="kanban-card" data-id="${t.id}" data-status="${escaparHtml(t.status)}">
+      <div class="kanban-card-handle">⠿</div>
+      <div class="kanban-card-body">
+        <div class="cliente">${escaparHtml(t.titulo)}</div>
+        ${pai ? `<div class="data">↳ ${escaparHtml(pai.titulo)}</div>` : ''}
+        <div class="meta">
+          ${t.responsavel ? `<span class="tag">${escaparHtml(t.responsavel)}</span>` : ''}
+          ${t.dataFim ? `<span class="tag">${String(t.dataFim).split('-').reverse().join('/')}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+let kanbanDragTarefa = null;
+let kanbanTarefaAcabouDeArrastar = false;
+function iniciarDragKanbanTarefa(e, handleEl){
+  const cardEl = handleEl.closest('.kanban-card');
+  if(!cardEl) return;
+  e.preventDefault();
+  const rect = cardEl.getBoundingClientRect();
+  const ghost = cardEl.cloneNode(true);
+  ghost.classList.add('kanban-card-ghost');
+  ghost.style.left = rect.left + 'px';
+  ghost.style.top = rect.top + 'px';
+  ghost.style.width = rect.width + 'px';
+  document.body.appendChild(ghost);
+  cardEl.classList.add('dragging');
+  kanbanDragTarefa = {
+    id: cardEl.dataset.id, statusOrigem: cardEl.dataset.status, cardEl, ghost,
+    offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top, colunaAtual: null,
+  };
+  handleEl.setPointerCapture(e.pointerId);
+  handleEl.addEventListener('pointermove', moverDragKanbanTarefa);
+  handleEl.addEventListener('pointerup', soltarDragKanbanTarefa, { once:true });
+  handleEl.addEventListener('pointercancel', cancelarDragKanbanTarefa, { once:true });
+}
+function moverDragKanbanTarefa(e){
+  if(!kanbanDragTarefa) return;
+  const { ghost, offsetX, offsetY } = kanbanDragTarefa;
+  ghost.style.left = (e.clientX - offsetX) + 'px';
+  ghost.style.top = (e.clientY - offsetY) + 'px';
+  ghost.style.display = 'none';
+  const elAlvo = document.elementFromPoint(e.clientX, e.clientY);
+  ghost.style.display = '';
+  const colunaBody = elAlvo ? elAlvo.closest('.kanban-col-body') : null;
+  if(kanbanDragTarefa.colunaAtual && kanbanDragTarefa.colunaAtual !== colunaBody) kanbanDragTarefa.colunaAtual.classList.remove('drag-over');
+  if(colunaBody) colunaBody.classList.add('drag-over');
+  kanbanDragTarefa.colunaAtual = colunaBody;
+}
+async function soltarDragKanbanTarefa(e){
+  const handleEl = e.currentTarget;
+  handleEl.removeEventListener('pointermove', moverDragKanbanTarefa);
+  if(!kanbanDragTarefa) return;
+  const { id, statusOrigem, cardEl, ghost, colunaAtual } = kanbanDragTarefa;
+  document.querySelectorAll('.kanban-col-body.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  cardEl.classList.remove('dragging');
+  ghost.remove();
+  kanbanDragTarefa = null;
+  kanbanTarefaAcabouDeArrastar = true;
+  setTimeout(()=>{ kanbanTarefaAcabouDeArrastar = false; }, 50);
+
+  const novoStatus = colunaAtual ? colunaAtual.dataset.status : null;
+  if(!novoStatus || novoStatus === statusOrigem) return;
+  const conta = contaAtual();
+  try{
+    const r = await api('atualizarTarefa', { id, status: novoStatus, contaId: conta.id });
+    if(!r.ok){ toast(r.erro || 'Não foi possível mudar o status.'); renderKanbanProjeto(); return; }
+    const t = projetoTarefas.find(x=>String(x.id)===String(id));
+    if(t){ t.status = novoStatus; t.concluidoEm = novoStatus==='CONCLUÍDA' ? new Date().toISOString() : ''; }
+    renderKanbanProjeto();
+    toast(`Status alterado para ${novoStatus}`);
+  }catch(err){
+    toast('Não foi possível mudar o status.');
+  }
+}
+function cancelarDragKanbanTarefa(e){
+  const handleEl = e.currentTarget;
+  handleEl.removeEventListener('pointermove', moverDragKanbanTarefa);
+  if(!kanbanDragTarefa) return;
+  document.querySelectorAll('.kanban-col-body.drag-over').forEach(el=>el.classList.remove('drag-over'));
+  kanbanDragTarefa.cardEl.classList.remove('dragging');
+  kanbanDragTarefa.ghost.remove();
+  kanbanDragTarefa = null;
+}
+
+/* ---------- Cronograma (Gantt) das tarefas — mesma matemática de
+   posicionamento do Gantt de Atendimentos, fonte de dados diferente ---------- */
+function calcularItensGanttProjeto(){
+  let de = document.getElementById('proj_gantt_de').value;
+  let ate = document.getElementById('proj_gantt_ate').value;
+  if(!de || !ate){
+    const hoje = new Date();
+    de = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0,10);
+    ate = new Date(hoje.getFullYear(), hoje.getMonth()+1, 0).toISOString().slice(0,10);
+    document.getElementById('proj_gantt_de').value = de;
+    document.getElementById('proj_gantt_ate').value = ate;
+  }
+  const dataInicio = new Date(de+'T00:00:00');
+  const dataFim = new Date(ate+'T00:00:00');
+  if(dataFim < dataInicio) return { itens: [], dataInicio, dataFim, invalido: true };
+
+  let itens = projetoTarefas.filter(t=>t.dataInicio);
+  itens = itens.filter(t=>{
+    const ini = new Date(t.dataInicio+'T00:00:00');
+    const fim = new Date((t.dataFim || t.dataInicio)+'T00:00:00');
+    return fim >= dataInicio && ini <= dataFim;
+  });
+  itens.sort((a,b)=> String(a.dataInicio).localeCompare(String(b.dataInicio)));
+  return { itens, dataInicio, dataFim, invalido: false };
+}
+function renderGanttProjeto(){
+  const { itens, dataInicio, dataFim, invalido } = calcularItensGanttProjeto();
+  const cont = document.getElementById('projGanttChart');
+  if(invalido){ cont.innerHTML = `<div class="empty">O período "Até" precisa ser depois do "De".</div>`; return; }
+  const totalDias = Math.max(1, Math.round((dataFim - dataInicio) / 86400000) + 1);
+  if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">📊</div>Nenhuma tarefa com data no período selecionado.</div>`; return; }
+
+  const larguraDia = 100 / totalDias;
+  let headerDias = '';
+  for(let i=0;i<totalDias;i++){
+    const d = new Date(dataInicio); d.setDate(d.getDate()+i);
+    const mostrarNumero = totalDias <= 45 || d.getDate() === 1 || i === 0;
+    headerDias += `<div class="gantt-day" style="width:${larguraDia}%;">${mostrarNumero ? d.getDate()+'/'+(d.getMonth()+1) : ''}</div>`;
+  }
+
+  const linhas = itens.map(t=>{
+    const ini = new Date(t.dataInicio+'T00:00:00');
+    const semFim = !t.dataFim;
+    const fim = new Date((t.dataFim || t.dataInicio)+'T00:00:00');
+    const iniClamp = ini < dataInicio ? dataInicio : ini;
+    const fimClamp = fim > dataFim ? dataFim : fim;
+    const offsetDias = Math.round((iniClamp - dataInicio) / 86400000);
+    const duracaoDias = Math.max(1, Math.round((fimClamp - iniClamp) / 86400000) + 1);
+    const left = offsetDias * larguraDia;
+    const width = duracaoDias * larguraDia;
+    const nivel = projProfundidade(t);
+    const label = '　'.repeat(nivel) + t.titulo;
+    const [y,m,d] = String(t.dataInicio).split('-');
+    const tituloBarra = `${t.titulo} — início ${d}/${m}${t.dataFim ? ' · fim '+String(t.dataFim).split('-').reverse().slice(0,2).join('/') : ' · sem data de fim'} — ${t.status}`;
+    return `<div class="gantt-row">
+      <div class="gantt-label" title="${escaparHtml(t.titulo)}">${escaparHtml(label)}</div>
+      <div class="gantt-track">
+        <div class="gantt-bar status-${statusSlug(t.status)} ${semFim?'gantt-bar-sem-previsao':''}" style="left:${left}%;width:${width}%;" title="${escaparHtml(tituloBarra)}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <div class="gantt-header"><div class="gantt-label-col"></div><div class="gantt-days">${headerDias}</div></div>
+    ${linhas}
+  `;
+}
+
+/* ---------- vínculo do projeto com atendimentos existentes (muitos-pra-
+   muitos, mesmo padrão de vínculo de Atividades) ---------- */
+function renderVinculosProjetoChips(){
+  const wrap = document.getElementById('projVinculoChipWrap');
+  wrap.innerHTML = projetoAtendimentoIds.map(id=>{
+    const r = atendimentos.find(x=>String(x.id)===String(id));
+    const texto = r ? `#${escaparHtml(String(r.id))} — ${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}` : `#${escaparHtml(String(id))}`;
+    return `<span class="lookup-tag">${texto}<button type="button" onclick="projRemoverVinculoAtendimento('${id}')">×</button></span>`;
+  }).join('');
+}
+async function projRemoverVinculoAtendimento(atendimentoId){
+  const conta = contaAtual();
+  const r = await api('desvincularAtendimentoProjeto', { projetoId: projetoAtualId, atendimentoId, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover o vínculo.'); return; }
+  projetoAtendimentoIds = projetoAtendimentoIds.filter(x=>String(x)!==String(atendimentoId));
+  renderVinculosProjetoChips();
+}
+async function projAdicionarVinculoAtendimento(atendimentoId){
+  const conta = contaAtual();
+  const r = await api('vincularAtendimentoProjeto', { projetoId: projetoAtualId, atendimentoId, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível vincular.'); return; }
+  projetoAtendimentoIds.push(atendimentoId);
+  renderVinculosProjetoChips();
+}
+
 /* ---------- Cubo de Atendimentos (tabela cruzada — só admin) ---------- */
 const CUBO_DIMENSOES = {
   cliente: r => r.cliente || '(sem cliente)',
@@ -9836,6 +10344,12 @@ function goView(name){
     limparFormOrcamento();
     carregarOrcamentos();
   }
+  if(name==='projetos'){
+    fecharProjetoDetalhe();
+    popularSelectsProjeto();
+    limparFormProjeto();
+    carregarProjetos();
+  }
   if(name==='videos'){
     const contaVid = contaAtual();
     const permVid = permissaoMenu(contaVid, 'videos');
@@ -10690,6 +11204,26 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const arquivo = e.target.files[0];
     if(arquivo) adicionarAnexoOrcamentoUi(orcEditandoId, arquivo);
     e.target.value = '';
+  });
+
+  document.getElementById('btnSalvarProjeto').addEventListener('click', salvarProjeto);
+  document.getElementById('btnCancelarEdicaoProjeto').addEventListener('click', limparFormProjeto);
+  document.getElementById('btnFecharProjetoDetalhe').addEventListener('click', fecharProjetoDetalhe);
+  document.getElementById('btnEditarProjetoDetalhe').addEventListener('click', ()=>{ if(projetoAtualId) editarProjetoUi(projetoAtualId); });
+  document.getElementById('btnProjNovaTarefa').addEventListener('click', ()=>projAdicionarTarefaUi(null));
+  document.getElementById('projSubtabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    goProjSub(tab.dataset.projsub);
+  });
+  document.getElementById('proj_gantt_de').addEventListener('change', renderGanttProjeto);
+  document.getElementById('proj_gantt_ate').addEventListener('change', renderGanttProjeto);
+  document.getElementById('projKanbanBoard').addEventListener('pointerdown', e=>{
+    const handle = e.target.closest('.kanban-card-handle');
+    if(!handle) return;
+    iniciarDragKanbanTarefa(e, handle);
+  });
+  configurarBuscaVinculo('proj_vinculo_busca', 'projVinculoResultados', ()=>projetoAtendimentoIds, (id)=>{
+    projAdicionarVinculoAtendimento(id);
   });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
