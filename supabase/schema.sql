@@ -1145,3 +1145,19 @@ create table if not exists projeto_tarefa_recursos (
 );
 alter table projeto_tarefa_recursos enable row level security;
 create index if not exists idx_proj_tarefa_recursos_tarefa on projeto_tarefa_recursos (tarefa_id);
+
+-- cadastro de recursos do projeto (nome + custo padrão) — cada projeto tem
+-- o seu próprio; na aba Recursos da tela de informações da tarefa, em vez
+-- de digitar nome/custo toda vez, só busca aqui (custo vem pré-preenchido,
+-- mas continua editável por atribuição, caso a tarefa precise de um valor
+-- diferente do padrão)
+create table if not exists projeto_recursos_cadastro (
+  id text primary key,
+  projeto_id text not null references projetos(id) on delete cascade,
+  nome text not null,
+  custo numeric not null default 0,
+  criado_em timestamptz default now()
+);
+alter table projeto_recursos_cadastro enable row level security;
+create index if not exists idx_proj_recursos_cadastro_projeto on projeto_recursos_cadastro (projeto_id);
+create unique index if not exists idx_proj_recursos_cadastro_unico on projeto_recursos_cadastro (projeto_id, nome);

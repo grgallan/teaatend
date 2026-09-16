@@ -300,6 +300,9 @@ async function rotear(req: any): Promise<any> {
     case 'criarTarefa': return acaoCriarTarefa(req);
     case 'atualizarTarefa': return acaoAtualizarTarefa(req);
     case 'removerTarefa': return acaoRemoverTarefa(req);
+    case 'criarRecursoProjeto': return acaoCriarRecursoProjeto(req);
+    case 'atualizarRecursoProjeto': return acaoAtualizarRecursoProjeto(req);
+    case 'removerRecursoProjeto': return acaoRemoverRecursoProjeto(req);
     case 'listarOrcamentos': return acaoListarOrcamentos(req);
     case 'obterOrcamento': return acaoObterOrcamento(req);
     case 'salvarOrcamento': return acaoSalvarOrcamento(req);
@@ -2391,10 +2394,11 @@ async function acaoListarProjetos(req: any) {
 
 async function acaoObterProjeto(req: any) {
   if (!req.id) return { ok: false, erro: 'Projeto não informado.' };
-  const [{ data: projeto }, { data: tarefas }, { data: vinculos }] = await Promise.all([
+  const [{ data: projeto }, { data: tarefas }, { data: vinculos }, { data: recursosCadastro }] = await Promise.all([
     db.from('projetos').select('*').eq('id', req.id).maybeSingle(),
     db.from('projeto_tarefas').select('*').eq('projeto_id', req.id).order('criado_em', { ascending: true }),
     db.from('projeto_atendimentos').select('atendimento_id').eq('projeto_id', req.id),
+    db.from('projeto_recursos_cadastro').select('*').eq('projeto_id', req.id).order('nome', { ascending: true }),
   ]);
   if (!projeto) return { ok: false, erro: 'Projeto não encontrado.' };
   const lista = tarefas || [];
@@ -2407,6 +2411,7 @@ async function acaoObterProjeto(req: any) {
     projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
     tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [])),
     atendimentoIds: (vinculos || []).map((v: any) => v.atendimento_id),
+    recursosCadastro: (recursosCadastro || []).map((r: any) => ({ id: r.id, projetoId: r.projeto_id, nome: r.nome, custo: r.custo || 0 })),
   };
 }
 
@@ -2563,6 +2568,40 @@ async function acaoRemoverTarefa(req: any) {
   await db.from('projeto_tarefas').delete().eq('id', req.id);
   const tarefas = existente ? await recalcularEPersistirProjeto(existente.projeto_id) : [];
   return { ok: true, tarefas };
+}
+
+// cadastro de recursos do projeto (nome + custo padrão) — alimenta a aba
+// Recursos da tela de informações da tarefa, pra selecionar em vez de
+// digitar toda vez; não afeta os recursos já atribuídos a tarefas (esses
+// vivem em projeto_tarefa_recursos, sem vínculo com este cadastro)
+async function acaoCriarRecursoProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
+  if (!req.projetoId) return { ok: false, erro: 'Projeto não informado.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Preencha o nome do recurso.' };
+  const registro = { id: gerarId(), projeto_id: req.projetoId, nome: String(req.nome).trim(), custo: Number(req.custo) || 0 };
+  const { error } = await db.from('projeto_recursos_cadastro').insert(registro);
+  if (error) return { ok: false, erro: String(error.message).includes('duplicate') ? 'Já existe um recurso com esse nome nesse projeto.' : error.message };
+  return { ok: true, id: registro.id };
+}
+
+async function acaoAtualizarRecursoProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
+  if (!req.id) return { ok: false, erro: 'Recurso não informado.' };
+  const atualizacao: Record<string, unknown> = {};
+  if (req.nome !== undefined) {
+    if (!String(req.nome).trim()) return { ok: false, erro: 'Preencha o nome do recurso.' };
+    atualizacao.nome = String(req.nome).trim();
+  }
+  if (req.custo !== undefined) atualizacao.custo = Number(req.custo) || 0;
+  const { error } = await db.from('projeto_recursos_cadastro').update(atualizacao).eq('id', req.id);
+  if (error) return { ok: false, erro: String(error.message).includes('duplicate') ? 'Já existe um recurso com esse nome nesse projeto.' : error.message };
+  return { ok: true };
+}
+
+async function acaoRemoverRecursoProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
+  await db.from('projeto_recursos_cadastro').delete().eq('id', req.id);
+  return { ok: true };
 }
 
 /* ---------- orçamentos (proposta comercial: itens por valor/hora, PDF e

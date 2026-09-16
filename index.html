@@ -1751,6 +1751,7 @@
         <div class="subtab active" data-projsub="tarefas">Tarefas</div>
         <div class="subtab" data-projsub="kanban">Kanban</div>
         <div class="subtab" data-projsub="gantt">Cronograma</div>
+        <div class="subtab" data-projsub="recursos">Recursos</div>
         <div class="subtab" data-projsub="atendimentos">Atendimentos</div>
       </div>
 
@@ -1787,6 +1788,18 @@
           <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="proj_gantt_ate"></div>
         </div>
         <div id="projGanttChart" style="overflow-x:auto;"></div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-recursos" style="display:none;">
+        <div class="row3">
+          <div class="field"><label>Nome do recurso</label><input type="text" id="projrec_nome" placeholder="Ex: Allan"></div>
+          <div class="field"><label>Custo</label><input type="number" min="0" step="0.01" id="projrec_custo" placeholder="0,00"></div>
+          <div class="field" style="display:flex;align-items:flex-end;"><button type="button" class="ghost" id="btnProjRecursoAdicionar" style="width:auto;">+ Adicionar recurso</button></div>
+        </div>
+        <table class="orc-tabela">
+          <thead><tr><th>Nome</th><th class="num" style="width:140px;">Custo</th><th style="width:56px;"></th></tr></thead>
+          <tbody id="projRecursosCadastroCorpo"></tbody>
+        </table>
       </div>
 
       <div class="proj-sub-view" id="proj-sub-atendimentos" style="display:none;">
