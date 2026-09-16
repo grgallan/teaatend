@@ -1080,3 +1080,32 @@ alter table projeto_atendimentos enable row level security;
 create index if not exists idx_proj_atend_projeto on projeto_atendimentos (projeto_id);
 create index if not exists idx_proj_atend_atendimento on projeto_atendimentos (atendimento_id);
 create unique index if not exists idx_proj_atend_unico on projeto_atendimentos (projeto_id, atendimento_id);
+
+-- =========================================================
+-- Tarefas de Projeto — campos estilo MS Project: Modo (MANUAL/AUTOMÁTICO),
+-- Duração (dias) e % concluída (manual, independente do status). Em modo
+-- AUTOMÁTICO, data_inicio/data_fim/duracao_dias são recalculados a partir
+-- das predecessoras (data_fim da predecessora define o data_inicio da
+-- sucessora) — mesma lógica do MS Project; em modo MANUAL o usuário edita
+-- livremente e nada é recalculado.
+alter table projeto_tarefas add column if not exists duracao_dias integer not null default 1;
+alter table projeto_tarefas add column if not exists percentual_concluido integer not null default 0;
+alter table projeto_tarefas add column if not exists modo text not null default 'AUTOMÁTICO';
+alter table projeto_tarefas drop constraint if exists projeto_tarefas_percentual_check;
+alter table projeto_tarefas add constraint projeto_tarefas_percentual_check
+  check (percentual_concluido >= 0 and percentual_concluido <= 100);
+alter table projeto_tarefas drop constraint if exists projeto_tarefas_modo_check;
+alter table projeto_tarefas add constraint projeto_tarefas_modo_check
+  check (modo in ('MANUAL','AUTOMÁTICO'));
+
+-- predecessoras (dependência fim-a-início, como no MS Project) — uma tarefa
+-- pode ter mais de uma predecessora; cada linha é uma dependência
+create table if not exists projeto_tarefa_predecessoras (
+  id text primary key,
+  tarefa_id text not null references projeto_tarefas(id) on delete cascade,
+  predecessora_id text not null references projeto_tarefas(id) on delete cascade
+);
+alter table projeto_tarefa_predecessoras enable row level security;
+create index if not exists idx_proj_tarefa_pred_tarefa on projeto_tarefa_predecessoras (tarefa_id);
+create index if not exists idx_proj_tarefa_pred_predecessora on projeto_tarefa_predecessoras (predecessora_id);
+create unique index if not exists idx_proj_tarefa_pred_unico on projeto_tarefa_predecessoras (tarefa_id, predecessora_id);

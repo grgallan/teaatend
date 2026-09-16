@@ -8749,7 +8749,7 @@ function goProjSub(sub){
   projSubAba = sub;
   document.querySelectorAll('#projSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.projsub===sub));
   document.querySelectorAll('.proj-sub-view').forEach(v=>{ v.style.display = (v.id === 'proj-sub-'+sub) ? '' : 'none'; });
-  if(sub==='tarefas') renderArvoreTarefas();
+  if(sub==='tarefas') renderTabelaTarefas();
   else if(sub==='kanban') renderKanbanProjeto();
   else if(sub==='gantt'){
     if(!document.getElementById('proj_gantt_de').value){
@@ -8762,8 +8762,13 @@ function goProjSub(sub){
   else if(sub==='atendimentos') renderVinculosProjetoChips();
 }
 
-/* ---------- árvore de tarefas/subtarefas — sem limite de profundidade
-   (diferente do item/subitem do orçamento, que só tem um nível) ---------- */
+/* ---------- tabela de tarefas/subtarefas — estilo MS Project (Modo, Nome,
+   Duração, Início, Término, Anotações, % concluída, Recursos, Predecessoras).
+   Hierarquia sem limite de profundidade (diferente do item/subitem do
+   orçamento, que só tem um nível). Predecessoras recalcula datas
+   automaticamente no backend (acaoAtualizarTarefa/recalcularEPersistirProjeto)
+   — o front sempre substitui projetoTarefas inteiro pela resposta da API,
+   já que editar uma tarefa pode mudar as datas de outras. ---------- */
 function projFilhosDe(tarefaPaiId){
   return projetoTarefas
     .filter(t=>String(t.tarefaPaiId||'')===String(tarefaPaiId||''))
@@ -8778,73 +8783,105 @@ function projProfundidade(tarefa){
   }
   return nivel;
 }
-function renderArvoreTarefas(){
-  const cont = document.getElementById('projTarefasArvore');
-  const raiz = projFilhosDe(null);
-  if(raiz.length===0){ cont.innerHTML = `<div class="empty">Nenhuma tarefa ainda.</div>`; return; }
-  cont.innerHTML = raiz.map(t=>projTarefaHtml(t, 0)).join('');
+
+// numeração sequencial (estilo MS Project) recalculada a cada render — só
+// pra exibir/editar Predecessoras (o vínculo de verdade usa o id real)
+let projTarefaNumeros = new Map();
+let projTarefaPorNumero = [];
+function projNumerarTarefas(){
+  projTarefaNumeros = new Map();
+  projTarefaPorNumero = [];
+  let contador = 0;
+  (function visitar(paiId){
+    projFilhosDe(paiId).forEach(t=>{
+      contador++;
+      projTarefaNumeros.set(String(t.id), contador);
+      projTarefaPorNumero[contador] = t.id;
+      visitar(t.id);
+    });
+  })(null);
 }
-function projTarefaHtml(t, nivel){
+
+function renderTabelaTarefas(){
+  const corpo = document.getElementById('projTarefasTabelaCorpo');
+  projNumerarTarefas();
+  const raiz = projFilhosDe(null);
+  if(raiz.length===0){ corpo.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma tarefa ainda.</td></tr>`; return; }
+  corpo.innerHTML = raiz.map(t=>projTarefaLinhaHtml(t, 0)).join('');
+}
+function projTarefaLinhaHtml(t, nivel){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
-  const nomesAtendentes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+  const predTexto = (t.predecessorasIds||[])
+    .map(pid=>projTarefaNumeros.get(String(pid)))
+    .filter(n=>n!==undefined)
+    .sort((a,b)=>a-b)
+    .join(',');
   const linha = `
-    <div class="proj-tarefa status-${statusSlug(t.status)}" style="margin-left:${nivel*22}px;">
-      ${filhos.length > 0 ? `<button type="button" class="proj-tarefa-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '▸' : '▾'}</button>` : `<span style="width:16px;flex:none;"></span>`}
-      <div class="proj-tarefa-corpo">
-        <div class="proj-tarefa-titulo-linha">
+    <tr class="status-${statusSlug(t.status)}" data-id="${t.id}">
+      <td>${filhos.length > 0 ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '▸' : '▾'}</button>` : ''}</td>
+      <td>
+        <select onchange="projSalvarCampoTarefa('${t.id}','modo',this.value)">
+          <option value="AUTOMÁTICO" ${t.modo!=='MANUAL'?'selected':''}>Automático</option>
+          <option value="MANUAL" ${t.modo==='MANUAL'?'selected':''}>Manual</option>
+        </select>
+      </td>
+      <td>
+        <div class="proj-tarefa-nome-linha" style="padding-left:${nivel*16}px;">
           <input type="text" class="proj-tarefa-titulo" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
         </div>
-        <div class="proj-tarefa-meta">
-          <select onchange="projSalvarCampoTarefa('${t.id}','status',this.value)">
-            ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
-          </select>
-          <select onchange="projSalvarCampoTarefa('${t.id}','responsavel',this.value)">
-            <option value="">(sem responsável)</option>
-            ${nomesAtendentes.map(n=>`<option value="${escaparHtml(n)}" ${n===t.responsavel?'selected':''}>${escaparHtml(n)}</option>`).join('')}
-          </select>
-          <input type="date" value="${t.dataInicio||''}" title="Início" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)">
-          <input type="date" value="${t.dataFim||''}" title="Fim" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)">
-        </div>
-      </div>
-      <div class="proj-tarefa-acoes">
-        <button class="ghost" title="Nova subtarefa" onclick="projAdicionarTarefaUi('${t.id}')">+ Sub</button>
+      </td>
+      <td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>
+      <td><input type="date" value="${t.dataInicio||''}" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)"></td>
+      <td><input type="date" value="${t.dataFim||''}" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)"></td>
+      <td class="anotacoes-col"><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>
+      <td class="num"><input type="number" min="0" max="100" step="1" value="${t.percentualConcluido||0}" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)"></td>
+      <td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>
+      <td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>
+      <td class="proj-tarefa-acoes-cel">
+        <button class="ghost" title="Nova subtarefa" onclick="projAdicionarTarefaUi('${t.id}')">+</button>
         <button class="danger" title="Remover" onclick="projRemoverTarefaUi('${t.id}')">🗑</button>
-      </div>
-    </div>`;
-  const filhosHtml = (!colapsada && filhos.length > 0) ? filhos.map(f=>projTarefaHtml(f, nivel+1)).join('') : '';
+      </td>
+    </tr>`;
+  const filhosHtml = (!colapsada && filhos.length > 0) ? filhos.map(f=>projTarefaLinhaHtml(f, nivel+1)).join('') : '';
   return linha + filhosHtml;
 }
 function projAlternarColapso(id){
   if(projTarefaColapsadas.has(id)) projTarefaColapsadas.delete(id);
   else projTarefaColapsadas.add(id);
-  renderArvoreTarefas();
+  renderTabelaTarefas();
 }
 async function projAdicionarTarefaUi(tarefaPaiId){
   const conta = contaAtual();
   const r = await api('criarTarefa', { projetoId: projetoAtualId, tarefaPaiId: tarefaPaiId || '', titulo: 'Nova tarefa', contaId: conta.id });
   if(!r.ok){ toast(r.erro || 'Não foi possível criar a tarefa.'); return; }
-  projetoTarefas.push({
-    id: r.id, projetoId: projetoAtualId, tarefaPaiId: tarefaPaiId || '', titulo: 'Nova tarefa',
-    descricao: '', responsavel: '', status: 'A FAZER', dataInicio: '', dataFim: '', ordem: 0,
-    criadoEm: new Date().toISOString(), concluidoEm: '',
-  });
+  projetoTarefas = r.tarefas || projetoTarefas;
   if(tarefaPaiId) projTarefaColapsadas.delete(tarefaPaiId);
-  renderArvoreTarefas();
-  const inputs = document.querySelectorAll('#projTarefasArvore .proj-tarefa-titulo');
+  renderTabelaTarefas();
+  if(projSubAba==='kanban') renderKanbanProjeto();
+  else if(projSubAba==='gantt') renderGanttProjeto();
+  const inputs = document.querySelectorAll('#projTarefasTabelaCorpo .proj-tarefa-titulo');
   const ultimo = inputs[inputs.length-1];
   if(ultimo){ ultimo.focus(); ultimo.select(); }
 }
 async function projSalvarCampoTarefa(id, campo, valor){
   const conta = contaAtual();
-  const r = await api('atualizarTarefa', { id, [campo]: valor, contaId: conta.id });
-  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); renderArvoreTarefas(); return; }
-  const t = projetoTarefas.find(x=>String(x.id)===String(id));
-  if(t){
-    t[campo] = valor;
-    if(campo==='status') t.concluidoEm = valor==='CONCLUÍDA' ? new Date().toISOString() : '';
-  }
-  if(campo==='status'){ renderArvoreTarefas(); if(projSubAba==='kanban') renderKanbanProjeto(); }
+  const r = await api('atualizarTarefa', { id, contaId: conta.id, [campo]: valor });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); renderTabelaTarefas(); return; }
+  projetoTarefas = r.tarefas || projetoTarefas;
+  renderTabelaTarefas();
+  if(projSubAba==='kanban') renderKanbanProjeto();
+  else if(projSubAba==='gantt') renderGanttProjeto();
+}
+async function projSalvarPredecessoras(id, texto){
+  const numeros = texto.split(',').map(s=>s.trim()).filter(Boolean).map(s=>parseInt(s,10)).filter(n=>Number.isFinite(n));
+  const ids = [...new Set(numeros.map(n=>projTarefaPorNumero[n]).filter(Boolean).filter(pid=>String(pid)!==String(id)))];
+  const conta = contaAtual();
+  const r = await api('atualizarTarefa', { id, predecessorasIds: ids, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar as predecessoras.'); renderTabelaTarefas(); return; }
+  projetoTarefas = r.tarefas || projetoTarefas;
+  renderTabelaTarefas();
+  if(projSubAba==='gantt') renderGanttProjeto();
 }
 function projDescendentesDe(id){
   const diretos = projFilhosDe(id);
@@ -8860,8 +8897,9 @@ function projRemoverTarefaUi(id){
       const r = await api('removerTarefa', { id, contaId: conta.id });
       if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
       const idsRemovidos = new Set([id, ...projDescendentesDe(id).map(t=>t.id)]);
-      projetoTarefas = projetoTarefas.filter(t=>!idsRemovidos.has(t.id));
-      renderArvoreTarefas();
+      projetoTarefas = r.tarefas || projetoTarefas.filter(t=>!idsRemovidos.has(t.id));
+      renderTabelaTarefas();
+      if(projSubAba==='kanban') renderKanbanProjeto();
       toast('Tarefa removida');
     },
     'Remover'
