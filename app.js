@@ -8934,30 +8934,54 @@ function projNumerarTarefas(){
 // quando marcadas no painel "⚙ Colunas" (preferência salva por navegador).
 // A largura de cada uma também é ajustável (arrastando a borda do
 // cabeçalho) e persiste do mesmo jeito.
+// só toggle/numero/nome/ações ficam sempre fixos (são a identidade mínima
+// da linha + os controles da interface) — todo o resto é um campo de
+// verdade da tarefa e pode ser ligado/desligado no painel "⚙ Colunas"
 const PROJ_COLUNAS_TAREFAS = [
   { key:'toggle', label:'', largura:22, fixa:true, semExportar:true, semResize:true },
   { key:'numero', label:'Nº', largura:36, fixa:true },
   { key:'edt', label:'EDT', largura:70 },
   { key:'nome', label:'Nome da tarefa', largura:220, fixa:true },
-  { key:'status', label:'Status', largura:110, fixa:true },
+  { key:'status', label:'Status', largura:110 },
+  { key:'inativa', label:'Inativa', largura:70 },
   { key:'segmento', label:'Segmento', largura:130 },
   { key:'modulo', label:'Módulo', largura:130 },
   { key:'submodulo', label:'Rotina', largura:130 },
   { key:'prioridade', label:'Prioridade', largura:90, num:true },
   { key:'modo', label:'Modo', largura:100 },
-  { key:'duracao', label:'Duração', largura:80, fixa:true, num:true },
-  { key:'inicio', label:'Início', largura:110, fixa:true },
-  { key:'termino', label:'Término', largura:110, fixa:true },
-  { key:'anotacoes', label:'Anotações', largura:160, fixa:true },
-  { key:'percentual', label:'% concluída', largura:110, fixa:true, num:true },
-  { key:'recursos', label:'Nomes dos recursos', largura:150, fixa:true },
-  { key:'predecessoras', label:'Predecessoras', largura:110, fixa:true },
+  { key:'duracao', label:'Duração', largura:80, num:true },
+  { key:'duracaoEstimada', label:'Duração Estimada', largura:70 },
+  { key:'inicio', label:'Início', largura:110 },
+  { key:'termino', label:'Término', largura:110 },
+  { key:'concluidoEm', label:'Data de Conclusão', largura:120 },
+  { key:'anotacoes', label:'Anotações', largura:160 },
+  { key:'percentual', label:'% concluída', largura:110, num:true },
+  { key:'recursos', label:'Nomes dos recursos', largura:150 },
+  { key:'atendimentos', label:'Atendimentos', largura:90, num:true },
+  { key:'predecessoras', label:'Predecessoras', largura:110 },
   { key:'acoes', label:'', largura:90, fixa:true, semExportar:true, semResize:true },
 ];
+// colunas que já apareciam sempre antes desta mudança — continuam visíveis
+// por padrão pra quem já usava a tabela, mesmo agora que viraram opcionais
+const PROJ_COLUNAS_VISIVEIS_PADRAO = ['status','duracao','inicio','termino','anotacoes','percentual','recursos','predecessoras'];
 let projColunasOpcionaisVisiveis = new Set();
 let projColunaLarguras = {};
 (function projCarregarPrefsColunasTarefas(){
-  try{ projColunasOpcionaisVisiveis = new Set(JSON.parse(localStorage.getItem('projColunasOpcionais_v1')||'[]')); }catch(e){ projColunasOpcionaisVisiveis = new Set(); }
+  try{
+    const salvoV2 = localStorage.getItem('projColunasOpcionais_v2');
+    if(salvoV2 !== null){
+      projColunasOpcionaisVisiveis = new Set(JSON.parse(salvoV2));
+    } else {
+      // migração: antes só os "extras" (EDT/Segmento/Módulo/Rotina/
+      // Prioridade/Modo) eram opcionais — junta com o que já estava
+      // marcado e com as colunas que eram fixas, pra não sumir nada da
+      // tela de quem já vinha usando
+      let extrasAntigos = [];
+      try{ extrasAntigos = JSON.parse(localStorage.getItem('projColunasOpcionais_v1')||'[]'); }catch(e){}
+      projColunasOpcionaisVisiveis = new Set([...PROJ_COLUNAS_VISIVEIS_PADRAO, ...extrasAntigos]);
+      localStorage.setItem('projColunasOpcionais_v2', JSON.stringify([...projColunasOpcionaisVisiveis]));
+    }
+  }catch(e){ projColunasOpcionaisVisiveis = new Set(PROJ_COLUNAS_VISIVEIS_PADRAO); }
   try{ projColunaLarguras = JSON.parse(localStorage.getItem('projColunaLarguras_v1')||'{}'); }catch(e){ projColunaLarguras = {}; }
 })();
 function colunasVisiveisTarefas(){
@@ -8978,7 +9002,7 @@ function renderPainelColunasTarefas(){
 function projAlternarColunaOpcional(key, visivel){
   if(visivel) projColunasOpcionaisVisiveis.add(key);
   else projColunasOpcionaisVisiveis.delete(key);
-  try{ localStorage.setItem('projColunasOpcionais_v1', JSON.stringify([...projColunasOpcionaisVisiveis])); }catch(e){}
+  try{ localStorage.setItem('projColunasOpcionais_v2', JSON.stringify([...projColunasOpcionaisVisiveis])); }catch(e){}
   renderTabelaTarefas();
 }
 let projResizeEstado = null;
@@ -9046,6 +9070,8 @@ function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, ke
           ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
         </select>
       </td>`;
+    case 'inativa':
+      return `<td style="text-align:center;"><input type="checkbox" style="width:auto;" ${t.inativa?'checked':''} onchange="projSalvarCampoTarefa('${t.id}','inativa',this.checked)"></td>`;
     case 'segmento':
       return `<td><select onchange="projTabelaAlterarSegmento('${t.id}',this.value)">${opcoesSegmento(t.segmento||'')}</select></td>`;
     case 'modulo':
@@ -9063,10 +9089,14 @@ function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, ke
       </td>`;
     case 'duracao':
       return `<td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>`;
+    case 'duracaoEstimada':
+      return `<td style="text-align:center;"><input type="checkbox" style="width:auto;" ${t.duracaoEstimada?'checked':''} onchange="projSalvarCampoTarefa('${t.id}','duracaoEstimada',this.checked)"></td>`;
     case 'inicio':
       return `<td><input type="date" value="${t.dataInicio||''}" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)"></td>`;
     case 'termino':
       return `<td><input type="date" value="${t.dataFim||''}" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)"></td>`;
+    case 'concluidoEm':
+      return `<td style="color:var(--muted);">${t.concluidoEm ? escaparHtml(new Date(t.concluidoEm).toLocaleDateString('pt-BR')) : '—'}</td>`;
     case 'anotacoes':
       return `<td class="anotacoes-col"><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>`;
     case 'percentual':
@@ -9078,6 +9108,8 @@ function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, ke
       </td>`;
     case 'recursos':
       return `<td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>`;
+    case 'atendimentos':
+      return `<td class="num" style="color:var(--muted);">${(t.atendimentoIds||[]).length || '—'}</td>`;
     case 'predecessoras':
       return `<td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>`;
     case 'acoes':
@@ -9146,17 +9178,21 @@ function projValorColunaTexto(t, key, nivel){
     case 'edt': return projTarefaEdt.get(String(t.id)) || '';
     case 'nome': return '  '.repeat(nivel) + t.titulo;
     case 'status': return t.status;
+    case 'inativa': return t.inativa ? 'Sim' : 'Não';
     case 'segmento': return t.segmento || '';
     case 'modulo': return t.modulo || '';
     case 'submodulo': return t.submodulo || '';
     case 'prioridade': return String(t.prioridade ?? 500);
     case 'modo': return t.modo === 'MANUAL' ? 'Manual' : 'Automático';
     case 'duracao': return `${t.duracaoDias||1} d`;
+    case 'duracaoEstimada': return t.duracaoEstimada ? 'Sim' : 'Não';
     case 'inicio': return t.dataInicio ? String(t.dataInicio).split('-').reverse().join('/') : '';
     case 'termino': return t.dataFim ? String(t.dataFim).split('-').reverse().join('/') : '';
+    case 'concluidoEm': return t.concluidoEm ? new Date(t.concluidoEm).toLocaleDateString('pt-BR') : '';
     case 'anotacoes': return t.descricao || '';
     case 'percentual': return `${t.percentualConcluido||0}%`;
     case 'recursos': return t.responsavel || '';
+    case 'atendimentos': return String((t.atendimentoIds||[]).length || 0);
     case 'predecessoras': return (t.predecessorasIds||[]).map(pid=>projTarefaNumeros.get(String(pid))).filter(n=>n!==undefined).sort((a,b)=>a-b).join(',');
     default: return '';
   }
