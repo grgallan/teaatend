@@ -2152,13 +2152,141 @@ function projetoParaApi(p: any, extra: { tarefasTotal?: number; tarefasConcluida
   };
 }
 
-function tarefaParaApi(t: any) {
+function tarefaParaApi(t: any, predecessorasIds: string[] = []) {
   return {
     id: t.id, projetoId: t.projeto_id, tarefaPaiId: t.tarefa_pai_id || '',
     titulo: t.titulo, descricao: t.descricao || '', responsavel: t.responsavel || '',
     status: t.status || 'A FAZER', dataInicio: t.data_inicio || '', dataFim: t.data_fim || '',
     ordem: t.ordem || 0, criadoEm: t.criado_em, concluidoEm: t.concluido_em || '',
+    duracaoDias: t.duracao_dias || 1, percentualConcluido: t.percentual_concluido || 0,
+    modo: t.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO', predecessorasIds: predecessorasIds || [],
   };
+}
+
+// soma/subtrai dias de uma data yyyy-MM-dd, sem depender de timezone local
+function addDiasIso(iso: string, dias: number): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+function diffDiasIso(deIso: string, ateIso: string): number {
+  const a = new Date(deIso + 'T00:00:00Z');
+  const b = new Date(ateIso + 'T00:00:00Z');
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+// sincronia de 3 vias Duração/Início/Término (mesmo comportamento do MS
+// Project): editar Início move a tarefa inteira (duração fixa); editar
+// Término muda a duração (início fixo); editar Duração move o Término
+// (início fixo); editar Início+Término junto recalcula a duração
+function calcularSincroniaTarefa(existente: any, req: any) {
+  const temInicio = req.dataInicio !== undefined;
+  const temFim = req.dataFim !== undefined;
+  const temDuracao = req.duracaoDias !== undefined;
+
+  const inicioAtual = existente.data_inicio || null;
+  const fimAtual = existente.data_fim || null;
+  const duracaoAtual = existente.duracao_dias || 1;
+
+  const inicioNovo = temInicio ? (req.dataInicio || null) : inicioAtual;
+  const fimNovo = temFim ? (req.dataFim || null) : fimAtual;
+  const duracaoParsed = temDuracao ? Math.max(1, parseInt(req.duracaoDias, 10) || 1) : duracaoAtual;
+
+  if (temInicio && temFim) {
+    if (inicioNovo && fimNovo) {
+      return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: Math.max(1, diffDiasIso(inicioNovo, fimNovo) + 1) };
+    }
+    return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: duracaoAtual };
+  }
+  if (temInicio && temDuracao) {
+    return { data_inicio: inicioNovo, data_fim: inicioNovo ? addDiasIso(inicioNovo, duracaoParsed - 1) : fimAtual, duracao_dias: duracaoParsed };
+  }
+  if (temFim && temDuracao) {
+    return { data_inicio: fimNovo ? addDiasIso(fimNovo, -(duracaoParsed - 1)) : inicioAtual, data_fim: fimNovo, duracao_dias: duracaoParsed };
+  }
+  if (temInicio) {
+    if (!inicioNovo) return { data_inicio: null, data_fim: null, duracao_dias: duracaoAtual };
+    return { data_inicio: inicioNovo, data_fim: addDiasIso(inicioNovo, duracaoAtual - 1), duracao_dias: duracaoAtual };
+  }
+  if (temFim) {
+    const duracao = (inicioAtual && fimNovo) ? Math.max(1, diffDiasIso(inicioAtual, fimNovo) + 1) : duracaoAtual;
+    return { data_inicio: inicioAtual, data_fim: fimNovo, duracao_dias: duracao };
+  }
+  if (temDuracao) {
+    return { data_inicio: inicioAtual, data_fim: inicioAtual ? addDiasIso(inicioAtual, duracaoParsed - 1) : fimAtual, duracao_dias: duracaoParsed };
+  }
+  return { data_inicio: inicioAtual, data_fim: fimAtual, duracao_dias: duracaoAtual };
+}
+
+// reagenda as tarefas em modo AUTOMÁTICO com predecessora: a Data Inicial
+// vira o dia seguinte ao maior Término entre as predecessoras, preservando
+// a Duração de cada tarefa (fim-a-início, igual MS Project). Iterativo, pra
+// propagar em cadeia (A -> B -> C).
+function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, string[]>) {
+  const porId = new Map(tarefas.map((t: any) => [String(t.id), t]));
+  for (let iteracao = 0; iteracao < tarefas.length + 1; iteracao++) {
+    let mudou = false;
+    for (const t of tarefas) {
+      if (t.modo !== 'AUTOMÁTICO') continue;
+      const preds = predsMap[t.id] || [];
+      if (preds.length === 0) continue;
+      let maiorFim: string | null = null;
+      for (const pid of preds) {
+        const p = porId.get(String(pid));
+        if (!p || !p.data_fim) continue;
+        if (!maiorFim || p.data_fim > maiorFim) maiorFim = p.data_fim;
+      }
+      if (!maiorFim) continue;
+      const novoInicio = addDiasIso(maiorFim, 1);
+      if (novoInicio !== t.data_inicio) {
+        t.data_inicio = novoInicio;
+        t.data_fim = addDiasIso(novoInicio, (t.duracao_dias || 1) - 1);
+        mudou = true;
+      }
+    }
+    if (!mudou) break;
+  }
+  return tarefas;
+}
+
+async function predecessorasPorTarefa(tarefaIds: string[]) {
+  if (tarefaIds.length === 0) return {} as Record<string, string[]>;
+  const { data } = await db.from('projeto_tarefa_predecessoras').select('tarefa_id,predecessora_id').in('tarefa_id', tarefaIds);
+  const mapa: Record<string, string[]> = {};
+  (data || []).forEach((p: any) => { (mapa[p.tarefa_id] = mapa[p.tarefa_id] || []).push(p.predecessora_id); });
+  return mapa;
+}
+
+async function salvarPredecessoras(tarefaId: string, ids: any[]) {
+  await db.from('projeto_tarefa_predecessoras').delete().eq('tarefa_id', tarefaId);
+  const validos = [...new Set((ids || []).map((id: any) => String(id)).filter((id: string) => id && id !== String(tarefaId)))];
+  if (validos.length === 0) return;
+  const registros = validos.map((pid: string) => ({ id: gerarId(), tarefa_id: tarefaId, predecessora_id: pid }));
+  await db.from('projeto_tarefa_predecessoras').insert(registros);
+}
+
+// recalcula o cronograma automático do projeto inteiro (chamado após criar/
+// editar/remover qualquer tarefa, já que mudar uma tarefa pode afetar as
+// datas de outras que dependem dela) e devolve todas as tarefas já
+// atualizadas, prontas pra API devolver de uma vez só
+async function recalcularEPersistirProjeto(projetoId: string) {
+  const { data: tarefasDb } = await db.from('projeto_tarefas').select('*').eq('projeto_id', projetoId).order('criado_em', { ascending: true });
+  const tarefas = tarefasDb || [];
+  const predsMap = await predecessorasPorTarefa(tarefas.map((t: any) => t.id));
+
+  const antes = new Map<string, { data_inicio: string | null; data_fim: string | null }>(
+    tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim }]),
+  );
+  recalcularDatasAutomaticas(tarefas, predsMap);
+
+  for (const t of tarefas) {
+    const original = antes.get(t.id);
+    if (original && (original.data_inicio !== t.data_inicio || original.data_fim !== t.data_fim)) {
+      await db.from('projeto_tarefas').update({ data_inicio: t.data_inicio, data_fim: t.data_fim }).eq('id', t.id);
+    }
+  }
+
+  return tarefas.map((t: any) => tarefaParaApi(t, predsMap[t.id] || []));
 }
 
 async function acaoListarProjetos(req: any) {
@@ -2199,10 +2327,11 @@ async function acaoObterProjeto(req: any) {
   const lista = tarefas || [];
   const total = lista.length;
   const concluidas = lista.filter((t: any) => t.status === 'CONCLUÍDA').length;
+  const predsMap = await predecessorasPorTarefa(lista.map((t: any) => t.id));
   return {
     ok: true,
     projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
-    tarefas: lista.map(tarefaParaApi),
+    tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [])),
     atendimentoIds: (vinculos || []).map((v: any) => v.atendimento_id),
   };
 }
@@ -2275,24 +2404,35 @@ async function acaoCriarTarefa(req: any) {
   if (!req.projetoId) return { ok: false, erro: 'Projeto não informado.' };
   if (!req.titulo || !String(req.titulo).trim()) return { ok: false, erro: 'Preencha o título da tarefa.' };
   const status = STATUS_TAREFA_VALIDOS.has(req.status) ? req.status : 'A FAZER';
+  const modo = req.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO';
+  const duracaoDias = Math.max(1, parseInt(req.duracaoDias, 10) || 1);
+  const percentual = Math.min(100, Math.max(0, parseInt(req.percentualConcluido, 10) || 0));
   const registro = {
     id: gerarId(), projeto_id: req.projetoId, tarefa_pai_id: req.tarefaPaiId || null,
     titulo: req.titulo, descricao: req.descricao || '', responsavel: req.responsavel || '',
     status, data_inicio: req.dataInicio || null, data_fim: req.dataFim || null,
+    duracao_dias: duracaoDias, percentual_concluido: percentual, modo,
     concluido_em: status === 'CONCLUÍDA' ? new Date().toISOString() : null,
   };
   const { error } = await db.from('projeto_tarefas').insert(registro);
   if (error) return { ok: false, erro: error.message };
-  return { ok: true, id: registro.id };
+
+  if (Array.isArray(req.predecessorasIds)) await salvarPredecessoras(registro.id, req.predecessorasIds);
+
+  const tarefas = await recalcularEPersistirProjeto(req.projetoId);
+  return { ok: true, id: registro.id, tarefas };
 }
 
-// atualização parcial de propósito — o Kanban (arrastar card) e o Gantt
-// (arrastar barra, se vier a existir) mandam só o campo que mudou, sem
-// precisar reenviar a tarefa inteira; o formulário de edição manda tudo
+// atualização parcial de propósito — o Kanban (arrastar card), o Gantt e a
+// tabela de tarefas (cada célula editada isoladamente) mandam só o campo
+// que mudou, sem precisar reenviar a tarefa inteira; o formulário de edição
+// manda tudo. Sempre devolve a lista inteira de tarefas do projeto porque
+// editar uma tarefa (data, duração ou predecessora) pode recalcular as
+// datas de outras que dependem dela.
 async function acaoAtualizarTarefa(req: any) {
   if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra editar tarefas.' };
   if (!req.id) return { ok: false, erro: 'Tarefa não informada.' };
-  const { data: existente } = await db.from('projeto_tarefas').select('status').eq('id', req.id).maybeSingle();
+  const { data: existente } = await db.from('projeto_tarefas').select('*').eq('id', req.id).maybeSingle();
   if (!existente) return { ok: false, erro: 'Tarefa não encontrada.' };
 
   const atualizacao: Record<string, unknown> = {};
@@ -2302,24 +2442,41 @@ async function acaoAtualizarTarefa(req: any) {
   }
   if (req.descricao !== undefined) atualizacao.descricao = req.descricao || '';
   if (req.responsavel !== undefined) atualizacao.responsavel = req.responsavel || '';
-  if (req.dataInicio !== undefined) atualizacao.data_inicio = req.dataInicio || null;
-  if (req.dataFim !== undefined) atualizacao.data_fim = req.dataFim || null;
   if (req.status !== undefined) {
     if (!STATUS_TAREFA_VALIDOS.has(req.status)) return { ok: false, erro: 'Status inválido.' };
     atualizacao.status = req.status;
     if (req.status === 'CONCLUÍDA' && existente.status !== 'CONCLUÍDA') atualizacao.concluido_em = new Date().toISOString();
     else if (req.status !== 'CONCLUÍDA') atualizacao.concluido_em = null;
   }
+  if (req.modo !== undefined) atualizacao.modo = req.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO';
+  if (req.percentualConcluido !== undefined) {
+    const pct = parseInt(req.percentualConcluido, 10);
+    atualizacao.percentual_concluido = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
+  }
+  if (req.dataInicio !== undefined || req.dataFim !== undefined || req.duracaoDias !== undefined) {
+    const sync = calcularSincroniaTarefa(existente, req);
+    atualizacao.data_inicio = sync.data_inicio;
+    atualizacao.data_fim = sync.data_fim;
+    atualizacao.duracao_dias = sync.duracao_dias;
+  }
 
-  const { error } = await db.from('projeto_tarefas').update(atualizacao).eq('id', req.id);
-  if (error) return { ok: false, erro: error.message };
-  return { ok: true };
+  if (Object.keys(atualizacao).length > 0) {
+    const { error } = await db.from('projeto_tarefas').update(atualizacao).eq('id', req.id);
+    if (error) return { ok: false, erro: error.message };
+  }
+
+  if (Array.isArray(req.predecessorasIds)) await salvarPredecessoras(req.id, req.predecessorasIds);
+
+  const tarefas = await recalcularEPersistirProjeto(existente.projeto_id);
+  return { ok: true, tarefas };
 }
 
 async function acaoRemoverTarefa(req: any) {
   if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover tarefas.' };
+  const { data: existente } = await db.from('projeto_tarefas').select('projeto_id').eq('id', req.id).maybeSingle();
   await db.from('projeto_tarefas').delete().eq('id', req.id);
-  return { ok: true };
+  const tarefas = existente ? await recalcularEPersistirProjeto(existente.projeto_id) : [];
+  return { ok: true, tarefas };
 }
 
 /* ---------- orçamentos (proposta comercial: itens por valor/hora, PDF e

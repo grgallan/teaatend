@@ -466,17 +466,17 @@
   .proj-progresso-barra{height:6px;border-radius:4px;background:var(--panel-2);overflow:hidden;}
   .proj-progresso-fill{height:100%;background:var(--ok);border-radius:4px;}
   .proj-progresso-texto{font-size:10.5px;color:var(--muted);margin-top:4px;}
-  .proj-tarefa{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px;background:var(--panel);}
-  .proj-tarefa-corpo{flex:1;min-width:0;}
-  .proj-tarefa-titulo-linha{display:flex;align-items:center;gap:6px;}
-  .proj-tarefa-titulo{font-weight:600;font-size:12.5px;background:none;border:none;color:inherit;font-family:inherit;padding:2px 4px;flex:1;min-width:60px;}
-  .proj-tarefa-titulo:focus{background:var(--panel-2);border-radius:6px;outline:none;}
-  .proj-tarefa.status-CONCLUIDA .proj-tarefa-titulo{text-decoration:line-through;color:var(--muted);}
-  .proj-tarefa-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;align-items:center;}
-  .proj-tarefa-meta select, .proj-tarefa-meta input{font-size:11px;padding:4px 6px;width:auto;}
-  .proj-tarefa-acoes{display:flex;gap:4px;flex:none;}
-  .proj-tarefa-acoes button{padding:4px 7px;font-size:11px;}
-  .proj-tarefa-toggle{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;width:16px;flex:none;padding:2px 0;}
+  .proj-tarefas-tabela-wrap{overflow-x:auto;}
+  .proj-tarefas-tabela{min-width:920px;}
+  .proj-tarefas-tabela td{white-space:nowrap;vertical-align:middle;}
+  .proj-tarefas-tabela td.anotacoes-col{white-space:normal;}
+  .proj-tarefas-tabela select{width:100%;border:1px solid transparent;background:transparent;font-size:12px;color:inherit;padding:4px;font-family:inherit;box-sizing:border-box;}
+  .proj-tarefas-tabela select:focus{border-color:var(--line);background:var(--bg);border-radius:6px;outline:none;}
+  .proj-tarefas-tabela input[type=number]{width:56px;}
+  .proj-tarefas-tabela .proj-tarefa-nome-linha{display:flex;align-items:center;}
+  .proj-tarefas-tabela input.proj-tarefa-titulo{font-weight:600;min-width:120px;}
+  .proj-tarefas-tabela tr.status-CONCLUIDA .proj-tarefa-titulo{text-decoration:line-through;color:var(--muted);}
+  .proj-tarefas-tabela .proj-tarefa-acoes-cel button{padding:3px 6px;font-size:11px;margin-right:2px;}
   .vid-embed{width:100%;aspect-ratio:16/9;border-radius:12px;border:none;display:block;}
   .vid-titulo{font-weight:700;font-size:14px;margin-top:10px;}
   .vid-descricao{color:var(--muted);font-size:12.5px;margin-top:4px;}
@@ -1756,7 +1756,24 @@
 
       <div class="proj-sub-view" id="proj-sub-tarefas">
         <button type="button" class="ghost" id="btnProjNovaTarefa" style="margin-bottom:10px;width:auto;padding:8px 14px;">+ Nova tarefa</button>
-        <div id="projTarefasArvore"></div>
+        <div class="proj-tarefas-tabela-wrap">
+          <table class="orc-tabela proj-tarefas-tabela">
+            <thead><tr>
+              <th style="width:22px;"></th>
+              <th style="width:76px;">Modo</th>
+              <th>Nome da tarefa</th>
+              <th class="num">Duração</th>
+              <th>Início</th>
+              <th>Término</th>
+              <th>Anotações</th>
+              <th class="num">% concluída</th>
+              <th>Nomes dos recursos</th>
+              <th>Predecessoras</th>
+              <th style="width:56px;"></th>
+            </tr></thead>
+            <tbody id="projTarefasTabelaCorpo"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="proj-sub-view" id="proj-sub-kanban" style="display:none;">
