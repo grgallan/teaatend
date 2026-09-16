@@ -8984,8 +8984,100 @@ let projColunaLarguras = {};
   }catch(e){ projColunasOpcionaisVisiveis = new Set(PROJ_COLUNAS_VISIVEIS_PADRAO); }
   try{ projColunaLarguras = JSON.parse(localStorage.getItem('projColunaLarguras_v1')||'{}'); }catch(e){ projColunaLarguras = {}; }
 })();
+// ordem das colunas — o usuário arrasta o cabeçalho (mesmo mecanismo de
+// arrastar-pra-reordenar já usado na Lista de atendimentos) pra colocar do
+// jeito que preferir; fica salva por navegador. null = ainda não mexeu,
+// usa a ordem padrão de PROJ_COLUNAS_TAREFAS
+let projTarefaColunasOrdem = null;
+(function projCarregarOrdemColunasTarefas(){
+  try{
+    const salvo = JSON.parse(localStorage.getItem('projColunasOrdem_v1')||'null');
+    if(Array.isArray(salvo)) projTarefaColunasOrdem = salvo;
+  }catch(e){ projTarefaColunasOrdem = null; }
+})();
+function colunasOrdenadasBase(){
+  if(!projTarefaColunasOrdem) return PROJ_COLUNAS_TAREFAS;
+  const porKey = new Map(PROJ_COLUNAS_TAREFAS.map(c=>[c.key,c]));
+  const ordenadas = projTarefaColunasOrdem.map(k=>porKey.get(k)).filter(Boolean);
+  // uma coluna nova, adicionada depois da última vez que o usuário
+  // reordenou, entra no fim (na ordem padrão), pra nunca sumir
+  PROJ_COLUNAS_TAREFAS.forEach(c=>{ if(!ordenadas.includes(c)) ordenadas.push(c); });
+  return ordenadas;
+}
 function colunasVisiveisTarefas(){
-  return PROJ_COLUNAS_TAREFAS.filter(c=>c.fixa || projColunasOpcionaisVisiveis.has(c.key));
+  return colunasOrdenadasBase().filter(c=>c.fixa || projColunasOpcionaisVisiveis.has(c.key));
+}
+function reordenarColunaTarefas(campoArrastado, campoAlvo){
+  if(!campoArrastado || !campoAlvo || campoArrastado === campoAlvo) return;
+  const atual = colunasOrdenadasBase().map(c=>c.key);
+  const semArrastado = atual.filter(k=>k!==campoArrastado);
+  const idxAlvo = semArrastado.indexOf(campoAlvo);
+  if(idxAlvo===-1) return;
+  semArrastado.splice(idxAlvo, 0, campoArrastado);
+  projTarefaColunasOrdem = semArrastado;
+  try{ localStorage.setItem('projColunasOrdem_v1', JSON.stringify(projTarefaColunasOrdem)); }catch(e){}
+  renderTabelaTarefas();
+}
+// arrastar o cabeçalho pra reordenar — Pointer Events, mesmo mecanismo do
+// drag de coluna da Lista de atendimentos (iniciarPossivelDragColunaLista)
+function projIniciarDragColunaTarefas(e, thEl){
+  const campo = thEl.dataset.col;
+  const labelEl = thEl.querySelector('span');
+  const label = labelEl ? labelEl.textContent : campo;
+  const startX = e.clientX, startY = e.clientY;
+  const rect = thEl.getBoundingClientRect();
+  const offsetX = e.clientX - rect.left, offsetY = e.clientY - rect.top;
+  let arrastando = false;
+  let ghost = null;
+  let thAlvoReordenar = null;
+
+  thEl.setPointerCapture(e.pointerId);
+
+  function limparAlvo(){
+    if(thAlvoReordenar) thAlvoReordenar.classList.remove('lista-th-drop-alvo');
+    thAlvoReordenar = null;
+  }
+  function mover(ev){
+    if(!arrastando){
+      if(Math.hypot(ev.clientX-startX, ev.clientY-startY) < 6) return;
+      arrastando = true;
+      ghost = document.createElement('div');
+      ghost.className = 'lista-coluna-ghost';
+      ghost.textContent = label;
+      document.body.appendChild(ghost);
+    }
+    ghost.style.left = (ev.clientX-offsetX)+'px';
+    ghost.style.top = (ev.clientY-offsetY)+'px';
+    ghost.style.display = 'none';
+    const alvo = document.elementFromPoint(ev.clientX, ev.clientY);
+    ghost.style.display = '';
+    limparAlvo();
+    const thHover = alvo && alvo.closest('#projTarefasTabelaCabecalho th[data-col]');
+    if(thHover && thHover !== thEl){
+      const colHover = PROJ_COLUNAS_TAREFAS.find(c=>c.key===thHover.dataset.col);
+      if(colHover && !colHover.semResize){
+        thAlvoReordenar = thHover;
+        thAlvoReordenar.classList.add('lista-th-drop-alvo');
+      }
+    }
+  }
+  function soltar(){
+    thEl.removeEventListener('pointermove', mover);
+    if(arrastando){
+      const alvo = thAlvoReordenar ? thAlvoReordenar.dataset.col : null;
+      limparAlvo();
+      ghost.remove();
+      if(alvo) reordenarColunaTarefas(campo, alvo);
+    }
+  }
+  function cancelar(){
+    thEl.removeEventListener('pointermove', mover);
+    limparAlvo();
+    if(ghost) ghost.remove();
+  }
+  thEl.addEventListener('pointermove', mover);
+  thEl.addEventListener('pointerup', soltar, { once:true });
+  thEl.addEventListener('pointercancel', cancelar, { once:true });
 }
 function projLarguraColuna(col){
   return projColunaLarguras[col.key] || col.largura;
@@ -9035,7 +9127,7 @@ function projFinalizarResizeColuna(e){
 function renderCabecalhoTarefas(colunas){
   document.getElementById('projTarefasTabelaColgroup').innerHTML = colunas.map(c=>`<col style="width:${projLarguraColuna(c)}px;">`).join('');
   document.getElementById('projTarefasTabelaCabecalho').innerHTML = `<tr>${colunas.map(c=>`
-    <th class="${c.num?'num':''}" data-col="${c.key}">
+    <th class="${c.num?'num':''} ${c.semResize?'':'lista-th-arrastavel'}" data-col="${c.key}" title="${c.semResize?'':'Arraste pra reordenar'}">
       <span>${escaparHtml(c.label)}</span>
       ${c.semResize ? '' : `<span class="proj-col-resizer" onmousedown="projIniciarResizeColuna(event,'${c.key}')"></span>`}
     </th>`).join('')}</tr>`;
@@ -12188,6 +12280,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
   document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
+  document.getElementById('projTarefasTabelaCabecalho').addEventListener('pointerdown', e=>{
+    if(e.target.closest('.proj-col-resizer')) return;
+    const th = e.target.closest('th[data-col]');
+    if(!th) return;
+    const col = PROJ_COLUNAS_TAREFAS.find(c=>c.key===th.dataset.col);
+    if(!col || col.semResize) return;
+    projIniciarDragColunaTarefas(e, th);
+  });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
