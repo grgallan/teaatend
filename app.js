@@ -1553,11 +1553,24 @@ async function salvarRegistro(){
     const r = await api('salvarAtendimento', payload);
     if(!r.ok) return;
     toast(editandoId ? 'Atendimento atualizado' : 'Atendimento salvo');
+    // quando o formulário foi aberto a partir de um recurso de Projeto (ver
+    // projCriarAtendimentoParaRecurso), vincula o atendimento recém-criado
+    // ao projeto de origem e volta pra lá, em vez do fluxo padrão
+    const vincularProjeto = (!editandoId && projVincularAposSalvarAtendimento) ? projVincularAposSalvarAtendimento : null;
     await carregarTudo();
     resetForm();
     renderLista();
     renderResumo();
-    goView('lista');
+    if(vincularProjeto && r.id){
+      projVincularAposSalvarAtendimento = null;
+      await api('vincularAtendimentoProjeto', { projetoId: vincularProjeto.projetoId, atendimentoId: r.id, contaId: conta.id });
+      goView('projetos');
+      await abrirProjetoDetalhe(vincularProjeto.projetoId);
+      goProjSub('atendimentos');
+      toast('Atendimento vinculado ao projeto');
+    } else {
+      goView('lista');
+    }
   } finally { btn.disabled = false; }
 }
 
@@ -8583,6 +8596,10 @@ let projetoAtual = null;
 let projetoTarefas = [];
 let projetoAtendimentoIds = [];
 let projRecursosCadastro = [];
+// quando um atendimento é criado a partir de um recurso vinculado a um
+// atendente (aba Recursos da tela de informações da tarefa), guarda o
+// projeto de origem pra vincular o novo atendimento a ele após salvar
+let projVincularAposSalvarAtendimento = null;
 let projTarefaColapsadas = new Set();
 let projSubAba = 'tarefas';
 
@@ -8769,26 +8786,41 @@ function goProjSub(sub){
 /* ---------- cadastro de recursos do projeto (nome + custo padrão) —
    alimenta a aba Recursos da tela de informações da tarefa, pra selecionar
    em vez de digitar toda vez ---------- */
+function nomesAtendentesSistema(){
+  return contas.filter(c=>c.perfil==='ATENDENTE');
+}
 function renderRecursosCadastroProjeto(){
   const corpo = document.getElementById('projRecursosCadastroCorpo');
-  if(projRecursosCadastro.length===0){ corpo.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso cadastrado.</td></tr>`; return; }
+  const atendentes = nomesAtendentesSistema();
+  if(projRecursosCadastro.length===0){ corpo.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso cadastrado.</td></tr>`; return; }
   corpo.innerHTML = projRecursosCadastro.map(r=>`
     <tr>
       <td><input type="text" value="${escaparHtml(r.nome)}" onblur="projRecursoCadastroSalvarCampo('${r.id}','nome',this.value)"></td>
       <td class="num"><input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projRecursoCadastroSalvarCampo('${r.id}','custo',this.value)"></td>
+      <td>
+        <select onchange="projRecursoCadastroSalvarCampo('${r.id}','atendenteId',this.value)">
+          <option value="">(não é atendente)</option>
+          ${atendentes.map(c=>`<option value="${c.id}" ${String(c.id)===String(r.atendenteId||'')?'selected':''}>${escaparHtml(c.nome)}</option>`).join('')}
+        </select>
+      </td>
       <td><button class="danger" onclick="projRecursoCadastroRemover('${r.id}')">🗑</button></td>
     </tr>`).join('');
 }
 async function projRecursoCadastroAdicionar(){
   const nome = document.getElementById('projrec_nome').value.trim();
   const custo = document.getElementById('projrec_custo').value;
+  const ehAtendente = document.getElementById('projrec_eh_atendente').checked;
+  const atendenteId = ehAtendente ? document.getElementById('projrec_atendente').value : '';
   if(!nome){ toast('Informe o nome do recurso'); return; }
+  if(ehAtendente && !atendenteId){ toast('Selecione o atendente vinculado'); return; }
   const conta = contaAtual();
-  const r = await api('criarRecursoProjeto', { projetoId: projetoAtualId, nome, custo, contaId: conta.id });
+  const r = await api('criarRecursoProjeto', { projetoId: projetoAtualId, nome, custo, atendenteId, contaId: conta.id });
   if(!r.ok){ toast(r.erro || 'Não foi possível adicionar.'); return; }
-  projRecursosCadastro.push({ id: r.id, projetoId: projetoAtualId, nome, custo: parseFloat(custo)||0 });
+  projRecursosCadastro.push({ id: r.id, projetoId: projetoAtualId, nome, custo: parseFloat(custo)||0, atendenteId: atendenteId || '' });
   document.getElementById('projrec_nome').value = '';
   document.getElementById('projrec_custo').value = '';
+  document.getElementById('projrec_eh_atendente').checked = false;
+  document.getElementById('projrec_atendente').style.display = 'none';
   renderRecursosCadastroProjeto();
 }
 async function projRecursoCadastroSalvarCampo(id, campo, valor){
@@ -9063,7 +9095,10 @@ function projPitRemoverPredecessora(i){
 function projPitRenderRecursos(){
   const corpo = document.getElementById('pitRecursosCorpo');
   if(pitRecursos.length===0){ corpo.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso.</td></tr>`; return; }
-  corpo.innerHTML = pitRecursos.map((r,i)=>`
+  corpo.innerHTML = pitRecursos.map((r,i)=>{
+    const cad = projRecursosCadastro.find(rc=>rc.nome===r.nome);
+    const atendenteConta = cad && cad.atendenteId ? contas.find(c=>String(c.id)===String(cad.atendenteId)) : null;
+    return `
     <tr>
       <td>
         <select onchange="projPitSelecionarRecursoCadastro(${i},this.value)">
@@ -9073,8 +9108,12 @@ function projPitRenderRecursos(){
       </td>
       <td><input type="number" min="0" max="100" value="${r.unidades??100}" onchange="projPitAlterarRecursoCampo(${i},'unidades',parseInt(this.value,10)||0)" style="width:64px;"></td>
       <td>R$ <input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projPitAlterarRecursoCampo(${i},'custo',parseFloat(this.value)||0)" style="width:80px;"></td>
-      <td><button type="button" class="danger" onclick="projPitRemoverRecurso(${i})">🗑</button></td>
-    </tr>`).join('');
+      <td>
+        ${atendenteConta ? `<button type="button" class="ghost" title="Criar atendimento pra ${escaparHtml(atendenteConta.nome)}" onclick="projCriarAtendimentoParaRecurso('${escaparHtml(atendenteConta.nome)}')">📋</button>` : ''}
+        <button type="button" class="danger" onclick="projPitRemoverRecurso(${i})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
 }
 function projPitSelecionarRecursoCadastro(i, nome){
   const rc = projRecursosCadastro.find(x=>x.nome===nome);
@@ -9117,6 +9156,26 @@ async function projPitSalvar(){
   if(projSubAba==='kanban') renderKanbanProjeto();
   else if(projSubAba==='gantt') renderGanttProjeto();
   toast('Tarefa atualizada');
+}
+
+// abre "Novo atendimento" já com o atendente preenchido (e o cliente do
+// projeto, se bater com um cadastrado) — ao salvar, o atendimento novo
+// volta a ser vinculado a este projeto automaticamente (ver salvarRegistro)
+function projCriarAtendimentoParaRecurso(nomeAtendente){
+  if(!projetoAtualId) return;
+  projVincularAposSalvarAtendimento = { projetoId: projetoAtualId };
+  projPitFechar();
+  goView('novo');
+  resetForm();
+  setLookupSingleValor('f_atendente', nomeAtendente);
+  if(projetoAtual && projetoAtual.cliente){
+    const cli = clientes.find(c=>c.nome===projetoAtual.cliente);
+    if(cli){
+      document.getElementById('f_cliente').value = cli.id;
+      popularUsuariosSolicitantes();
+    }
+  }
+  toast('Preencha os dados e salve — o atendimento será vinculado a este projeto automaticamente.');
 }
 
 /* ---------- Kanban de tarefas (3 colunas fixas — status de tarefa não é
@@ -11481,6 +11540,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     projPitGoTab(tab.dataset.infotab);
   });
   document.getElementById('btnProjRecursoAdicionar').addEventListener('click', projRecursoCadastroAdicionar);
+  document.getElementById('projrec_eh_atendente').addEventListener('change', e=>{
+    const sel = document.getElementById('projrec_atendente');
+    sel.style.display = e.target.checked ? '' : 'none';
+    if(e.target.checked) sel.innerHTML = nomesAtendentesSistema().map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
+  });
   document.getElementById('btnPitAddPredecessora').addEventListener('click', projPitAdicionarPredecessora);
   document.getElementById('btnPitAddRecurso').addEventListener('click', projPitAdicionarRecurso);
   document.getElementById('btnPitCancelar').addEventListener('click', projPitFechar);

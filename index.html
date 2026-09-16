@@ -1796,8 +1796,12 @@
           <div class="field"><label>Custo</label><input type="number" min="0" step="0.01" id="projrec_custo" placeholder="0,00"></div>
           <div class="field" style="display:flex;align-items:flex-end;"><button type="button" class="ghost" id="btnProjRecursoAdicionar" style="width:auto;">+ Adicionar recurso</button></div>
         </div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" id="projrec_eh_atendente" style="width:auto;"> É um atendente do sistema</label>
+          <select id="projrec_atendente" style="display:none;margin-top:6px;"></select>
+        </div>
         <table class="orc-tabela">
-          <thead><tr><th>Nome</th><th class="num" style="width:140px;">Custo</th><th style="width:56px;"></th></tr></thead>
+          <thead><tr><th>Nome</th><th class="num" style="width:120px;">Custo</th><th style="width:180px;">Atendente vinculado</th><th style="width:56px;"></th></tr></thead>
           <tbody id="projRecursosCadastroCorpo"></tbody>
         </table>
       </div>

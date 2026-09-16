@@ -801,7 +801,7 @@ async function acaoSalvarAtendimento(req: any) {
     await notificarNovoAtendimento(registro);
   }
 
-  return { ok: true };
+  return { ok: true, id: registro.id };
 }
 
 async function acaoExcluirAtendimento(req: any) {
@@ -2411,7 +2411,7 @@ async function acaoObterProjeto(req: any) {
     projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
     tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [])),
     atendimentoIds: (vinculos || []).map((v: any) => v.atendimento_id),
-    recursosCadastro: (recursosCadastro || []).map((r: any) => ({ id: r.id, projetoId: r.projeto_id, nome: r.nome, custo: r.custo || 0 })),
+    recursosCadastro: (recursosCadastro || []).map((r: any) => ({ id: r.id, projetoId: r.projeto_id, nome: r.nome, custo: r.custo || 0, atendenteId: r.atendente_id || '' })),
   };
 }
 
@@ -2574,11 +2574,26 @@ async function acaoRemoverTarefa(req: any) {
 // Recursos da tela de informações da tarefa, pra selecionar em vez de
 // digitar toda vez; não afeta os recursos já atribuídos a tarefas (esses
 // vivem em projeto_tarefa_recursos, sem vínculo com este cadastro)
+// valida que o id apontado é mesmo uma conta ATENDENTE — evita vincular um
+// recurso a uma conta ADMIN/USUARIO por engano
+async function validarAtendenteId(atendenteId: string): Promise<string | null> {
+  const { data: conta } = await db.from('contas').select('id,perfil').eq('id', atendenteId).maybeSingle();
+  if (!conta || conta.perfil !== 'ATENDENTE') return 'Atendente inválido.';
+  return null;
+}
+
 async function acaoCriarRecursoProjeto(req: any) {
   if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
   if (!req.projetoId) return { ok: false, erro: 'Projeto não informado.' };
   if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Preencha o nome do recurso.' };
-  const registro = { id: gerarId(), projeto_id: req.projetoId, nome: String(req.nome).trim(), custo: Number(req.custo) || 0 };
+  if (req.atendenteId) {
+    const erroAtendente = await validarAtendenteId(req.atendenteId);
+    if (erroAtendente) return { ok: false, erro: erroAtendente };
+  }
+  const registro = {
+    id: gerarId(), projeto_id: req.projetoId, nome: String(req.nome).trim(), custo: Number(req.custo) || 0,
+    atendente_id: req.atendenteId || null,
+  };
   const { error } = await db.from('projeto_recursos_cadastro').insert(registro);
   if (error) return { ok: false, erro: String(error.message).includes('duplicate') ? 'Já existe um recurso com esse nome nesse projeto.' : error.message };
   return { ok: true, id: registro.id };
@@ -2593,6 +2608,15 @@ async function acaoAtualizarRecursoProjeto(req: any) {
     atualizacao.nome = String(req.nome).trim();
   }
   if (req.custo !== undefined) atualizacao.custo = Number(req.custo) || 0;
+  if (req.atendenteId !== undefined) {
+    if (req.atendenteId) {
+      const erroAtendente = await validarAtendenteId(req.atendenteId);
+      if (erroAtendente) return { ok: false, erro: erroAtendente };
+      atualizacao.atendente_id = req.atendenteId;
+    } else {
+      atualizacao.atendente_id = null;
+    }
+  }
   const { error } = await db.from('projeto_recursos_cadastro').update(atualizacao).eq('id', req.id);
   if (error) return { ok: false, erro: String(error.message).includes('duplicate') ? 'Já existe um recurso com esse nome nesse projeto.' : error.message };
   return { ok: true };
