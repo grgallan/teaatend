@@ -477,6 +477,35 @@
   .proj-tarefas-tabela input.proj-tarefa-titulo{font-weight:600;min-width:120px;}
   .proj-tarefas-tabela tr.status-CONCLUIDA .proj-tarefa-titulo{text-decoration:line-through;color:var(--muted);}
   .proj-tarefas-tabela .proj-tarefa-acoes-cel button{padding:3px 6px;font-size:11px;margin-right:2px;}
+  .proj-tarefas-tabela select.proj-status-select{font-weight:600;}
+  .proj-bateria-wrap{display:flex;align-items:center;gap:6px;}
+  .proj-bateria{display:inline-block;width:32px;height:14px;border:1.5px solid var(--muted);border-radius:3px;position:relative;box-sizing:border-box;padding:1.5px;flex:none;}
+  .proj-bateria::after{content:'';position:absolute;right:-4px;top:3px;width:3px;height:6px;background:var(--muted);border-radius:0 2px 2px 0;}
+  .proj-bateria-fill{height:100%;border-radius:1px;}
+  .proj-bateria-wrap input[type=number]{width:44px;flex:none;}
+
+  /* Dashboard do projeto */
+  .proj-dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;}
+  .proj-dash-tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .proj-dash-tile .k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:700;}
+  .proj-dash-tile .v{font-size:22px;font-weight:700;margin-top:4px;}
+  .proj-dash-tile .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+  .proj-dash-secao{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px;}
+  .proj-dash-secao h3{font-size:13px;margin:0 0 10px;}
+  .proj-dash-barra-linha{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:11.5px;}
+  .proj-dash-barra-label{width:130px;flex:none;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .proj-dash-barra-trilha{flex:1;height:8px;background:var(--panel-2);border-radius:4px;overflow:hidden;}
+  .proj-dash-barra-fill{height:100%;border-radius:4px;}
+  .proj-dash-barra-valor{width:70px;flex:none;text-align:right;color:var(--muted);}
+  .proj-dash-saude{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;font-weight:700;font-size:13px;}
+  .proj-dash-lista-alerta{font-size:12px;padding:6px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;}
+  .proj-dash-lista-alerta:first-child{border-top:none;}
+
+  /* Mapa mental de tarefas */
+  .proj-mapa-svg{display:block;}
+  .proj-mapa-node{position:absolute;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:6px 10px;font-size:11.5px;max-width:150px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .proj-mapa-node .titulo{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .proj-mapa-node .meta{color:var(--muted);font-size:10px;margin-top:2px;}
   .vid-embed{width:100%;aspect-ratio:16/9;border-radius:12px;border:none;display:block;}
   .vid-titulo{font-weight:700;font-size:14px;margin-top:10px;}
   .vid-descricao{color:var(--muted);font-size:12.5px;margin-top:4px;}
@@ -1748,27 +1777,34 @@
       <div id="projDetalheInfo" style="color:var(--muted);font-size:12.5px;margin-bottom:14px;"></div>
 
       <div class="subtabs" id="projSubtabs">
-        <div class="subtab active" data-projsub="tarefas">Tarefas</div>
+        <div class="subtab active" data-projsub="dashboard">Dashboard</div>
+        <div class="subtab" data-projsub="tarefas">Tarefas</div>
         <div class="subtab" data-projsub="kanban">Kanban</div>
         <div class="subtab" data-projsub="gantt">Cronograma</div>
+        <div class="subtab" data-projsub="mapa">Mapa Mental</div>
         <div class="subtab" data-projsub="recursos">Recursos</div>
         <div class="subtab" data-projsub="atendimentos">Atendimentos</div>
+        <div class="subtab" data-projsub="anexos">Anexos</div>
       </div>
 
-      <div class="proj-sub-view" id="proj-sub-tarefas">
+      <div class="proj-sub-view" id="proj-sub-dashboard">
+        <div id="projDashboardConteudo"></div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-tarefas" style="display:none;">
         <button type="button" class="ghost" id="btnProjNovaTarefa" style="margin-bottom:10px;width:auto;padding:8px 14px;">+ Nova tarefa</button>
         <div class="proj-tarefas-tabela-wrap">
           <table class="orc-tabela proj-tarefas-tabela">
             <thead><tr>
               <th style="width:22px;"></th>
               <th style="width:32px;">Nº</th>
-              <th style="width:76px;">Modo</th>
               <th>Nome da tarefa</th>
+              <th style="width:110px;">Status</th>
               <th class="num">Duração</th>
               <th>Início</th>
               <th>Término</th>
               <th>Anotações</th>
-              <th class="num">% concluída</th>
+              <th class="num" style="width:90px;">% concluída</th>
               <th>Nomes dos recursos</th>
               <th>Predecessoras</th>
               <th style="width:76px;"></th>
@@ -1788,6 +1824,10 @@
           <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="proj_gantt_ate"></div>
         </div>
         <div id="projGanttChart" style="overflow-x:auto;"></div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-mapa" style="display:none;">
+        <div id="projMapaMentalWrap" style="overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);"></div>
       </div>
 
       <div class="proj-sub-view" id="proj-sub-recursos" style="display:none;">
@@ -1813,6 +1853,13 @@
           <div id="projVinculoResultados" style="margin-top:6px;"></div>
           <div id="projVinculoChipWrap" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;"></div>
         </div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-anexos" style="display:none;">
+        <div id="projAnexosLista"></div>
+        <label class="ghost" style="cursor:pointer;font-size:12px;padding:8px 12px;margin:0;display:inline-block;">
+          📎 Anexar arquivo<input type="file" id="proj_anexo" style="display:none;">
+        </label>
       </div>
     </div>
   </section>
@@ -2482,6 +2529,7 @@
       <div class="subtab" data-infotab="predecessoras">Predecessoras</div>
       <div class="subtab" data-infotab="recursos">Recursos</div>
       <div class="subtab" data-infotab="anotacoes">Anotações</div>
+      <div class="subtab" data-infotab="anexos">Anexos</div>
     </div>
 
     <div class="proj-info-tab" id="projInfoTab-geral">
@@ -2490,6 +2538,11 @@
         <div class="field"><label>Duração (dias)</label><input type="number" min="1" id="pit_duracao" onchange="projPitAtualizarCampoData('duracaoDias', this.value)"></div>
         <div class="field"><label>% concluída</label><input type="number" min="0" max="100" id="pit_percentual"></div>
         <div class="field"><label>Prioridade</label><input type="number" min="0" max="1000" step="10" id="pit_prioridade"></div>
+      </div>
+      <div class="row3">
+        <div class="field"><label>Segmento <span style="font-weight:400;">(opcional)</span></label><select id="pit_segmento"><option value="">(selecione)</option></select></div>
+        <div class="field"><label>Módulo <span style="font-weight:400;">(opcional)</span></label><select id="pit_modulo"><option value="">(selecione)</option></select></div>
+        <div class="field"><label>Rotina <span style="font-weight:400;">(opcional)</span></label><select id="pit_submodulo"><option value="">(selecione)</option></select></div>
       </div>
       <div style="display:flex;gap:18px;margin-bottom:14px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px;color:var(--muted);"><input type="checkbox" id="pit_duracao_estimada" style="width:auto;"> Duração estimada</label>
@@ -2520,10 +2573,20 @@
         <tbody id="pitRecursosCorpo"></tbody>
       </table>
       <button type="button" class="ghost" id="btnPitAddRecurso" style="margin-top:8px;">+ Adicionar recurso</button>
+
+      <label style="margin:16px 0 6px;">Atendimentos gerados por esta tarefa</label>
+      <div id="pitAtendimentosLista" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
     </div>
 
     <div class="proj-info-tab" id="projInfoTab-anotacoes" style="display:none;">
       <textarea id="pit_anotacoes" style="width:100%;min-height:120px;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;font-family:inherit;"></textarea>
+    </div>
+
+    <div class="proj-info-tab" id="projInfoTab-anexos" style="display:none;">
+      <div id="pitAnexosLista"></div>
+      <label class="ghost" style="cursor:pointer;font-size:12px;padding:8px 12px;margin:0;display:inline-block;">
+        📎 Anexar arquivo<input type="file" id="pit_anexo" style="display:none;">
+      </label>
     </div>
 
     <div class="modal-actions">
