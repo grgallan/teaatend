@@ -2152,14 +2152,21 @@ function projetoParaApi(p: any, extra: { tarefasTotal?: number; tarefasConcluida
   };
 }
 
-function tarefaParaApi(t: any, predecessorasIds: string[] = []) {
+function tarefaParaApi(t: any, predecessoras: any[] = [], recursos: any[] = []) {
   return {
     id: t.id, projetoId: t.projeto_id, tarefaPaiId: t.tarefa_pai_id || '',
     titulo: t.titulo, descricao: t.descricao || '', responsavel: t.responsavel || '',
     status: t.status || 'A FAZER', dataInicio: t.data_inicio || '', dataFim: t.data_fim || '',
     ordem: t.ordem || 0, criadoEm: t.criado_em, concluidoEm: t.concluido_em || '',
     duracaoDias: t.duracao_dias || 1, percentualConcluido: t.percentual_concluido || 0,
-    modo: t.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO', predecessorasIds: predecessorasIds || [],
+    modo: t.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO',
+    prioridade: t.prioridade ?? 500, duracaoEstimada: !!t.duracao_estimada, inativa: !!t.inativa,
+    // predecessoras: forma rica (tela "Informações sobre a tarefa", com Tipo
+    // FS/SS/FF/SF e Latência); predecessorasIds: só os ids, pra manter a
+    // edição rápida (digitar números na tabela) funcionando sem mudança
+    predecessoras: (predecessoras || []).map((p: any) => ({ predecessoraId: p.predecessora_id, tipo: p.tipo || 'FS', latenciaDias: p.latencia_dias || 0 })),
+    predecessorasIds: (predecessoras || []).map((p: any) => p.predecessora_id),
+    recursos: (recursos || []).map((r: any) => ({ nome: r.nome, unidades: r.unidades ?? 100, custo: r.custo || 0 })),
   };
 }
 
@@ -2218,11 +2225,16 @@ function calcularSincroniaTarefa(existente: any, req: any) {
   return { data_inicio: inicioAtual, data_fim: fimAtual, duracao_dias: duracaoAtual };
 }
 
-// reagenda as tarefas em modo AUTOMÁTICO com predecessora: a Data Inicial
-// vira o dia seguinte ao maior Término entre as predecessoras, preservando
-// a Duração de cada tarefa (fim-a-início, igual MS Project). Iterativo, pra
-// propagar em cadeia (A -> B -> C).
-function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, string[]>) {
+// reagenda as tarefas em modo AUTOMÁTICO com predecessora, respeitando o
+// Tipo de cada dependência (igual MS Project):
+//   FS (Fim-Início, padrão): início ≥ fim da predecessora + 1 + latência
+//   SS (Início-Início):      início ≥ início da predecessora + latência
+//   FF (Fim-Fim):            fim    ≥ fim da predecessora + latência
+//   SF (Início-Fim):         fim    ≥ início da predecessora + latência
+// (latência em dias — negativa = antecipação/sobreposição). Quando há mais
+// de uma predecessora, vale a que exige o início mais tardio. Iterativo,
+// pra propagar em cadeia (A -> B -> C).
+function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, any[]>) {
   const porId = new Map(tarefas.map((t: any) => [String(t.id), t]));
   for (let iteracao = 0; iteracao < tarefas.length + 1; iteracao++) {
     let mudou = false;
@@ -2230,19 +2242,30 @@ function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, str
       if (t.modo !== 'AUTOMÁTICO') continue;
       const preds = predsMap[t.id] || [];
       if (preds.length === 0) continue;
-      let maiorFim: string | null = null;
-      for (const pid of preds) {
-        const p = porId.get(String(pid));
-        if (!p || !p.data_fim) continue;
-        if (!maiorFim || p.data_fim > maiorFim) maiorFim = p.data_fim;
+      const duracao = t.duracao_dias || 1;
+      let inicioMinimo: string | null = null;
+      for (const rel of preds) {
+        const p = porId.get(String(rel.predecessora_id));
+        if (!p) continue;
+        const lat = rel.latencia_dias || 0;
+        let candidato: string | null = null;
+        if (rel.tipo === 'SS') {
+          candidato = p.data_inicio ? addDiasIso(p.data_inicio, lat) : null;
+        } else if (rel.tipo === 'FF') {
+          const fimAlvo = p.data_fim ? addDiasIso(p.data_fim, lat) : null;
+          candidato = fimAlvo ? addDiasIso(fimAlvo, -(duracao - 1)) : null;
+        } else if (rel.tipo === 'SF') {
+          const fimAlvo = p.data_inicio ? addDiasIso(p.data_inicio, lat) : null;
+          candidato = fimAlvo ? addDiasIso(fimAlvo, -(duracao - 1)) : null;
+        } else {
+          candidato = p.data_fim ? addDiasIso(p.data_fim, 1 + lat) : null;
+        }
+        if (candidato && (!inicioMinimo || candidato > inicioMinimo)) inicioMinimo = candidato;
       }
-      if (!maiorFim) continue;
-      const novoInicio = addDiasIso(maiorFim, 1);
-      if (novoInicio !== t.data_inicio) {
-        t.data_inicio = novoInicio;
-        t.data_fim = addDiasIso(novoInicio, (t.duracao_dias || 1) - 1);
-        mudou = true;
-      }
+      if (!inicioMinimo || inicioMinimo === t.data_inicio) continue;
+      t.data_inicio = inicioMinimo;
+      t.data_fim = addDiasIso(inicioMinimo, duracao - 1);
+      mudou = true;
     }
     if (!mudou) break;
   }
@@ -2250,19 +2273,68 @@ function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, str
 }
 
 async function predecessorasPorTarefa(tarefaIds: string[]) {
-  if (tarefaIds.length === 0) return {} as Record<string, string[]>;
-  const { data } = await db.from('projeto_tarefa_predecessoras').select('tarefa_id,predecessora_id').in('tarefa_id', tarefaIds);
-  const mapa: Record<string, string[]> = {};
-  (data || []).forEach((p: any) => { (mapa[p.tarefa_id] = mapa[p.tarefa_id] || []).push(p.predecessora_id); });
+  if (tarefaIds.length === 0) return {} as Record<string, any[]>;
+  const { data } = await db.from('projeto_tarefa_predecessoras').select('tarefa_id,predecessora_id,tipo,latencia_dias').in('tarefa_id', tarefaIds);
+  const mapa: Record<string, any[]> = {};
+  (data || []).forEach((p: any) => { (mapa[p.tarefa_id] = mapa[p.tarefa_id] || []).push(p); });
   return mapa;
 }
 
-async function salvarPredecessoras(tarefaId: string, ids: any[]) {
+async function recursosPorTarefa(tarefaIds: string[]) {
+  if (tarefaIds.length === 0) return {} as Record<string, any[]>;
+  const { data } = await db.from('projeto_tarefa_recursos').select('tarefa_id,nome,unidades,custo').in('tarefa_id', tarefaIds).order('ordem', { ascending: true });
+  const mapa: Record<string, any[]> = {};
+  (data || []).forEach((r: any) => { (mapa[r.tarefa_id] = mapa[r.tarefa_id] || []).push(r); });
+  return mapa;
+}
+
+const TIPOS_PREDECESSORA_VALIDOS = new Set(['FS', 'SS', 'FF', 'SF']);
+
+// aceita tanto a forma rica (req.predecessoras, vinda da tela "Informações
+// sobre a tarefa", com Tipo/Latência) quanto a forma simples (req.
+// predecessorasIds, vinda da edição rápida por número na tabela — sempre
+// FS/latência 0); devolve null quando nenhuma das duas veio na request
+// (então acaoCriarTarefa/acaoAtualizarTarefa não mexem nas predecessoras)
+function normalizarPredecessoras(tarefaId: string, req: any): { predecessora_id: string; tipo: string; latencia_dias: number }[] | null {
+  if (Array.isArray(req.predecessoras)) {
+    return req.predecessoras
+      .map((p: any) => ({
+        predecessora_id: String(p.predecessoraId || ''),
+        tipo: TIPOS_PREDECESSORA_VALIDOS.has(p.tipo) ? p.tipo : 'FS',
+        latencia_dias: parseInt(p.latenciaDias, 10) || 0,
+      }))
+      .filter((p: any) => p.predecessora_id && p.predecessora_id !== String(tarefaId));
+  }
+  if (Array.isArray(req.predecessorasIds)) {
+    const ids: string[] = Array.from(new Set<string>(req.predecessorasIds.map((id: any) => String(id))));
+    return ids
+      .filter((id) => id && id !== String(tarefaId))
+      .map((id) => ({ predecessora_id: id, tipo: 'FS', latencia_dias: 0 }));
+  }
+  return null;
+}
+
+async function salvarPredecessoras(tarefaId: string, lista: { predecessora_id: string; tipo: string; latencia_dias: number }[]) {
   await db.from('projeto_tarefa_predecessoras').delete().eq('tarefa_id', tarefaId);
-  const validos = [...new Set((ids || []).map((id: any) => String(id)).filter((id: string) => id && id !== String(tarefaId)))];
-  if (validos.length === 0) return;
-  const registros = validos.map((pid: string) => ({ id: gerarId(), tarefa_id: tarefaId, predecessora_id: pid }));
+  if (lista.length === 0) return;
+  const registros = lista.map((p) => ({ id: gerarId(), tarefa_id: tarefaId, predecessora_id: p.predecessora_id, tipo: p.tipo, latencia_dias: p.latencia_dias }));
   await db.from('projeto_tarefa_predecessoras').insert(registros);
+}
+
+// substitui a lista de recursos da tarefa (aba Recursos da tela de
+// informações) e mantém "responsavel" em sincronia (nomes separados por
+// vírgula) — é o que a coluna "Nomes dos recursos" da tabela edita direto,
+// sem precisar abrir a tela
+async function salvarRecursos(tarefaId: string, lista: any[]) {
+  await db.from('projeto_tarefa_recursos').delete().eq('tarefa_id', tarefaId);
+  const validos = (lista || [])
+    .map((r: any) => ({ nome: String(r.nome || '').trim(), unidades: Number(r.unidades) || 100, custo: Number(r.custo) || 0 }))
+    .filter((r: any) => r.nome);
+  if (validos.length > 0) {
+    const registros = validos.map((r: any, i: number) => ({ id: gerarId(), tarefa_id: tarefaId, nome: r.nome, unidades: r.unidades, custo: r.custo, ordem: i }));
+    await db.from('projeto_tarefa_recursos').insert(registros);
+  }
+  await db.from('projeto_tarefas').update({ responsavel: validos.map((r: any) => r.nome).join(', ') }).eq('id', tarefaId);
 }
 
 // recalcula o cronograma automático do projeto inteiro (chamado após criar/
@@ -2272,7 +2344,8 @@ async function salvarPredecessoras(tarefaId: string, ids: any[]) {
 async function recalcularEPersistirProjeto(projetoId: string) {
   const { data: tarefasDb } = await db.from('projeto_tarefas').select('*').eq('projeto_id', projetoId).order('criado_em', { ascending: true });
   const tarefas = tarefasDb || [];
-  const predsMap = await predecessorasPorTarefa(tarefas.map((t: any) => t.id));
+  const ids = tarefas.map((t: any) => t.id);
+  const [predsMap, recursosMap] = await Promise.all([predecessorasPorTarefa(ids), recursosPorTarefa(ids)]);
 
   const antes = new Map<string, { data_inicio: string | null; data_fim: string | null }>(
     tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim }]),
@@ -2286,7 +2359,7 @@ async function recalcularEPersistirProjeto(projetoId: string) {
     }
   }
 
-  return tarefas.map((t: any) => tarefaParaApi(t, predsMap[t.id] || []));
+  return tarefas.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || []));
 }
 
 async function acaoListarProjetos(req: any) {
@@ -2327,11 +2400,12 @@ async function acaoObterProjeto(req: any) {
   const lista = tarefas || [];
   const total = lista.length;
   const concluidas = lista.filter((t: any) => t.status === 'CONCLUÍDA').length;
-  const predsMap = await predecessorasPorTarefa(lista.map((t: any) => t.id));
+  const idsTarefas = lista.map((t: any) => t.id);
+  const [predsMap, recursosMap] = await Promise.all([predecessorasPorTarefa(idsTarefas), recursosPorTarefa(idsTarefas)]);
   return {
     ok: true,
     projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
-    tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [])),
+    tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [])),
     atendimentoIds: (vinculos || []).map((v: any) => v.atendimento_id),
   };
 }
@@ -2407,17 +2481,21 @@ async function acaoCriarTarefa(req: any) {
   const modo = req.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO';
   const duracaoDias = Math.max(1, parseInt(req.duracaoDias, 10) || 1);
   const percentual = Math.min(100, Math.max(0, parseInt(req.percentualConcluido, 10) || 0));
+  const prioridade = Math.min(1000, Math.max(0, parseInt(req.prioridade, 10) || 500));
   const registro = {
     id: gerarId(), projeto_id: req.projetoId, tarefa_pai_id: req.tarefaPaiId || null,
     titulo: req.titulo, descricao: req.descricao || '', responsavel: req.responsavel || '',
     status, data_inicio: req.dataInicio || null, data_fim: req.dataFim || null,
     duracao_dias: duracaoDias, percentual_concluido: percentual, modo,
+    prioridade, duracao_estimada: !!req.duracaoEstimada, inativa: !!req.inativa,
     concluido_em: status === 'CONCLUÍDA' ? new Date().toISOString() : null,
   };
   const { error } = await db.from('projeto_tarefas').insert(registro);
   if (error) return { ok: false, erro: error.message };
 
-  if (Array.isArray(req.predecessorasIds)) await salvarPredecessoras(registro.id, req.predecessorasIds);
+  const preds = normalizarPredecessoras(registro.id, req);
+  if (preds) await salvarPredecessoras(registro.id, preds);
+  if (Array.isArray(req.recursos)) await salvarRecursos(registro.id, req.recursos);
 
   const tarefas = await recalcularEPersistirProjeto(req.projetoId);
   return { ok: true, id: registro.id, tarefas };
@@ -2453,6 +2531,12 @@ async function acaoAtualizarTarefa(req: any) {
     const pct = parseInt(req.percentualConcluido, 10);
     atualizacao.percentual_concluido = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) : 0;
   }
+  if (req.prioridade !== undefined) {
+    const p = parseInt(req.prioridade, 10);
+    atualizacao.prioridade = Number.isFinite(p) ? Math.min(1000, Math.max(0, p)) : 500;
+  }
+  if (req.duracaoEstimada !== undefined) atualizacao.duracao_estimada = !!req.duracaoEstimada;
+  if (req.inativa !== undefined) atualizacao.inativa = !!req.inativa;
   if (req.dataInicio !== undefined || req.dataFim !== undefined || req.duracaoDias !== undefined) {
     const sync = calcularSincroniaTarefa(existente, req);
     atualizacao.data_inicio = sync.data_inicio;
@@ -2465,7 +2549,9 @@ async function acaoAtualizarTarefa(req: any) {
     if (error) return { ok: false, erro: error.message };
   }
 
-  if (Array.isArray(req.predecessorasIds)) await salvarPredecessoras(req.id, req.predecessorasIds);
+  const preds = normalizarPredecessoras(req.id, req);
+  if (preds) await salvarPredecessoras(req.id, preds);
+  if (Array.isArray(req.recursos)) await salvarRecursos(req.id, req.recursos);
 
   const tarefas = await recalcularEPersistirProjeto(existente.projeto_id);
   return { ok: true, tarefas };

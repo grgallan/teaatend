@@ -8806,12 +8806,13 @@ function renderTabelaTarefas(){
   const corpo = document.getElementById('projTarefasTabelaCorpo');
   projNumerarTarefas();
   const raiz = projFilhosDe(null);
-  if(raiz.length===0){ corpo.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma tarefa ainda.</td></tr>`; return; }
+  if(raiz.length===0){ corpo.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma tarefa ainda.</td></tr>`; return; }
   corpo.innerHTML = raiz.map(t=>projTarefaLinhaHtml(t, 0)).join('');
 }
 function projTarefaLinhaHtml(t, nivel){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
+  const numero = projTarefaNumeros.get(String(t.id)) || '';
   const predTexto = (t.predecessorasIds||[])
     .map(pid=>projTarefaNumeros.get(String(pid)))
     .filter(n=>n!==undefined)
@@ -8820,6 +8821,7 @@ function projTarefaLinhaHtml(t, nivel){
   const linha = `
     <tr class="status-${statusSlug(t.status)}" data-id="${t.id}">
       <td>${filhos.length > 0 ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '▸' : '▾'}</button>` : ''}</td>
+      <td style="text-align:center;color:var(--muted);">${numero}</td>
       <td>
         <select onchange="projSalvarCampoTarefa('${t.id}','modo',this.value)">
           <option value="AUTOMÁTICO" ${t.modo!=='MANUAL'?'selected':''}>Automático</option>
@@ -8839,6 +8841,7 @@ function projTarefaLinhaHtml(t, nivel){
       <td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>
       <td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>
       <td class="proj-tarefa-acoes-cel">
+        <button class="ghost" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
         <button class="ghost" title="Nova subtarefa" onclick="projAdicionarTarefaUi('${t.id}')">+</button>
         <button class="danger" title="Remover" onclick="projRemoverTarefaUi('${t.id}')">🗑</button>
       </td>
@@ -8904,6 +8907,156 @@ function projRemoverTarefaUi(id){
     },
     'Remover'
   );
+}
+
+/* ---------- tela "Informações sobre a tarefa" (estilo MS Project) — Geral/
+   Predecessoras/Recursos/Anotações. Início/Término/Duração salvam na hora
+   (um campo por vez, reaproveitando a mesma sincronia de 3 vias e o
+   recálculo automático em cadeia que já valida a edição rápida da tabela);
+   os demais campos (inclusive Predecessoras com Tipo/Latência e Recursos
+   com Unidades/Custo) só vão pro servidor quando clicar em Salvar. ---------- */
+let pitTarefaId = null;
+let pitPredecessoras = [];
+let pitRecursos = [];
+
+function projAbrirInfoTarefa(id){
+  const t = projetoTarefas.find(x=>String(x.id)===String(id));
+  if(!t) return;
+  pitTarefaId = id;
+  pitPredecessoras = (t.predecessoras||[]).map(p=>({...p}));
+  pitRecursos = (t.recursos||[]).map(r=>({...r}));
+
+  const numero = projTarefaNumeros.get(String(id)) || '';
+  document.getElementById('projInfoTarefaTitulo').textContent = `Informações sobre a tarefa — Nº ${numero}`;
+  document.getElementById('pit_nome').value = t.titulo || '';
+  document.getElementById('pit_duracao').value = t.duracaoDias || 1;
+  document.getElementById('pit_duracao_estimada').checked = !!t.duracaoEstimada;
+  document.getElementById('pit_percentual').value = t.percentualConcluido || 0;
+  document.getElementById('pit_prioridade').value = t.prioridade ?? 500;
+  document.getElementById('pit_inativa').checked = !!t.inativa;
+  const radioModo = document.querySelector(`input[name="pit_modo"][value="${t.modo==='MANUAL'?'MANUAL':'AUTOMÁTICO'}"]`);
+  if(radioModo) radioModo.checked = true;
+  document.getElementById('pit_inicio').value = t.dataInicio || '';
+  document.getElementById('pit_fim').value = t.dataFim || '';
+  document.getElementById('pit_anotacoes').value = t.descricao || '';
+
+  projPitGoTab('geral');
+  projPitRenderPredecessoras();
+  projPitRenderRecursos();
+  document.getElementById('projInfoTarefaModal').classList.add('show');
+}
+function projPitFechar(){
+  document.getElementById('projInfoTarefaModal').classList.remove('show');
+  pitTarefaId = null;
+}
+function projPitGoTab(tab){
+  document.querySelectorAll('#projInfoTarefaTabs .subtab').forEach(el=>el.classList.toggle('active', el.dataset.infotab===tab));
+  document.querySelectorAll('.proj-info-tab').forEach(el=>{ el.style.display = (el.id === 'projInfoTab-'+tab) ? '' : 'none'; });
+}
+// Início/Término/Duração salvam individualmente assim que mudam (mesmo
+// caminho da edição rápida na tabela) — evita reimplementar a sincronia de
+// 3 vias e o recálculo de predecessoras em cadeia em duas versões diferentes
+async function projPitAtualizarCampoData(campo, valor){
+  if(!pitTarefaId) return;
+  const conta = contaAtual();
+  const r = await api('atualizarTarefa', { id: pitTarefaId, contaId: conta.id, [campo]: valor });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+  projetoTarefas = r.tarefas || projetoTarefas;
+  const t = projetoTarefas.find(x=>String(x.id)===String(pitTarefaId));
+  if(t){
+    document.getElementById('pit_duracao').value = t.duracaoDias || 1;
+    document.getElementById('pit_inicio').value = t.dataInicio || '';
+    document.getElementById('pit_fim').value = t.dataFim || '';
+  }
+  renderTabelaTarefas();
+  if(projSubAba==='kanban') renderKanbanProjeto();
+  else if(projSubAba==='gantt') renderGanttProjeto();
+}
+function projPitRenderPredecessoras(){
+  const corpo = document.getElementById('pitPredecessorasCorpo');
+  if(pitPredecessoras.length===0){ corpo.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:10px;">Nenhuma predecessora.</td></tr>`; return; }
+  corpo.innerHTML = pitPredecessoras.map((p,i)=>{
+    const numero = projTarefaNumeros.get(String(p.predecessoraId)) || '';
+    const outra = projetoTarefas.find(x=>String(x.id)===String(p.predecessoraId));
+    return `<tr>
+      <td><input type="number" min="1" value="${numero}" onchange="projPitAlterarPredecessoraNumero(${i},this.value)" style="width:56px;"></td>
+      <td>${escaparHtml(outra ? outra.titulo : '(tarefa não encontrada)')}</td>
+      <td><select onchange="projPitAlterarPredecessoraCampo(${i},'tipo',this.value)">
+        <option value="FS" ${p.tipo==='FS'?'selected':''}>FS</option>
+        <option value="SS" ${p.tipo==='SS'?'selected':''}>SS</option>
+        <option value="FF" ${p.tipo==='FF'?'selected':''}>FF</option>
+        <option value="SF" ${p.tipo==='SF'?'selected':''}>SF</option>
+      </select></td>
+      <td><input type="number" value="${p.latenciaDias||0}" onchange="projPitAlterarPredecessoraCampo(${i},'latenciaDias',parseInt(this.value,10)||0)" style="width:64px;"></td>
+      <td><button type="button" class="danger" onclick="projPitRemoverPredecessora(${i})">🗑</button></td>
+    </tr>`;
+  }).join('');
+}
+function projPitAlterarPredecessoraNumero(i, valor){
+  const numero = parseInt(valor, 10);
+  const id = projTarefaPorNumero[numero];
+  if(!id || String(id)===String(pitTarefaId)){ toast('Número de tarefa inválido.'); projPitRenderPredecessoras(); return; }
+  pitPredecessoras[i].predecessoraId = id;
+  projPitRenderPredecessoras();
+}
+function projPitAlterarPredecessoraCampo(i, campo, valor){
+  pitPredecessoras[i][campo] = valor;
+}
+function projPitAdicionarPredecessora(){
+  const candidata = projetoTarefas.find(t=>String(t.id)!==String(pitTarefaId) && !pitPredecessoras.some(p=>String(p.predecessoraId)===String(t.id)));
+  if(!candidata){ toast('Não há outra tarefa disponível pra ser predecessora.'); return; }
+  pitPredecessoras.push({ predecessoraId: candidata.id, tipo: 'FS', latenciaDias: 0 });
+  projPitRenderPredecessoras();
+}
+function projPitRemoverPredecessora(i){
+  pitPredecessoras.splice(i, 1);
+  projPitRenderPredecessoras();
+}
+function projPitRenderRecursos(){
+  const corpo = document.getElementById('pitRecursosCorpo');
+  if(pitRecursos.length===0){ corpo.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso.</td></tr>`; return; }
+  corpo.innerHTML = pitRecursos.map((r,i)=>`
+    <tr>
+      <td><input type="text" value="${escaparHtml(r.nome||'')}" onblur="projPitAlterarRecursoCampo(${i},'nome',this.value)"></td>
+      <td><input type="number" min="0" max="100" value="${r.unidades??100}" onchange="projPitAlterarRecursoCampo(${i},'unidades',parseInt(this.value,10)||0)" style="width:64px;"></td>
+      <td>R$ <input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projPitAlterarRecursoCampo(${i},'custo',parseFloat(this.value)||0)" style="width:80px;"></td>
+      <td><button type="button" class="danger" onclick="projPitRemoverRecurso(${i})">🗑</button></td>
+    </tr>`).join('');
+}
+function projPitAlterarRecursoCampo(i, campo, valor){
+  pitRecursos[i][campo] = valor;
+}
+function projPitAdicionarRecurso(){
+  pitRecursos.push({ nome: '', unidades: 100, custo: 0 });
+  projPitRenderRecursos();
+}
+function projPitRemoverRecurso(i){
+  pitRecursos.splice(i, 1);
+  projPitRenderRecursos();
+}
+async function projPitSalvar(){
+  if(!pitTarefaId) return;
+  const modoEl = document.querySelector('input[name="pit_modo"]:checked');
+  const payload = {
+    id: pitTarefaId, contaId: contaAtual().id,
+    titulo: document.getElementById('pit_nome').value,
+    percentualConcluido: document.getElementById('pit_percentual').value,
+    prioridade: document.getElementById('pit_prioridade').value,
+    duracaoEstimada: document.getElementById('pit_duracao_estimada').checked,
+    inativa: document.getElementById('pit_inativa').checked,
+    modo: modoEl ? modoEl.value : 'AUTOMÁTICO',
+    descricao: document.getElementById('pit_anotacoes').value,
+    predecessoras: pitPredecessoras.filter(p=>p.predecessoraId),
+    recursos: pitRecursos.filter(r=>r.nome && r.nome.trim()),
+  };
+  const r = await api('atualizarTarefa', payload);
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+  projetoTarefas = r.tarefas || projetoTarefas;
+  projPitFechar();
+  renderTabelaTarefas();
+  if(projSubAba==='kanban') renderKanbanProjeto();
+  else if(projSubAba==='gantt') renderGanttProjeto();
+  toast('Tarefa atualizada');
 }
 
 /* ---------- Kanban de tarefas (3 colunas fixas — status de tarefa não é
@@ -11263,6 +11416,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   configurarBuscaVinculo('proj_vinculo_busca', 'projVinculoResultados', ()=>projetoAtendimentoIds, (id)=>{
     projAdicionarVinculoAtendimento(id);
   });
+  document.getElementById('projInfoTarefaTabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    projPitGoTab(tab.dataset.infotab);
+  });
+  document.getElementById('btnPitAddPredecessora').addEventListener('click', projPitAdicionarPredecessora);
+  document.getElementById('btnPitAddRecurso').addEventListener('click', projPitAdicionarRecurso);
+  document.getElementById('btnPitCancelar').addEventListener('click', projPitFechar);
+  document.getElementById('btnPitSalvar').addEventListener('click', projPitSalvar);
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();

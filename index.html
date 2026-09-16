@@ -1760,6 +1760,7 @@
           <table class="orc-tabela proj-tarefas-tabela">
             <thead><tr>
               <th style="width:22px;"></th>
+              <th style="width:32px;">Nº</th>
               <th style="width:76px;">Modo</th>
               <th>Nome da tarefa</th>
               <th class="num">Duração</th>
@@ -1769,7 +1770,7 @@
               <th class="num">% concluída</th>
               <th>Nomes dos recursos</th>
               <th>Predecessoras</th>
-              <th style="width:56px;"></th>
+              <th style="width:76px;"></th>
             </tr></thead>
             <tbody id="projTarefasTabelaCorpo"></tbody>
           </table>
@@ -2452,6 +2453,65 @@
     <div class="modal-actions">
       <button class="cancel" id="modalCancel">Cancelar</button>
       <button class="confirm" id="modalConfirm">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="projInfoTarefaModal">
+  <div class="modal" style="max-width:760px;">
+    <h3 id="projInfoTarefaTitulo">Informações sobre a tarefa</h3>
+    <div class="subtabs" id="projInfoTarefaTabs">
+      <div class="subtab active" data-infotab="geral">Geral</div>
+      <div class="subtab" data-infotab="predecessoras">Predecessoras</div>
+      <div class="subtab" data-infotab="recursos">Recursos</div>
+      <div class="subtab" data-infotab="anotacoes">Anotações</div>
+    </div>
+
+    <div class="proj-info-tab" id="projInfoTab-geral">
+      <div class="field"><label>Nome</label><input type="text" id="pit_nome"></div>
+      <div class="row3">
+        <div class="field"><label>Duração (dias)</label><input type="number" min="1" id="pit_duracao" onchange="projPitAtualizarCampoData('duracaoDias', this.value)"></div>
+        <div class="field"><label>% concluída</label><input type="number" min="0" max="100" id="pit_percentual"></div>
+        <div class="field"><label>Prioridade</label><input type="number" min="0" max="1000" step="10" id="pit_prioridade"></div>
+      </div>
+      <div style="display:flex;gap:18px;margin-bottom:14px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px;color:var(--muted);"><input type="checkbox" id="pit_duracao_estimada" style="width:auto;"> Duração estimada</label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px;color:var(--muted);"><input type="checkbox" id="pit_inativa" style="width:auto;"> Inativa</label>
+      </div>
+      <label style="margin-bottom:6px;">Modo de agendamento</label>
+      <div style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13px;"><input type="radio" name="pit_modo" value="MANUAL" style="width:auto;"> Agendada manualmente</label>
+        <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13px;"><input type="radio" name="pit_modo" value="AUTOMÁTICO" style="width:auto;"> Agendada automaticamente</label>
+      </div>
+      <div class="row">
+        <div class="field"><label>Início</label><input type="date" id="pit_inicio" onchange="projPitAtualizarCampoData('dataInicio', this.value)"></div>
+        <div class="field"><label>Término</label><input type="date" id="pit_fim" onchange="projPitAtualizarCampoData('dataFim', this.value)"></div>
+      </div>
+    </div>
+
+    <div class="proj-info-tab" id="projInfoTab-predecessoras" style="display:none;">
+      <table class="orc-tabela">
+        <thead><tr><th style="width:60px;">Id</th><th>Nome da tarefa</th><th style="width:80px;">Tipo</th><th style="width:80px;">Latência</th><th style="width:36px;"></th></tr></thead>
+        <tbody id="pitPredecessorasCorpo"></tbody>
+      </table>
+      <button type="button" class="ghost" id="btnPitAddPredecessora" style="margin-top:8px;">+ Adicionar predecessora</button>
+    </div>
+
+    <div class="proj-info-tab" id="projInfoTab-recursos" style="display:none;">
+      <table class="orc-tabela">
+        <thead><tr><th>Nome do recurso</th><th style="width:100px;">Unidades</th><th style="width:120px;">Custo</th><th style="width:36px;"></th></tr></thead>
+        <tbody id="pitRecursosCorpo"></tbody>
+      </table>
+      <button type="button" class="ghost" id="btnPitAddRecurso" style="margin-top:8px;">+ Adicionar recurso</button>
+    </div>
+
+    <div class="proj-info-tab" id="projInfoTab-anotacoes" style="display:none;">
+      <textarea id="pit_anotacoes" style="width:100%;min-height:120px;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;font-family:inherit;"></textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="cancel" id="btnPitCancelar">Cancelar</button>
+      <button class="confirm" id="btnPitSalvar">Salvar</button>
     </div>
   </div>
 </div>
