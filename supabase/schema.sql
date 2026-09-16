@@ -1161,3 +1161,10 @@ create table if not exists projeto_recursos_cadastro (
 alter table projeto_recursos_cadastro enable row level security;
 create index if not exists idx_proj_recursos_cadastro_projeto on projeto_recursos_cadastro (projeto_id);
 create unique index if not exists idx_proj_recursos_cadastro_unico on projeto_recursos_cadastro (projeto_id, nome);
+
+-- vincula um recurso do cadastro a uma conta ATENDENTE de verdade — a partir
+-- daí dá pra criar um atendimento novo já com esse atendente selecionado,
+-- direto da tela de informações da tarefa (aba Recursos), e ele fica
+-- automaticamente vinculado a este projeto
+alter table projeto_recursos_cadastro add column if not exists atendente_id text references contas(id);
+create index if not exists idx_proj_recursos_cadastro_atendente on projeto_recursos_cadastro (atendente_id);
