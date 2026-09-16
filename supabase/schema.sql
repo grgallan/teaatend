@@ -1109,3 +1109,39 @@ alter table projeto_tarefa_predecessoras enable row level security;
 create index if not exists idx_proj_tarefa_pred_tarefa on projeto_tarefa_predecessoras (tarefa_id);
 create index if not exists idx_proj_tarefa_pred_predecessora on projeto_tarefa_predecessoras (predecessora_id);
 create unique index if not exists idx_proj_tarefa_pred_unico on projeto_tarefa_predecessoras (tarefa_id, predecessora_id);
+
+-- =========================================================
+-- Tela "Informações sobre a tarefa" (estilo MS Project) — campos extras da
+-- aba Geral (Prioridade, Duração estimada, Inativa) e Tipo/Latência de cada
+-- predecessora (FS = Fim-Início, SS = Início-Início, FF = Fim-Fim,
+-- SF = Início-Fim; latência em dias, pode ser negativa = antecipação/
+-- sobreposição). "Inativa" é só uma marcação visual por enquanto — não
+-- entra ainda no recálculo automático de datas.
+alter table projeto_tarefas add column if not exists prioridade integer not null default 500;
+alter table projeto_tarefas add column if not exists duracao_estimada boolean not null default false;
+alter table projeto_tarefas add column if not exists inativa boolean not null default false;
+alter table projeto_tarefas drop constraint if exists projeto_tarefas_prioridade_check;
+alter table projeto_tarefas add constraint projeto_tarefas_prioridade_check
+  check (prioridade >= 0 and prioridade <= 1000);
+
+alter table projeto_tarefa_predecessoras add column if not exists tipo text not null default 'FS';
+alter table projeto_tarefa_predecessoras drop constraint if exists projeto_tarefa_pred_tipo_check;
+alter table projeto_tarefa_predecessoras add constraint projeto_tarefa_pred_tipo_check
+  check (tipo in ('FS','SS','FF','SF'));
+alter table projeto_tarefa_predecessoras add column if not exists latencia_dias integer not null default 0;
+
+-- recursos por tarefa (aba Recursos): nome + % de unidade (alocação) + custo.
+-- Substitui a leitura de "responsavel" como recurso único — a coluna
+-- continua existindo e é mantida em sincronia (join dos nomes, separados por
+-- vírgula) só pra edição rápida direto na tabela de tarefas, sem abrir a
+-- tela de informações.
+create table if not exists projeto_tarefa_recursos (
+  id text primary key,
+  tarefa_id text not null references projeto_tarefas(id) on delete cascade,
+  nome text not null,
+  unidades numeric not null default 100,
+  custo numeric not null default 0,
+  ordem integer not null default 0
+);
+alter table projeto_tarefa_recursos enable row level security;
+create index if not exists idx_proj_tarefa_recursos_tarefa on projeto_tarefa_recursos (tarefa_id);
