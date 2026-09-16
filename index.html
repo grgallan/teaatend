@@ -454,6 +454,7 @@
   .orc-total-label{font-size:12.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
   .orc-total-valor{font-size:20px;font-weight:800;color:var(--accent);}
   #printOrcamento{display:none;}
+  #printProjetoTarefas{display:none;}
   /* ---------- projetos ---------- */
   .proj-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;cursor:pointer;}
   .proj-card:hover{border-color:var(--accent);}
@@ -467,17 +468,23 @@
   .proj-progresso-fill{height:100%;background:var(--ok);border-radius:4px;}
   .proj-progresso-texto{font-size:10.5px;color:var(--muted);margin-top:4px;}
   .proj-tarefas-tabela-wrap{overflow-x:auto;}
-  .proj-tarefas-tabela{min-width:920px;}
-  .proj-tarefas-tabela td{white-space:nowrap;vertical-align:middle;}
+  .proj-tarefas-tabela{min-width:920px;table-layout:fixed;}
+  .proj-tarefas-tabela td{white-space:nowrap;vertical-align:middle;padding:3px 6px;overflow:hidden;text-overflow:ellipsis;}
   .proj-tarefas-tabela td.anotacoes-col{white-space:normal;}
-  .proj-tarefas-tabela select{width:100%;border:1px solid transparent;background:transparent;font-size:12px;color:inherit;padding:4px;font-family:inherit;box-sizing:border-box;}
+  .proj-tarefas-tabela tbody tr:nth-child(even){background:var(--panel-2);}
+  .proj-tarefas-tabela select{width:100%;border:1px solid transparent;background:transparent;font-size:12px;color:inherit;padding:3px;font-family:inherit;box-sizing:border-box;}
   .proj-tarefas-tabela select:focus{border-color:var(--line);background:var(--bg);border-radius:6px;outline:none;}
   .proj-tarefas-tabela input[type=number]{width:56px;}
+  .proj-tarefas-tabela input[type=text],.proj-tarefas-tabela input[type=date]{padding:3px 4px;}
   .proj-tarefas-tabela .proj-tarefa-nome-linha{display:flex;align-items:center;}
-  .proj-tarefas-tabela input.proj-tarefa-titulo{font-weight:600;min-width:120px;}
+  .proj-tarefas-tabela input.proj-tarefa-titulo{font-weight:600;min-width:80px;}
   .proj-tarefas-tabela tr.status-CONCLUIDA .proj-tarefa-titulo{text-decoration:line-through;color:var(--muted);}
-  .proj-tarefas-tabela .proj-tarefa-acoes-cel button{padding:3px 6px;font-size:11px;margin-right:2px;}
+  .proj-tarefas-tabela .proj-tarefa-acoes-cel button{padding:2px 5px;font-size:11px;margin-right:2px;}
   .proj-tarefas-tabela select.proj-status-select{font-weight:600;}
+  .proj-tarefas-tabela th{position:relative;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .proj-col-resizer{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:2;}
+  .proj-col-resizer:hover,.proj-col-resizer.resizando{background:var(--accent);opacity:.35;}
+  .proj-colunas-painel{position:absolute;top:calc(100% + 4px);left:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:30;min-width:180px;}
   .proj-bateria-wrap{display:flex;align-items:center;gap:6px;}
   .proj-bateria{display:inline-block;width:32px;height:14px;border:1.5px solid var(--muted);border-radius:3px;position:relative;box-sizing:border-box;padding:1.5px;flex:none;}
   .proj-bateria::after{content:'';position:absolute;right:-4px;top:3px;width:3px;height:6px;background:var(--muted);border-radius:0 2px 2px 0;}
@@ -900,6 +907,15 @@
     #printOrcamento .orc-print-termo{font-size:12.5px;color:#333;margin:-8px 0 18px;line-height:1.5;}
     #printOrcamento .orc-print-termo b{display:block;text-transform:uppercase;font-size:10px;letter-spacing:.05em;color:#777;font-weight:700;margin-bottom:2px;}
     #printOrcamento .orc-print-rodape{margin-top:30px;font-size:10.5px;color:#555;text-align:center;line-height:1.6;}
+
+    /* tarefas de projeto: mesmo esquema, tabela simples com as colunas que
+       estiverem visíveis na tela na hora de gerar */
+    body.print-modo-projeto-tarefas .view{display:none !important;}
+    body.print-modo-projeto-tarefas #printProjetoTarefas{display:block !important;}
+    #printProjetoTarefas .proj-print-tabela{width:100%;border-collapse:collapse;margin-bottom:14px;}
+    #printProjetoTarefas .proj-print-tabela th{text-align:left;background:#f2f2f2 !important;padding:6px 8px;font-size:9.5px;text-transform:uppercase;letter-spacing:.03em;color:#555;border-bottom:2px solid #ccc;}
+    #printProjetoTarefas .proj-print-tabela th.num, #printProjetoTarefas .proj-print-tabela td.num{text-align:right;}
+    #printProjetoTarefas .proj-print-tabela td{padding:5px 8px;font-size:10.5px;color:#111;border-bottom:1px solid #e8e8e8;white-space:pre;}
   }
 </style>
 </head>
@@ -1009,6 +1025,7 @@
 <main>
   <div id="printHeader"></div>
   <div id="printOrcamento"></div>
+  <div id="printProjetoTarefas"></div>
   <div class="install-banner" id="installBanner">
     <span>Instale este app na tela inicial para usar offline.</span>
     <button id="installBtn">Instalar</button>
@@ -1792,23 +1809,19 @@
       </div>
 
       <div class="proj-sub-view" id="proj-sub-tarefas" style="display:none;">
-        <button type="button" class="ghost" id="btnProjNovaTarefa" style="margin-bottom:10px;width:auto;padding:8px 14px;">+ Nova tarefa</button>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+          <button type="button" class="ghost" id="btnProjNovaTarefa" style="width:auto;padding:8px 14px;">+ Nova tarefa</button>
+          <div style="position:relative;">
+            <button type="button" class="ghost" id="btnProjColunas" style="width:auto;padding:8px 14px;">⚙ Colunas</button>
+            <div id="projColunasPainel" class="proj-colunas-painel" style="display:none;"></div>
+          </div>
+          <button type="button" class="ghost" id="btnProjTarefasPdf" style="width:auto;padding:8px 14px;">🖨 Gerar PDF</button>
+          <button type="button" class="ghost" id="btnProjTarefasExcel" style="width:auto;padding:8px 14px;">📊 Gerar Excel</button>
+        </div>
         <div class="proj-tarefas-tabela-wrap">
-          <table class="orc-tabela proj-tarefas-tabela">
-            <thead><tr>
-              <th style="width:22px;"></th>
-              <th style="width:32px;">Nº</th>
-              <th>Nome da tarefa</th>
-              <th style="width:110px;">Status</th>
-              <th class="num">Duração</th>
-              <th>Início</th>
-              <th>Término</th>
-              <th>Anotações</th>
-              <th class="num" style="width:90px;">% concluída</th>
-              <th>Nomes dos recursos</th>
-              <th>Predecessoras</th>
-              <th style="width:76px;"></th>
-            </tr></thead>
+          <table class="orc-tabela proj-tarefas-tabela" id="projTarefasTabela">
+            <colgroup id="projTarefasTabelaColgroup"></colgroup>
+            <thead id="projTarefasTabelaCabecalho"></thead>
             <tbody id="projTarefasTabelaCorpo"></tbody>
           </table>
         </div>

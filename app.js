@@ -8906,32 +8906,191 @@ function projProfundidade(tarefa){
   return nivel;
 }
 
-// numeração sequencial (estilo MS Project) recalculada a cada render — só
-// pra exibir/editar Predecessoras (o vínculo de verdade usa o id real)
+// numeração sequencial (estilo MS Project) e EDT/WBS hierárquico (1, 1.1,
+// 1.2, 2...) recalculados a cada render — a numeração simples alimenta a
+// edição de Predecessoras (vínculo de verdade usa o id real); o EDT é só
+// exibição (posição na árvore), não é gravado no banco
 let projTarefaNumeros = new Map();
 let projTarefaPorNumero = [];
+let projTarefaEdt = new Map();
 function projNumerarTarefas(){
   projTarefaNumeros = new Map();
   projTarefaPorNumero = [];
+  projTarefaEdt = new Map();
   let contador = 0;
-  (function visitar(paiId){
-    projFilhosDe(paiId).forEach(t=>{
+  (function visitar(paiId, prefixoEdt){
+    projFilhosDe(paiId).forEach((t,i)=>{
       contador++;
       projTarefaNumeros.set(String(t.id), contador);
       projTarefaPorNumero[contador] = t.id;
-      visitar(t.id);
+      const edt = prefixoEdt ? `${prefixoEdt}.${i+1}` : `${i+1}`;
+      projTarefaEdt.set(String(t.id), edt);
+      visitar(t.id, edt);
     });
-  })(null);
+  })(null, '');
+}
+
+// colunas da tabela de tarefas — as "fixa" sempre aparecem; as demais só
+// quando marcadas no painel "⚙ Colunas" (preferência salva por navegador).
+// A largura de cada uma também é ajustável (arrastando a borda do
+// cabeçalho) e persiste do mesmo jeito.
+const PROJ_COLUNAS_TAREFAS = [
+  { key:'toggle', label:'', largura:22, fixa:true, semExportar:true, semResize:true },
+  { key:'numero', label:'Nº', largura:36, fixa:true },
+  { key:'edt', label:'EDT', largura:70 },
+  { key:'nome', label:'Nome da tarefa', largura:220, fixa:true },
+  { key:'status', label:'Status', largura:110, fixa:true },
+  { key:'segmento', label:'Segmento', largura:130 },
+  { key:'modulo', label:'Módulo', largura:130 },
+  { key:'submodulo', label:'Rotina', largura:130 },
+  { key:'prioridade', label:'Prioridade', largura:90, num:true },
+  { key:'modo', label:'Modo', largura:100 },
+  { key:'duracao', label:'Duração', largura:80, fixa:true, num:true },
+  { key:'inicio', label:'Início', largura:110, fixa:true },
+  { key:'termino', label:'Término', largura:110, fixa:true },
+  { key:'anotacoes', label:'Anotações', largura:160, fixa:true },
+  { key:'percentual', label:'% concluída', largura:110, fixa:true, num:true },
+  { key:'recursos', label:'Nomes dos recursos', largura:150, fixa:true },
+  { key:'predecessoras', label:'Predecessoras', largura:110, fixa:true },
+  { key:'acoes', label:'', largura:90, fixa:true, semExportar:true, semResize:true },
+];
+let projColunasOpcionaisVisiveis = new Set();
+let projColunaLarguras = {};
+(function projCarregarPrefsColunasTarefas(){
+  try{ projColunasOpcionaisVisiveis = new Set(JSON.parse(localStorage.getItem('projColunasOpcionais_v1')||'[]')); }catch(e){ projColunasOpcionaisVisiveis = new Set(); }
+  try{ projColunaLarguras = JSON.parse(localStorage.getItem('projColunaLarguras_v1')||'{}'); }catch(e){ projColunaLarguras = {}; }
+})();
+function colunasVisiveisTarefas(){
+  return PROJ_COLUNAS_TAREFAS.filter(c=>c.fixa || projColunasOpcionaisVisiveis.has(c.key));
+}
+function projLarguraColuna(col){
+  return projColunaLarguras[col.key] || col.largura;
+}
+function renderPainelColunasTarefas(){
+  const painel = document.getElementById('projColunasPainel');
+  const opcionais = PROJ_COLUNAS_TAREFAS.filter(c=>!c.fixa);
+  painel.innerHTML = opcionais.map(c=>`
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;cursor:pointer;white-space:nowrap;">
+      <input type="checkbox" style="width:auto;" ${projColunasOpcionaisVisiveis.has(c.key)?'checked':''} onchange="projAlternarColunaOpcional('${c.key}', this.checked)">
+      ${escaparHtml(c.label)}
+    </label>`).join('');
+}
+function projAlternarColunaOpcional(key, visivel){
+  if(visivel) projColunasOpcionaisVisiveis.add(key);
+  else projColunasOpcionaisVisiveis.delete(key);
+  try{ localStorage.setItem('projColunasOpcionais_v1', JSON.stringify([...projColunasOpcionaisVisiveis])); }catch(e){}
+  renderTabelaTarefas();
+}
+let projResizeEstado = null;
+function projIniciarResizeColuna(e, key){
+  e.preventDefault();
+  e.stopPropagation();
+  const col = PROJ_COLUNAS_TAREFAS.find(c=>c.key===key);
+  const idx = colunasVisiveisTarefas().findIndex(c=>c.key===key);
+  projResizeEstado = { key, xInicial: e.clientX, larguraInicial: projLarguraColuna(col), idx };
+  document.addEventListener('mousemove', projMoverResizeColuna);
+  document.addEventListener('mouseup', projFinalizarResizeColuna, { once:true });
+}
+function projMoverResizeColuna(e){
+  if(!projResizeEstado) return;
+  const delta = e.clientX - projResizeEstado.xInicial;
+  const nova = Math.max(40, projResizeEstado.larguraInicial + delta);
+  const colEl = document.querySelectorAll('#projTarefasTabelaColgroup col')[projResizeEstado.idx];
+  if(colEl) colEl.style.width = nova + 'px';
+}
+function projFinalizarResizeColuna(e){
+  document.removeEventListener('mousemove', projMoverResizeColuna);
+  if(!projResizeEstado) return;
+  const delta = e.clientX - projResizeEstado.xInicial;
+  const nova = Math.max(40, projResizeEstado.larguraInicial + delta);
+  projColunaLarguras[projResizeEstado.key] = nova;
+  try{ localStorage.setItem('projColunaLarguras_v1', JSON.stringify(projColunaLarguras)); }catch(e){}
+  projResizeEstado = null;
+}
+
+function renderCabecalhoTarefas(colunas){
+  document.getElementById('projTarefasTabelaColgroup').innerHTML = colunas.map(c=>`<col style="width:${projLarguraColuna(c)}px;">`).join('');
+  document.getElementById('projTarefasTabelaCabecalho').innerHTML = `<tr>${colunas.map(c=>`
+    <th class="${c.num?'num':''}" data-col="${c.key}">
+      <span>${escaparHtml(c.label)}</span>
+      ${c.semResize ? '' : `<span class="proj-col-resizer" onmousedown="projIniciarResizeColuna(event,'${c.key}')"></span>`}
+    </th>`).join('')}</tr>`;
 }
 
 function renderTabelaTarefas(){
+  const colunas = colunasVisiveisTarefas();
+  renderCabecalhoTarefas(colunas);
   const corpo = document.getElementById('projTarefasTabelaCorpo');
   projNumerarTarefas();
   const raiz = projFilhosDe(null);
-  if(raiz.length===0){ corpo.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma tarefa ainda.</td></tr>`; return; }
-  corpo.innerHTML = raiz.map(t=>projTarefaLinhaHtml(t, 0)).join('');
+  if(raiz.length===0){ corpo.innerHTML = `<tr><td colspan="${colunas.length}" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma tarefa ainda.</td></tr>`; return; }
+  corpo.innerHTML = raiz.map(t=>projTarefaLinhaHtml(t, 0, colunas)).join('');
 }
-function projTarefaLinhaHtml(t, nivel){
+function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, key){
+  switch(key){
+    case 'toggle':
+      return `<td>${filhos.length > 0 ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '+' : '−'}</button>` : ''}</td>`;
+    case 'numero':
+      return `<td style="text-align:center;color:var(--muted);">${numero}</td>`;
+    case 'edt':
+      return `<td style="text-align:center;color:var(--muted);">${escaparHtml(projTarefaEdt.get(String(t.id))||'')}</td>`;
+    case 'nome':
+      return `<td>
+        <div class="proj-tarefa-nome-linha" style="padding-left:${nivel*16}px;">
+          <input type="text" class="proj-tarefa-titulo" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
+        </div>
+      </td>`;
+    case 'status':
+      return `<td>
+        <select class="proj-status-select" onchange="projSalvarCampoTarefa('${t.id}','status',this.value)">
+          ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </td>`;
+    case 'segmento':
+      return `<td><select onchange="projTabelaAlterarSegmento('${t.id}',this.value)">${opcoesSegmento(t.segmento||'')}</select></td>`;
+    case 'modulo':
+      return `<td><select onchange="projTabelaAlterarModulo('${t.id}',this.value)">${opcoesModuloPorSegmentoGenerico(t.segmento||'', t.modulo||'')}</select></td>`;
+    case 'submodulo':
+      return `<td><select onchange="projSalvarCampoTarefa('${t.id}','submodulo',this.value)">${opcoesRotinaPorModuloGenerico(t.modulo||'', t.submodulo||'')}</select></td>`;
+    case 'prioridade':
+      return `<td class="num"><input type="number" min="0" max="1000" step="10" value="${t.prioridade ?? 500}" onchange="projSalvarCampoTarefa('${t.id}','prioridade',this.value)"></td>`;
+    case 'modo':
+      return `<td>
+        <select onchange="projSalvarCampoTarefa('${t.id}','modo',this.value)">
+          <option value="AUTOMÁTICO" ${t.modo!=='MANUAL'?'selected':''}>Automático</option>
+          <option value="MANUAL" ${t.modo==='MANUAL'?'selected':''}>Manual</option>
+        </select>
+      </td>`;
+    case 'duracao':
+      return `<td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>`;
+    case 'inicio':
+      return `<td><input type="date" value="${t.dataInicio||''}" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)"></td>`;
+    case 'termino':
+      return `<td><input type="date" value="${t.dataFim||''}" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)"></td>`;
+    case 'anotacoes':
+      return `<td class="anotacoes-col"><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>`;
+    case 'percentual':
+      return `<td class="num">
+        <div class="proj-bateria-wrap">
+          ${projBateriaHtml(t.percentualConcluido||0)}
+          <input type="number" min="0" max="100" step="1" value="${t.percentualConcluido||0}" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)">
+        </div>
+      </td>`;
+    case 'recursos':
+      return `<td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>`;
+    case 'predecessoras':
+      return `<td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>`;
+    case 'acoes':
+      return `<td class="proj-tarefa-acoes-cel">
+        <button class="ghost" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
+        <button class="ghost" title="Nova subtarefa" onclick="projAdicionarTarefaUi('${t.id}')">+</button>
+        <button class="danger" title="Remover" onclick="projRemoverTarefaUi('${t.id}')">🗑</button>
+      </td>`;
+    default:
+      return '<td></td>';
+  }
+}
+function projTarefaLinhaHtml(t, nivel, colunas){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
   const numero = projTarefaNumeros.get(String(t.id)) || '';
@@ -8940,40 +9099,98 @@ function projTarefaLinhaHtml(t, nivel){
     .filter(n=>n!==undefined)
     .sort((a,b)=>a-b)
     .join(',');
-  const linha = `
-    <tr class="status-${statusSlug(t.status)}" data-id="${t.id}">
-      <td>${filhos.length > 0 ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '+' : '−'}</button>` : ''}</td>
-      <td style="text-align:center;color:var(--muted);">${numero}</td>
-      <td>
-        <div class="proj-tarefa-nome-linha" style="padding-left:${nivel*16}px;">
-          <input type="text" class="proj-tarefa-titulo" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
-        </div>
-      </td>
-      <td>
-        <select class="proj-status-select" onchange="projSalvarCampoTarefa('${t.id}','status',this.value)">
-          ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
-        </select>
-      </td>
-      <td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>
-      <td><input type="date" value="${t.dataInicio||''}" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)"></td>
-      <td><input type="date" value="${t.dataFim||''}" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)"></td>
-      <td class="anotacoes-col"><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>
-      <td class="num">
-        <div class="proj-bateria-wrap">
-          ${projBateriaHtml(t.percentualConcluido||0)}
-          <input type="number" min="0" max="100" step="1" value="${t.percentualConcluido||0}" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)">
-        </div>
-      </td>
-      <td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>
-      <td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>
-      <td class="proj-tarefa-acoes-cel">
-        <button class="ghost" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
-        <button class="ghost" title="Nova subtarefa" onclick="projAdicionarTarefaUi('${t.id}')">+</button>
-        <button class="danger" title="Remover" onclick="projRemoverTarefaUi('${t.id}')">🗑</button>
-      </td>
-    </tr>`;
-  const filhosHtml = (!colapsada && filhos.length > 0) ? filhos.map(f=>projTarefaLinhaHtml(f, nivel+1)).join('') : '';
+  const celulas = colunas.map(c=>projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, c.key)).join('');
+  const linha = `<tr class="status-${statusSlug(t.status)}" data-id="${t.id}">${celulas}</tr>`;
+  const filhosHtml = (!colapsada && filhos.length > 0) ? filhos.map(f=>projTarefaLinhaHtml(f, nivel+1, colunas)).join('') : '';
   return linha + filhosHtml;
+}
+// editar Segmento na tabela limpa Módulo/Rotina (mesmo comportamento do
+// formulário de atendimento — módulo/rotina antigos deixam de fazer sentido)
+async function projTabelaAlterarSegmento(id, valor){
+  const conta = contaAtual();
+  const r = await api('atualizarTarefa', { id, contaId: conta.id, segmento: valor, modulo: '', submodulo: '' });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); renderTabelaTarefas(); return; }
+  projetoTarefas = r.tarefas || projetoTarefas;
+  renderTabelaTarefas();
+  if(projSubAba==='kanban') renderKanbanProjeto();
+  else if(projSubAba==='gantt') renderGanttProjeto();
+}
+async function projTabelaAlterarModulo(id, valor){
+  const conta = contaAtual();
+  const r = await api('atualizarTarefa', { id, contaId: conta.id, modulo: valor, submodulo: '' });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); renderTabelaTarefas(); return; }
+  projetoTarefas = r.tarefas || projetoTarefas;
+  renderTabelaTarefas();
+  if(projSubAba==='kanban') renderKanbanProjeto();
+  else if(projSubAba==='gantt') renderGanttProjeto();
+}
+
+/* ---------- exportar tarefas em PDF/Excel — exporta exatamente as colunas
+   visíveis na tela (respeitando o painel "⚙ Colunas"), sempre a árvore
+   inteira (ignora tarefas recolhidas — é um relatório, não um print da
+   tela) ---------- */
+function projTarefasListaLinear(){
+  const lista = [];
+  (function visitar(paiId, nivel){
+    projFilhosDe(paiId).forEach(t=>{
+      lista.push({ t, nivel });
+      visitar(t.id, nivel+1);
+    });
+  })(null, 0);
+  return lista;
+}
+function projValorColunaTexto(t, key, nivel){
+  const numero = projTarefaNumeros.get(String(t.id)) || '';
+  switch(key){
+    case 'numero': return String(numero);
+    case 'edt': return projTarefaEdt.get(String(t.id)) || '';
+    case 'nome': return '  '.repeat(nivel) + t.titulo;
+    case 'status': return t.status;
+    case 'segmento': return t.segmento || '';
+    case 'modulo': return t.modulo || '';
+    case 'submodulo': return t.submodulo || '';
+    case 'prioridade': return String(t.prioridade ?? 500);
+    case 'modo': return t.modo === 'MANUAL' ? 'Manual' : 'Automático';
+    case 'duracao': return `${t.duracaoDias||1} d`;
+    case 'inicio': return t.dataInicio ? String(t.dataInicio).split('-').reverse().join('/') : '';
+    case 'termino': return t.dataFim ? String(t.dataFim).split('-').reverse().join('/') : '';
+    case 'anotacoes': return t.descricao || '';
+    case 'percentual': return `${t.percentualConcluido||0}%`;
+    case 'recursos': return t.responsavel || '';
+    case 'predecessoras': return (t.predecessorasIds||[]).map(pid=>projTarefaNumeros.get(String(pid))).filter(n=>n!==undefined).sort((a,b)=>a-b).join(',');
+    default: return '';
+  }
+}
+function gerarPdfTarefasProjeto(){
+  if(!projetoAtual) return;
+  projNumerarTarefas();
+  const colunas = colunasVisiveisTarefas().filter(c=>!c.semExportar);
+  const linhas = projTarefasListaLinear();
+  const corpoHtml = linhas.map(({t,nivel})=>`<tr>${colunas.map(c=>`<td class="${c.num?'num':''}">${escaparHtml(projValorColunaTexto(t, c.key, c.key==='nome'?nivel:0))}</td>`).join('')}</tr>`).join('');
+  document.getElementById('printProjetoTarefas').innerHTML = `
+    <table class="proj-print-tabela">
+      <thead><tr>${colunas.map(c=>`<th class="${c.num?'num':''}">${escaparHtml(c.label)}</th>`).join('')}</tr></thead>
+      <tbody>${corpoHtml || `<tr><td colspan="${colunas.length}">Nenhuma tarefa.</td></tr>`}</tbody>
+    </table>`;
+  document.body.classList.add('print-modo-projeto-tarefas');
+  window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-projeto-tarefas'); }, { once:true });
+  prepararImpressao(`Tarefas — ${projetoAtual.nome}`, '');
+}
+async function gerarExcelTarefasProjeto(){
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+  if(!projetoAtual) return;
+  projNumerarTarefas();
+  const colunas = colunasVisiveisTarefas().filter(c=>!c.semExportar);
+  const linhas = [colunas.map(c=>c.label)];
+  projTarefasListaLinear().forEach(({t,nivel})=>{
+    linhas.push(colunas.map(c=>projValorColunaTexto(t, c.key, c.key==='nome'?nivel:0)));
+  });
+  const planilha = XLSX.utils.aoa_to_sheet(linhas);
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, planilha, 'Tarefas');
+  const nomeArquivo = ('tarefas-' + projetoAtual.nome)
+    .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') + '.xlsx';
+  await salvarWorkbook(livro, nomeArquivo);
 }
 function projAlternarColapso(id){
   if(projTarefaColapsadas.has(id)) projTarefaColapsadas.delete(id);
@@ -11921,6 +12138,20 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(arquivo && projetoAtualId) adicionarAnexoProjetoUi(projetoAtualId, arquivo);
     e.target.value = '';
   });
+  document.getElementById('btnProjColunas').addEventListener('click', e=>{
+    e.stopPropagation();
+    const painel = document.getElementById('projColunasPainel');
+    const abrindo = painel.style.display === 'none';
+    if(abrindo) renderPainelColunasTarefas();
+    painel.style.display = abrindo ? '' : 'none';
+  });
+  document.addEventListener('click', e=>{
+    if(!e.target.closest('#projColunasPainel') && !e.target.closest('#btnProjColunas')){
+      document.getElementById('projColunasPainel').style.display = 'none';
+    }
+  });
+  document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
+  document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
