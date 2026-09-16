@@ -8604,22 +8604,22 @@ function projBateriaHtml(pct){
 // id do elemento) da mesma lógica usada no formulário de atendimento
 // (popularSelectSegmento/popularSelectModuloPorSegmento/popularSelectRotinaPorModulo)
 function opcoesSegmento(valorAtual){
-  let opcoes = `<option value="">(selecione)</option>` + segmentos.map(s=>`<option value="${escaparHtml(s.nome)}">${escaparHtml(s.nome)}</option>`).join('');
-  if(valorAtual && !segmentos.some(s=>s.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  let opcoes = `<option value="">(selecione)</option>` + segmentos.map(s=>`<option value="${escaparHtml(s.nome)}" ${s.nome===valorAtual?'selected':''}>${escaparHtml(s.nome)}</option>`).join('');
+  if(valorAtual && !segmentos.some(s=>s.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}" selected>${escaparHtml(valorAtual)}</option>`;
   return opcoes;
 }
 function opcoesModuloPorSegmentoGenerico(segmentoNome, valorAtual){
   const segmento = segmentos.find(s=>s.nome===segmentoNome);
   const lista = segmento ? modulos.filter(m=>m.segmentoId===segmento.id) : [];
-  let opcoes = `<option value="">(selecione)</option>` + lista.map(m=>`<option value="${escaparHtml(m.nome)}">${escaparHtml(m.nome)}</option>`).join('');
-  if(valorAtual && !lista.some(m=>m.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  let opcoes = `<option value="">(selecione)</option>` + lista.map(m=>`<option value="${escaparHtml(m.nome)}" ${m.nome===valorAtual?'selected':''}>${escaparHtml(m.nome)}</option>`).join('');
+  if(valorAtual && !lista.some(m=>m.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}" selected>${escaparHtml(valorAtual)}</option>`;
   return opcoes;
 }
 function opcoesRotinaPorModuloGenerico(moduloNome, valorAtual){
   const modulo = modulos.find(m=>m.nome===moduloNome);
   const lista = modulo ? submodulos.filter(s=>s.moduloId===modulo.id) : [];
-  let opcoes = `<option value="">(selecione)</option>` + lista.map(s=>`<option value="${escaparHtml(s.nome)}">${escaparHtml(s.nome)}</option>`).join('');
-  if(valorAtual && !lista.some(s=>s.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}">${escaparHtml(valorAtual)}</option>`;
+  let opcoes = `<option value="">(selecione)</option>` + lista.map(s=>`<option value="${escaparHtml(s.nome)}" ${s.nome===valorAtual?'selected':''}>${escaparHtml(s.nome)}</option>`).join('');
+  if(valorAtual && !lista.some(s=>s.nome===valorAtual)) opcoes += `<option value="${escaparHtml(valorAtual)}" selected>${escaparHtml(valorAtual)}</option>`;
   return opcoes;
 }
 function projPitPopularSegmentoModuloRotina(segmentoAtual, moduloAtual, submoduloAtual){
