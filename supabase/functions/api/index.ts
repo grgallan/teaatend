@@ -290,6 +290,16 @@ async function rotear(req: any): Promise<any> {
     case 'listarAnexosAtividade': return acaoListarAnexosAtividade(req);
     case 'adicionarAnexoAtividade': return acaoAdicionarAnexoAtividade(req);
     case 'removerAnexoAtividade': return acaoRemoverAnexoAtividade(req);
+    case 'listarProjetos': return acaoListarProjetos(req);
+    case 'obterProjeto': return acaoObterProjeto(req);
+    case 'criarProjeto': return acaoCriarProjeto(req);
+    case 'atualizarProjeto': return acaoAtualizarProjeto(req);
+    case 'removerProjeto': return acaoRemoverProjeto(req);
+    case 'vincularAtendimentoProjeto': return acaoVincularAtendimentoProjeto(req);
+    case 'desvincularAtendimentoProjeto': return acaoDesvincularAtendimentoProjeto(req);
+    case 'criarTarefa': return acaoCriarTarefa(req);
+    case 'atualizarTarefa': return acaoAtualizarTarefa(req);
+    case 'removerTarefa': return acaoRemoverTarefa(req);
     case 'listarOrcamentos': return acaoListarOrcamentos(req);
     case 'obterOrcamento': return acaoObterOrcamento(req);
     case 'salvarOrcamento': return acaoSalvarOrcamento(req);
@@ -2117,6 +2127,198 @@ async function acaoAdicionarAnexoAtividade(req: any) {
 
 async function acaoRemoverAnexoAtividade(req: any) {
   await db.from('atividade_anexos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+/* ---------- projetos (gerenciamento de projetos: tarefas em árvore —
+   sem limite de profundidade, ao contrário do item/subitem do orçamento —,
+   Kanban e Gantt próprios, vínculo com cliente e atendimentos). Módulo
+   independente, carregado sob demanda (listarProjetos/obterProjeto) — não
+   entra no acaoDados/carregarTudo, mesmo padrão de Atividades/Orçamentos.
+   Status da tarefa é um conjunto fixo (não é cadastro como o de
+   atendimento) pra Kanban/Gantt sempre terem colunas/cores previsíveis. */
+async function podeGerenciarProjeto(contaId: string) {
+  const { data: conta } = await db.from('contas').select('perfil').eq('id', contaId).maybeSingle();
+  return !!(conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE'));
+}
+
+function projetoParaApi(p: any, extra: { tarefasTotal?: number; tarefasConcluidas?: number } = {}) {
+  return {
+    id: p.id, nome: p.nome, descricao: p.descricao || '', cliente: p.cliente || '',
+    responsavel: p.responsavel || '', status: p.status || 'PLANEJAMENTO',
+    dataInicio: p.data_inicio || '', dataPrevistaFim: p.data_prevista_fim || '', dataConclusao: p.data_conclusao || '',
+    criadoPor: p.criado_por || '', criadoEm: p.criado_em, empresaId: p.empresa_id || '',
+    tarefasTotal: extra.tarefasTotal || 0, tarefasConcluidas: extra.tarefasConcluidas || 0,
+  };
+}
+
+function tarefaParaApi(t: any) {
+  return {
+    id: t.id, projetoId: t.projeto_id, tarefaPaiId: t.tarefa_pai_id || '',
+    titulo: t.titulo, descricao: t.descricao || '', responsavel: t.responsavel || '',
+    status: t.status || 'A FAZER', dataInicio: t.data_inicio || '', dataFim: t.data_fim || '',
+    ordem: t.ordem || 0, criadoEm: t.criado_em, concluidoEm: t.concluido_em || '',
+  };
+}
+
+async function acaoListarProjetos(req: any) {
+  const { data: conta } = await db.from('contas').select('perfil').eq('id', req.contaId).maybeSingle();
+  if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
+  if (conta.perfil === 'USUARIO') return { ok: true, projetos: [] }; // ferramenta interna da equipe
+
+  let query = db.from('projetos').select('*').order('criado_em', { ascending: false });
+  if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  const { data, error } = await query;
+  if (error) return { ok: false, erro: error.message };
+  const projetos = data || [];
+
+  // progresso (tarefasTotal/tarefasConcluidas) de todos os projetos numa
+  // query só, em vez de uma por projeto
+  const { data: tarefas } = await db.from('projeto_tarefas').select('projeto_id,status').in('projeto_id', projetos.map((p: any) => p.id));
+  const progresso: Record<string, { total: number; concluidas: number }> = {};
+  (tarefas || []).forEach((t: any) => {
+    const p = (progresso[t.projeto_id] = progresso[t.projeto_id] || { total: 0, concluidas: 0 });
+    p.total++;
+    if (t.status === 'CONCLUÍDA') p.concluidas++;
+  });
+
+  return {
+    ok: true,
+    projetos: projetos.map((p: any) => projetoParaApi(p, { tarefasTotal: progresso[p.id]?.total || 0, tarefasConcluidas: progresso[p.id]?.concluidas || 0 })),
+  };
+}
+
+async function acaoObterProjeto(req: any) {
+  if (!req.id) return { ok: false, erro: 'Projeto não informado.' };
+  const [{ data: projeto }, { data: tarefas }, { data: vinculos }] = await Promise.all([
+    db.from('projetos').select('*').eq('id', req.id).maybeSingle(),
+    db.from('projeto_tarefas').select('*').eq('projeto_id', req.id).order('criado_em', { ascending: true }),
+    db.from('projeto_atendimentos').select('atendimento_id').eq('projeto_id', req.id),
+  ]);
+  if (!projeto) return { ok: false, erro: 'Projeto não encontrado.' };
+  const lista = tarefas || [];
+  const total = lista.length;
+  const concluidas = lista.filter((t: any) => t.status === 'CONCLUÍDA').length;
+  return {
+    ok: true,
+    projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
+    tarefas: lista.map(tarefaParaApi),
+    atendimentoIds: (vinculos || []).map((v: any) => v.atendimento_id),
+  };
+}
+
+async function acaoCriarProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra criar projetos.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Preencha o nome do projeto.' };
+  const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
+  const registro = {
+    id: gerarId(), nome: req.nome, descricao: req.descricao || '', cliente: req.cliente || '',
+    responsavel: req.responsavel || '', status: req.status || 'PLANEJAMENTO',
+    data_inicio: req.dataInicio || null, data_prevista_fim: req.dataPrevistaFim || null,
+    criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
+  };
+  const { error } = await db.from('projetos').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, id: registro.id };
+}
+
+async function acaoAtualizarProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra editar projetos.' };
+  if (!req.id) return { ok: false, erro: 'Projeto não informado.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Preencha o nome do projeto.' };
+  const { data: existente } = await db.from('projetos').select('status,data_conclusao').eq('id', req.id).maybeSingle();
+  if (!existente) return { ok: false, erro: 'Projeto não encontrado.' };
+
+  const statusFinal = req.status || 'PLANEJAMENTO';
+  // Data de Conclusão some auto-preenchida com hoje quando o projeto vira
+  // CONCLUÍDO sem ela ter sido informada — mesmo padrão do Data Prevista
+  // do atendimento
+  let dataConclusao = req.dataConclusao || existente.data_conclusao;
+  if (statusFinal === 'CONCLUÍDO' && !dataConclusao) dataConclusao = dataAtualIso();
+  if (statusFinal !== 'CONCLUÍDO') dataConclusao = req.dataConclusao || null;
+
+  const atualizado = {
+    nome: req.nome, descricao: req.descricao || '', cliente: req.cliente || '',
+    responsavel: req.responsavel || '', status: statusFinal,
+    data_inicio: req.dataInicio || null, data_prevista_fim: req.dataPrevistaFim || null,
+    data_conclusao: dataConclusao,
+  };
+  const { error } = await db.from('projetos').update(atualizado).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+
+async function acaoRemoverProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover projetos.' };
+  await db.from('projetos').delete().eq('id', req.id);
+  return { ok: true };
+}
+
+async function acaoVincularAtendimentoProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
+  if (!req.projetoId || !req.atendimentoId) return { ok: false, erro: 'Projeto e atendimento são obrigatórios.' };
+  const { error } = await db.from('projeto_atendimentos').insert({ id: gerarId(), projeto_id: req.projetoId, atendimento_id: req.atendimentoId });
+  if (error && !String(error.message).includes('duplicate')) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+
+async function acaoDesvincularAtendimentoProjeto(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
+  await db.from('projeto_atendimentos').delete().eq('projeto_id', req.projetoId).eq('atendimento_id', req.atendimentoId);
+  return { ok: true };
+}
+
+const STATUS_TAREFA_VALIDOS = new Set(['A FAZER', 'EM ANDAMENTO', 'CONCLUÍDA']);
+
+async function acaoCriarTarefa(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra criar tarefas.' };
+  if (!req.projetoId) return { ok: false, erro: 'Projeto não informado.' };
+  if (!req.titulo || !String(req.titulo).trim()) return { ok: false, erro: 'Preencha o título da tarefa.' };
+  const status = STATUS_TAREFA_VALIDOS.has(req.status) ? req.status : 'A FAZER';
+  const registro = {
+    id: gerarId(), projeto_id: req.projetoId, tarefa_pai_id: req.tarefaPaiId || null,
+    titulo: req.titulo, descricao: req.descricao || '', responsavel: req.responsavel || '',
+    status, data_inicio: req.dataInicio || null, data_fim: req.dataFim || null,
+    concluido_em: status === 'CONCLUÍDA' ? new Date().toISOString() : null,
+  };
+  const { error } = await db.from('projeto_tarefas').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, id: registro.id };
+}
+
+// atualização parcial de propósito — o Kanban (arrastar card) e o Gantt
+// (arrastar barra, se vier a existir) mandam só o campo que mudou, sem
+// precisar reenviar a tarefa inteira; o formulário de edição manda tudo
+async function acaoAtualizarTarefa(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra editar tarefas.' };
+  if (!req.id) return { ok: false, erro: 'Tarefa não informada.' };
+  const { data: existente } = await db.from('projeto_tarefas').select('status').eq('id', req.id).maybeSingle();
+  if (!existente) return { ok: false, erro: 'Tarefa não encontrada.' };
+
+  const atualizacao: Record<string, unknown> = {};
+  if (req.titulo !== undefined) {
+    if (!String(req.titulo).trim()) return { ok: false, erro: 'Preencha o título da tarefa.' };
+    atualizacao.titulo = req.titulo;
+  }
+  if (req.descricao !== undefined) atualizacao.descricao = req.descricao || '';
+  if (req.responsavel !== undefined) atualizacao.responsavel = req.responsavel || '';
+  if (req.dataInicio !== undefined) atualizacao.data_inicio = req.dataInicio || null;
+  if (req.dataFim !== undefined) atualizacao.data_fim = req.dataFim || null;
+  if (req.status !== undefined) {
+    if (!STATUS_TAREFA_VALIDOS.has(req.status)) return { ok: false, erro: 'Status inválido.' };
+    atualizacao.status = req.status;
+    if (req.status === 'CONCLUÍDA' && existente.status !== 'CONCLUÍDA') atualizacao.concluido_em = new Date().toISOString();
+    else if (req.status !== 'CONCLUÍDA') atualizacao.concluido_em = null;
+  }
+
+  const { error } = await db.from('projeto_tarefas').update(atualizacao).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+
+async function acaoRemoverTarefa(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover tarefas.' };
+  await db.from('projeto_tarefas').delete().eq('id', req.id);
   return { ok: true };
 }
 

@@ -220,6 +220,10 @@
   .kanban-col-header.status-NAO-VALIDADO .titulo{color:var(--bad);}
   .kanban-col-header.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--purple) 32%, transparent);}
   .kanban-col-header.status-AGENDADO .titulo{color:var(--purple);}
+  .kanban-col-header.status-A-FAZER{background:color-mix(in oklch, var(--muted) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--muted) 32%, transparent);}
+  .kanban-col-header.status-A-FAZER .titulo{color:var(--muted);}
+  .kanban-col-header.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--ok) 32%, transparent);}
+  .kanban-col-header.status-CONCLUIDA .titulo{color:var(--ok);}
   .kanban-card{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px 9px 6px;display:flex;gap:4px;cursor:pointer;}
   .kanban-card.dragging{opacity:.35;}
   .kanban-card-handle{flex-shrink:0;width:18px;text-align:center;color:var(--muted);cursor:grab;touch-action:none;user-select:none;font-size:14px;line-height:1.5;padding:2px 0;}
@@ -288,6 +292,10 @@
   .tag.status-NAO-VALIDADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .tag.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);border:1px solid color-mix(in oklch, var(--purple) 32%, transparent);color:var(--purple);}
   .tag.status-NÃO\ VALIDADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
+  /* status de tarefa (Projetos) — A FAZER/EM ANDAMENTO/CONCLUÍDA; "EM
+     ANDAMENTO" já reaproveita a cor de atendimento (mesmo slug) */
+  .tag.status-A-FAZER{background:color-mix(in oklch, var(--muted) 13%, transparent);border:1px solid color-mix(in oklch, var(--muted) 32%, transparent);color:var(--muted);}
+  .tag.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
   .item .valores{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
   .item .valores .v1{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);}
   .item .valores .v2{font-family:'JetBrains Mono',monospace;font-size:13.5px;font-weight:600;color:var(--accent);}
@@ -446,6 +454,29 @@
   .orc-total-label{font-size:12.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
   .orc-total-valor{font-size:20px;font-weight:800;color:var(--accent);}
   #printOrcamento{display:none;}
+  /* ---------- projetos ---------- */
+  .proj-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;cursor:pointer;}
+  .proj-card:hover{border-color:var(--accent);}
+  .proj-card-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+  .proj-card-nome{font-weight:700;font-size:14.5px;}
+  .proj-card-sub{color:var(--muted);font-size:11.5px;margin-top:2px;}
+  .proj-card-acoes{display:flex;gap:4px;flex:none;}
+  .proj-card-acoes button{padding:6px 8px;font-size:12px;}
+  .proj-progresso{margin-top:10px;}
+  .proj-progresso-barra{height:6px;border-radius:4px;background:var(--panel-2);overflow:hidden;}
+  .proj-progresso-fill{height:100%;background:var(--ok);border-radius:4px;}
+  .proj-progresso-texto{font-size:10.5px;color:var(--muted);margin-top:4px;}
+  .proj-tarefa{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:6px;background:var(--panel);}
+  .proj-tarefa-corpo{flex:1;min-width:0;}
+  .proj-tarefa-titulo-linha{display:flex;align-items:center;gap:6px;}
+  .proj-tarefa-titulo{font-weight:600;font-size:12.5px;background:none;border:none;color:inherit;font-family:inherit;padding:2px 4px;flex:1;min-width:60px;}
+  .proj-tarefa-titulo:focus{background:var(--panel-2);border-radius:6px;outline:none;}
+  .proj-tarefa.status-CONCLUIDA .proj-tarefa-titulo{text-decoration:line-through;color:var(--muted);}
+  .proj-tarefa-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;align-items:center;}
+  .proj-tarefa-meta select, .proj-tarefa-meta input{font-size:11px;padding:4px 6px;width:auto;}
+  .proj-tarefa-acoes{display:flex;gap:4px;flex:none;}
+  .proj-tarefa-acoes button{padding:4px 7px;font-size:11px;}
+  .proj-tarefa-toggle{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;width:16px;flex:none;padding:2px 0;}
   .vid-embed{width:100%;aspect-ratio:16/9;border-radius:12px;border:none;display:block;}
   .vid-titulo{font-weight:700;font-size:14px;margin-top:10px;}
   .vid-descricao{color:var(--muted);font-size:12.5px;margin-top:4px;}
@@ -526,6 +557,8 @@
   .gantt-bar.status-NAO-VALIDADO{background:var(--bad);}
   .gantt-bar.status-AGENDADO{background:var(--purple);}
   .gantt-bar.status-NÃO\ VALIDADO{background:var(--bad);}
+  .gantt-bar.status-A-FAZER{background:var(--muted);}
+  .gantt-bar.status-CONCLUIDA{background:var(--ok);}
   .gantt-bar-sem-previsao{opacity:.55;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.3),rgba(255,255,255,.3) 3px,transparent 3px,transparent 6px);}
   .install-banner{background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:none;align-items:center;gap:10px;justify-content:space-between;}
   .install-banner.show{display:flex;}
@@ -933,6 +966,7 @@
       <div class="side-item navbtn" data-view="agenda" id="sideAgenda" title="Agenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span><span class="side-label">Agenda</span></div>
       <div class="side-item navbtn" data-view="atividades" id="sideAtividades" title="Atividades"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg></span><span class="side-label">Atividades</span></div>
       <div class="side-item navbtn" data-view="orcamentos" id="sideOrcamentos" title="Orçamentos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"></path><path d="M9 13l2 2 4-4"></path></svg></span><span class="side-label">Orçamentos</span></div>
+      <div class="side-item navbtn" data-view="projetos" id="sideProjetos" title="Projetos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="7" rx="1"></rect></svg></span><span class="side-label">Projetos</span></div>
     </div>
     <div class="nav-group">
       <div class="nav-group-label">Sistema</div>
@@ -963,6 +997,7 @@
     <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
     <div class="tab" data-view="atividades" id="tabAtividades">Atividades</div>
     <div class="tab" data-view="orcamentos" id="tabOrcamentos">Orçamentos</div>
+    <div class="tab" data-view="projetos" id="tabProjetos">Projetos</div>
     <div class="tab" data-view="videos" id="tabVideos">Vídeos</div>
     <div class="tab" data-view="cadastros" id="tabCadastros">Cadastros</div>
     <div class="tab" data-view="utilitarios" id="tabUtilitarios">Utilitários</div>
@@ -1681,6 +1716,72 @@
     <div id="listaOrcamentos"></div>
   </section>
 
+  <!-- PROJETOS (gerenciamento de projetos: tarefas em árvore, Kanban, Cronograma) -->
+  <section class="view" id="view-projetos">
+    <div class="card" id="cardFormProjeto">
+      <h2 id="projFormTitulo">Novo projeto</h2>
+      <div class="row3">
+        <div class="field"><label>Nome do projeto</label><input type="text" id="proj_nome" placeholder="Ex: Implantação módulo Financeiro"></div>
+        <div class="field"><label>Cliente <span style="font-weight:400;">(opcional)</span></label><select id="proj_cliente"><option value="">(nenhum)</option></select></div>
+        <div class="field"><label>Responsável</label><select id="proj_responsavel"></select></div>
+      </div>
+      <div class="field"><label>Descrição <span style="font-weight:400;">(opcional)</span></label><textarea id="proj_descricao" style="width:100%;min-height:60px;font-size:13px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:inherit;box-sizing:border-box;font-family:inherit;"></textarea></div>
+      <div class="row3">
+        <div class="field"><label>Status</label><select id="proj_status"></select></div>
+        <div class="field"><label>Data de início <span style="font-weight:400;">(opcional)</span></label><input type="date" id="proj_data_inicio"></div>
+        <div class="field"><label>Previsão de término <span style="font-weight:400;">(opcional)</span></label><input type="date" id="proj_data_prevista_fim"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+        <button class="primary" id="btnSalvarProjeto" style="flex:1;">Salvar projeto</button>
+        <button type="button" class="ghost" id="btnCancelarEdicaoProjeto" style="display:none;flex:none;width:auto;">Cancelar edição</button>
+      </div>
+    </div>
+
+    <div id="listaProjetos"></div>
+
+    <div class="card" id="projetoDetalhe" style="display:none;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:4px;">
+        <button type="button" class="ghost" id="btnFecharProjetoDetalhe" style="width:auto;padding:8px 14px;">‹ Voltar</button>
+        <button type="button" class="ghost" id="btnEditarProjetoDetalhe" style="width:auto;padding:8px 14px;">✏ Editar projeto</button>
+      </div>
+      <h2 id="projDetalheNome" style="margin:14px 0 2px;"></h2>
+      <div id="projDetalheInfo" style="color:var(--muted);font-size:12.5px;margin-bottom:14px;"></div>
+
+      <div class="subtabs" id="projSubtabs">
+        <div class="subtab active" data-projsub="tarefas">Tarefas</div>
+        <div class="subtab" data-projsub="kanban">Kanban</div>
+        <div class="subtab" data-projsub="gantt">Cronograma</div>
+        <div class="subtab" data-projsub="atendimentos">Atendimentos</div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-tarefas">
+        <button type="button" class="ghost" id="btnProjNovaTarefa" style="margin-bottom:10px;width:auto;padding:8px 14px;">+ Nova tarefa</button>
+        <div id="projTarefasArvore"></div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-kanban" style="display:none;">
+        <div class="kanban-board" id="projKanbanBoard"></div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-gantt" style="display:none;">
+        <div class="row" style="margin-bottom:10px;">
+          <div class="field" style="margin-bottom:0;"><label>De</label><input type="date" id="proj_gantt_de"></div>
+          <div class="field" style="margin-bottom:0;"><label>Até</label><input type="date" id="proj_gantt_ate"></div>
+        </div>
+        <div id="projGanttChart" style="overflow-x:auto;"></div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-atendimentos" style="display:none;">
+        <div class="field">
+          <label>Vincular a atendimentos <span style="font-weight:400;">(opcional, pode ser mais de um)</span></label>
+          <input type="text" id="proj_vinculo_busca" placeholder="Buscar chamado pra vincular...">
+          <div id="projVinculoResultados" style="margin-top:6px;"></div>
+          <div id="projVinculoChipWrap" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- VÍDEOS / TUTORIAIS (cadastro só admin; lista pra todo mundo autorizado) -->
   <section class="view" id="view-videos">
     <div class="subtabs" id="vidSubtabs">
@@ -2313,6 +2414,7 @@
   <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
   <div class="navbtn" data-view="atividades" id="navAtividades"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg></span>Ativid.</div>
   <div class="navbtn" data-view="orcamentos" id="navOrcamentos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"></path><path d="M9 13l2 2 4-4"></path></svg></span>Orçam.</div>
+  <div class="navbtn" data-view="projetos" id="navProjetos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"></rect><rect x="10" y="4" width="5" height="10" rx="1"></rect><rect x="17" y="4" width="4" height="7" rx="1"></rect></svg></span>Projetos</div>
   <div class="navbtn" data-view="videos" id="navVideos"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5l6 3.5-6 3.5v-7z" fill="currentColor" stroke="none"></path></svg></span>Vídeos</div>
   <div class="navbtn" data-view="cadastros" id="navCadastros"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>Cadastros</div>
   <div class="navbtn" data-view="utilitarios" id="navUtilitarios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 1 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.1 2.1-2.6-.6-.6-2.6z"></path></svg></span>Util.</div>
