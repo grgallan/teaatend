@@ -9180,12 +9180,21 @@ function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, ke
         </select>
       </td>`;
     case 'duracao':
+      if(filhos.length > 0){
+        return `<td class="num" style="color:var(--muted);" title="Calculado automaticamente a partir das subtarefas">${t.duracaoDias||1} d</td>`;
+      }
       return `<td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>`;
     case 'duracaoEstimada':
       return `<td style="text-align:center;"><input type="checkbox" style="width:auto;" ${t.duracaoEstimada?'checked':''} onchange="projSalvarCampoTarefa('${t.id}','duracaoEstimada',this.checked)"></td>`;
     case 'inicio':
+      if(filhos.length > 0){
+        return `<td style="color:var(--muted);" title="Calculado automaticamente a partir das subtarefas">${t.dataInicio ? String(t.dataInicio).split('-').reverse().join('/') : ''}</td>`;
+      }
       return `<td><input type="date" value="${t.dataInicio||''}" onchange="projSalvarCampoTarefa('${t.id}','dataInicio',this.value)"></td>`;
     case 'termino':
+      if(filhos.length > 0){
+        return `<td style="color:var(--muted);" title="Calculado automaticamente a partir das subtarefas">${t.dataFim ? String(t.dataFim).split('-').reverse().join('/') : ''}</td>`;
+      }
       return `<td><input type="date" value="${t.dataFim||''}" onchange="projSalvarCampoTarefa('${t.id}','dataFim',this.value)"></td>`;
     case 'concluidoEm':
       return `<td style="color:var(--muted);">${t.concluidoEm ? escaparHtml(new Date(t.concluidoEm).toLocaleDateString('pt-BR')) : '—'}</td>`;
@@ -9414,12 +9423,18 @@ function projAbrirInfoTarefa(id){
   const temFilhosInfo = projFilhosDe(id).length > 0;
   document.getElementById('pit_percentual').disabled = temFilhosInfo;
   document.getElementById('pit_percentual').title = temFilhosInfo ? 'Calculado automaticamente a partir das subtarefas' : '';
+  document.getElementById('pit_duracao').disabled = temFilhosInfo;
+  document.getElementById('pit_duracao').title = temFilhosInfo ? 'Calculado automaticamente a partir das subtarefas' : '';
   document.getElementById('pit_prioridade').value = t.prioridade ?? 500;
   document.getElementById('pit_inativa').checked = !!t.inativa;
   const radioModo = document.querySelector(`input[name="pit_modo"][value="${t.modo==='MANUAL'?'MANUAL':'AUTOMÁTICO'}"]`);
   if(radioModo) radioModo.checked = true;
   document.getElementById('pit_inicio').value = t.dataInicio || '';
   document.getElementById('pit_fim').value = t.dataFim || '';
+  document.getElementById('pit_inicio').disabled = temFilhosInfo;
+  document.getElementById('pit_inicio').title = temFilhosInfo ? 'Calculado automaticamente a partir das subtarefas' : '';
+  document.getElementById('pit_fim').disabled = temFilhosInfo;
+  document.getElementById('pit_fim').title = temFilhosInfo ? 'Calculado automaticamente a partir das subtarefas' : '';
   document.getElementById('pit_anotacoes').value = t.descricao || '';
   projPitPopularSegmentoModuloRotina(t.segmento || '', t.modulo || '', t.submodulo || '');
 

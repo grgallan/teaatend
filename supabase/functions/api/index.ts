@@ -2354,6 +2354,48 @@ function recalcularPercentuaisPais(tarefas: any[]) {
   return tarefas;
 }
 
+// Início/Término de uma tarefa-mãe passam a ser calculados a partir das
+// filhas (primeira data de início e última data de término entre elas),
+// igual ao rollup automático do MS Project — mesmo espírito do rollup de
+// percentual acima. Só mexe em quem TEM filha; tarefa-folha continua
+// controlando suas próprias datas (manual ou via predecessora). Processa
+// da mais profunda pra mais rasa, pra uma avó já herdar o rollup da mãe.
+function recalcularDatasPais(tarefas: any[]) {
+  const porId = new Map(tarefas.map((t: any) => [String(t.id), t]));
+  const filhosPorPai = new Map<string, any[]>();
+  for (const t of tarefas) {
+    if (!t.tarefa_pai_id) continue;
+    const lista = filhosPorPai.get(String(t.tarefa_pai_id)) || [];
+    lista.push(t);
+    filhosPorPai.set(String(t.tarefa_pai_id), lista);
+  }
+  function profundidade(t: any): number {
+    let n = 0;
+    let atual = t;
+    while (atual && atual.tarefa_pai_id) {
+      atual = porId.get(String(atual.tarefa_pai_id));
+      n++;
+      if (n > 50) break;
+    }
+    return n;
+  }
+  const ordenadas = [...tarefas].sort((a: any, b: any) => profundidade(b) - profundidade(a));
+  for (const t of ordenadas) {
+    const filhos = filhosPorPai.get(String(t.id));
+    if (!filhos || filhos.length === 0) continue;
+    let inicioMinimo: string | null = null;
+    let fimMaximo: string | null = null;
+    for (const f of filhos) {
+      if (f.data_inicio && (!inicioMinimo || f.data_inicio < inicioMinimo)) inicioMinimo = f.data_inicio;
+      if (f.data_fim && (!fimMaximo || f.data_fim > fimMaximo)) fimMaximo = f.data_fim;
+    }
+    t.data_inicio = inicioMinimo;
+    t.data_fim = fimMaximo;
+    t.duracao_dias = (inicioMinimo && fimMaximo) ? Math.max(1, duracaoUteisEntre(inicioMinimo, fimMaximo)) : (t.duracao_dias || 1);
+  }
+  return tarefas;
+}
+
 async function predecessorasPorTarefa(tarefaIds: string[]) {
   if (tarefaIds.length === 0) return {} as Record<string, any[]>;
   const { data } = await db.from('projeto_tarefa_predecessoras').select('tarefa_id,predecessora_id,tipo,latencia_dias').in('tarefa_id', tarefaIds);
@@ -2437,10 +2479,11 @@ async function recalcularEPersistirProjeto(projetoId: string) {
   const ids = tarefas.map((t: any) => t.id);
   const [predsMap, recursosMap, atendimentosMap] = await Promise.all([predecessorasPorTarefa(ids), recursosPorTarefa(ids), atendimentosPorTarefa(ids)]);
 
-  const antes = new Map<string, { data_inicio: string | null; data_fim: string | null; percentual_concluido: number }>(
-    tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim, percentual_concluido: t.percentual_concluido }]),
+  const antes = new Map<string, { data_inicio: string | null; data_fim: string | null; duracao_dias: number; percentual_concluido: number }>(
+    tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim, duracao_dias: t.duracao_dias, percentual_concluido: t.percentual_concluido }]),
   );
   recalcularDatasAutomaticas(tarefas, predsMap);
+  recalcularDatasPais(tarefas);
   recalcularPercentuaisPais(tarefas);
 
   for (const t of tarefas) {
@@ -2449,6 +2492,7 @@ async function recalcularEPersistirProjeto(projetoId: string) {
     const atualizacao: Record<string, unknown> = {};
     if (original.data_inicio !== t.data_inicio) atualizacao.data_inicio = t.data_inicio;
     if (original.data_fim !== t.data_fim) atualizacao.data_fim = t.data_fim;
+    if (original.duracao_dias !== t.duracao_dias) atualizacao.duracao_dias = t.duracao_dias;
     if (original.percentual_concluido !== t.percentual_concluido) atualizacao.percentual_concluido = t.percentual_concluido;
     if (Object.keys(atualizacao).length > 0) {
       await db.from('projeto_tarefas').update(atualizacao).eq('id', t.id);
