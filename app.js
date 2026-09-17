@@ -8942,15 +8942,15 @@ const PROJ_COLUNAS_TAREFAS = [
   { key:'numero', label:'Nº', largura:36, fixa:true },
   { key:'edt', label:'EDT', largura:70 },
   { key:'nome', label:'Nome da tarefa', largura:220, fixa:true },
-  { key:'status', label:'Status', largura:110 },
-  { key:'inativa', label:'Inativa', largura:70 },
-  { key:'segmento', label:'Segmento', largura:130 },
-  { key:'modulo', label:'Módulo', largura:130 },
-  { key:'submodulo', label:'Rotina', largura:130 },
+  { key:'status', label:'Status', largura:110, filtravel:true },
+  { key:'inativa', label:'Inativa', largura:70, filtravel:true },
+  { key:'segmento', label:'Segmento', largura:130, filtravel:true },
+  { key:'modulo', label:'Módulo', largura:130, filtravel:true },
+  { key:'submodulo', label:'Rotina', largura:130, filtravel:true },
   { key:'prioridade', label:'Prioridade', largura:90, num:true },
-  { key:'modo', label:'Modo', largura:100 },
+  { key:'modo', label:'Modo', largura:100, filtravel:true },
   { key:'duracao', label:'Duração', largura:80, num:true },
-  { key:'duracaoEstimada', label:'Duração Estimada', largura:70 },
+  { key:'duracaoEstimada', label:'Duração Estimada', largura:70, filtravel:true },
   { key:'inicio', label:'Início', largura:110 },
   { key:'termino', label:'Término', largura:110 },
   { key:'concluidoEm', label:'Data de Conclusão', largura:120 },
@@ -9124,11 +9124,72 @@ function projFinalizarResizeColuna(e){
   projResizeEstado = null;
 }
 
+// filtro de coluna estilo Excel (mesmo padrão visual/mecânico da Lista de
+// atendimentos — dropdown com valores distintos, marcáveis — mas com seu
+// próprio portal/estado, já que a Lista e a tabela de tarefas nunca
+// aparecem juntas na tela); só nas colunas com um conjunto de valores
+// enxuto (status, segmento/módulo/rotina, modo, booleanas). Quando algum
+// filtro está ativo, a tabela vira uma lista achatada (sem recolher/
+// expandir) com só as tarefas que passam em todos os filtros marcados.
+let projFiltrosColuna = {};
+let projFiltroColunaAberta = null;
+function projFiltrosColunaAtivos(){
+  return Object.values(projFiltrosColuna).some(s=>s && s.size>0);
+}
+function projTarefaPassaFiltrosColuna(t){
+  return Object.entries(projFiltrosColuna).every(([campo,set])=>{
+    if(!set || set.size===0) return true;
+    return set.has(projValorColunaTexto(t, campo, 0));
+  });
+}
+function projDistintosColuna(campo){
+  const valores = new Set();
+  projetoTarefas.forEach(t=>{
+    const v = projValorColunaTexto(t, campo, 0);
+    if(v) valores.add(v);
+  });
+  return [...valores].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+}
+function projFecharFiltroColuna(){
+  projFiltroColunaAberta = null;
+  const portal = document.getElementById('projFiltroColunaPortal');
+  if(portal){ portal.classList.remove('show'); portal.innerHTML = ''; }
+}
+function projToggleFiltroColuna(campo, spanEl){
+  const jaAbertoParaEsse = projFiltroColunaAberta === campo;
+  projFecharFiltroColuna();
+  if(jaAbertoParaEsse) return;
+  projFiltroColunaAberta = campo;
+  const portal = document.getElementById('projFiltroColunaPortal');
+  if(!portal || !spanEl) return;
+  const set = projFiltrosColuna[campo] || (projFiltrosColuna[campo] = new Set());
+  const valores = projDistintosColuna(campo);
+  const itensDropdown = valores.map(v=>
+    `<div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="${escaparHtml(v)}">${set.has(v) ? '✓ ' : ''}${escaparHtml(v)}</div>`
+  ).join('');
+  portal.innerHTML = `
+    <div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
+    ${itensDropdown}
+  `;
+  const r = spanEl.getBoundingClientRect();
+  portal.style.left = `${r.left}px`;
+  portal.style.top = `${r.bottom + 4}px`;
+  portal.classList.add('show');
+}
+function projCelulaFiltroColuna(c){
+  const set = projFiltrosColuna[c.key];
+  const ativo = set && set.size>0;
+  return `<span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;margin-left:6px;">
+    <span onclick="projToggleFiltroColuna('${c.key}', this)" style="cursor:pointer;${ativo ? 'color:var(--accent);' : ''}" title="Filtrar ${escaparHtml(c.label)}">▾</span>
+  </span>`;
+}
+
 function renderCabecalhoTarefas(colunas){
   document.getElementById('projTarefasTabelaColgroup').innerHTML = colunas.map(c=>`<col style="width:${projLarguraColuna(c)}px;">`).join('');
   document.getElementById('projTarefasTabelaCabecalho').innerHTML = `<tr>${colunas.map(c=>`
     <th class="${c.num?'num':''} ${c.semResize?'':'lista-th-arrastavel'}" data-col="${c.key}" title="${c.semResize?'':'Arraste pra reordenar'}">
       <span>${escaparHtml(c.label)}</span>
+      ${c.filtravel ? projCelulaFiltroColuna(c) : ''}
       ${c.semResize ? '' : `<span class="proj-col-resizer" onmousedown="projIniciarResizeColuna(event,'${c.key}')"></span>`}
     </th>`).join('')}</tr>`;
 }
@@ -9138,14 +9199,20 @@ function renderTabelaTarefas(){
   renderCabecalhoTarefas(colunas);
   const corpo = document.getElementById('projTarefasTabelaCorpo');
   projNumerarTarefas();
+  if(projFiltrosColunaAtivos()){
+    const linhas = projTarefasListaLinear().filter(({t})=>projTarefaPassaFiltrosColuna(t));
+    if(linhas.length===0){ corpo.innerHTML = `<tr><td colspan="${colunas.length}" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma tarefa encontrada com esses filtros.</td></tr>`; return; }
+    corpo.innerHTML = linhas.map(({t,nivel})=>projTarefaLinhaUnicaHtml(t, nivel, colunas, true)).join('');
+    return;
+  }
   const raiz = projFilhosDe(null);
   if(raiz.length===0){ corpo.innerHTML = `<tr><td colspan="${colunas.length}" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma tarefa ainda.</td></tr>`; return; }
   corpo.innerHTML = raiz.map(t=>projTarefaLinhaHtml(t, 0, colunas)).join('');
 }
-function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, key){
+function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, key, semToggle){
   switch(key){
     case 'toggle':
-      return `<td>${filhos.length > 0 ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '+' : '−'}</button>` : ''}</td>`;
+      return `<td>${(!semToggle && filhos.length > 0) ? `<button type="button" class="orc-toggle" onclick="projAlternarColapso('${t.id}')">${colapsada ? '+' : '−'}</button>` : ''}</td>`;
     case 'numero':
       return `<td style="text-align:center;color:var(--muted);">${numero}</td>`;
     case 'edt':
@@ -9231,7 +9298,12 @@ function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, ke
       return '<td></td>';
   }
 }
-function projTarefaLinhaHtml(t, nivel, colunas){
+// linha única (sem recursão nos filhos) — usada tanto pela árvore normal
+// (projTarefaLinhaHtml) quanto pela lista achatada por filtro de coluna
+// (renderTabelaTarefas), que já resolveu a ordem/nível pela EDT e não
+// precisa (nem quer, já que não vai mostrar os filhos logo abaixo) do
+// botão de recolher/expandir
+function projTarefaLinhaUnicaHtml(t, nivel, colunas, semToggle){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
   const numero = projTarefaNumeros.get(String(t.id)) || '';
@@ -9240,8 +9312,13 @@ function projTarefaLinhaHtml(t, nivel, colunas){
     .filter(n=>n!==undefined)
     .sort((a,b)=>a-b)
     .join(',');
-  const celulas = colunas.map(c=>projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, c.key)).join('');
-  const linha = `<tr class="status-${statusSlug(t.status)}${filhos.length>0?' proj-tarefa-mae':''}" data-id="${t.id}">${celulas}</tr>`;
+  const celulas = colunas.map(c=>projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, c.key, semToggle)).join('');
+  return `<tr class="status-${statusSlug(t.status)}${filhos.length>0?' proj-tarefa-mae':''}" data-id="${t.id}">${celulas}</tr>`;
+}
+function projTarefaLinhaHtml(t, nivel, colunas){
+  const filhos = projFilhosDe(t.id);
+  const colapsada = projTarefaColapsadas.has(t.id);
+  const linha = projTarefaLinhaUnicaHtml(t, nivel, colunas);
   const filhosHtml = (!colapsada && filhos.length > 0) ? filhos.map(f=>projTarefaLinhaHtml(f, nivel+1, colunas)).join('') : '';
   return linha + filhosHtml;
 }
@@ -12363,12 +12440,26 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
   document.getElementById('projTarefasTabelaCabecalho').addEventListener('pointerdown', e=>{
     if(e.target.closest('.proj-col-resizer')) return;
+    if(e.target.closest('.lista-th-filtro-wrap')) return; // clique no ▾ de filtro não inicia arrastar
     const th = e.target.closest('th[data-col]');
     if(!th) return;
     const col = PROJ_COLUNAS_TAREFAS.find(c=>c.key===th.dataset.col);
     if(!col || col.semResize) return;
     projIniciarDragColunaTarefas(e, th);
   });
+  document.getElementById('projFiltroColunaPortal').addEventListener('click', e=>{
+    const item = e.target.closest('.lista-filtro-coluna-item');
+    if(!item) return;
+    const campo = item.dataset.campo;
+    const valor = item.dataset.valor;
+    const set = projFiltrosColuna[campo] || (projFiltrosColuna[campo] = new Set());
+    if(valor === '') set.clear();
+    else if(set.has(valor)) set.delete(valor);
+    else set.add(valor);
+    projFecharFiltroColuna();
+    renderTabelaTarefas();
+  });
+  document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap') && !e.target.closest('#projFiltroColunaPortal')) projFecharFiltroColuna(); });
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
