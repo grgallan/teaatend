@@ -10238,9 +10238,13 @@ function renderAtendimentosVinculadosProjeto(){
   wrap.innerHTML = projetoAtendimentoIds.map(id=>{
     const r = atendimentos.find(x=>String(x.id)===String(id));
     if(!r) return `<div class="item">#${escaparHtml(String(id))} — atendimento não encontrado</div>`;
-    return `<div style="position:relative;">
-      <button type="button" class="ghost" style="position:absolute;top:8px;right:8px;z-index:2;width:auto;padding:4px 10px;font-size:11px;" title="Desvincular do projeto" onclick="event.stopPropagation();projRemoverVinculoAtendimento('${id}')">✕ Desvincular</button>
-      ${renderLinhaComVinculos(r, ctx)}
+    // botão fica ao lado do card (não sobreposto) — o próprio ".item" já
+    // vira uma linha flex em telas largas (ver CSS de #listaItens), então
+    // um wrapper flex externo alinha os dois sem entrar em conflito com o
+    // layout interno do card em nenhuma largura de tela
+    return `<div style="display:flex;align-items:flex-start;gap:8px;">
+      <button type="button" class="ghost" style="flex:none;width:auto;padding:6px 10px;font-size:11px;margin-top:2px;" title="Desvincular do projeto" onclick="event.stopPropagation();projRemoverVinculoAtendimento('${id}')">✕ Desvincular</button>
+      <div style="flex:1;min-width:0;">${renderLinhaComVinculos(r, ctx)}</div>
     </div>`;
   }).join('');
 }
