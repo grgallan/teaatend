@@ -922,6 +922,13 @@
     #printProjetoTarefas .proj-print-tabela th{text-align:left;background:#f2f2f2 !important;padding:6px 8px;font-size:9.5px;text-transform:uppercase;letter-spacing:.03em;color:#555;border-bottom:2px solid #ccc;}
     #printProjetoTarefas .proj-print-tabela th.num, #printProjetoTarefas .proj-print-tabela td.num{text-align:right;}
     #printProjetoTarefas .proj-print-tabela td{padding:5px 8px;font-size:10.5px;color:#111;border-bottom:1px solid #e8e8e8;white-space:pre;}
+
+    /* mapa mental: reaproveita o HTML já renderizado na tela (nós + SVG das
+       linhas), só envolvido num wrapper com escala ajustável (perguntada
+       antes de gerar) — o organograma pode ficar bem maior que uma folha */
+    body.print-modo-projeto-mapa .view{display:none !important;}
+    body.print-modo-projeto-mapa #printProjetoMapa{display:block !important;}
+    #printProjetoMapa .proj-print-mapa-wrap{transform-origin:top left;}
   }
 </style>
 </head>
@@ -1032,6 +1039,7 @@
   <div id="printHeader"></div>
   <div id="printOrcamento"></div>
   <div id="printProjetoTarefas"></div>
+  <div id="printProjetoMapa"></div>
   <div class="install-banner" id="installBanner">
     <span>Instale este app na tela inicial para usar offline.</span>
     <button id="installBtn">Instalar</button>
@@ -1835,6 +1843,7 @@
           </div>
           <button type="button" class="ghost" id="btnProjTarefasPdf" style="width:auto;padding:8px 14px;">🖨 Gerar PDF</button>
           <button type="button" class="ghost" id="btnProjTarefasExcel" style="width:auto;padding:8px 14px;">📊 Gerar Excel</button>
+          <label class="ghost" style="width:auto;padding:8px 14px;margin:0;cursor:pointer;display:inline-flex;align-items:center;">📥 Importar Excel<input type="file" id="projImportarTarefasArquivo" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style="display:none;"></label>
         </div>
         <div class="proj-tarefas-tabela-wrap">
           <table class="orc-tabela proj-tarefas-tabela" id="projTarefasTabela">
@@ -1858,6 +1867,9 @@
       </div>
 
       <div class="proj-sub-view" id="proj-sub-mapa" style="display:none;">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+          <button type="button" class="ghost" id="btnProjMapaPdf" style="width:auto;padding:8px 14px;">🖨 Gerar PDF</button>
+        </div>
         <div id="projMapaMentalWrap" style="overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel);"></div>
       </div>
 
