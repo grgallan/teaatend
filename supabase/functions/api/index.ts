@@ -2536,12 +2536,20 @@ async function recalcularEPersistirProjeto(projetoId: string) {
 }
 
 async function acaoListarProjetos(req: any) {
-  const { data: conta } = await db.from('contas').select('perfil').eq('id', req.contaId).maybeSingle();
+  const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
   if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
-  if (conta.perfil === 'USUARIO') return { ok: true, projetos: [] }; // ferramenta interna da equipe
+  // ferramenta interna da equipe — usuário comum não acessa; o administrador
+  // do cliente é uma exceção (igual atendimentos/agendamentos/atividades),
+  // só vendo os projetos do próprio cliente (filtrado logo abaixo)
+  if (conta.perfil === 'USUARIO' && !(conta.admin_cliente && conta.cliente_id)) return { ok: true, projetos: [] };
 
   let query = db.from('projetos').select('*').order('criado_em', { ascending: false });
   if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  if (conta.perfil === 'USUARIO') {
+    const { data: clienteInfo } = await db.from('clientes').select('nome').eq('id', conta.cliente_id).maybeSingle();
+    if (!clienteInfo) return { ok: true, projetos: [] };
+    query = query.eq('cliente', clienteInfo.nome);
+  }
   const { data, error } = await query;
   if (error) return { ok: false, erro: error.message };
   const projetos = data || [];
