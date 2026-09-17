@@ -10162,11 +10162,23 @@ function renderDashboardProjeto(){
   const proximasTarefas = tarefas.filter(t=>t.dataFim && t.status!=='CONCLUÍDA').sort((a,b)=>String(a.dataFim).localeCompare(String(b.dataFim))).slice(0,5);
 
   // tarefas agrupadas por Segmento/Módulo/Rotina — mesmo formato de barras
-  // já usado em "Tarefas por status", limitado aos 8 mais frequentes cada
+  // já usado em "Tarefas por status", limitado aos 8 mais frequentes cada;
+  // cada grupo também traz o % concluída médio (ponderado pela Duração,
+  // mesmo critério do quadro "Percentual de conclusão" acima)
   function projContagemPorCampo(campo, semInfo){
-    const contagem = {};
-    tarefas.forEach(t=>{ const chave = t[campo] || semInfo; contagem[chave] = (contagem[chave]||0) + 1; });
-    return Object.entries(contagem).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const grupos = {};
+    tarefas.forEach(t=>{
+      const chave = t[campo] || semInfo;
+      const g = grupos[chave] || (grupos[chave] = { qtd:0, somaPeso:0, somaPonderada:0 });
+      g.qtd++;
+      const peso = t.duracaoDias || 1;
+      g.somaPeso += peso;
+      g.somaPonderada += peso * (t.percentualConcluido || 0);
+    });
+    return Object.entries(grupos)
+      .map(([nome,g])=>[nome, g.qtd, g.somaPeso>0 ? Math.round(g.somaPonderada/g.somaPeso) : 0])
+      .sort((a,b)=>b[1]-a[1])
+      .slice(0,8);
   }
   const porSegmento = projContagemPorCampo('segmento', '(sem segmento)');
   const porModulo = projContagemPorCampo('modulo', '(sem módulo)');
@@ -10176,12 +10188,12 @@ function renderDashboardProjeto(){
     return `
     <div class="proj-dash-secao">
       <h3>${escaparHtml(titulo)}</h3>
-      ${entradas.map(([nome,qtd])=>{
+      ${entradas.map(([nome,qtd,pctConclusao])=>{
         const pct = totalTarefas>0 ? Math.round((qtd/totalTarefas)*100) : 0;
         return `<div class="proj-dash-barra-linha">
           <div class="proj-dash-barra-label">${escaparHtml(nome)}</div>
           <div class="proj-dash-barra-trilha"><div class="proj-dash-barra-fill" style="width:${pct}%;background:var(--accent);"></div></div>
-          <div class="proj-dash-barra-valor">${qtd} (${pct}%)</div>
+          <div class="proj-dash-barra-valor" style="width:150px;">${qtd} tarefa(s) · ${pctConclusao}% concl.</div>
         </div>`;
       }).join('')}
     </div>`;
