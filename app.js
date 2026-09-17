@@ -8690,6 +8690,7 @@ function limparFormProjeto(){
   document.getElementById('proj_data_inicio').value = '';
   document.getElementById('proj_data_prevista_fim').value = '';
   projDefinirDiasTrabalhoForm(PROJ_DIAS_TRABALHO_PADRAO);
+  document.getElementById('proj_publico').checked = false;
   document.getElementById('btnSalvarProjeto').textContent = 'Salvar projeto';
   document.getElementById('btnCancelarEdicaoProjeto').style.display = 'none';
   const conta = contaAtual();
@@ -8711,6 +8712,7 @@ function editarProjetoUi(id){
   document.getElementById('proj_data_inicio').value = p.dataInicio || '';
   document.getElementById('proj_data_prevista_fim').value = p.dataPrevistaFim || '';
   projDefinirDiasTrabalhoForm(p.diasTrabalho);
+  document.getElementById('proj_publico').checked = !!p.publico;
   document.getElementById('btnSalvarProjeto').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoProjeto').style.display = '';
   document.getElementById('cardFormProjeto').scrollIntoView({ behavior:'smooth', block:'start' });
@@ -8731,6 +8733,7 @@ async function salvarProjeto(){
     dataInicio: document.getElementById('proj_data_inicio').value,
     dataPrevistaFim: document.getElementById('proj_data_prevista_fim').value,
     diasTrabalho,
+    publico: document.getElementById('proj_publico').checked,
     empresaId: empresaAtual ? empresaAtual.id : '',
   };
   const btn = document.getElementById('btnSalvarProjeto');
@@ -8769,6 +8772,7 @@ function renderListaProjetos(){
         </div>
         <div class="proj-card-acoes" onclick="event.stopPropagation();">
           <span class="tag status-${statusSlug(p.status)}">${escaparHtml(p.status)}</span>
+          <span class="tag" style="${p.publico?'color:var(--ok);':'color:var(--muted);'}" title="${p.publico?'Todos os usuários do cliente veem esse projeto':'Só o administrador do cliente vê completo; os demais só veem as próprias tarefas'}">${p.publico?'🌐 Público':'🔒 Não público'}</span>
           <button class="ghost" onclick="editarProjetoUi('${p.id}')">Editar</button>
           <button class="danger" onclick="removerProjetoUi('${p.id}')">Remover</button>
         </div>
@@ -8782,7 +8786,8 @@ function renderListaProjetos(){
 }
 
 async function abrirProjetoDetalhe(id){
-  const r = await api('obterProjeto', { id });
+  const conta = contaAtual();
+  const r = await api('obterProjeto', { id, contaId: conta.id });
   if(!r.ok){ toast(r.erro || 'Não foi possível abrir o projeto.'); return; }
   projetoAtualId = id;
   projetoAtual = r.projeto;
@@ -8854,10 +8859,20 @@ function goProjSub(sub){
 function nomesAtendentesSistema(){
   return contas.filter(c=>c.perfil==='ATENDENTE');
 }
+// usuários (contas USUARIO) vinculados ao MESMO cliente do projeto aberto —
+// é quem pode ser marcado como "É um usuário do cliente" num recurso, pra
+// restringir quais tarefas ele vê quando o projeto não é público
+function nomesUsuariosDoCliente(){
+  if(!projetoAtual || !projetoAtual.cliente) return [];
+  const cliente = clientes.find(cl=>cl.nome===projetoAtual.cliente);
+  if(!cliente) return [];
+  return contas.filter(c=>c.perfil==='USUARIO' && String(c.clienteId||'')===String(cliente.id));
+}
 function renderRecursosCadastroProjeto(){
   const corpo = document.getElementById('projRecursosCadastroCorpo');
   const atendentes = nomesAtendentesSistema();
-  if(projRecursosCadastro.length===0){ corpo.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso cadastrado.</td></tr>`; return; }
+  const usuarios = nomesUsuariosDoCliente();
+  if(projRecursosCadastro.length===0){ corpo.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso cadastrado.</td></tr>`; return; }
   corpo.innerHTML = projRecursosCadastro.map(r=>`
     <tr>
       <td><input type="text" value="${escaparHtml(r.nome)}" onblur="projRecursoCadastroSalvarCampo('${r.id}','nome',this.value)"></td>
@@ -8868,6 +8883,12 @@ function renderRecursosCadastroProjeto(){
           ${atendentes.map(c=>`<option value="${c.id}" ${String(c.id)===String(r.atendenteId||'')?'selected':''}>${escaparHtml(c.nome)}</option>`).join('')}
         </select>
       </td>
+      <td>
+        <select onchange="projRecursoCadastroSalvarCampo('${r.id}','usuarioId',this.value)">
+          <option value="">(não é usuário)</option>
+          ${usuarios.map(c=>`<option value="${c.id}" ${String(c.id)===String(r.usuarioId||'')?'selected':''}>${escaparHtml(c.nome)}</option>`).join('')}
+        </select>
+      </td>
       <td><button class="danger" onclick="projRecursoCadastroRemover('${r.id}')">🗑</button></td>
     </tr>`).join('');
 }
@@ -8876,16 +8897,21 @@ async function projRecursoCadastroAdicionar(){
   const custo = document.getElementById('projrec_custo').value;
   const ehAtendente = document.getElementById('projrec_eh_atendente').checked;
   const atendenteId = ehAtendente ? document.getElementById('projrec_atendente').value : '';
+  const ehUsuario = document.getElementById('projrec_eh_usuario').checked;
+  const usuarioId = ehUsuario ? document.getElementById('projrec_usuario').value : '';
   if(!nome){ toast('Informe o nome do recurso'); return; }
   if(ehAtendente && !atendenteId){ toast('Selecione o atendente vinculado'); return; }
+  if(ehUsuario && !usuarioId){ toast('Selecione o usuário vinculado'); return; }
   const conta = contaAtual();
-  const r = await api('criarRecursoProjeto', { projetoId: projetoAtualId, nome, custo, atendenteId, contaId: conta.id });
+  const r = await api('criarRecursoProjeto', { projetoId: projetoAtualId, nome, custo, atendenteId, usuarioId, contaId: conta.id });
   if(!r.ok){ toast(r.erro || 'Não foi possível adicionar.'); return; }
-  projRecursosCadastro.push({ id: r.id, projetoId: projetoAtualId, nome, custo: parseFloat(custo)||0, atendenteId: atendenteId || '' });
+  projRecursosCadastro.push({ id: r.id, projetoId: projetoAtualId, nome, custo: parseFloat(custo)||0, atendenteId: atendenteId || '', usuarioId: usuarioId || '' });
   document.getElementById('projrec_nome').value = '';
   document.getElementById('projrec_custo').value = '';
   document.getElementById('projrec_eh_atendente').checked = false;
   document.getElementById('projrec_atendente').style.display = 'none';
+  document.getElementById('projrec_eh_usuario').checked = false;
+  document.getElementById('projrec_usuario').style.display = 'none';
   renderRecursosCadastroProjeto();
 }
 async function projRecursoCadastroSalvarCampo(id, campo, valor){
@@ -9575,7 +9601,7 @@ async function importarExcelTarefasProjeto(arquivo){
       await api('atualizarTarefa', { id, contaId: conta.id, predecessorasIds: ids });
     }
 
-    const rFinal = await api('obterProjeto', { id: projetoAtualId });
+    const rFinal = await api('obterProjeto', { id: projetoAtualId, contaId: conta.id });
     if(rFinal.ok) projetoTarefas = rFinal.tarefas || [];
     toast(falharam>0 ? `${criadas} tarefa(s) importada(s), ${falharam} falharam.` : `${criadas} tarefa(s) importada(s) com sucesso.`);
     renderTabelaTarefas();
@@ -12663,6 +12689,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const sel = document.getElementById('projrec_atendente');
     sel.style.display = e.target.checked ? '' : 'none';
     if(e.target.checked) sel.innerHTML = nomesAtendentesSistema().map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
+  });
+  document.getElementById('projrec_eh_usuario').addEventListener('change', e=>{
+    const sel = document.getElementById('projrec_usuario');
+    sel.style.display = e.target.checked ? '' : 'none';
+    if(e.target.checked) sel.innerHTML = nomesUsuariosDoCliente().map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
   });
   document.getElementById('btnPitAddPredecessora').addEventListener('click', projPitAdicionarPredecessora);
   document.getElementById('btnPitAddRecurso').addEventListener('click', projPitAdicionarRecurso);

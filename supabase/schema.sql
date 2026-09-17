@@ -1050,7 +1050,12 @@ create table if not exists projetos (
   -- dias da semana em que se trabalha pra esse cliente (0=domingo...6=sábado,
   -- igual Date.getUTCDay()); usado pelo cálculo de Duração/Início/Término das
   -- tarefas do projeto, que ignora qualquer dia fora dessa lista
-  dias_trabalho integer[] not null default '{1,2,3,4,5}'
+  dias_trabalho integer[] not null default '{1,2,3,4,5}',
+  -- projeto público: TODOS os usuários (USUARIO) vinculados ao cliente do
+  -- projeto veem o projeto inteiro; não público: só o administrador do
+  -- cliente vê completo — usuário comum só vê as tarefas em que ele mesmo
+  -- é um recurso atribuído (ver projeto_recursos_cadastro.usuario_id)
+  publico boolean not null default false
 );
 alter table projetos enable row level security;
 create index if not exists idx_projetos_empresa on projetos (empresa_id);
@@ -1172,6 +1177,13 @@ create unique index if not exists idx_proj_recursos_cadastro_unico on projeto_re
 -- automaticamente vinculado a este projeto
 alter table projeto_recursos_cadastro add column if not exists atendente_id text references contas(id);
 create index if not exists idx_proj_recursos_cadastro_atendente on projeto_recursos_cadastro (atendente_id);
+
+-- mesma ideia, mas vinculando o recurso a uma conta USUARIO (o cliente) em
+-- vez de ATENDENTE — é o que permite um projeto NÃO público mostrar só as
+-- tarefas daquele usuário quando ele mesmo abre o projeto (ver
+-- acaoObterProjeto/acaoListarProjetos)
+alter table projeto_recursos_cadastro add column if not exists usuario_id text references contas(id);
+create index if not exists idx_proj_recursos_cadastro_usuario on projeto_recursos_cadastro (usuario_id);
 
 -- =========================================================
 -- Segmento/Módulo/Rotina na tarefa (mesmo padrão de atendimentos — texto
