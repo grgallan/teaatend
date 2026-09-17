@@ -9437,6 +9437,114 @@ async function gerarExcelTarefasProjeto(){
     .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') + '.xlsx';
   await salvarWorkbook(livro, nomeArquivo);
 }
+
+/* ---------- importar tarefas de uma planilha Excel — espelha exatamente o
+   "Gerar Excel" acima: mesmos rótulos de coluna (PROJ_COLUNAS_TAREFAS),
+   hierarquia pela indentação de "Nome da tarefa" (2 espaços por nível,
+   igual projValorColunaTexto escreve) e Predecessoras por número (igual a
+   coluna exportada). Cada linha vira uma tarefa NOVA — não atualiza nem
+   casa com tarefas já existentes no projeto. ---------- */
+function projNormalizarCabecalhoImportacao(s){
+  return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+function projParseDataBrParaIso(txt){
+  const m = String(txt||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(!m) return '';
+  const [,d,mo,y] = m;
+  return `${y}-${mo.padStart(2,'0')}-${d.padStart(2,'0')}`;
+}
+async function importarExcelTarefasProjeto(arquivo){
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o leitor de Excel. Confira sua internet.'); return; }
+  if(!projetoAtual) return;
+
+  let linhas;
+  try{
+    const wb = XLSX.read(await arquivo.arrayBuffer(), { type:'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    linhas = XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' });
+  }catch(e){
+    toast('Não foi possível ler o arquivo. Confira se é um .xlsx válido.');
+    return;
+  }
+  if(linhas.length < 2){ toast('Planilha vazia ou sem dados.'); return; }
+
+  const colunasPorLabel = new Map(PROJ_COLUNAS_TAREFAS.filter(c=>c.label).map(c=>[projNormalizarCabecalhoImportacao(c.label), c.key]));
+  const chavesColuna = linhas[0].map(h=>colunasPorLabel.get(projNormalizarCabecalhoImportacao(h)) || null);
+  const idxNome = chavesColuna.indexOf('nome');
+  if(idxNome < 0){ toast('A planilha precisa ter a coluna "Nome da tarefa" (mesmo cabeçalho gerado pelo "Gerar Excel").'); return; }
+
+  pedirConfirmacao('Importar tarefas do Excel?', 'Cada linha da planilha vira uma tarefa nova — não atualiza nem substitui as tarefas que já existem nesse projeto.', async ()=>{
+    const conta = contaAtual();
+    const paiPorNivel = {};
+    const numeroParaId = {};
+    const predecessorasPendentes = [];
+    let criadas = 0, falharam = 0;
+
+    for(let i=1;i<linhas.length;i++){
+      const linha = linhas[i];
+      const brutoNome = String(linha[idxNome] ?? '');
+      if(!brutoNome.trim()) continue;
+
+      const nivel = Math.floor((brutoNome.match(/^ */)[0].length)/2);
+      const titulo = brutoNome.trim();
+      const campos = {};
+      chavesColuna.forEach((chave, idx)=>{
+        if(!chave || chave==='nome') return;
+        campos[chave] = String(linha[idx] ?? '').trim();
+      });
+
+      const payload = {
+        projetoId: projetoAtualId, contaId: conta.id, titulo,
+        tarefaPaiId: nivel>0 ? (paiPorNivel[nivel-1]||'') : '',
+        // MANUAL por padrão: preserva as datas literais da planilha; só vira
+        // AUTOMÁTICO se a própria linha tiver "Automático" na coluna Modo
+        modo: 'MANUAL',
+      };
+      if(campos.status !== undefined) payload.status = PROJ_TAREFA_STATUS.includes(campos.status) ? campos.status : 'A FAZER';
+      if(campos.inativa !== undefined) payload.inativa = campos.inativa.toLowerCase()==='sim';
+      if(campos.segmento !== undefined) payload.segmento = campos.segmento;
+      if(campos.modulo !== undefined) payload.modulo = campos.modulo;
+      if(campos.submodulo !== undefined) payload.submodulo = campos.submodulo;
+      if(campos.prioridade !== undefined) payload.prioridade = parseInt(campos.prioridade,10) || 500;
+      if(campos.modo !== undefined) payload.modo = campos.modo.toLowerCase()==='manual' ? 'MANUAL' : 'AUTOMÁTICO';
+      if(campos.duracao !== undefined) payload.duracaoDias = parseInt(campos.duracao,10) || 1;
+      if(campos.duracaoEstimada !== undefined) payload.duracaoEstimada = campos.duracaoEstimada.toLowerCase()==='sim';
+      if(campos.inicio !== undefined) payload.dataInicio = projParseDataBrParaIso(campos.inicio);
+      if(campos.termino !== undefined) payload.dataFim = projParseDataBrParaIso(campos.termino);
+      if(campos.anotacoes !== undefined) payload.descricao = campos.anotacoes;
+      if(campos.percentual !== undefined) payload.percentualConcluido = parseInt(campos.percentual,10) || 0;
+      if(campos.recursos !== undefined) payload.responsavel = campos.recursos;
+
+      const r = await api('criarTarefa', payload);
+      if(!r.ok){ falharam++; continue; }
+      criadas++;
+      paiPorNivel[nivel] = r.id;
+      Object.keys(paiPorNivel).forEach(n=>{ if(Number(n) > nivel) delete paiPorNivel[n]; });
+
+      const numeroPlanilha = campos.numero !== undefined ? parseInt(campos.numero,10) : i;
+      if(Number.isFinite(numeroPlanilha)) numeroParaId[numeroPlanilha] = r.id;
+      if(campos.predecessoras) predecessorasPendentes.push({ id: r.id, texto: campos.predecessoras });
+    }
+
+    // predecessoras num segundo passo — precisam de todas as tarefas já
+    // criadas pra resolver "número da planilha" -> id novo de verdade
+    for(const { id, texto } of predecessorasPendentes){
+      const ids = [...new Set(texto.split(',').map(s=>s.trim()).filter(Boolean).map(s=>parseInt(s,10)).filter(Number.isFinite).map(n=>numeroParaId[n]).filter(Boolean))];
+      if(ids.length===0) continue;
+      await api('atualizarTarefa', { id, contaId: conta.id, predecessorasIds: ids });
+    }
+
+    const rFinal = await api('obterProjeto', { id: projetoAtualId });
+    if(rFinal.ok) projetoTarefas = rFinal.tarefas || [];
+    toast(falharam>0 ? `${criadas} tarefa(s) importada(s), ${falharam} falharam.` : `${criadas} tarefa(s) importada(s) com sucesso.`);
+    renderTabelaTarefas();
+    if(projSubAba==='kanban') renderKanbanProjeto();
+    else if(projSubAba==='gantt') renderGanttProjeto();
+    else if(projSubAba==='mapa') renderMapaMentalProjeto();
+    else if(projSubAba==='dashboard') renderDashboardProjeto();
+  }, 'Importar');
+}
+
 function projAlternarColapso(id){
   if(projTarefaColapsadas.has(id)) projTarefaColapsadas.delete(id);
   else projTarefaColapsadas.add(id);
@@ -10229,6 +10337,22 @@ function renderMapaMentalProjeto(){
       ${nodesHtml}
     </div>
   `;
+}
+
+// gera o PDF do organograma reaproveitando o HTML já renderizado na tela
+// (nós + SVG das linhas) — só pede uma escala antes, já que a árvore pode
+// ficar bem mais larga/alta que uma folha impressa
+function gerarPdfMapaMentalProjeto(){
+  if(!projetoAtual) return;
+  const wrap = document.getElementById('projMapaMentalWrap');
+  if(!wrap || !wrap.firstElementChild){ toast('Nenhuma tarefa pra gerar o mapa mental.'); return; }
+  const escalaTexto = prompt('Escala do mapa mental na impressão (% do tamanho atual):', '100');
+  if(escalaTexto === null) return;
+  const escala = Math.min(300, Math.max(10, parseInt(escalaTexto, 10) || 100)) / 100;
+  document.getElementById('printProjetoMapa').innerHTML = `<div class="proj-print-mapa-wrap" style="transform:scale(${escala});">${wrap.innerHTML}</div>`;
+  document.body.classList.add('print-modo-projeto-mapa');
+  window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-projeto-mapa'); }, { once:true });
+  prepararImpressao(`Mapa Mental — ${projetoAtual.nome}`, '');
 }
 
 /* ---------- vínculo do projeto com atendimentos existentes (muitos-pra-
@@ -12522,6 +12646,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
   document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
+  document.getElementById('projImportarTarefasArquivo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    if(arquivo) importarExcelTarefasProjeto(arquivo);
+    e.target.value = '';
+  });
+  document.getElementById('btnProjMapaPdf').addEventListener('click', gerarPdfMapaMentalProjeto);
   document.getElementById('projTarefasTabelaCabecalho').addEventListener('pointerdown', e=>{
     if(e.target.closest('.proj-col-resizer')) return;
     if(e.target.closest('.lista-th-filtro-wrap')) return; // clique no ▾ de filtro não inicia arrastar
