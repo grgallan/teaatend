@@ -9421,16 +9421,57 @@ function gerarPdfTarefasProjeto(){
   window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-projeto-tarefas'); }, { once:true });
   prepararImpressao(`Tarefas — ${projetoAtual.nome}`, '');
 }
+// cores de status igual ao "bom/neutro" clássico do próprio Excel — mesma
+// leitura visual da bateria colorida da tela (verde concluída, amarelo em
+// andamento), só que como preenchimento de célula em vez de barra
+function projCorExcelPorStatus(status){
+  if(status==='CONCLUÍDA') return { fill:'C6EFCE', texto:'006100' };
+  if(status==='EM ANDAMENTO') return { fill:'FFEB9C', texto:'9C6500' };
+  return null;
+}
 async function gerarExcelTarefasProjeto(){
   if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
   if(!projetoAtual) return;
   projNumerarTarefas();
   const colunas = colunasVisiveisTarefas().filter(c=>!c.semExportar);
-  const linhas = [colunas.map(c=>c.label)];
-  projTarefasListaLinear().forEach(({t,nivel})=>{
-    linhas.push(colunas.map(c=>projValorColunaTexto(t, c.key, c.key==='nome'?nivel:0)));
+  const linhasTarefas = projTarefasListaLinear();
+
+  const aoa = [colunas.map(c=>c.label)];
+  linhasTarefas.forEach(({t,nivel})=>{
+    aoa.push(colunas.map(c=>projValorColunaTexto(t, c.key, c.key==='nome'?nivel:0)));
   });
-  const planilha = XLSX.utils.aoa_to_sheet(linhas);
+  const planilha = XLSX.utils.aoa_to_sheet(aoa);
+
+  // cabeçalho: negrito branco sobre fundo escuro, igual um relatório de
+  // verdade (a tela usa cinza claro, mas aqui destaca mais o topo fixo)
+  colunas.forEach((c, idx)=>{
+    const cel = planilha[XLSX.utils.encode_cell({ r:0, c:idx })];
+    if(cel) cel.s = { font:{ bold:true, color:{ rgb:'FFFFFF' } }, fill:{ fgColor:{ rgb:'305496' } }, alignment:{ vertical:'center' } };
+  });
+
+  // linhas: tarefa-mãe em negrito + fundo cinza (igual a tabela na tela) e
+  // a célula de Status colorida por status (igual a bateria/tag da tela)
+  linhasTarefas.forEach(({t}, i)=>{
+    const linha = i + 1; // +1 porque a linha 0 é o cabeçalho
+    const ehMae = projFilhosDe(t.id).length > 0;
+    const corStatus = projCorExcelPorStatus(t.status);
+    colunas.forEach((c, idx)=>{
+      const cel = planilha[XLSX.utils.encode_cell({ r:linha, c:idx })];
+      if(!cel) return;
+      const estilo = {};
+      if(ehMae) estilo.fill = { fgColor:{ rgb:'F2F2F2' } };
+      if(ehMae) estilo.font = { bold:true };
+      if(c.key==='status' && corStatus){
+        estilo.fill = { fgColor:{ rgb: corStatus.fill } };
+        estilo.font = { ...(estilo.font||{}), color:{ rgb: corStatus.texto } };
+      }
+      if(Object.keys(estilo).length>0) cel.s = estilo;
+    });
+  });
+
+  // largura de coluna proporcional à largura em pixels usada na tela
+  planilha['!cols'] = colunas.map(c=>({ wch: Math.max(6, Math.round((c.largura||100)/7)) }));
+
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, planilha, 'Tarefas');
   const nomeArquivo = ('tarefas-' + projetoAtual.nome)

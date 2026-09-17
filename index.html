@@ -2863,7 +2863,11 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- xlsx-js-style: fork da SheetJS com a mesma API (XLSX.read/utils/writeFile
+     etc.), mas que também GRAVA estilo de célula (negrito, cor de fundo/
+     texto) — a SheetJS "Community Edition" original só grava valores, sem
+     estilo, na versão gratuita -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
