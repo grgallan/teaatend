@@ -8836,7 +8836,7 @@ function goProjSub(sub){
   }
   else if(sub==='mapa') renderMapaMentalProjeto();
   else if(sub==='recursos') renderRecursosCadastroProjeto();
-  else if(sub==='atendimentos') renderVinculosProjetoChips();
+  else if(sub==='atendimentos') renderAtendimentosVinculadosProjeto();
   else if(sub==='anexos') carregarAnexosProjeto(projetoAtualId);
 }
 
@@ -10004,6 +10004,32 @@ function renderDashboardProjeto(){
 
   const proximasTarefas = tarefas.filter(t=>t.dataFim && t.status!=='CONCLUÍDA').sort((a,b)=>String(a.dataFim).localeCompare(String(b.dataFim))).slice(0,5);
 
+  // tarefas agrupadas por Segmento/Módulo/Rotina — mesmo formato de barras
+  // já usado em "Tarefas por status", limitado aos 8 mais frequentes cada
+  function projContagemPorCampo(campo, semInfo){
+    const contagem = {};
+    tarefas.forEach(t=>{ const chave = t[campo] || semInfo; contagem[chave] = (contagem[chave]||0) + 1; });
+    return Object.entries(contagem).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  }
+  const porSegmento = projContagemPorCampo('segmento', '(sem segmento)');
+  const porModulo = projContagemPorCampo('modulo', '(sem módulo)');
+  const porRotina = projContagemPorCampo('submodulo', '(sem rotina)');
+  function projSecaoContagemHtml(titulo, entradas){
+    if(totalTarefas===0 || entradas.length===0) return '';
+    return `
+    <div class="proj-dash-secao">
+      <h3>${escaparHtml(titulo)}</h3>
+      ${entradas.map(([nome,qtd])=>{
+        const pct = totalTarefas>0 ? Math.round((qtd/totalTarefas)*100) : 0;
+        return `<div class="proj-dash-barra-linha">
+          <div class="proj-dash-barra-label">${escaparHtml(nome)}</div>
+          <div class="proj-dash-barra-trilha"><div class="proj-dash-barra-fill" style="width:${pct}%;background:var(--accent);"></div></div>
+          <div class="proj-dash-barra-valor">${qtd} (${pct}%)</div>
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
   // percentual de conclusão real do projeto: média dos % concluída
   // ponderada pela Duração de cada tarefa-folha (tarefa sem subtarefa —
   // quem tem filha já é um rollup dessas mesmas folhas, então entraria
@@ -10051,6 +10077,10 @@ function renderDashboardProjeto(){
         </div>`;
       }).join('')}
     </div>
+
+    ${projSecaoContagemHtml('Tarefas por Segmento', porSegmento)}
+    ${projSecaoContagemHtml('Tarefas por Módulo', porModulo)}
+    ${projSecaoContagemHtml('Tarefas por Rotina', porRotina)}
 
     ${topRecursos.length > 0 ? `
     <div class="proj-dash-secao">
@@ -10186,13 +10216,32 @@ function renderMapaMentalProjeto(){
 }
 
 /* ---------- vínculo do projeto com atendimentos existentes (muitos-pra-
-   muitos, mesmo padrão de vínculo de Atividades) ---------- */
-function renderVinculosProjetoChips(){
-  const wrap = document.getElementById('projVinculoChipWrap');
+   muitos, mesmo padrão de vínculo de Atividades) — cada atendimento
+   vinculado aparece com a mesma carta/card usado na visão de Atendimentos
+   (renderLinhaComVinculos), só com um botão a mais pra desvincular do
+   projeto sem excluir o atendimento ---------- */
+function renderAtendimentosVinculadosProjeto(){
+  const wrap = document.getElementById('projAtendimentosVinculadosLista');
+  if(projetoAtendimentoIds.length===0){ wrap.innerHTML = `<div class="empty" style="padding:24px 0;"><div class="big">🗂️</div>Nenhum atendimento vinculado.</div>`; return; }
+
+  const conta = contaAtual();
+  const podeEditar = conta && conta.perfil !== 'USUARIO';
+  const isUsuario = conta && conta.perfil === 'USUARIO';
+  const verValores = podeVerValores();
+  const isAdmin = ehAdminEfetivo(conta);
+  const permAt = permissaoMenu(conta, 'atendimentos');
+  const podeEditarBtn = permAt ? permAt.editar : podeEditar;
+  const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
+  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn };
+  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn };
+
   wrap.innerHTML = projetoAtendimentoIds.map(id=>{
     const r = atendimentos.find(x=>String(x.id)===String(id));
-    const texto = r ? `#${escaparHtml(String(r.id))} — ${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}` : `#${escaparHtml(String(id))}`;
-    return `<span class="lookup-tag" style="cursor:pointer;" onclick="abrirDetalhe('${id}')">${texto}<button type="button" onclick="event.stopPropagation();projRemoverVinculoAtendimento('${id}')">×</button></span>`;
+    if(!r) return `<div class="item">#${escaparHtml(String(id))} — atendimento não encontrado</div>`;
+    return `<div style="position:relative;">
+      <button type="button" class="ghost" style="position:absolute;top:8px;right:8px;z-index:2;width:auto;padding:4px 10px;font-size:11px;" title="Desvincular do projeto" onclick="event.stopPropagation();projRemoverVinculoAtendimento('${id}')">✕ Desvincular</button>
+      ${renderLinhaComVinculos(r, ctx)}
+    </div>`;
   }).join('');
 }
 async function projRemoverVinculoAtendimento(atendimentoId){
@@ -10200,14 +10249,14 @@ async function projRemoverVinculoAtendimento(atendimentoId){
   const r = await api('desvincularAtendimentoProjeto', { projetoId: projetoAtualId, atendimentoId, contaId: conta.id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover o vínculo.'); return; }
   projetoAtendimentoIds = projetoAtendimentoIds.filter(x=>String(x)!==String(atendimentoId));
-  renderVinculosProjetoChips();
+  renderAtendimentosVinculadosProjeto();
 }
 async function projAdicionarVinculoAtendimento(atendimentoId){
   const conta = contaAtual();
   const r = await api('vincularAtendimentoProjeto', { projetoId: projetoAtualId, atendimentoId, contaId: conta.id });
   if(!r.ok){ toast(r.erro || 'Não foi possível vincular.'); return; }
   projetoAtendimentoIds.push(atendimentoId);
-  renderVinculosProjetoChips();
+  renderAtendimentosVinculadosProjeto();
 }
 
 /* ---------- anexos do projeto — tabela própria (projeto_anexos), mesmo
