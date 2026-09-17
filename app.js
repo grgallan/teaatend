@@ -9912,13 +9912,32 @@ function renderDashboardProjeto(){
 
   const proximasTarefas = tarefas.filter(t=>t.dataFim && t.status!=='CONCLUÍDA').sort((a,b)=>String(a.dataFim).localeCompare(String(b.dataFim))).slice(0,5);
 
+  // percentual de conclusão real do projeto: média dos % concluída
+  // ponderada pela Duração de cada tarefa-folha (tarefa sem subtarefa —
+  // quem tem filha já é um rollup dessas mesmas folhas, então entraria
+  // duplicada na conta)
+  const folhas = tarefas.filter(t=>projFilhosDe(t.id).length===0);
+  let somaPesoPct = 0, somaPonderadaPct = 0;
+  folhas.forEach(t=>{ const peso = t.duracaoDias||1; somaPesoPct += peso; somaPonderadaPct += peso*(t.percentualConcluido||0); });
+  const pctConclusaoReal = somaPesoPct>0 ? Math.round(somaPonderadaPct/somaPesoPct) : 0;
+  const corPctReal = pctConclusaoReal < 34 ? 'var(--bad)' : (pctConclusaoReal < 67 ? 'var(--warn)' : 'var(--ok)');
+
   cont.innerHTML = `
     <div class="proj-dash-saude" style="background:color-mix(in oklch, ${saudeCor} 15%, transparent);color:${saudeCor};">
       <span style="font-size:20px;">${saudeIcone}</span>
       <span>${escaparHtml(saudeTexto)}</span>
     </div>
 
-    <div class="proj-dash-grid" style="margin-top:14px;">
+    <div class="proj-dash-secao" style="margin-top:14px;">
+      <h3>Percentual de conclusão</h3>
+      <div class="proj-dash-pct-grande">
+        <div class="proj-dash-pct-numero" style="color:${corPctReal};">${pctConclusaoReal}%</div>
+        <div class="proj-dash-pct-trilha"><div class="proj-dash-pct-fill" style="width:${pctConclusaoReal}%;background:${corPctReal};"></div></div>
+      </div>
+      <div class="proj-dash-pct-sub">Média do % concluída das tarefas, ponderada pela duração de cada uma</div>
+    </div>
+
+    <div class="proj-dash-grid">
       <div class="proj-dash-tile"><div class="k">Status</div><div class="v" style="font-size:15px;">${escaparHtml(p.status)}</div></div>
       <div class="proj-dash-tile"><div class="k">Progresso geral</div><div class="v">${pctGeral}%</div><div class="sub">${concluidas}/${totalTarefas} tarefas</div></div>
       <div class="proj-dash-tile"><div class="k">${escaparHtml(prazoLabel)}</div><div class="v">${prazoTexto}</div><div class="sub">${prazoSub}</div></div>
