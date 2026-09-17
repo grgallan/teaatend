@@ -8815,7 +8815,12 @@ function fecharProjetoDetalhe(){
   projetoAtendimentoIds = [];
   projRecursosCadastro = [];
   document.getElementById('projetoDetalhe').style.display = 'none';
-  document.getElementById('cardFormProjeto').style.display = '';
+  // criar projeto é coisa de quem gerencia (ADMIN/ATENDENTE) — igual o
+  // backend já exige em podeGerenciarProjeto; administrador do cliente só
+  // acompanha os projetos do próprio cliente, não cria novos
+  const conta = contaAtual();
+  const podeCriarProjeto = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
+  document.getElementById('cardFormProjeto').style.display = podeCriarProjeto ? '' : 'none';
   document.getElementById('listaProjetos').style.display = '';
   // progresso (tarefasTotal/tarefasConcluidas) pode ter mudado enquanto o
   // projeto estava aberto — recarrega a lista pra refletir na volta
