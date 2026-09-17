@@ -1046,7 +1046,11 @@ create table if not exists projetos (
   data_conclusao date,
   criado_por text,
   criado_em timestamptz default now(),
-  empresa_id text references empresas(id)
+  empresa_id text references empresas(id),
+  -- dias da semana em que se trabalha pra esse cliente (0=domingo...6=sábado,
+  -- igual Date.getUTCDay()); usado pelo cálculo de Duração/Início/Término das
+  -- tarefas do projeto, que ignora qualquer dia fora dessa lista
+  dias_trabalho integer[] not null default '{1,2,3,4,5}'
 );
 alter table projetos enable row level security;
 create index if not exists idx_projetos_empresa on projetos (empresa_id);
