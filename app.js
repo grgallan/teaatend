@@ -10966,11 +10966,25 @@ async function recalcularValores(){
   }
 }
 
+// termo de busca da lista de usuários (Cadastros → Usuários) — cliente-side
+// só, já que a lista inteira já vem carregada; filtra por nome/login/
+// cliente/e-mail, sem diferenciar maiúsculas/acentos
+let usuariosBusca = '';
+function normalizarBuscaTexto(s){
+  return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+}
 function renderListUsuarios(){
   document.getElementById('us_cliente').innerHTML = clientes.map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
-  const lista = contas.filter(c=>c.perfil==='USUARIO');
+  let lista = contas.filter(c=>c.perfil==='USUARIO');
+  const termo = normalizarBuscaTexto(usuariosBusca.trim());
+  if(termo){
+    lista = lista.filter(u=>{
+      const cliente = clientes.find(c=>String(c.id)===String(u.clienteId))?.nome || '';
+      return [u.nome, u.login, cliente, u.email].some(v=>normalizarBuscaTexto(v).includes(termo));
+    });
+  }
   const el = document.getElementById('listUsuarios');
-  if(lista.length===0){ el.innerHTML = `<div class="empty">Nenhum usuário cadastrado.</div>`; return; }
+  if(lista.length===0){ el.innerHTML = `<div class="empty">${termo ? 'Nenhum usuário encontrado com esse filtro.' : 'Nenhum usuário cadastrado.'}</div>`; return; }
   el.innerHTML = lista.map(u=>{
     const cliente = clientes.find(c=>String(c.id)===String(u.clienteId))?.nome || '—';
     const contatos = linhaContatos(u.email, u.telefone);
@@ -12869,6 +12883,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     );
   });
 
+  document.getElementById('us_busca').addEventListener('input', e=>{ usuariosBusca = e.target.value; renderListUsuarios(); });
   document.getElementById('btnAddUsuario').addEventListener('click', async ()=>{
     const clienteId = document.getElementById('us_cliente').value;
     const nome = document.getElementById('us_nome').value.trim();
