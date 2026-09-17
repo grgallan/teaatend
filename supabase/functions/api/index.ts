@@ -177,10 +177,11 @@ function contaParaApi(c: any, comSenha = false, perfisAcessoIds: string[] = [], 
   return base;
 }
 
-// menus válidos pra Perfis de Acesso — precisa bater com o MENUS_PERFIL_ACESSO
-// do app.js (Atendimentos, Resumo, Dashboard, Cronograma, Construtor de
-// Relatórios, Relatórios, Financeiro, Agenda, Vídeos, Cadastros, Utilitários),
-// incluindo os submenus (abas internas) na forma "menu.submenu"
+// menus válidos pra Perfis de Acesso — precisa bater EXATAMENTE com as chaves
+// que o MENUS_PERFIL_ACESSO do app.js produz (uma por item + "menu.submenu"
+// pra cada submenu) — uma chave faltando aqui faz acaoSalvarPerfilAcesso
+// descartar silenciosamente a permissão daquele menu ao salvar, mesmo que o
+// front mande ela certinha no payload
 const MENUS_PERFIL_ACESSO = [
   'atendimentos', 'resumo',
   'dashboard', 'dashboard.geral', 'dashboard.operacional', 'dashboard.comparativo',
@@ -188,8 +189,9 @@ const MENUS_PERFIL_ACESSO = [
   'construtor_relatorios', 'relatorios',
   'financeiro', 'financeiro.lancar', 'financeiro.importar', 'financeiro.lista', 'financeiro.resumo',
   'agenda', 'agenda.novo', 'agenda.calendario',
+  'atividades', 'orcamentos', 'projetos',
   'videos', 'videos.novo', 'videos.lista',
-  'cadastros', 'cadastros.atendentes', 'cadastros.clientes', 'cadastros.tipos', 'cadastros.modulos',
+  'cadastros', 'cadastros.atendentes', 'cadastros.clientes', 'cadastros.tipos', 'cadastros.segmentos', 'cadastros.modulos',
   'cadastros.submodulos', 'cadastros.status', 'cadastros.valores', 'cadastros.usuarios',
   'cadastros.perfisacesso', 'cadastros.empresas',
   'cadastros.tabelasrm', 'cadastros.camposrm', 'cadastros.relacionamentosrm', 'cadastros.tabelasauxrm',
@@ -1977,7 +1979,10 @@ function proximasOcorrencias(dataInicial: string, repeticao: string, repetirAte:
 async function acaoListarAtividades(req: any) {
   const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
   if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
-  if (conta.perfil === 'USUARIO') return { ok: true, atividades: [] }; // tarefa interna da equipe — usuário solicitante não acessa
+  // tarefa interna da equipe — usuário comum não acessa; o administrador do
+  // cliente é uma exceção (igual atendimentos/agendamentos), só que filtrado
+  // mais abaixo pras atividades ligadas a atendimentos do próprio cliente
+  if (conta.perfil === 'USUARIO' && !(conta.admin_cliente && conta.cliente_id)) return { ok: true, atividades: [] };
 
   let query = db.from('atividades').select('*').order('data', { ascending: true }).order('criado_em', { ascending: false });
   if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
@@ -1991,6 +1996,21 @@ async function acaoListarAtividades(req: any) {
     atividades = atividades.filter((a: any) => a.responsavel === conta.nome || a.criado_por === conta.nome);
   }
   const mapaVinculos = await atendimentoIdsPorAtividade(atividades.map((a: any) => a.id));
+
+  // administrador do cliente só vê as atividades ligadas a algum atendimento
+  // do seu próprio cliente (atividade sem nenhum atendimento vinculado nunca
+  // aparece pra ele — não tem como saber de quem é)
+  if (conta.perfil === 'USUARIO') {
+    const { data: clienteInfo } = await db.from('clientes').select('nome').eq('id', conta.cliente_id).maybeSingle();
+    if (!clienteInfo) return { ok: true, atividades: [] };
+    const idsAtendimentosVinculados = [...new Set(Object.values(mapaVinculos).flat())] as string[];
+    const { data: atendimentosVinculados } = idsAtendimentosVinculados.length
+      ? await db.from('atendimentos').select('id,cliente').in('id', idsAtendimentosVinculados)
+      : { data: [] as any[] };
+    const idsAtendimentosDoCliente = new Set((atendimentosVinculados || []).filter((a: any) => a.cliente === clienteInfo.nome).map((a: any) => a.id));
+    atividades = atividades.filter((a: any) => (mapaVinculos[a.id] || []).some((atId: string) => idsAtendimentosDoCliente.has(atId)));
+  }
+
   return { ok: true, atividades: atividades.map((a: any) => atividadeParaApi(a, mapaVinculos[a.id] || [])) };
 }
 
