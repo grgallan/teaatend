@@ -9192,6 +9192,14 @@ function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, ke
     case 'anotacoes':
       return `<td class="anotacoes-col"><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>`;
     case 'percentual':
+      if(filhos.length > 0){
+        return `<td class="num">
+          <div class="proj-bateria-wrap" title="Calculado automaticamente a partir das subtarefas">
+            ${projBateriaHtml(t.percentualConcluido||0)}
+            <span style="color:var(--muted);">${t.percentualConcluido||0}%</span>
+          </div>
+        </td>`;
+      }
       return `<td class="num">
         <div class="proj-bateria-wrap">
           ${projBateriaHtml(t.percentualConcluido||0)}
@@ -9403,6 +9411,9 @@ function projAbrirInfoTarefa(id){
   document.getElementById('pit_duracao').value = t.duracaoDias || 1;
   document.getElementById('pit_duracao_estimada').checked = !!t.duracaoEstimada;
   document.getElementById('pit_percentual').value = t.percentualConcluido || 0;
+  const temFilhosInfo = projFilhosDe(id).length > 0;
+  document.getElementById('pit_percentual').disabled = temFilhosInfo;
+  document.getElementById('pit_percentual').title = temFilhosInfo ? 'Calculado automaticamente a partir das subtarefas' : '';
   document.getElementById('pit_prioridade').value = t.prioridade ?? 500;
   document.getElementById('pit_inativa').checked = !!t.inativa;
   const radioModo = document.querySelector(`input[name="pit_modo"][value="${t.modo==='MANUAL'?'MANUAL':'AUTOMÁTICO'}"]`);
@@ -9944,44 +9955,80 @@ function renderDashboardProjeto(){
 /* ---------- Mapa Mental das tarefas — hierarquia (pai/filho) por posição
    em árvore + linhas de predecessoras desenhadas por cima em SVG. Div-based
    (sem lib externa), mesmo espírito do Gantt já existente. ---------- */
+// mapa mental estilo organograma: raízes no topo, filhas centralizadas
+// embaixo do pai, ligadas por tronco/galhos (igual organograma de empresa).
+// Largura de cada ramo = número de folhas do ramo (bottom-up), depois cada
+// nó é centralizado dentro do espaço herdado (top-down) — mesma ideia de
+// layout de árvore usada em qualquer organograma.
 function renderMapaMentalProjeto(){
   const wrap = document.getElementById('projMapaMentalWrap');
   if(projetoTarefas.length===0){ wrap.innerHTML = `<div class="empty" style="padding:24px;"><div class="big">🧠</div>Nenhuma tarefa ainda.</div>`; return; }
+  projNumerarTarefas();
 
-  const LARGURA_NODE = 160, ALTURA_NODE = 46, ESPACO_X = 60, ESPACO_Y = 20;
-  const colunaPorNivel = {};
+  const LARGURA_NODE = 170, ALTURA_NODE = 52, ESPACO_X = 30, ESPACO_Y = 64;
+  const UNIDADE_X = LARGURA_NODE + ESPACO_X;
+
+  // passo 1 (bottom-up): quantas "unidades" de largura cada ramo precisa —
+  // uma folha ocupa 1 unidade; um galho ocupa a soma dos filhos dele
+  const largurasSubarvore = new Map();
+  function calcularLargura(id){
+    const filhos = projFilhosDe(id);
+    if(filhos.length===0){ largurasSubarvore.set(String(id), UNIDADE_X); return UNIDADE_X; }
+    let total = 0;
+    filhos.forEach(f=>{ total += calcularLargura(f.id); });
+    largurasSubarvore.set(String(id), total);
+    return total;
+  }
+  projFilhosDe(null).forEach(t=>calcularLargura(t.id));
+
+  // passo 2 (top-down): centraliza cada nó dentro do espaço que herdou
   const posicoes = {};
   let maxNivel = 0;
-
-  (function posicionar(paiId, nivel){
+  function posicionar(paiId, nivel, xIni){
     const filhos = projFilhosDe(paiId);
+    let cursor = xIni;
     filhos.forEach(t=>{
       maxNivel = Math.max(maxNivel, nivel);
-      const linha = colunaPorNivel[nivel] || 0;
-      posicoes[t.id] = {
-        x: nivel * (LARGURA_NODE + ESPACO_X) + 16,
-        y: linha * (ALTURA_NODE + ESPACO_Y) + 16,
-      };
-      colunaPorNivel[nivel] = linha + 1;
-      posicionar(t.id, nivel + 1);
+      const largura = largurasSubarvore.get(String(t.id)) || UNIDADE_X;
+      const centro = cursor + largura/2;
+      posicoes[t.id] = { x: centro - LARGURA_NODE/2, y: nivel*(ALTURA_NODE+ESPACO_Y) + 16 };
+      posicionar(t.id, nivel+1, cursor);
+      cursor += largura;
     });
-  })(null, 0);
+  }
+  posicionar(null, 0, 16);
 
-  const maxLinhas = Math.max(1, ...Object.values(colunaPorNivel));
-  const larguraTotal = (maxNivel + 1) * (LARGURA_NODE + ESPACO_X) + 16;
-  const alturaTotal = maxLinhas * (ALTURA_NODE + ESPACO_Y) + 16;
+  const larguraTotal = projFilhosDe(null).reduce((s,t)=>s+(largurasSubarvore.get(String(t.id))||UNIDADE_X), 0) + 32;
+  const alturaTotal = (maxNivel+1) * (ALTURA_NODE+ESPACO_Y) + 16;
 
-  // linhas de hierarquia (pai -> filho) e de predecessoras (predecessora -> sucessora)
+  // galhos do organograma: tronco descendo do pai, barra horizontal ligando
+  // as filhas, e um traço vertical de cada filha até a barra
   let linhasSvg = '';
   projetoTarefas.forEach(t=>{
     const pos = posicoes[t.id];
     if(!pos) return;
-    if(t.tarefaPaiId && posicoes[t.tarefaPaiId]){
-      const pai = posicoes[t.tarefaPaiId];
-      const x1 = pai.x + LARGURA_NODE, y1 = pai.y + ALTURA_NODE/2;
-      const x2 = pos.x, y2 = pos.y + ALTURA_NODE/2;
-      linhasSvg += `<path d="M${x1},${y1} C${x1+30},${y1} ${x2-30},${y2} ${x2},${y2}" stroke="var(--line)" stroke-width="2" fill="none"/>`;
+    const filhos = projFilhosDe(t.id);
+    if(filhos.length===0) return;
+    const xPai = pos.x + LARGURA_NODE/2, yPaiBase = pos.y + ALTURA_NODE;
+    const yTronco = yPaiBase + ESPACO_Y/2;
+    linhasSvg += `<path d="M${xPai},${yPaiBase} L${xPai},${yTronco}" stroke="var(--line)" stroke-width="2" fill="none"/>`;
+    const centrosFilhos = filhos.map(f=>posicoes[f.id]).filter(Boolean).map(p=>p.x + LARGURA_NODE/2);
+    if(centrosFilhos.length > 0){
+      const xMin = Math.min(...centrosFilhos), xMax = Math.max(...centrosFilhos);
+      if(xMax > xMin) linhasSvg += `<path d="M${xMin},${yTronco} L${xMax},${yTronco}" stroke="var(--line)" stroke-width="2" fill="none"/>`;
     }
+    filhos.forEach(f=>{
+      const posFilho = posicoes[f.id];
+      if(!posFilho) return;
+      const xFilho = posFilho.x + LARGURA_NODE/2;
+      linhasSvg += `<path d="M${xFilho},${yTronco} L${xFilho},${posFilho.y}" stroke="var(--line)" stroke-width="2" fill="none"/>`;
+    });
+  });
+
+  // linhas de predecessoras (independem da hierarquia) por cima, tracejadas
+  projetoTarefas.forEach(t=>{
+    const pos = posicoes[t.id];
+    if(!pos) return;
     (t.predecessorasIds||[]).forEach(pid=>{
       const pred = posicoes[pid];
       if(!pred) return;
@@ -9995,7 +10042,7 @@ function renderMapaMentalProjeto(){
     const pos = posicoes[t.id];
     if(!pos) return '';
     const numero = projTarefaNumeros.get(String(t.id)) || '';
-    return `<div class="proj-mapa-node status-${statusSlug(t.status)}" style="left:${pos.x}px;top:${pos.y}px;width:${LARGURA_NODE}px;min-height:${ALTURA_NODE}px;border-left:4px solid ${corStatusDot(t.status)};" title="${escaparHtml(t.titulo)}">
+    return `<div class="proj-mapa-node status-${statusSlug(t.status)}" style="left:${pos.x}px;top:${pos.y}px;width:${LARGURA_NODE}px;min-height:${ALTURA_NODE}px;border-top:4px solid ${corStatusDot(t.status)};" title="${escaparHtml(t.titulo)}">
       <div class="titulo">${numero ? `#${numero} ` : ''}${escaparHtml(t.titulo)}</div>
       <div class="meta">${escaparHtml(t.status)}${t.percentualConcluido?' · '+t.percentualConcluido+'%':''}</div>
     </div>`;

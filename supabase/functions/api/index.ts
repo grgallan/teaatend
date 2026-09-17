@@ -2314,6 +2314,46 @@ function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, any
   return tarefas;
 }
 
+// % concluída de uma tarefa-mãe passa a ser calculada a partir das filhas
+// (média ponderada pela Duração de cada uma — uma subtarefa maior pesa mais
+// no total), igual ao rollup automático do MS Project. Só mexe em quem TEM
+// filha; tarefa-folha continua com o valor digitado manualmente. Processa
+// da mais profunda pra mais rasa, pra uma avó já herdar o rollup da mãe.
+function recalcularPercentuaisPais(tarefas: any[]) {
+  const porId = new Map(tarefas.map((t: any) => [String(t.id), t]));
+  const filhosPorPai = new Map<string, any[]>();
+  for (const t of tarefas) {
+    if (!t.tarefa_pai_id) continue;
+    const lista = filhosPorPai.get(String(t.tarefa_pai_id)) || [];
+    lista.push(t);
+    filhosPorPai.set(String(t.tarefa_pai_id), lista);
+  }
+  function profundidade(t: any): number {
+    let n = 0;
+    let atual = t;
+    while (atual && atual.tarefa_pai_id) {
+      atual = porId.get(String(atual.tarefa_pai_id));
+      n++;
+      if (n > 50) break;
+    }
+    return n;
+  }
+  const ordenadas = [...tarefas].sort((a: any, b: any) => profundidade(b) - profundidade(a));
+  for (const t of ordenadas) {
+    const filhos = filhosPorPai.get(String(t.id));
+    if (!filhos || filhos.length === 0) continue;
+    let somaPeso = 0;
+    let somaPonderada = 0;
+    for (const f of filhos) {
+      const peso = f.duracao_dias || 1;
+      somaPeso += peso;
+      somaPonderada += peso * (f.percentual_concluido || 0);
+    }
+    t.percentual_concluido = somaPeso > 0 ? Math.round(somaPonderada / somaPeso) : 0;
+  }
+  return tarefas;
+}
+
 async function predecessorasPorTarefa(tarefaIds: string[]) {
   if (tarefaIds.length === 0) return {} as Record<string, any[]>;
   const { data } = await db.from('projeto_tarefa_predecessoras').select('tarefa_id,predecessora_id,tipo,latencia_dias').in('tarefa_id', tarefaIds);
@@ -2397,15 +2437,21 @@ async function recalcularEPersistirProjeto(projetoId: string) {
   const ids = tarefas.map((t: any) => t.id);
   const [predsMap, recursosMap, atendimentosMap] = await Promise.all([predecessorasPorTarefa(ids), recursosPorTarefa(ids), atendimentosPorTarefa(ids)]);
 
-  const antes = new Map<string, { data_inicio: string | null; data_fim: string | null }>(
-    tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim }]),
+  const antes = new Map<string, { data_inicio: string | null; data_fim: string | null; percentual_concluido: number }>(
+    tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim, percentual_concluido: t.percentual_concluido }]),
   );
   recalcularDatasAutomaticas(tarefas, predsMap);
+  recalcularPercentuaisPais(tarefas);
 
   for (const t of tarefas) {
     const original = antes.get(t.id);
-    if (original && (original.data_inicio !== t.data_inicio || original.data_fim !== t.data_fim)) {
-      await db.from('projeto_tarefas').update({ data_inicio: t.data_inicio, data_fim: t.data_fim }).eq('id', t.id);
+    if (!original) continue;
+    const atualizacao: Record<string, unknown> = {};
+    if (original.data_inicio !== t.data_inicio) atualizacao.data_inicio = t.data_inicio;
+    if (original.data_fim !== t.data_fim) atualizacao.data_fim = t.data_fim;
+    if (original.percentual_concluido !== t.percentual_concluido) atualizacao.percentual_concluido = t.percentual_concluido;
+    if (Object.keys(atualizacao).length > 0) {
+      await db.from('projeto_tarefas').update(atualizacao).eq('id', t.id);
     }
   }
 
