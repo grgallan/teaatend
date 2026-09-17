@@ -2180,6 +2180,7 @@ function projetoParaApi(p: any, extra: { tarefasTotal?: number; tarefasConcluida
     dataInicio: p.data_inicio || '', dataPrevistaFim: p.data_prevista_fim || '', dataConclusao: p.data_conclusao || '',
     criadoPor: p.criado_por || '', criadoEm: p.criado_em, empresaId: p.empresa_id || '',
     diasTrabalho: normalizarDiasTrabalho(p.dias_trabalho),
+    publico: !!p.publico,
     tarefasTotal: extra.tarefasTotal || 0, tarefasConcluidas: extra.tarefasConcluidas || 0,
   };
 }
@@ -2535,24 +2536,70 @@ async function recalcularEPersistirProjeto(projetoId: string) {
   return tarefas.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [], atendimentosMap[t.id] || []));
 }
 
+// ids dos projetos (dentre os informados) em que essa conta USUARIO tem
+// pelo menos uma tarefa atribuída — via um recurso do cadastro (Recursos >
+// "É um usuário") vinculado a ela, cujo NOME apareça nos recursos de
+// alguma tarefa daquele projeto (o vínculo tarefa<->recurso é por nome,
+// não por id, ver projeto_tarefa_recursos)
+async function projetosComTarefaAtribuida(projetoIds: string[], contaId: string): Promise<Set<string>> {
+  if (projetoIds.length === 0) return new Set();
+  const { data: recursos } = await db.from('projeto_recursos_cadastro').select('projeto_id,nome').eq('usuario_id', contaId).in('projeto_id', projetoIds);
+  if (!recursos || recursos.length === 0) return new Set();
+  const nomesPorProjeto = new Map<string, Set<string>>();
+  recursos.forEach((r: any) => {
+    const set = nomesPorProjeto.get(r.projeto_id) || new Set<string>();
+    set.add(r.nome);
+    nomesPorProjeto.set(r.projeto_id, set);
+  });
+  const { data: tarefas } = await db.from('projeto_tarefas').select('id,projeto_id').in('projeto_id', [...nomesPorProjeto.keys()]);
+  const projetoPorTarefa = new Map<string, string>();
+  (tarefas || []).forEach((t: any) => projetoPorTarefa.set(t.id, t.projeto_id));
+  const idsTarefa = [...projetoPorTarefa.keys()];
+  if (idsTarefa.length === 0) return new Set();
+  const { data: tarefaRecursos } = await db.from('projeto_tarefa_recursos').select('tarefa_id,nome').in('tarefa_id', idsTarefa);
+  const resultado = new Set<string>();
+  (tarefaRecursos || []).forEach((tr: any) => {
+    const projetoId = projetoPorTarefa.get(tr.tarefa_id);
+    if (projetoId && nomesPorProjeto.get(projetoId)!.has(tr.nome)) resultado.add(projetoId);
+  });
+  return resultado;
+}
+
 async function acaoListarProjetos(req: any) {
   const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
   if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
-  // ferramenta interna da equipe — usuário comum não acessa; o administrador
-  // do cliente é uma exceção (igual atendimentos/agendamentos/atividades),
-  // só vendo os projetos do próprio cliente (filtrado logo abaixo)
-  if (conta.perfil === 'USUARIO' && !(conta.admin_cliente && conta.cliente_id)) return { ok: true, projetos: [] };
 
   let query = db.from('projetos').select('*').order('criado_em', { ascending: false });
   if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+
+  let projetos: any[];
   if (conta.perfil === 'USUARIO') {
+    if (!conta.cliente_id) return { ok: true, projetos: [] };
     const { data: clienteInfo } = await db.from('clientes').select('nome').eq('id', conta.cliente_id).maybeSingle();
     if (!clienteInfo) return { ok: true, projetos: [] };
     query = query.eq('cliente', clienteInfo.nome);
+    const { data, error } = await query;
+    if (error) return { ok: false, erro: error.message };
+    const candidatos = data || [];
+    if (conta.admin_cliente) {
+      // administrador do cliente vê todos os projetos do cliente, público
+      // ou não (sempre completo)
+      projetos = candidatos;
+    } else {
+      // usuário comum: projetos públicos do cliente + os não públicos em
+      // que ele tem alguma tarefa atribuída (o conteúdo em si é filtrado
+      // depois, em acaoObterProjeto — aqui só decide se o projeto aparece
+      // na lista)
+      const publicos = candidatos.filter((p: any) => p.publico);
+      const privados = candidatos.filter((p: any) => !p.publico);
+      const idsComTarefa = await projetosComTarefaAtribuida(privados.map((p: any) => p.id), conta.id);
+      projetos = [...publicos, ...privados.filter((p: any) => idsComTarefa.has(p.id))];
+    }
+  } else {
+    const { data, error } = await query;
+    if (error) return { ok: false, erro: error.message };
+    projetos = data || [];
   }
-  const { data, error } = await query;
-  if (error) return { ok: false, erro: error.message };
-  const projetos = data || [];
 
   // progresso (tarefasTotal/tarefasConcluidas) de todos os projetos numa
   // query só, em vez de uma por projeto
@@ -2572,24 +2619,45 @@ async function acaoListarProjetos(req: any) {
 
 async function acaoObterProjeto(req: any) {
   if (!req.id) return { ok: false, erro: 'Projeto não informado.' };
-  const [{ data: projeto }, { data: tarefas }, { data: vinculos }, { data: recursosCadastro }] = await Promise.all([
-    db.from('projetos').select('*').eq('id', req.id).maybeSingle(),
+  const { data: projeto } = await db.from('projetos').select('*').eq('id', req.id).maybeSingle();
+  if (!projeto) return { ok: false, erro: 'Projeto não encontrado.' };
+
+  const { data: conta } = await db.from('contas').select('*').eq('id', req.contaId).maybeSingle();
+  if (!conta) return { ok: false, erro: 'Conta não encontrada.' };
+
+  // controle de acesso: ADMIN/ATENDENTE e administrador do cliente veem o
+  // projeto completo; usuário comum do cliente só vê as PRÓPRIAS tarefas
+  // quando o projeto não é público (filtrado mais abaixo)
+  let restringirParaContaId: string | null = null;
+  if (conta.perfil === 'USUARIO') {
+    if (!conta.cliente_id) return { ok: false, erro: 'Você não tem permissão pra ver esse projeto.' };
+    const { data: clienteInfo } = await db.from('clientes').select('nome').eq('id', conta.cliente_id).maybeSingle();
+    if (!clienteInfo || clienteInfo.nome !== projeto.cliente) return { ok: false, erro: 'Você não tem permissão pra ver esse projeto.' };
+    if (!conta.admin_cliente && !projeto.publico) restringirParaContaId = conta.id;
+  }
+
+  const [{ data: tarefasRaw }, { data: vinculos }, { data: recursosCadastro }] = await Promise.all([
     db.from('projeto_tarefas').select('*').eq('projeto_id', req.id).order('criado_em', { ascending: true }),
     db.from('projeto_atendimentos').select('atendimento_id').eq('projeto_id', req.id),
     db.from('projeto_recursos_cadastro').select('*').eq('projeto_id', req.id).order('nome', { ascending: true }),
   ]);
-  if (!projeto) return { ok: false, erro: 'Projeto não encontrado.' };
-  const lista = tarefas || [];
-  const total = lista.length;
-  const concluidas = lista.filter((t: any) => t.status === 'CONCLUÍDA').length;
+  let lista = tarefasRaw || [];
   const idsTarefas = lista.map((t: any) => t.id);
   const [predsMap, recursosMap, atendimentosMap] = await Promise.all([predecessorasPorTarefa(idsTarefas), recursosPorTarefa(idsTarefas), atendimentosPorTarefa(idsTarefas)]);
+
+  if (restringirParaContaId) {
+    const nomesDoUsuario = new Set((recursosCadastro || []).filter((r: any) => r.usuario_id === restringirParaContaId).map((r: any) => r.nome));
+    lista = lista.filter((t: any) => (recursosMap[t.id] || []).some((r: any) => nomesDoUsuario.has(r.nome)));
+  }
+
+  const total = lista.length;
+  const concluidas = lista.filter((t: any) => t.status === 'CONCLUÍDA').length;
   return {
     ok: true,
     projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
     tarefas: lista.map((t: any) => tarefaParaApi(t, predsMap[t.id] || [], recursosMap[t.id] || [], atendimentosMap[t.id] || [])),
     atendimentoIds: (vinculos || []).map((v: any) => v.atendimento_id),
-    recursosCadastro: (recursosCadastro || []).map((r: any) => ({ id: r.id, projetoId: r.projeto_id, nome: r.nome, custo: r.custo || 0, atendenteId: r.atendente_id || '' })),
+    recursosCadastro: (recursosCadastro || []).map((r: any) => ({ id: r.id, projetoId: r.projeto_id, nome: r.nome, custo: r.custo || 0, atendenteId: r.atendente_id || '', ehUsuario: !!r.usuario_id, usuarioId: r.usuario_id || '' })),
   };
 }
 
@@ -2602,6 +2670,7 @@ async function acaoCriarProjeto(req: any) {
     responsavel: req.responsavel || '', status: req.status || 'PLANEJAMENTO',
     data_inicio: req.dataInicio || null, data_prevista_fim: req.dataPrevistaFim || null,
     dias_trabalho: normalizarDiasTrabalho(req.diasTrabalho),
+    publico: !!req.publico,
     criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
   };
   const { error } = await db.from('projetos').insert(registro);
@@ -2630,6 +2699,7 @@ async function acaoAtualizarProjeto(req: any) {
     data_inicio: req.dataInicio || null, data_prevista_fim: req.dataPrevistaFim || null,
     data_conclusao: dataConclusao,
     dias_trabalho: normalizarDiasTrabalho(req.diasTrabalho),
+    publico: !!req.publico,
   };
   const { error } = await db.from('projetos').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
@@ -2838,6 +2908,14 @@ async function validarAtendenteId(atendenteId: string): Promise<string | null> {
   if (!conta || conta.perfil !== 'ATENDENTE') return 'Atendente inválido.';
   return null;
 }
+// mesma ideia, mas validando que é uma conta USUARIO — vínculo usado pra
+// restringir as tarefas visíveis quando o projeto não é público (ver
+// acaoObterProjeto/acaoListarProjetos)
+async function validarUsuarioId(usuarioId: string): Promise<string | null> {
+  const { data: conta } = await db.from('contas').select('id,perfil').eq('id', usuarioId).maybeSingle();
+  if (!conta || conta.perfil !== 'USUARIO') return 'Usuário inválido.';
+  return null;
+}
 
 async function acaoCriarRecursoProjeto(req: any) {
   if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão.' };
@@ -2847,9 +2925,14 @@ async function acaoCriarRecursoProjeto(req: any) {
     const erroAtendente = await validarAtendenteId(req.atendenteId);
     if (erroAtendente) return { ok: false, erro: erroAtendente };
   }
+  if (req.usuarioId) {
+    const erroUsuario = await validarUsuarioId(req.usuarioId);
+    if (erroUsuario) return { ok: false, erro: erroUsuario };
+  }
   const registro = {
     id: gerarId(), projeto_id: req.projetoId, nome: String(req.nome).trim(), custo: Number(req.custo) || 0,
     atendente_id: req.atendenteId || null,
+    usuario_id: req.usuarioId || null,
   };
   const { error } = await db.from('projeto_recursos_cadastro').insert(registro);
   if (error) return { ok: false, erro: String(error.message).includes('duplicate') ? 'Já existe um recurso com esse nome nesse projeto.' : error.message };
@@ -2872,6 +2955,15 @@ async function acaoAtualizarRecursoProjeto(req: any) {
       atualizacao.atendente_id = req.atendenteId;
     } else {
       atualizacao.atendente_id = null;
+    }
+  }
+  if (req.usuarioId !== undefined) {
+    if (req.usuarioId) {
+      const erroUsuario = await validarUsuarioId(req.usuarioId);
+      if (erroUsuario) return { ok: false, erro: erroUsuario };
+      atualizacao.usuario_id = req.usuarioId;
+    } else {
+      atualizacao.usuario_id = null;
     }
   }
   const { error } = await db.from('projeto_recursos_cadastro').update(atualizacao).eq('id', req.id);
