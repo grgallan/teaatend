@@ -9224,7 +9224,7 @@ function projTarefaLinhaHtml(t, nivel, colunas){
     .sort((a,b)=>a-b)
     .join(',');
   const celulas = colunas.map(c=>projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, c.key)).join('');
-  const linha = `<tr class="status-${statusSlug(t.status)}" data-id="${t.id}">${celulas}</tr>`;
+  const linha = `<tr class="status-${statusSlug(t.status)}${filhos.length>0?' proj-tarefa-mae':''}" data-id="${t.id}">${celulas}</tr>`;
   const filhosHtml = (!colapsada && filhos.length > 0) ? filhos.map(f=>projTarefaLinhaHtml(f, nivel+1, colunas)).join('') : '';
   return linha + filhosHtml;
 }
