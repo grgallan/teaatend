@@ -8815,7 +8815,12 @@ function fecharProjetoDetalhe(){
   projetoAtendimentoIds = [];
   projRecursosCadastro = [];
   document.getElementById('projetoDetalhe').style.display = 'none';
-  document.getElementById('cardFormProjeto').style.display = '';
+  // criar projeto é coisa de quem gerencia (ADMIN/ATENDENTE) — igual o
+  // backend já exige em podeGerenciarProjeto; administrador do cliente só
+  // acompanha os projetos do próprio cliente, não cria novos
+  const conta = contaAtual();
+  const podeCriarProjeto = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
+  document.getElementById('cardFormProjeto').style.display = podeCriarProjeto ? '' : 'none';
   document.getElementById('listaProjetos').style.display = '';
   // progresso (tarefasTotal/tarefasConcluidas) pode ter mudado enquanto o
   // projeto estava aberto — recarrega a lista pra refletir na volta
@@ -10119,12 +10124,20 @@ function renderDashboardProjeto(){
 // Largura de cada ramo = número de folhas do ramo (bottom-up), depois cada
 // nó é centralizado dentro do espaço herdado (top-down) — mesma ideia de
 // layout de árvore usada em qualquer organograma.
+// cor do card de tarefa no Mapa Mental — status do projeto (A FAZER/EM
+// ANDAMENTO/CONCLUÍDA) não é o mesmo vocabulário do status de atendimento
+// que corStatusDot mapeia, por isso tem a própria função aqui
+function corStatusTarefaProjeto(status){
+  if(status==='CONCLUÍDA') return 'var(--ok)';
+  if(status==='EM ANDAMENTO') return 'var(--yellow)';
+  return 'var(--muted)';
+}
 function renderMapaMentalProjeto(){
   const wrap = document.getElementById('projMapaMentalWrap');
   if(projetoTarefas.length===0){ wrap.innerHTML = `<div class="empty" style="padding:24px;"><div class="big">🧠</div>Nenhuma tarefa ainda.</div>`; return; }
   projNumerarTarefas();
 
-  const LARGURA_NODE = 170, ALTURA_NODE = 52, ESPACO_X = 30, ESPACO_Y = 64;
+  const LARGURA_NODE = 220, ALTURA_NODE = 68, ESPACO_X = 36, ESPACO_Y = 72;
   const UNIDADE_X = LARGURA_NODE + ESPACO_X;
 
   // passo 1 (bottom-up): quantas "unidades" de largura cada ramo precisa —
@@ -10201,7 +10214,7 @@ function renderMapaMentalProjeto(){
     const pos = posicoes[t.id];
     if(!pos) return '';
     const numero = projTarefaNumeros.get(String(t.id)) || '';
-    return `<div class="proj-mapa-node status-${statusSlug(t.status)}" style="left:${pos.x}px;top:${pos.y}px;width:${LARGURA_NODE}px;min-height:${ALTURA_NODE}px;border-top:4px solid ${corStatusDot(t.status)};" title="${escaparHtml(t.titulo)}">
+    return `<div class="proj-mapa-node status-${statusSlug(t.status)}" style="left:${pos.x}px;top:${pos.y}px;width:${LARGURA_NODE}px;min-height:${ALTURA_NODE}px;border-top:4px solid ${corStatusTarefaProjeto(t.status)};" title="${escaparHtml(t.titulo)}">
       <div class="titulo">${numero ? `#${numero} ` : ''}${escaparHtml(t.titulo)}</div>
       <div class="meta">${escaparHtml(t.status)}${t.percentualConcluido?' · '+t.percentualConcluido+'%':''}</div>
     </div>`;
