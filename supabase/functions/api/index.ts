@@ -2159,6 +2159,7 @@ function projetoParaApi(p: any, extra: { tarefasTotal?: number; tarefasConcluida
     responsavel: p.responsavel || '', status: p.status || 'PLANEJAMENTO',
     dataInicio: p.data_inicio || '', dataPrevistaFim: p.data_prevista_fim || '', dataConclusao: p.data_conclusao || '',
     criadoPor: p.criado_por || '', criadoEm: p.criado_em, empresaId: p.empresa_id || '',
+    diasTrabalho: normalizarDiasTrabalho(p.dias_trabalho),
     tarefasTotal: extra.tarefasTotal || 0, tarefasConcluidas: extra.tarefasConcluidas || 0,
   };
 }
@@ -2191,34 +2192,46 @@ function somaUmDiaIso(iso: string, passo: 1 | -1): string {
   d.setUTCDate(d.getUTCDate() + passo);
   return d.toISOString().slice(0, 10);
 }
-function ehFimDeSemana(iso: string): boolean {
+// dias da semana em que se trabalha pra um projeto (0=domingo...6=sábado,
+// igual Date.getUTCDay()) — configurável por projeto (campo dias_trabalho),
+// padrão seg-sex, igual ao calendário padrão do MS Project
+const DIAS_TRABALHO_PADRAO = [1, 2, 3, 4, 5];
+function normalizarDiasTrabalho(valor: any): number[] {
+  if (!Array.isArray(valor)) return DIAS_TRABALHO_PADRAO;
+  const dias = [...new Set(valor.map((v: any) => parseInt(v, 10)).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6))].sort((a, b) => a - b);
+  return dias.length > 0 ? dias : DIAS_TRABALHO_PADRAO;
+}
+async function diasTrabalhoDoProjeto(projetoId: string): Promise<Set<number>> {
+  const { data } = await db.from('projetos').select('dias_trabalho').eq('id', projetoId).maybeSingle();
+  return new Set(normalizarDiasTrabalho(data && data.dias_trabalho));
+}
+function ehDiaNaoUtil(iso: string, diasTrabalho: Set<number>): boolean {
   const dia = new Date(iso + 'T00:00:00Z').getUTCDay(); // 0=domingo, 6=sábado
-  return dia === 0 || dia === 6;
+  return !diasTrabalho.has(dia);
 }
 
-// soma/subtrai dias ÚTEIS (pula sábado/domingo) de uma data — toda a
-// contagem de prazo de tarefa (Duração, datas calculadas a partir de
-// predecessora) ignora fim de semana, igual ao calendário padrão do MS
-// Project
-function addDiasIso(iso: string, dias: number): string {
+// soma/subtrai dias ÚTEIS (pula os dias fora de diasTrabalho) de uma data —
+// toda a contagem de prazo de tarefa (Duração, datas calculadas a partir de
+// predecessora) ignora esses dias
+function addDiasIso(iso: string, dias: number, diasTrabalho: Set<number>): string {
   let atual = iso;
   const passo: 1 | -1 = dias >= 0 ? 1 : -1;
   let restante = Math.abs(dias);
   while (restante > 0) {
     atual = somaUmDiaIso(atual, passo);
-    if (!ehFimDeSemana(atual)) restante--;
+    if (!ehDiaNaoUtil(atual, diasTrabalho)) restante--;
   }
   return atual;
 }
 // conta os dias ÚTEIS entre duas datas, incluindo os dois extremos (ex:
 // segunda até a mesma segunda = 1 dia útil; segunda até terça = 2) — é
 // diretamente a Duração em dias, sem precisar somar 1 depois
-function duracaoUteisEntre(deIso: string, ateIso: string): number {
-  if (ateIso < deIso) return duracaoUteisEntre(ateIso, deIso);
+function duracaoUteisEntre(deIso: string, ateIso: string, diasTrabalho: Set<number>): number {
+  if (ateIso < deIso) return duracaoUteisEntre(ateIso, deIso, diasTrabalho);
   let atual = deIso;
   let contador = 0;
   while (atual <= ateIso) {
-    if (!ehFimDeSemana(atual)) contador++;
+    if (!ehDiaNaoUtil(atual, diasTrabalho)) contador++;
     atual = somaUmDiaIso(atual, 1);
   }
   return contador;
@@ -2228,7 +2241,7 @@ function duracaoUteisEntre(deIso: string, ateIso: string): number {
 // Project): editar Início move a tarefa inteira (duração fixa); editar
 // Término muda a duração (início fixo); editar Duração move o Término
 // (início fixo); editar Início+Término junto recalcula a duração
-function calcularSincroniaTarefa(existente: any, req: any) {
+function calcularSincroniaTarefa(existente: any, req: any, diasTrabalho: Set<number>) {
   const temInicio = req.dataInicio !== undefined;
   const temFim = req.dataFim !== undefined;
   const temDuracao = req.duracaoDias !== undefined;
@@ -2243,26 +2256,26 @@ function calcularSincroniaTarefa(existente: any, req: any) {
 
   if (temInicio && temFim) {
     if (inicioNovo && fimNovo) {
-      return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: Math.max(1, duracaoUteisEntre(inicioNovo, fimNovo)) };
+      return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: Math.max(1, duracaoUteisEntre(inicioNovo, fimNovo, diasTrabalho)) };
     }
     return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: duracaoAtual };
   }
   if (temInicio && temDuracao) {
-    return { data_inicio: inicioNovo, data_fim: inicioNovo ? addDiasIso(inicioNovo, duracaoParsed - 1) : fimAtual, duracao_dias: duracaoParsed };
+    return { data_inicio: inicioNovo, data_fim: inicioNovo ? addDiasIso(inicioNovo, duracaoParsed - 1, diasTrabalho) : fimAtual, duracao_dias: duracaoParsed };
   }
   if (temFim && temDuracao) {
-    return { data_inicio: fimNovo ? addDiasIso(fimNovo, -(duracaoParsed - 1)) : inicioAtual, data_fim: fimNovo, duracao_dias: duracaoParsed };
+    return { data_inicio: fimNovo ? addDiasIso(fimNovo, -(duracaoParsed - 1), diasTrabalho) : inicioAtual, data_fim: fimNovo, duracao_dias: duracaoParsed };
   }
   if (temInicio) {
     if (!inicioNovo) return { data_inicio: null, data_fim: null, duracao_dias: duracaoAtual };
-    return { data_inicio: inicioNovo, data_fim: addDiasIso(inicioNovo, duracaoAtual - 1), duracao_dias: duracaoAtual };
+    return { data_inicio: inicioNovo, data_fim: addDiasIso(inicioNovo, duracaoAtual - 1, diasTrabalho), duracao_dias: duracaoAtual };
   }
   if (temFim) {
-    const duracao = (inicioAtual && fimNovo) ? Math.max(1, duracaoUteisEntre(inicioAtual, fimNovo)) : duracaoAtual;
+    const duracao = (inicioAtual && fimNovo) ? Math.max(1, duracaoUteisEntre(inicioAtual, fimNovo, diasTrabalho)) : duracaoAtual;
     return { data_inicio: inicioAtual, data_fim: fimNovo, duracao_dias: duracao };
   }
   if (temDuracao) {
-    return { data_inicio: inicioAtual, data_fim: inicioAtual ? addDiasIso(inicioAtual, duracaoParsed - 1) : fimAtual, duracao_dias: duracaoParsed };
+    return { data_inicio: inicioAtual, data_fim: inicioAtual ? addDiasIso(inicioAtual, duracaoParsed - 1, diasTrabalho) : fimAtual, duracao_dias: duracaoParsed };
   }
   return { data_inicio: inicioAtual, data_fim: fimAtual, duracao_dias: duracaoAtual };
 }
@@ -2276,7 +2289,7 @@ function calcularSincroniaTarefa(existente: any, req: any) {
 // (latência em dias — negativa = antecipação/sobreposição). Quando há mais
 // de uma predecessora, vale a que exige o início mais tardio. Iterativo,
 // pra propagar em cadeia (A -> B -> C).
-function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, any[]>) {
+function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, any[]>, diasTrabalho: Set<number>) {
   const porId = new Map(tarefas.map((t: any) => [String(t.id), t]));
   for (let iteracao = 0; iteracao < tarefas.length + 1; iteracao++) {
     let mudou = false;
@@ -2292,21 +2305,21 @@ function recalcularDatasAutomaticas(tarefas: any[], predsMap: Record<string, any
         const lat = rel.latencia_dias || 0;
         let candidato: string | null = null;
         if (rel.tipo === 'SS') {
-          candidato = p.data_inicio ? addDiasIso(p.data_inicio, lat) : null;
+          candidato = p.data_inicio ? addDiasIso(p.data_inicio, lat, diasTrabalho) : null;
         } else if (rel.tipo === 'FF') {
-          const fimAlvo = p.data_fim ? addDiasIso(p.data_fim, lat) : null;
-          candidato = fimAlvo ? addDiasIso(fimAlvo, -(duracao - 1)) : null;
+          const fimAlvo = p.data_fim ? addDiasIso(p.data_fim, lat, diasTrabalho) : null;
+          candidato = fimAlvo ? addDiasIso(fimAlvo, -(duracao - 1), diasTrabalho) : null;
         } else if (rel.tipo === 'SF') {
-          const fimAlvo = p.data_inicio ? addDiasIso(p.data_inicio, lat) : null;
-          candidato = fimAlvo ? addDiasIso(fimAlvo, -(duracao - 1)) : null;
+          const fimAlvo = p.data_inicio ? addDiasIso(p.data_inicio, lat, diasTrabalho) : null;
+          candidato = fimAlvo ? addDiasIso(fimAlvo, -(duracao - 1), diasTrabalho) : null;
         } else {
-          candidato = p.data_fim ? addDiasIso(p.data_fim, 1 + lat) : null;
+          candidato = p.data_fim ? addDiasIso(p.data_fim, 1 + lat, diasTrabalho) : null;
         }
         if (candidato && (!inicioMinimo || candidato > inicioMinimo)) inicioMinimo = candidato;
       }
       if (!inicioMinimo || inicioMinimo === t.data_inicio) continue;
       t.data_inicio = inicioMinimo;
-      t.data_fim = addDiasIso(inicioMinimo, duracao - 1);
+      t.data_fim = addDiasIso(inicioMinimo, duracao - 1, diasTrabalho);
       mudou = true;
     }
     if (!mudou) break;
@@ -2360,7 +2373,7 @@ function recalcularPercentuaisPais(tarefas: any[]) {
 // percentual acima. Só mexe em quem TEM filha; tarefa-folha continua
 // controlando suas próprias datas (manual ou via predecessora). Processa
 // da mais profunda pra mais rasa, pra uma avó já herdar o rollup da mãe.
-function recalcularDatasPais(tarefas: any[]) {
+function recalcularDatasPais(tarefas: any[], diasTrabalho: Set<number>) {
   const porId = new Map(tarefas.map((t: any) => [String(t.id), t]));
   const filhosPorPai = new Map<string, any[]>();
   for (const t of tarefas) {
@@ -2391,7 +2404,7 @@ function recalcularDatasPais(tarefas: any[]) {
     }
     t.data_inicio = inicioMinimo;
     t.data_fim = fimMaximo;
-    t.duracao_dias = (inicioMinimo && fimMaximo) ? Math.max(1, duracaoUteisEntre(inicioMinimo, fimMaximo)) : (t.duracao_dias || 1);
+    t.duracao_dias = (inicioMinimo && fimMaximo) ? Math.max(1, duracaoUteisEntre(inicioMinimo, fimMaximo, diasTrabalho)) : (t.duracao_dias || 1);
   }
   return tarefas;
 }
@@ -2477,13 +2490,13 @@ async function recalcularEPersistirProjeto(projetoId: string) {
   const { data: tarefasDb } = await db.from('projeto_tarefas').select('*').eq('projeto_id', projetoId).order('criado_em', { ascending: true });
   const tarefas = tarefasDb || [];
   const ids = tarefas.map((t: any) => t.id);
-  const [predsMap, recursosMap, atendimentosMap] = await Promise.all([predecessorasPorTarefa(ids), recursosPorTarefa(ids), atendimentosPorTarefa(ids)]);
+  const [predsMap, recursosMap, atendimentosMap, diasTrabalho] = await Promise.all([predecessorasPorTarefa(ids), recursosPorTarefa(ids), atendimentosPorTarefa(ids), diasTrabalhoDoProjeto(projetoId)]);
 
   const antes = new Map<string, { data_inicio: string | null; data_fim: string | null; duracao_dias: number; percentual_concluido: number }>(
     tarefas.map((t: any) => [t.id, { data_inicio: t.data_inicio, data_fim: t.data_fim, duracao_dias: t.duracao_dias, percentual_concluido: t.percentual_concluido }]),
   );
-  recalcularDatasAutomaticas(tarefas, predsMap);
-  recalcularDatasPais(tarefas);
+  recalcularDatasAutomaticas(tarefas, predsMap, diasTrabalho);
+  recalcularDatasPais(tarefas, diasTrabalho);
   recalcularPercentuaisPais(tarefas);
 
   for (const t of tarefas) {
@@ -2560,6 +2573,7 @@ async function acaoCriarProjeto(req: any) {
     id: gerarId(), nome: req.nome, descricao: req.descricao || '', cliente: req.cliente || '',
     responsavel: req.responsavel || '', status: req.status || 'PLANEJAMENTO',
     data_inicio: req.dataInicio || null, data_prevista_fim: req.dataPrevistaFim || null,
+    dias_trabalho: normalizarDiasTrabalho(req.diasTrabalho),
     criado_por: conta ? conta.nome : '', empresa_id: req.empresaId || null,
   };
   const { error } = await db.from('projetos').insert(registro);
@@ -2587,9 +2601,13 @@ async function acaoAtualizarProjeto(req: any) {
     responsavel: req.responsavel || '', status: statusFinal,
     data_inicio: req.dataInicio || null, data_prevista_fim: req.dataPrevistaFim || null,
     data_conclusao: dataConclusao,
+    dias_trabalho: normalizarDiasTrabalho(req.diasTrabalho),
   };
   const { error } = await db.from('projetos').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
+  // os dias em que se trabalha podem ter mudado — recalcula Duração/Início/
+  // Término de todas as tarefas do projeto contra o calendário novo
+  await recalcularEPersistirProjeto(req.id);
   return { ok: true };
 }
 
@@ -2684,7 +2702,8 @@ async function acaoAtualizarTarefa(req: any) {
   if (req.modulo !== undefined) atualizacao.modulo = req.modulo || '';
   if (req.submodulo !== undefined) atualizacao.submodulo = req.submodulo || '';
   if (req.dataInicio !== undefined || req.dataFim !== undefined || req.duracaoDias !== undefined) {
-    const sync = calcularSincroniaTarefa(existente, req);
+    const diasTrabalho = await diasTrabalhoDoProjeto(existente.projeto_id);
+    const sync = calcularSincroniaTarefa(existente, req, diasTrabalho);
     atualizacao.data_inicio = sync.data_inicio;
     atualizacao.data_fim = sync.data_fim;
     atualizacao.duracao_dias = sync.duracao_dias;

@@ -1783,6 +1783,18 @@
         <div class="field"><label>Data de início <span style="font-weight:400;">(opcional)</span></label><input type="date" id="proj_data_inicio"></div>
         <div class="field"><label>Previsão de término <span style="font-weight:400;">(opcional)</span></label><input type="date" id="proj_data_prevista_fim"></div>
       </div>
+      <div class="field">
+        <label>Dias da semana em que se trabalha pra esse cliente</label>
+        <div id="proj_dias_trabalho" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" value="1" style="width:auto;"> Seg</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" value="2" style="width:auto;"> Ter</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" value="3" style="width:auto;"> Qua</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" value="4" style="width:auto;"> Qui</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" value="5" style="width:auto;"> Sex</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" value="6" style="width:auto;"> Sáb</label>
+          <label style="display:flex;align-items:center;gap:4px;font-weight:400;font-size:12.5px;cursor:pointer;"><input type="checkbox" value="0" style="width:auto;"> Dom</label>
+        </div>
+      </div>
       <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
         <button class="primary" id="btnSalvarProjeto" style="flex:1;">Salvar projeto</button>
         <button type="button" class="ghost" id="btnCancelarEdicaoProjeto" style="display:none;flex:none;width:auto;">Cancelar edição</button>

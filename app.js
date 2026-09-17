@@ -8667,6 +8667,16 @@ async function carregarProjetos(){
   renderListaProjetos();
 }
 
+// dias da semana em que se trabalha pra um projeto (0=domingo...6=sábado,
+// igual Date.getUTCDay() — mesma convenção do backend); padrão seg-sex
+const PROJ_DIAS_TRABALHO_PADRAO = [1,2,3,4,5];
+function projDefinirDiasTrabalhoForm(dias){
+  const marcados = new Set((dias && dias.length ? dias : PROJ_DIAS_TRABALHO_PADRAO).map(String));
+  document.querySelectorAll('#proj_dias_trabalho input[type=checkbox]').forEach(cb=>{ cb.checked = marcados.has(cb.value); });
+}
+function projLerDiasTrabalhoForm(){
+  return [...document.querySelectorAll('#proj_dias_trabalho input[type=checkbox]:checked')].map(cb=>parseInt(cb.value,10));
+}
 function limparFormProjeto(){
   projEditandoId = null;
   document.getElementById('projFormTitulo').textContent = 'Novo projeto';
@@ -8676,6 +8686,7 @@ function limparFormProjeto(){
   document.getElementById('proj_status').value = 'PLANEJAMENTO';
   document.getElementById('proj_data_inicio').value = '';
   document.getElementById('proj_data_prevista_fim').value = '';
+  projDefinirDiasTrabalhoForm(PROJ_DIAS_TRABALHO_PADRAO);
   document.getElementById('btnSalvarProjeto').textContent = 'Salvar projeto';
   document.getElementById('btnCancelarEdicaoProjeto').style.display = 'none';
   const conta = contaAtual();
@@ -8696,6 +8707,7 @@ function editarProjetoUi(id){
   document.getElementById('proj_status').value = p.status;
   document.getElementById('proj_data_inicio').value = p.dataInicio || '';
   document.getElementById('proj_data_prevista_fim').value = p.dataPrevistaFim || '';
+  projDefinirDiasTrabalhoForm(p.diasTrabalho);
   document.getElementById('btnSalvarProjeto').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoProjeto').style.display = '';
   document.getElementById('cardFormProjeto').scrollIntoView({ behavior:'smooth', block:'start' });
@@ -8704,6 +8716,8 @@ function editarProjetoUi(id){
 async function salvarProjeto(){
   const nome = document.getElementById('proj_nome').value.trim();
   if(!nome){ toast('Informe o nome do projeto'); return; }
+  const diasTrabalho = projLerDiasTrabalhoForm();
+  if(diasTrabalho.length===0){ toast('Marque ao menos um dia da semana em que se trabalha.'); return; }
   const conta = contaAtual();
   const payload = {
     contaId: conta.id, id: projEditandoId,
@@ -8713,6 +8727,7 @@ async function salvarProjeto(){
     status: document.getElementById('proj_status').value,
     dataInicio: document.getElementById('proj_data_inicio').value,
     dataPrevistaFim: document.getElementById('proj_data_prevista_fim').value,
+    diasTrabalho,
     empresaId: empresaAtual ? empresaAtual.id : '',
   };
   const btn = document.getElementById('btnSalvarProjeto');
