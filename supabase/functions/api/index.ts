@@ -2183,16 +2183,45 @@ function tarefaParaApi(t: any, predecessoras: any[] = [], recursos: any[] = [], 
   };
 }
 
-// soma/subtrai dias de uma data yyyy-MM-dd, sem depender de timezone local
-function addDiasIso(iso: string, dias: number): string {
+// soma/subtrai UM dia calendário de uma data yyyy-MM-dd, sem depender de
+// timezone local — primitivo usado só internamente pelas funções de dias
+// úteis abaixo
+function somaUmDiaIso(iso: string, passo: 1 | -1): string {
   const d = new Date(iso + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + dias);
+  d.setUTCDate(d.getUTCDate() + passo);
   return d.toISOString().slice(0, 10);
 }
-function diffDiasIso(deIso: string, ateIso: string): number {
-  const a = new Date(deIso + 'T00:00:00Z');
-  const b = new Date(ateIso + 'T00:00:00Z');
-  return Math.round((b.getTime() - a.getTime()) / 86400000);
+function ehFimDeSemana(iso: string): boolean {
+  const dia = new Date(iso + 'T00:00:00Z').getUTCDay(); // 0=domingo, 6=sábado
+  return dia === 0 || dia === 6;
+}
+
+// soma/subtrai dias ÚTEIS (pula sábado/domingo) de uma data — toda a
+// contagem de prazo de tarefa (Duração, datas calculadas a partir de
+// predecessora) ignora fim de semana, igual ao calendário padrão do MS
+// Project
+function addDiasIso(iso: string, dias: number): string {
+  let atual = iso;
+  const passo: 1 | -1 = dias >= 0 ? 1 : -1;
+  let restante = Math.abs(dias);
+  while (restante > 0) {
+    atual = somaUmDiaIso(atual, passo);
+    if (!ehFimDeSemana(atual)) restante--;
+  }
+  return atual;
+}
+// conta os dias ÚTEIS entre duas datas, incluindo os dois extremos (ex:
+// segunda até a mesma segunda = 1 dia útil; segunda até terça = 2) — é
+// diretamente a Duração em dias, sem precisar somar 1 depois
+function duracaoUteisEntre(deIso: string, ateIso: string): number {
+  if (ateIso < deIso) return duracaoUteisEntre(ateIso, deIso);
+  let atual = deIso;
+  let contador = 0;
+  while (atual <= ateIso) {
+    if (!ehFimDeSemana(atual)) contador++;
+    atual = somaUmDiaIso(atual, 1);
+  }
+  return contador;
 }
 
 // sincronia de 3 vias Duração/Início/Término (mesmo comportamento do MS
@@ -2214,7 +2243,7 @@ function calcularSincroniaTarefa(existente: any, req: any) {
 
   if (temInicio && temFim) {
     if (inicioNovo && fimNovo) {
-      return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: Math.max(1, diffDiasIso(inicioNovo, fimNovo) + 1) };
+      return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: Math.max(1, duracaoUteisEntre(inicioNovo, fimNovo)) };
     }
     return { data_inicio: inicioNovo, data_fim: fimNovo, duracao_dias: duracaoAtual };
   }
@@ -2229,7 +2258,7 @@ function calcularSincroniaTarefa(existente: any, req: any) {
     return { data_inicio: inicioNovo, data_fim: addDiasIso(inicioNovo, duracaoAtual - 1), duracao_dias: duracaoAtual };
   }
   if (temFim) {
-    const duracao = (inicioAtual && fimNovo) ? Math.max(1, diffDiasIso(inicioAtual, fimNovo) + 1) : duracaoAtual;
+    const duracao = (inicioAtual && fimNovo) ? Math.max(1, duracaoUteisEntre(inicioAtual, fimNovo)) : duracaoAtual;
     return { data_inicio: inicioAtual, data_fim: fimNovo, duracao_dias: duracao };
   }
   if (temDuracao) {
