@@ -8872,11 +8872,15 @@ function renderRecursosCadastroProjeto(){
   const corpo = document.getElementById('projRecursosCadastroCorpo');
   const atendentes = nomesAtendentesSistema();
   const usuarios = nomesUsuariosDoCliente();
-  if(projRecursosCadastro.length===0){ corpo.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso cadastrado.</td></tr>`; return; }
+  const podeVerCustos = projPodeVerCustos();
+  document.getElementById('projrec_th_custo').style.display = podeVerCustos ? '' : 'none';
+  document.getElementById('projrec_custo_campo').style.display = podeVerCustos ? '' : 'none';
+  const colspanVazio = podeVerCustos ? 5 : 4;
+  if(projRecursosCadastro.length===0){ corpo.innerHTML = `<tr><td colspan="${colspanVazio}" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso cadastrado.</td></tr>`; return; }
   corpo.innerHTML = projRecursosCadastro.map(r=>`
     <tr>
       <td><input type="text" value="${escaparHtml(r.nome)}" onblur="projRecursoCadastroSalvarCampo('${r.id}','nome',this.value)"></td>
-      <td class="num"><input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projRecursoCadastroSalvarCampo('${r.id}','custo',this.value)"></td>
+      ${podeVerCustos ? `<td class="num"><input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projRecursoCadastroSalvarCampo('${r.id}','custo',this.value)"></td>` : ''}
       <td>
         <select onchange="projRecursoCadastroSalvarCampo('${r.id}','atendenteId',this.value)">
           <option value="">(não é atendente)</option>
@@ -9789,7 +9793,9 @@ function projPitRemoverPredecessora(i){
 }
 function projPitRenderRecursos(){
   const corpo = document.getElementById('pitRecursosCorpo');
-  if(pitRecursos.length===0){ corpo.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso.</td></tr>`; return; }
+  const podeVerCustos = projPodeVerCustos();
+  document.getElementById('pit_th_custo').style.display = podeVerCustos ? '' : 'none';
+  if(pitRecursos.length===0){ corpo.innerHTML = `<tr><td colspan="${podeVerCustos?4:3}" style="text-align:center;color:var(--muted);padding:10px;">Nenhum recurso.</td></tr>`; return; }
   corpo.innerHTML = pitRecursos.map((r,i)=>{
     const cad = projRecursosCadastro.find(rc=>rc.nome===r.nome);
     const atendenteConta = cad && cad.atendenteId ? contas.find(c=>String(c.id)===String(cad.atendenteId)) : null;
@@ -9802,7 +9808,7 @@ function projPitRenderRecursos(){
         </select>
       </td>
       <td><input type="number" min="0" max="100" value="${r.unidades??100}" onchange="projPitAlterarRecursoCampo(${i},'unidades',parseInt(this.value,10)||0)" style="width:64px;"></td>
-      <td>R$ <input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projPitAlterarRecursoCampo(${i},'custo',parseFloat(this.value)||0)" style="width:80px;"></td>
+      ${podeVerCustos ? `<td>R$ <input type="number" min="0" step="0.01" value="${r.custo||0}" onchange="projPitAlterarRecursoCampo(${i},'custo',parseFloat(this.value)||0)" style="width:80px;"></td>` : ''}
       <td>
         ${atendenteConta ? `<button type="button" class="ghost" title="Criar atendimento pra ${escaparHtml(atendenteConta.nome)}" onclick="projCriarAtendimentoParaRecurso('${escaparHtml(atendenteConta.nome)}')">📋</button>` : ''}
         <button type="button" class="danger" onclick="projPitRemoverRecurso(${i})">🗑</button>
@@ -10129,10 +10135,18 @@ function renderGanttProjeto(){
 /* ---------- Dashboard do projeto — panorama de status, cronograma, custo
    de recursos e financeiro real (a partir dos atendimentos vinculados),
    tudo calculado em cima do que já está carregado (sem chamada extra) ---------- */
+// dados de custo (planejado, faturado ao cliente, custo interno) só pra
+// quem gerencia o projeto ou é administrador do cliente — usuário comum
+// (mesmo com acesso a tarefas suas) não vê valores em dinheiro
+function projPodeVerCustos(){
+  const conta = contaAtual();
+  return ehAdminEfetivo(conta) || (conta && conta.perfil==='USUARIO' && conta.adminCliente);
+}
 function renderDashboardProjeto(){
   const cont = document.getElementById('projDashboardConteudo');
   const p = projetoAtual;
   if(!p){ cont.innerHTML = ''; return; }
+  const podeVerCustos = projPodeVerCustos();
   const tarefas = projetoTarefas;
   const totalTarefas = tarefas.length;
   const concluidas = tarefas.filter(t=>t.status==='CONCLUÍDA').length;
@@ -10255,10 +10269,10 @@ function renderDashboardProjeto(){
       <div class="proj-dash-tile"><div class="k">Progresso geral</div><div class="v">${pctGeral}%</div><div class="sub">${concluidas}/${totalTarefas} tarefas</div></div>
       <div class="proj-dash-tile"><div class="k">${escaparHtml(prazoLabel)}</div><div class="v">${prazoTexto}</div><div class="sub">${prazoSub}</div></div>
       <div class="proj-dash-tile"><div class="k">Tarefas em atraso</div><div class="v" style="color:${atrasadas.length>0?'var(--bad)':'inherit'};">${atrasadas.length}</div></div>
-      <div class="proj-dash-tile"><div class="k">Custo planejado (recursos)</div><div class="v" style="font-size:16px;">${fmtMoeda(custoPlanejado)}</div></div>
+      ${podeVerCustos ? `<div class="proj-dash-tile"><div class="k">Custo planejado (recursos)</div><div class="v" style="font-size:16px;">${fmtMoeda(custoPlanejado)}</div></div>` : ''}
       <div class="proj-dash-tile"><div class="k">Atendimentos vinculados</div><div class="v">${atendsVinculados.length}</div><div class="sub">${horasApuradas.toFixed(1)}h apuradas</div></div>
-      <div class="proj-dash-tile"><div class="k">Faturado ao cliente</div><div class="v" style="font-size:16px;">${fmtMoeda(totalReal)}</div></div>
-      <div class="proj-dash-tile"><div class="k">Custo interno (atendentes)</div><div class="v" style="font-size:16px;">${fmtMoeda(totalAnanda)}</div></div>
+      ${podeVerCustos ? `<div class="proj-dash-tile"><div class="k">Faturado ao cliente</div><div class="v" style="font-size:16px;">${fmtMoeda(totalReal)}</div></div>` : ''}
+      ${podeVerCustos ? `<div class="proj-dash-tile"><div class="k">Custo interno (atendentes)</div><div class="v" style="font-size:16px;">${fmtMoeda(totalAnanda)}</div></div>` : ''}
     </div>
 
     <div class="proj-dash-secao">
@@ -10277,7 +10291,7 @@ function renderDashboardProjeto(){
     ${projSecaoContagemHtml('Tarefas por Módulo', porModulo)}
     ${projSecaoContagemHtml('Tarefas por Rotina', porRotina)}
 
-    ${topRecursos.length > 0 ? `
+    ${(podeVerCustos && topRecursos.length > 0) ? `
     <div class="proj-dash-secao">
       <h3>Custo por recurso</h3>
       ${topRecursos.map(([nome,custo])=>{

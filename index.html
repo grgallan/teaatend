@@ -1880,7 +1880,7 @@
       <div class="proj-sub-view" id="proj-sub-recursos" style="display:none;">
         <div class="row3">
           <div class="field"><label>Nome do recurso</label><input type="text" id="projrec_nome" placeholder="Ex: Allan"></div>
-          <div class="field"><label>Custo</label><input type="number" min="0" step="0.01" id="projrec_custo" placeholder="0,00"></div>
+          <div class="field" id="projrec_custo_campo"><label>Custo</label><input type="number" min="0" step="0.01" id="projrec_custo" placeholder="0,00"></div>
           <div class="field" style="display:flex;align-items:flex-end;"><button type="button" class="ghost" id="btnProjRecursoAdicionar" style="width:auto;">+ Adicionar recurso</button></div>
         </div>
         <div class="field">
@@ -1892,7 +1892,7 @@
           <select id="projrec_usuario" style="display:none;margin-top:6px;"></select>
         </div>
         <table class="orc-tabela">
-          <thead><tr><th>Nome</th><th class="num" style="width:120px;">Custo</th><th style="width:170px;">Atendente vinculado</th><th style="width:170px;">Usuário vinculado</th><th style="width:56px;"></th></tr></thead>
+          <thead><tr><th>Nome</th><th class="num" style="width:120px;" id="projrec_th_custo">Custo</th><th style="width:170px;">Atendente vinculado</th><th style="width:170px;">Usuário vinculado</th><th style="width:56px;"></th></tr></thead>
           <tbody id="projRecursosCadastroCorpo"></tbody>
         </table>
       </div>
@@ -2624,7 +2624,7 @@
 
     <div class="proj-info-tab" id="projInfoTab-recursos" style="display:none;">
       <table class="orc-tabela">
-        <thead><tr><th>Nome do recurso</th><th style="width:100px;">Unidades</th><th style="width:120px;">Custo</th><th style="width:36px;"></th></tr></thead>
+        <thead><tr><th>Nome do recurso</th><th style="width:100px;">Unidades</th><th style="width:120px;" id="pit_th_custo">Custo</th><th style="width:36px;"></th></tr></thead>
         <tbody id="pitRecursosCorpo"></tbody>
       </table>
       <button type="button" class="ghost" id="btnPitAddRecurso" style="margin-top:8px;">+ Adicionar recurso</button>
