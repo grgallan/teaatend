@@ -7862,7 +7862,10 @@ async function removerAnexoAtividadeUi(id, atividadeId){
 // ideia do carregarVideosCacheParaVinculo)
 async function carregarAtividadesCacheParaAgenda(){
   const conta = contaAtual();
-  if(!conta || conta.perfil === 'USUARIO') return;
+  // administrador do cliente também precisa ver as atividades marcadas "na
+  // Agenda" ligadas a atendimentos do próprio cliente — só um usuário comum
+  // (sem ser admin do cliente) não acessa atividades
+  if(!conta || (conta.perfil === 'USUARIO' && !conta.adminCliente)) return;
   try{
     const r = await api('listarAtividades', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(r.ok) atividadesCache = r.atividades || [];
