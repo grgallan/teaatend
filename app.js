@@ -9337,17 +9337,18 @@ function projTarefaCelulaHtml(t, nivel, filhos, colapsada, numero, predTexto, ke
         </div>
       </td>`;
     case 'recursos':
-      return `<td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>`;
+      // mesma célula (bolinhas coloridas + "+" abrindo a listinha marcável
+      // dos recursos cadastrados no projeto) usada no Quadro — só uma
+      // implementação pra editar "quem é responsável" nas duas telas
+      return projQuadroCelulaRecursos(t);
     case 'atendimentos':
       return `<td class="num" style="color:var(--muted);">${(t.atendimentoIds||[]).length || '—'}</td>`;
     case 'predecessoras':
       return `<td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>`;
     case 'acoes':
-      return `<td class="proj-tarefa-acoes-cel">
-        <button class="ghost" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
-        <button class="ghost" title="Nova subtarefa" onclick="projAdicionarTarefaUi('${t.id}')">+</button>
-        <button class="danger" title="Remover" onclick="projRemoverTarefaUi('${t.id}')">🗑</button>
-      </td>`;
+      // mesmo botão único (⋮) com o menu de ações usado no Quadro, em vez
+      // dos 3 ícones lado a lado
+      return projQuadroCelulaAcoes(t);
     default:
       return '<td></td>';
   }
@@ -9918,6 +9919,14 @@ function projQuadroCelulaPercentual(t, filhos){
   }
   return `<td><div class="proj-quadro-nome" style="gap:8px;">${projBateriaHtml(pct)}<input type="number" min="0" max="100" step="1" value="${pct}" style="width:42px;" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)"></div></td>`;
 }
+// o menu de ações (⋮) e o picker de recursos (bolinhas + "+") nasceram no
+// Quadro mas agora são reaproveitados na tabela Tarefas também — como o
+// estado é compartilhado entre as duas telas, o toggle/fechar precisa
+// redesenhar QUALQUER UMA que estiver ativa no momento, não sempre o Quadro
+function projRenderizarAbaTarefasAtual(){
+  if(projSubAba==='quadro') renderQuadroProjeto();
+  else renderTabelaTarefas();
+}
 // coluna Recursos — só as bolinhas (uma por pessoa, cor consistente por
 // nome); escolher quem é responsável é pelo "+", que abre uma listinha
 // marcável com os recursos já cadastrados no projeto (aba Recursos)
@@ -9925,11 +9934,11 @@ let projQuadroRecursoPickerAberto = null;
 function projQuadroAlternarPickerRecursos(id){
   projQuadroRecursoPickerAberto = (projQuadroRecursoPickerAberto === id) ? null : id;
   projQuadroMenuAcoesAberto = null;
-  renderQuadroProjeto();
+  projRenderizarAbaTarefasAtual();
 }
 function projQuadroFecharPickerRecursos(){
   projQuadroRecursoPickerAberto = null;
-  renderQuadroProjeto();
+  projRenderizarAbaTarefasAtual();
 }
 function projQuadroAlternarRecursoTarefa(id, nomeRecurso, marcado){
   const t = projetoTarefas.find(x=>String(x.id)===String(id));
@@ -9953,7 +9962,7 @@ function projQuadroPickerRecursosHtml(t){
 }
 function projQuadroCelulaRecursos(t){
   const aberto = projQuadroRecursoPickerAberto === t.id;
-  return `<td>
+  return `<td class="proj-td-sem-clip">
     <div class="proj-quadro-recursos-cel">
       <div class="proj-quadro-avatares">${projQuadroAvatarHtml(t.responsavel)}</div>
       <div class="proj-quadro-menu-wrap">
@@ -9971,15 +9980,15 @@ let projQuadroMenuAcoesAberto = null;
 function projQuadroAlternarMenuAcoes(id){
   projQuadroMenuAcoesAberto = (projQuadroMenuAcoesAberto === id) ? null : id;
   projQuadroRecursoPickerAberto = null;
-  renderQuadroProjeto();
+  projRenderizarAbaTarefasAtual();
 }
 function projQuadroFecharMenuAcoes(){
   projQuadroMenuAcoesAberto = null;
-  renderQuadroProjeto();
+  projRenderizarAbaTarefasAtual();
 }
 function projQuadroCelulaAcoes(t){
   const aberto = projQuadroMenuAcoesAberto === t.id;
-  return `<td class="proj-quadro-acoes-cel">
+  return `<td class="proj-quadro-acoes-cel proj-td-sem-clip">
     <div class="proj-quadro-menu-wrap">
       <button type="button" class="ghost proj-quadro-menu-btn" title="Ações" onclick="event.stopPropagation();projQuadroAlternarMenuAcoes('${t.id}')">⋮</button>
       ${aberto ? `<div class="proj-quadro-menu-acoes">
@@ -10024,14 +10033,14 @@ function projQuadroSubtarefaLinhaHtml({t, nivel, temFilhos}, colunasSub){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
   const celulas = colunasSub.map(c=>projQuadroCelulaHtml(t, filhos, c.key, true, nivel)).join('');
-  const classes = [temFilhos?'proj-tarefa-mae':'', colapsada?'colapsada':''].filter(Boolean).join(' ');
-  return `<tr data-id="${t.id}"${classes?` class="${classes}"`:''}>${celulas}</tr>`;
+  const classes = [`status-${statusSlug(t.status)}`, temFilhos?'proj-tarefa-mae':'', colapsada?'colapsada':''].filter(Boolean).join(' ');
+  return `<tr data-id="${t.id}" class="${classes}">${celulas}</tr>`;
 }
 function projQuadroTarefaLinhaHtml(t, colunas, colunasSub){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
   const celulas = colunas.map(c=>projQuadroCelulaHtml(t, filhos, c.key, false)).join('');
-  return `<tr class="proj-quadro-tarefa-linha${colapsada?' colapsada':''}" data-id="${t.id}">${celulas}</tr>${filhos.length>0?`<tr class="proj-quadro-sub-wrap"${colapsada?' style="display:none;"':''}>
+  return `<tr class="proj-quadro-tarefa-linha status-${statusSlug(t.status)}${colapsada?' colapsada':''}" data-id="${t.id}">${celulas}</tr>${filhos.length>0?`<tr class="proj-quadro-sub-wrap"${colapsada?' style="display:none;"':''}>
     <td colspan="${colunas.length}">
       <div class="proj-quadro-sub-caixa">
         <div class="proj-quadro-sub-scroll">
