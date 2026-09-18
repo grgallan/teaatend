@@ -10226,6 +10226,96 @@ function projQuadroFinalizarResizeColuna(e){
   projQuadroResizeEstado = null;
 }
 
+/* ---------- Excel do Quadro — mesmo mecanismo/estilo de gerarExcelTarefasProjeto
+   (xlsx-js-style: cabeçalho escuro em negrito, mãe cinza+negrito, Status
+   colorido), só que reproduzindo o agrupamento por Segmento da tela: uma
+   linha mesclada e colorida por grupo (mesma cor do rail na tela), seguida
+   das tarefas raiz daquele grupo com toda a hierarquia de subtarefas
+   indentada — exporta as colunas visíveis/na ordem atual do Quadro. ---------- */
+const PROJ_QUADRO_CORES_GRUPO_HEX = ['70AD47','4472C4','C00000','ED7D31','7030A0','BF8F00','1F8A70','808080'];
+function projQuadroCorHexGrupo(nome){
+  return PROJ_QUADRO_CORES_GRUPO_HEX[projQuadroHash(nome) % PROJ_QUADRO_CORES_GRUPO_HEX.length];
+}
+function projValorColunaTextoQuadro(t, key, nivel){
+  if(key==='cronograma') return projQuadroCronogramaTexto(t.dataInicio, t.dataFim) || 'sem data';
+  return projValorColunaTexto(t, key, nivel);
+}
+async function gerarExcelQuadroProjeto(){
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+  if(!projetoAtual) return;
+  projNumerarTarefas();
+  const colunas = projQuadroColunas.visiveisOrdenadas().filter(c=>!c.semExportar);
+  const raiz = projFilhosDe(null);
+  const grupos = new Map();
+  raiz.forEach(t=>{
+    const nome = t.segmento || '(sem segmento)';
+    if(!grupos.has(nome)) grupos.set(nome, []);
+    grupos.get(nome).push(t);
+  });
+
+  const aoa = [colunas.map(c=>c.label)];
+  const infoLinhas = [null]; // paralelo a aoa; null = linha de cabeçalho
+
+  function empilharComDescendentes(t, nivel){
+    aoa.push(colunas.map(c=>projValorColunaTextoQuadro(t, c.key, c.key==='nome'?nivel:0)));
+    infoLinhas.push({ tarefa:t });
+    projFilhosDe(t.id).forEach(filho=>empilharComDescendentes(filho, nivel+1));
+  }
+  grupos.forEach((tarefas, nomeGrupo)=>{
+    const somaDuracao = tarefas.reduce((s,t)=>s+(Number(t.duracaoDias)||0),0);
+    const linhaGrupo = new Array(colunas.length).fill('');
+    linhaGrupo[0] = `${nomeGrupo} — ${tarefas.length} tarefa${tarefas.length===1?'':'s'} · ${somaDuracao} d`;
+    aoa.push(linhaGrupo);
+    infoLinhas.push({ grupo: nomeGrupo });
+    tarefas.forEach(t=>empilharComDescendentes(t, 0));
+  });
+
+  const planilha = XLSX.utils.aoa_to_sheet(aoa);
+
+  colunas.forEach((c, idx)=>{
+    const cel = planilha[XLSX.utils.encode_cell({ r:0, c:idx })];
+    if(cel) cel.s = { font:{ bold:true, color:{ rgb:'FFFFFF' } }, fill:{ fgColor:{ rgb:'305496' } }, alignment:{ vertical:'center' } };
+  });
+
+  const merges = [];
+  infoLinhas.forEach((info, r)=>{
+    if(!info) return;
+    if(info.grupo){
+      const corHex = projQuadroCorHexGrupo(info.grupo);
+      colunas.forEach((c, idx)=>{
+        const endereco = XLSX.utils.encode_cell({ r, c:idx });
+        if(!planilha[endereco]) planilha[endereco] = { t:'s', v:'' };
+        planilha[endereco].s = { font:{ bold:true, color:{ rgb:'FFFFFF' } }, fill:{ fgColor:{ rgb: corHex } } };
+      });
+      if(colunas.length>1) merges.push({ s:{ r, c:0 }, e:{ r, c:colunas.length-1 } });
+      return;
+    }
+    const t = info.tarefa;
+    const ehMae = projFilhosDe(t.id).length > 0;
+    const corStatus = projCorExcelPorStatus(t.status);
+    colunas.forEach((c, idx)=>{
+      const cel = planilha[XLSX.utils.encode_cell({ r, c:idx })];
+      if(!cel) return;
+      const estilo = {};
+      if(ehMae){ estilo.fill = { fgColor:{ rgb:'F2F2F2' } }; estilo.font = { bold:true }; }
+      if(c.key==='status' && corStatus){
+        estilo.fill = { fgColor:{ rgb: corStatus.fill } };
+        estilo.font = { ...(estilo.font||{}), color:{ rgb: corStatus.texto } };
+      }
+      if(Object.keys(estilo).length>0) cel.s = estilo;
+    });
+  });
+  if(merges.length) planilha['!merges'] = merges;
+
+  planilha['!cols'] = colunas.map(c=>({ wch: Math.max(6, Math.round((projQuadroColunas.largura(c)||100)/7)) }));
+
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, planilha, 'Quadro');
+  const nomeArquivo = ('quadro-' + projetoAtual.nome)
+    .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') + '.xlsx';
+  await salvarWorkbook(livro, nomeArquivo);
+}
+
 /* ---------- tela "Informações sobre a tarefa" (estilo MS Project) — Geral/
    Predecessoras/Recursos/Anotações. Início/Término/Duração salvam na hora
    (um campo por vez, reaproveitando a mesma sincronia de 3 vias e o
@@ -13351,6 +13441,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
   document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
+  document.getElementById('btnProjQuadroExcel').addEventListener('click', gerarExcelQuadroProjeto);
   document.getElementById('projImportarTarefasArquivo').addEventListener('change', e=>{
     const arquivo = e.target.files[0];
     if(arquivo) importarExcelTarefasProjeto(arquivo);
