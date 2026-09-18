@@ -554,6 +554,12 @@
   .proj-quadro-tabela .proj-tarefa-nome-linha,.proj-quadro-sub-tabela .proj-tarefa-nome-linha{display:flex;align-items:center;}
   .proj-quadro-sub-tabela .proj-tarefa-titulo{width:100%;font-weight:600;}
   .proj-quadro-tabela .proj-tarefa-acoes-cel button,.proj-quadro-sub-tabela .proj-tarefa-acoes-cel button{padding:2px 5px;font-size:11px;margin-right:2px;}
+  .proj-quadro-menu-wrap{position:relative;display:inline-block;}
+  .proj-quadro-menu-btn{width:auto;padding:2px 9px;font-size:14px;line-height:1;}
+  .proj-quadro-menu-acoes{position:absolute;top:calc(100% + 4px);right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:40;min-width:170px;display:flex;flex-direction:column;padding:4px;}
+  .proj-quadro-menu-acoes button{background:none;border:none;text-align:left;padding:7px 10px;font-size:12.5px;border-radius:6px;cursor:pointer;color:var(--text);white-space:nowrap;width:100%;}
+  .proj-quadro-menu-acoes button:hover{background:var(--panel-2);}
+  .proj-quadro-menu-acoes button.danger{color:var(--bad);background:none;}
   .proj-quadro-recursos-cel{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
   .proj-quadro-avatares{display:flex;gap:3px;flex-wrap:wrap;}
   .proj-quadro-avatares .avatar{width:20px;height:20px;font-size:9.5px;}
