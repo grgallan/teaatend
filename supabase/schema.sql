@@ -1067,7 +1067,7 @@ create table if not exists projeto_tarefas (
   titulo text not null,
   descricao text default '',
   responsavel text default '',
-  status text not null default 'A FAZER',
+  status text not null default 'Não Iniciado',
   data_inicio date,
   data_fim date,
   ordem integer not null default 0,
@@ -1244,3 +1244,10 @@ create table if not exists projeto_tarefa_atualizacoes (
 );
 alter table projeto_tarefa_atualizacoes enable row level security;
 create index if not exists idx_proj_tarefa_atualizacoes_tarefa on projeto_tarefa_atualizacoes (tarefa_id);
+
+-- renomeia os status de tarefa de projeto (novos rótulos + dois novos
+-- status: Agendado e Parado, entre "Não Iniciado" e "Concluída")
+alter table projeto_tarefas alter column status set default 'Não Iniciado';
+update projeto_tarefas set status = 'Não Iniciado' where status = 'A FAZER';
+update projeto_tarefas set status = 'Em Andamento' where status = 'EM ANDAMENTO';
+update projeto_tarefas set status = 'Concluída' where status = 'CONCLUÍDA';

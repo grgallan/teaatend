@@ -2541,7 +2541,7 @@ function renderLinhasVinculosFilhos(nos, ctx, nivel){
 
 /* ---------- Cards (kanban) — mesma lista de Atendimentos, agrupada por status ---------- */
 function corStatusDot(nome){
-  const mapa = { 'CONCLUIDO':'var(--ok)', 'PENDENTE':'var(--warn)', 'AGENDADO':'var(--purple)', 'EM-ANDAMENTO':'var(--yellow)', 'EM-VALIDACAO':'var(--blue)', 'CANCELADO':'var(--bad)', 'NAO-VALIDADO':'var(--bad)' };
+  const mapa = { 'CONCLUIDO':'var(--ok)', 'PENDENTE':'var(--warn)', 'AGENDADO':'var(--purple)', 'EM-ANDAMENTO':'var(--yellow)', 'EM-VALIDACAO':'var(--blue)', 'CANCELADO':'var(--bad)', 'NAO-VALIDADO':'var(--bad)', 'PARADO':'var(--bad)' };
   return mapa[statusSlug(nome)] || 'var(--muted)';
 }
 
@@ -8593,7 +8593,11 @@ const PROJ_STATUS = [
   { v:'CONCLUÍDO', label:'Concluído' },
   { v:'CANCELADO', label:'Cancelado' },
 ];
-const PROJ_TAREFA_STATUS = ['A FAZER', 'EM ANDAMENTO', 'CONCLUÍDA'];
+const PROJ_TAREFA_STATUS = ['Não Iniciado', 'Agendado', 'Em Andamento', 'Parado', 'Concluída'];
+const PROJ_TAREFA_STATUS_COR = {
+  'Não Iniciado': 'var(--muted)', 'Agendado': 'var(--purple)', 'Em Andamento': 'var(--warn)',
+  'Parado': 'var(--bad)', 'Concluída': 'var(--ok)',
+};
 
 // indicador visual de % concluída estilo bateria de celular — vermelho
 // <34%, amarelo <67%, verde a partir daí
@@ -9459,8 +9463,10 @@ function gerarPdfTarefasProjeto(){
 // leitura visual da bateria colorida da tela (verde concluída, amarelo em
 // andamento), só que como preenchimento de célula em vez de barra
 function projCorExcelPorStatus(status){
-  if(status==='CONCLUÍDA') return { fill:'C6EFCE', texto:'006100' };
-  if(status==='EM ANDAMENTO') return { fill:'FFEB9C', texto:'9C6500' };
+  if(status==='Concluída') return { fill:'C6EFCE', texto:'006100' };
+  if(status==='Em Andamento') return { fill:'FFEB9C', texto:'9C6500' };
+  if(status==='Agendado') return { fill:'E4DFEC', texto:'5F497A' };
+  if(status==='Parado') return { fill:'FFC7CE', texto:'9C0006' };
   return null;
 }
 async function gerarExcelTarefasProjeto(){
@@ -9575,7 +9581,7 @@ async function importarExcelTarefasProjeto(arquivo){
         // AUTOMÁTICO se a própria linha tiver "Automático" na coluna Modo
         modo: 'MANUAL',
       };
-      if(campos.status !== undefined) payload.status = PROJ_TAREFA_STATUS.includes(campos.status) ? campos.status : 'A FAZER';
+      if(campos.status !== undefined) payload.status = PROJ_TAREFA_STATUS.includes(campos.status) ? campos.status : 'Não Iniciado';
       if(campos.inativa !== undefined) payload.inativa = campos.inativa.toLowerCase()==='sim';
       if(campos.segmento !== undefined) payload.segmento = campos.segmento;
       if(campos.modulo !== undefined) payload.modulo = campos.modulo;
@@ -10663,8 +10669,9 @@ async function enviarAtualizacaoTarefaUi(){
   toast('Atualização adicionada');
 }
 
-/* ---------- Kanban de tarefas (3 colunas fixas — status de tarefa não é
-   um cadastro, ao contrário do status de atendimento) ---------- */
+/* ---------- Kanban de tarefas (uma coluna por status de PROJ_TAREFA_STATUS
+   — status de tarefa não é um cadastro, ao contrário do status de
+   atendimento) ---------- */
 function renderKanbanProjeto(){
   const board = document.getElementById('projKanbanBoard');
   const porStatus = {};
@@ -10755,7 +10762,7 @@ async function soltarDragKanbanTarefa(e){
     const r = await api('atualizarTarefa', { id, status: novoStatus, contaId: conta.id });
     if(!r.ok){ toast(r.erro || 'Não foi possível mudar o status.'); renderKanbanProjeto(); return; }
     const t = projetoTarefas.find(x=>String(x.id)===String(id));
-    if(t){ t.status = novoStatus; t.concluidoEm = novoStatus==='CONCLUÍDA' ? new Date().toISOString() : ''; }
+    if(t){ t.status = novoStatus; t.concluidoEm = novoStatus==='Concluída' ? new Date().toISOString() : ''; }
     renderKanbanProjeto();
     toast(`Status alterado para ${novoStatus}`);
   }catch(err){
@@ -10857,13 +10864,11 @@ function renderDashboardProjeto(){
   const podeVerCustos = projPodeVerCustos();
   const tarefas = projetoTarefas;
   const totalTarefas = tarefas.length;
-  const concluidas = tarefas.filter(t=>t.status==='CONCLUÍDA').length;
-  const emAndamento = tarefas.filter(t=>t.status==='EM ANDAMENTO').length;
-  const aFazer = tarefas.filter(t=>t.status==='A FAZER').length;
+  const concluidas = tarefas.filter(t=>t.status==='Concluída').length;
   const pctGeral = totalTarefas>0 ? Math.round((concluidas/totalTarefas)*100) : 0;
 
   const hojeIso = new Date().toISOString().slice(0,10);
-  const atrasadas = tarefas.filter(t=>t.dataFim && t.dataFim < hojeIso && t.status!=='CONCLUÍDA');
+  const atrasadas = tarefas.filter(t=>t.dataFim && t.dataFim < hojeIso && t.status!=='Concluída');
 
   let prazoLabel = 'Prazo', prazoTexto = '—', prazoSub = 'sem previsão definida';
   if(p.dataPrevistaFim){
@@ -10907,7 +10912,7 @@ function renderDashboardProjeto(){
     saudeTexto = 'Sem atrasos registrados'; saudeCor = 'var(--ok)'; saudeIcone = '✓';
   }
 
-  const proximasTarefas = tarefas.filter(t=>t.dataFim && t.status!=='CONCLUÍDA').sort((a,b)=>String(a.dataFim).localeCompare(String(b.dataFim))).slice(0,5);
+  const proximasTarefas = tarefas.filter(t=>t.dataFim && t.status!=='Concluída').sort((a,b)=>String(a.dataFim).localeCompare(String(b.dataFim))).slice(0,5);
 
   // tarefas agrupadas por Segmento/Módulo/Rotina — mesmo formato de barras
   // já usado em "Tarefas por status", limitado aos 8 mais frequentes cada;
@@ -10985,7 +10990,7 @@ function renderDashboardProjeto(){
 
     <div class="proj-dash-secao">
       <h3>Tarefas por status</h3>
-      ${totalTarefas===0 ? `<div class="empty" style="padding:6px 0;">Nenhuma tarefa ainda.</div>` : [['A FAZER',aFazer,'var(--muted)'],['EM ANDAMENTO',emAndamento,'var(--warn)'],['CONCLUÍDA',concluidas,'var(--ok)']].map(([nome,qtd,cor])=>{
+      ${totalTarefas===0 ? `<div class="empty" style="padding:6px 0;">Nenhuma tarefa ainda.</div>` : PROJ_TAREFA_STATUS.map(nome=>[nome, tarefas.filter(t=>t.status===nome).length, PROJ_TAREFA_STATUS_COR[nome]]).map(([nome,qtd,cor])=>{
         const pct = totalTarefas>0 ? Math.round((qtd/totalTarefas)*100) : 0;
         return `<div class="proj-dash-barra-linha">
           <div class="proj-dash-barra-label">${escaparHtml(nome)}</div>
@@ -11033,13 +11038,11 @@ function renderDashboardProjeto(){
 // Largura de cada ramo = número de folhas do ramo (bottom-up), depois cada
 // nó é centralizado dentro do espaço herdado (top-down) — mesma ideia de
 // layout de árvore usada em qualquer organograma.
-// cor do card de tarefa no Mapa Mental — status do projeto (A FAZER/EM
-// ANDAMENTO/CONCLUÍDA) não é o mesmo vocabulário do status de atendimento
-// que corStatusDot mapeia, por isso tem a própria função aqui
+// cor do card de tarefa no Mapa Mental — status da tarefa de projeto não é
+// o mesmo vocabulário do status de atendimento que corStatusDot mapeia,
+// por isso usa PROJ_TAREFA_STATUS_COR em vez daquele
 function corStatusTarefaProjeto(status){
-  if(status==='CONCLUÍDA') return 'var(--ok)';
-  if(status==='EM ANDAMENTO') return 'var(--yellow)';
-  return 'var(--muted)';
+  return PROJ_TAREFA_STATUS_COR[status] || 'var(--muted)';
 }
 function renderMapaMentalProjeto(){
   const wrap = document.getElementById('projMapaMentalWrap');

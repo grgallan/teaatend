@@ -2191,7 +2191,7 @@ function tarefaParaApi(t: any, predecessoras: any[] = [], recursos: any[] = [], 
   return {
     id: t.id, projetoId: t.projeto_id, tarefaPaiId: t.tarefa_pai_id || '',
     titulo: t.titulo, descricao: t.descricao || '', responsavel: t.responsavel || '',
-    status: t.status || 'A FAZER', dataInicio: t.data_inicio || '', dataFim: t.data_fim || '',
+    status: t.status || 'Não Iniciado', dataInicio: t.data_inicio || '', dataFim: t.data_fim || '',
     ordem: t.ordem || 0, criadoEm: t.criado_em, concluidoEm: t.concluido_em || '',
     duracaoDias: t.duracao_dias || 1, percentualConcluido: t.percentual_concluido || 0,
     modo: t.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO',
@@ -2610,7 +2610,7 @@ async function acaoListarProjetos(req: any) {
   (tarefas || []).forEach((t: any) => {
     const p = (progresso[t.projeto_id] = progresso[t.projeto_id] || { total: 0, concluidas: 0 });
     p.total++;
-    if (t.status === 'CONCLUÍDA') p.concluidas++;
+    if (t.status === 'Concluída') p.concluidas++;
   });
 
   return {
@@ -2653,7 +2653,7 @@ async function acaoObterProjeto(req: any) {
   }
 
   const total = lista.length;
-  const concluidas = lista.filter((t: any) => t.status === 'CONCLUÍDA').length;
+  const concluidas = lista.filter((t: any) => t.status === 'Concluída').length;
   return {
     ok: true,
     projeto: projetoParaApi(projeto, { tarefasTotal: total, tarefasConcluidas: concluidas }),
@@ -2731,13 +2731,13 @@ async function acaoDesvincularAtendimentoProjeto(req: any) {
   return { ok: true };
 }
 
-const STATUS_TAREFA_VALIDOS = new Set(['A FAZER', 'EM ANDAMENTO', 'CONCLUÍDA']);
+const STATUS_TAREFA_VALIDOS = new Set(['Não Iniciado', 'Agendado', 'Em Andamento', 'Parado', 'Concluída']);
 
 async function acaoCriarTarefa(req: any) {
   if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra criar tarefas.' };
   if (!req.projetoId) return { ok: false, erro: 'Projeto não informado.' };
   if (!req.titulo || !String(req.titulo).trim()) return { ok: false, erro: 'Preencha o título da tarefa.' };
-  const status = STATUS_TAREFA_VALIDOS.has(req.status) ? req.status : 'A FAZER';
+  const status = STATUS_TAREFA_VALIDOS.has(req.status) ? req.status : 'Não Iniciado';
   const modo = req.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO';
   const duracaoDias = Math.max(1, parseInt(req.duracaoDias, 10) || 1);
   const percentual = Math.min(100, Math.max(0, parseInt(req.percentualConcluido, 10) || 0));
@@ -2749,7 +2749,7 @@ async function acaoCriarTarefa(req: any) {
     duracao_dias: duracaoDias, percentual_concluido: percentual, modo,
     prioridade, duracao_estimada: !!req.duracaoEstimada, inativa: !!req.inativa,
     segmento: req.segmento || '', modulo: req.modulo || '', submodulo: req.submodulo || '',
-    concluido_em: status === 'CONCLUÍDA' ? new Date().toISOString() : null,
+    concluido_em: status === 'Concluída' ? new Date().toISOString() : null,
   };
   const { error } = await db.from('projeto_tarefas').insert(registro);
   if (error) return { ok: false, erro: error.message };
@@ -2843,8 +2843,8 @@ async function acaoAtualizarTarefa(req: any) {
   if (req.status !== undefined) {
     if (!STATUS_TAREFA_VALIDOS.has(req.status)) return { ok: false, erro: 'Status inválido.' };
     atualizacao.status = req.status;
-    if (req.status === 'CONCLUÍDA' && existente.status !== 'CONCLUÍDA') atualizacao.concluido_em = new Date().toISOString();
-    else if (req.status !== 'CONCLUÍDA') atualizacao.concluido_em = null;
+    if (req.status === 'Concluída' && existente.status !== 'Concluída') atualizacao.concluido_em = new Date().toISOString();
+    else if (req.status !== 'Concluída') atualizacao.concluido_em = null;
   }
   if (req.modo !== undefined) atualizacao.modo = req.modo === 'MANUAL' ? 'MANUAL' : 'AUTOMÁTICO';
   if (req.percentualConcluido !== undefined) {

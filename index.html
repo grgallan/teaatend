@@ -220,10 +220,12 @@
   .kanban-col-header.status-NAO-VALIDADO .titulo{color:var(--bad);}
   .kanban-col-header.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--purple) 32%, transparent);}
   .kanban-col-header.status-AGENDADO .titulo{color:var(--purple);}
-  .kanban-col-header.status-A-FAZER{background:color-mix(in oklch, var(--muted) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--muted) 32%, transparent);}
-  .kanban-col-header.status-A-FAZER .titulo{color:var(--muted);}
+  .kanban-col-header.status-NAO-INICIADO{background:color-mix(in oklch, var(--muted) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--muted) 32%, transparent);}
+  .kanban-col-header.status-NAO-INICIADO .titulo{color:var(--muted);}
   .kanban-col-header.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--ok) 32%, transparent);}
   .kanban-col-header.status-CONCLUIDA .titulo{color:var(--ok);}
+  .kanban-col-header.status-PARADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border-bottom-color:color-mix(in oklch, var(--bad) 32%, transparent);}
+  .kanban-col-header.status-PARADO .titulo{color:var(--bad);}
   .kanban-card{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px 9px 6px;display:flex;gap:4px;cursor:pointer;}
   .kanban-card.dragging{opacity:.35;}
   .kanban-card-handle{flex-shrink:0;width:18px;text-align:center;color:var(--muted);cursor:grab;touch-action:none;user-select:none;font-size:14px;line-height:1.5;padding:2px 0;}
@@ -292,10 +294,12 @@
   .tag.status-NAO-VALIDADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .tag.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);border:1px solid color-mix(in oklch, var(--purple) 32%, transparent);color:var(--purple);}
   .tag.status-NÃO\ VALIDADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
-  /* status de tarefa (Projetos) — A FAZER/EM ANDAMENTO/CONCLUÍDA; "EM
-     ANDAMENTO" já reaproveita a cor de atendimento (mesmo slug) */
-  .tag.status-A-FAZER{background:color-mix(in oklch, var(--muted) 13%, transparent);border:1px solid color-mix(in oklch, var(--muted) 32%, transparent);color:var(--muted);}
+  /* status de tarefa (Projetos) — Não Iniciado/Agendado/Em Andamento/Parado/
+     Concluída; "Em Andamento" e "Agendado" já reaproveitam a cor de
+     atendimento (mesmo slug) */
+  .tag.status-NAO-INICIADO{background:color-mix(in oklch, var(--muted) 13%, transparent);border:1px solid color-mix(in oklch, var(--muted) 32%, transparent);color:var(--muted);}
   .tag.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);border:1px solid color-mix(in oklch, var(--ok) 32%, transparent);color:var(--ok);}
+  .tag.status-PARADO{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .item .valores{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
   .item .valores .v1{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);}
   .item .valores .v2{font-family:'JetBrains Mono',monospace;font-size:13.5px;font-weight:600;color:var(--accent);}
@@ -480,6 +484,8 @@
      de status, só que bem suave (13%) pra não brigar com o texto */
   .proj-tarefas-tabela tbody tr.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);}
   .proj-tarefas-tabela tbody tr.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);}
+  .proj-tarefas-tabela tbody tr.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);}
+  .proj-tarefas-tabela tbody tr.status-PARADO{background:color-mix(in oklch, var(--bad) 13%, transparent);}
   .proj-tarefas-tabela select{width:100%;border:1px solid transparent;background:transparent;font-size:11px;color:inherit;padding:1px;font-family:inherit;box-sizing:border-box;}
   .proj-tarefas-tabela select:focus{border-color:var(--line);background:var(--bg);border-radius:6px;outline:none;}
   .proj-tarefas-tabela input[type=number]{width:56px;}
@@ -541,6 +547,8 @@
   .proj-quadro-tarefa-linha:hover{background:var(--panel-2);}
   .proj-quadro-tarefa-linha.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);}
   .proj-quadro-tarefa-linha.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);}
+  .proj-quadro-tarefa-linha.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);}
+  .proj-quadro-tarefa-linha.status-PARADO{background:color-mix(in oklch, var(--bad) 13%, transparent);}
   .proj-quadro-tarefa-linha td{padding:3px 8px;vertical-align:middle;}
   .proj-quadro-nome{display:flex;align-items:center;gap:6px;}
   .proj-quadro-toggle{width:14px;height:14px;flex:none;border:none;background:none;color:var(--muted);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;transition:transform .15s ease;}
@@ -588,6 +596,8 @@
   .proj-quadro-sub-tabela tbody tr.proj-tarefa-mae .proj-tarefa-titulo{font-weight:800;}
   .proj-quadro-sub-tabela tbody tr.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);}
   .proj-quadro-sub-tabela tbody tr.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);}
+  .proj-quadro-sub-tabela tbody tr.status-AGENDADO{background:color-mix(in oklch, var(--purple) 13%, transparent);}
+  .proj-quadro-sub-tabela tbody tr.status-PARADO{background:color-mix(in oklch, var(--bad) 13%, transparent);}
   .proj-quadro-sub-tabela td{padding:3px 8px;vertical-align:middle;}
   .proj-quadro-add{padding:5px 18px;font-size:11px;color:var(--muted);background:none;border:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;cursor:pointer;width:100%;text-align:left;}
   .proj-quadro-add:hover{color:var(--accent);}
@@ -679,8 +689,9 @@
   .gantt-bar.status-NAO-VALIDADO{background:var(--bad);}
   .gantt-bar.status-AGENDADO{background:var(--purple);}
   .gantt-bar.status-NÃO\ VALIDADO{background:var(--bad);}
-  .gantt-bar.status-A-FAZER{background:var(--muted);}
+  .gantt-bar.status-NAO-INICIADO{background:var(--muted);}
   .gantt-bar.status-CONCLUIDA{background:var(--ok);}
+  .gantt-bar.status-PARADO{background:var(--bad);}
   .gantt-bar-sem-previsao{opacity:.55;background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.3),rgba(255,255,255,.3) 3px,transparent 3px,transparent 6px);}
   .install-banner{background:var(--accent-dim);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:none;align-items:center;gap:10px;justify-content:space-between;}
   .install-banner.show{display:flex;}
