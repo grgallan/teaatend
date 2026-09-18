@@ -527,7 +527,7 @@
   .proj-quadro-grupo-barra .rail{width:5px;align-self:stretch;border-radius:3px;background:var(--accent);flex:none;}
   .proj-quadro-grupo-chevron{width:16px;flex:none;color:var(--muted);display:inline-block;transition:transform .15s ease;}
   .proj-quadro-grupo-linha.colapsado .proj-quadro-grupo-chevron{transform:rotate(-90deg);}
-  .proj-quadro-grupo-titulo{font-weight:700;font-size:13.5px;}
+  .proj-quadro-grupo-titulo{font-weight:700;font-size:11px;}
   .proj-quadro-grupo-conta{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 8px;}
   .proj-quadro-corpo.colapsado{display:none;}
   .proj-quadro-tarefa-linha{border-bottom:1px solid var(--line);}
@@ -545,9 +545,19 @@
   .proj-quadro-cron{display:inline-block;font-size:11px;font-weight:600;background:var(--accent-dim);color:var(--accent);border-radius:999px;padding:3px 9px;white-space:nowrap;}
   .proj-quadro-cron.vazio{background:var(--panel-2);color:var(--muted);font-weight:500;}
   .proj-quadro-tabela input[type=text],.proj-quadro-tabela input[type=number],.proj-quadro-tabela input[type=date],
-  .proj-quadro-sub-tabela input[type=text]{border:1px solid transparent;background:transparent;font-size:inherit;color:inherit;font-family:inherit;padding:3px 4px;border-radius:6px;box-sizing:border-box;}
+  .proj-quadro-sub-tabela input[type=text],.proj-quadro-sub-tabela input[type=number],.proj-quadro-sub-tabela input[type=date]{border:1px solid transparent;background:transparent;font-size:inherit;color:inherit;font-family:inherit;padding:3px 4px;border-radius:6px;box-sizing:border-box;}
   .proj-quadro-tabela input:focus,.proj-quadro-sub-tabela input:focus{border-color:var(--line);background:var(--bg);outline:none;}
+  .proj-quadro-tabela input[type=number],.proj-quadro-sub-tabela input[type=number]{width:52px;}
+  .proj-quadro-tabela select:not(.tag),.proj-quadro-sub-tabela select:not(.tag){font-size:inherit;color:inherit;background:transparent;border:1px solid transparent;border-radius:6px;padding:2px;font-family:inherit;}
+  .proj-quadro-tabela select:not(.tag):focus,.proj-quadro-sub-tabela select:not(.tag):focus{border-color:var(--line);background:var(--bg);outline:none;}
   .proj-quadro-tabela select.tag,.proj-quadro-sub-tabela select.tag{border:none;cursor:pointer;font:inherit;appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:18px;}
+  .proj-quadro-tabela .proj-tarefa-nome-linha,.proj-quadro-sub-tabela .proj-tarefa-nome-linha{display:flex;align-items:center;}
+  .proj-quadro-sub-tabela .proj-tarefa-titulo{width:100%;font-weight:600;}
+  .proj-quadro-tabela .proj-tarefa-acoes-cel button,.proj-quadro-sub-tabela .proj-tarefa-acoes-cel button{padding:2px 5px;font-size:11px;margin-right:2px;}
+  .proj-quadro-recursos-cel{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .proj-quadro-avatares{display:flex;gap:3px;flex-wrap:wrap;}
+  .proj-quadro-avatares .avatar{width:20px;height:20px;font-size:9.5px;}
+  .avatar.proj-quadro-avatar-vazio{background:transparent;border:1.5px dashed var(--line);color:var(--muted);}
   .proj-quadro-sub-wrap td{padding:0;border:none;}
   .proj-quadro-sub-caixa{margin:0 10px 8px 34px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);}
   .proj-quadro-sub-tabela{width:100%;border-collapse:collapse;}
@@ -1907,8 +1917,12 @@
       <div class="proj-sub-view" id="proj-sub-quadro" style="display:none;">
         <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
           <div style="position:relative;">
-            <button type="button" class="ghost" id="btnProjQuadroColunas" style="width:auto;padding:8px 14px;">⚙ Colunas</button>
+            <button type="button" class="ghost" id="btnProjQuadroColunas" style="width:auto;padding:8px 14px;">⚙ Colunas (tarefa)</button>
             <div id="projQuadroColunasPainel" class="proj-colunas-painel" style="display:none;"></div>
+          </div>
+          <div style="position:relative;">
+            <button type="button" class="ghost" id="btnProjQuadroSubColunas" style="width:auto;padding:8px 14px;">⚙ Colunas (subtarefa)</button>
+            <div id="projQuadroSubColunasPainel" class="proj-colunas-painel" style="display:none;"></div>
           </div>
         </div>
         <div id="projQuadroWrap"></div>
