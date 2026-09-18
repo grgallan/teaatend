@@ -473,7 +473,12 @@
   .proj-tarefas-tabela{min-width:920px;table-layout:fixed;}
   .proj-tarefas-tabela td{white-space:nowrap;vertical-align:middle;padding:1px 6px;overflow:hidden;text-overflow:ellipsis;}
   .proj-tarefas-tabela td.anotacoes-col{white-space:normal;}
+  .proj-tarefas-tabela td.proj-td-sem-clip{overflow:visible;}
   .proj-tarefas-tabela tbody tr.proj-tarefa-mae{background:var(--panel-2);}
+  /* fundo da linha por status — mesma cor usada no cabeçalho do Kanban/tag
+     de status, só que bem suave (13%) pra não brigar com o texto */
+  .proj-tarefas-tabela tbody tr.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);}
+  .proj-tarefas-tabela tbody tr.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);}
   .proj-tarefas-tabela select{width:100%;border:1px solid transparent;background:transparent;font-size:12px;color:inherit;padding:1px;font-family:inherit;box-sizing:border-box;}
   .proj-tarefas-tabela select:focus{border-color:var(--line);background:var(--bg);border-radius:6px;outline:none;}
   .proj-tarefas-tabela input[type=number]{width:56px;}
@@ -482,7 +487,6 @@
   .proj-tarefas-tabela input.proj-tarefa-titulo{font-weight:600;min-width:80px;}
   .proj-tarefas-tabela tr.status-CONCLUIDA .proj-tarefa-titulo{text-decoration:line-through;color:var(--muted);}
   .proj-tarefas-tabela tr.proj-tarefa-mae .proj-tarefa-titulo{font-weight:800;}
-  .proj-tarefas-tabela .proj-tarefa-acoes-cel button{padding:2px 5px;font-size:11px;margin-right:2px;}
   .proj-tarefas-tabela select.proj-status-select{font-weight:600;}
   .proj-tarefas-tabela th{position:relative;padding:6px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .proj-col-resizer{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:2;}
@@ -534,6 +538,8 @@
   .proj-quadro-corpo.colapsado{display:none;}
   .proj-quadro-tarefa-linha{border-bottom:1px solid var(--line);}
   .proj-quadro-tarefa-linha:hover{background:var(--panel-2);}
+  .proj-quadro-tarefa-linha.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);}
+  .proj-quadro-tarefa-linha.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);}
   .proj-quadro-tarefa-linha td{padding:3px 8px;vertical-align:middle;}
   .proj-quadro-nome{display:flex;align-items:center;gap:6px;}
   .proj-quadro-toggle{width:14px;height:14px;flex:none;border:none;background:none;color:var(--muted);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;transition:transform .15s ease;}
@@ -556,7 +562,6 @@
   .proj-quadro-tabela select.tag,.proj-quadro-sub-tabela select.tag{border:none;cursor:pointer;font:inherit;appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:18px;}
   .proj-quadro-tabela .proj-tarefa-nome-linha,.proj-quadro-sub-tabela .proj-tarefa-nome-linha{display:flex;align-items:center;}
   .proj-quadro-sub-tabela .proj-tarefa-titulo{width:100%;font-weight:600;}
-  .proj-quadro-tabela .proj-tarefa-acoes-cel button,.proj-quadro-sub-tabela .proj-tarefa-acoes-cel button{padding:2px 5px;font-size:11px;margin-right:2px;}
   .proj-quadro-menu-wrap{position:relative;display:inline-block;}
   .proj-quadro-menu-btn{width:auto;padding:2px 9px;font-size:14px;line-height:1;}
   .proj-quadro-menu-acoes{position:absolute;top:calc(100% + 4px);right:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.18);z-index:40;min-width:170px;display:flex;flex-direction:column;padding:4px;}
@@ -580,6 +585,8 @@
   .proj-quadro-sub-tabela tbody tr{border-top:1px solid var(--line);}
   .proj-quadro-sub-tabela tbody tr.proj-tarefa-mae{background:var(--panel-2);}
   .proj-quadro-sub-tabela tbody tr.proj-tarefa-mae .proj-tarefa-titulo{font-weight:800;}
+  .proj-quadro-sub-tabela tbody tr.status-CONCLUIDA{background:color-mix(in oklch, var(--ok) 13%, transparent);}
+  .proj-quadro-sub-tabela tbody tr.status-EM-ANDAMENTO{background:color-mix(in oklch, var(--yellow) 13%, transparent);}
   .proj-quadro-sub-tabela td{padding:3px 8px;vertical-align:middle;}
   .proj-quadro-add{padding:5px 18px;font-size:11px;color:var(--muted);background:none;border:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;cursor:pointer;width:100%;text-align:left;}
   .proj-quadro-add:hover{color:var(--accent);}
