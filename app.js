@@ -9894,16 +9894,43 @@ function projQuadroCelulaRecursos(t){
     </div>
   </td>`;
 }
+// menu de ações do Quadro — a coluna "Ações" da tabela Tarefas tem 3
+// botões (ℹ/+/🗑) lado a lado, mas no Quadro a coluna é estreita e eles
+// quebram linha (empilham verticalmente); aqui vira 1 botão só (⋮) que
+// abre um menu com as mesmas 3 opções. Só um menu fica aberto por vez.
+let projQuadroMenuAcoesAberto = null;
+function projQuadroAlternarMenuAcoes(id){
+  projQuadroMenuAcoesAberto = (projQuadroMenuAcoesAberto === id) ? null : id;
+  renderQuadroProjeto();
+}
+function projQuadroFecharMenuAcoes(){
+  projQuadroMenuAcoesAberto = null;
+  renderQuadroProjeto();
+}
+function projQuadroCelulaAcoes(t){
+  const aberto = projQuadroMenuAcoesAberto === t.id;
+  return `<td class="proj-quadro-acoes-cel">
+    <div class="proj-quadro-menu-wrap">
+      <button type="button" class="ghost proj-quadro-menu-btn" title="Ações" onclick="event.stopPropagation();projQuadroAlternarMenuAcoes('${t.id}')">⋮</button>
+      ${aberto ? `<div class="proj-quadro-menu-acoes">
+        <button type="button" onclick="projQuadroFecharMenuAcoes();projAbrirInfoTarefa('${t.id}')">ℹ Informações da tarefa</button>
+        <button type="button" onclick="projQuadroFecharMenuAcoes();projAdicionarTarefaUi('${t.id}')">+ Nova subtarefa</button>
+        <button type="button" class="danger" onclick="projQuadroFecharMenuAcoes();projRemoverTarefaUi('${t.id}')">🗑 Remover</button>
+      </div>` : ''}
+    </div>
+  </td>`;
+}
 // dispatcher das células — "nome"/"recursos"/"status"/"percentual"/
-// "cronograma" têm tratamento visual próprio do Quadro; todas as outras
-// colunas (as mesmas de PROJ_COLUNAS_TAREFAS) reaproveitam DIRETO a mesma
-// função de célula da tabela Tarefas, garantindo a mesma edição
+// "cronograma"/"acoes" têm tratamento visual próprio do Quadro; todas as
+// outras colunas (as mesmas de PROJ_COLUNAS_TAREFAS) reaproveitam DIRETO
+// a mesma função de célula da tabela Tarefas, garantindo a mesma edição
 function projQuadroCelulaHtml(t, filhos, key, ehSub){
   if(key==='nome' && !ehSub) return projQuadroCelulaTarefaPrincipal(t, filhos);
   if(key==='recursos') return projQuadroCelulaRecursos(t);
   if(key==='status') return `<td>${projQuadroStatusSelectHtml(t)}</td>`;
   if(key==='percentual') return projQuadroCelulaPercentual(t, filhos);
   if(key==='cronograma') return `<td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>`;
+  if(key==='acoes') return projQuadroCelulaAcoes(t);
   const colapsada = projTarefaColapsadas.has(t.id);
   const numero = projTarefaNumeros.get(String(t.id)) || '';
   const predTexto = (t.predecessorasIds||[])
@@ -13192,6 +13219,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       projQuadroIniciarDragColuna(e, th, '.proj-quadro-sub-tabela', projQuadroSubColunas);
     } else if(th.closest('.proj-quadro-tabela')){
       projQuadroIniciarDragColuna(e, th, '.proj-quadro-tabela', projQuadroColunas);
+    }
+  });
+  document.addEventListener('click', e=>{
+    if(projQuadroMenuAcoesAberto!==null && !e.target.closest('.proj-quadro-menu-wrap')){
+      projQuadroFecharMenuAcoes();
     }
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
