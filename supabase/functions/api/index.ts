@@ -313,6 +313,8 @@ async function rotear(req: any): Promise<any> {
     case 'listarAnexosTarefa': return acaoListarAnexosTarefa(req);
     case 'adicionarAnexoTarefa': return acaoAdicionarAnexoTarefa(req);
     case 'removerAnexoTarefa': return acaoRemoverAnexoTarefa(req);
+    case 'listarAtualizacoesTarefa': return acaoListarAtualizacoesTarefa(req);
+    case 'criarAtualizacaoTarefa': return acaoCriarAtualizacaoTarefa(req);
     case 'listarOrcamentos': return acaoListarOrcamentos(req);
     case 'obterOrcamento': return acaoObterOrcamento(req);
     case 'salvarOrcamento': return acaoSalvarOrcamento(req);
@@ -2760,6 +2762,65 @@ async function acaoCriarTarefa(req: any) {
   return { ok: true, id: registro.id, tarefas };
 }
 
+// gera a linha automática da aba "Atualizações" — compara o valor antigo
+// (existente, já em snake_case) com o novo (atualizacao, o que de fato foi
+// gravado — já passou pelas validações/normalizações acima, então reflete
+// o valor real) campo a campo, só pros campos "importantes" (não polui o
+// histórico com toda tecla de Anotações); uma chamada de atualizarTarefa
+// vira UMA linha, com uma frase por campo que mudou de verdade
+const ROTULOS_CAMPO_ATUALIZACAO: Record<string, string> = {
+  titulo: 'Nome', status: 'Status', percentual_concluido: '% concluída',
+  data_inicio: 'Início', data_fim: 'Término', duracao_dias: 'Duração',
+  responsavel: 'Recursos', prioridade: 'Prioridade', segmento: 'Segmento',
+  modulo: 'Módulo', submodulo: 'Rotina', inativa: 'Inativa',
+};
+function formatarValorAtualizacao(campo: string, valor: unknown): string {
+  if (valor === null || valor === undefined || String(valor) === '') return '(vazio)';
+  if (campo === 'data_inicio' || campo === 'data_fim') return String(valor).split('-').reverse().join('/');
+  if (campo === 'percentual_concluido') return `${valor}%`;
+  if (campo === 'duracao_dias') return `${valor} d`;
+  if (campo === 'inativa') return valor ? 'Sim' : 'Não';
+  return String(valor);
+}
+async function registrarAtualizacaoAutomatica(tarefaId: string, contaId: string, existente: any, atualizacao: Record<string, unknown>) {
+  const linhas: string[] = [];
+  for (const campo of Object.keys(ROTULOS_CAMPO_ATUALIZACAO)) {
+    if (!(campo in atualizacao)) continue;
+    const antes = existente[campo];
+    const depois = (atualizacao as any)[campo];
+    if (String(antes ?? '') === String(depois ?? '')) continue;
+    linhas.push(`<b>${ROTULOS_CAMPO_ATUALIZACAO[campo]}</b> alterado de "${formatarValorAtualizacao(campo, antes)}" para "${formatarValorAtualizacao(campo, depois)}"`);
+  }
+  if (linhas.length === 0) return;
+  const { data: conta } = await db.from('contas').select('nome').eq('id', contaId).maybeSingle();
+  await db.from('projeto_tarefa_atualizacoes').insert({
+    id: gerarId(), tarefa_id: tarefaId, tipo: 'automatica',
+    autor_nome: conta?.nome || 'Sistema', texto: linhas.join('<br>'),
+  });
+}
+
+async function acaoListarAtualizacoesTarefa(req: any) {
+  if (!req.tarefaId) return { ok: false, erro: 'Tarefa não informada.' };
+  const { data, error } = await db.from('projeto_tarefa_atualizacoes').select('*').eq('tarefa_id', req.tarefaId).order('criado_em');
+  if (error) return { ok: false, erro: error.message };
+  return {
+    ok: true,
+    atualizacoes: (data || []).map((a: any) => ({ id: a.id, tipo: a.tipo, autorNome: a.autor_nome, texto: a.texto, criadoEm: a.criado_em })),
+  };
+}
+
+async function acaoCriarAtualizacaoTarefa(req: any) {
+  if (!(await podeGerenciarProjeto(req.contaId))) return { ok: false, erro: 'Sem permissão pra adicionar atualização.' };
+  if (!req.tarefaId) return { ok: false, erro: 'Tarefa não informada.' };
+  const texto = String(req.texto || '').trim();
+  if (!texto) return { ok: false, erro: 'Escreva algo antes de adicionar.' };
+  const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
+  const registro = { id: gerarId(), tarefa_id: req.tarefaId, tipo: 'manual', autor_nome: conta?.nome || 'Alguém', texto };
+  const { error } = await db.from('projeto_tarefa_atualizacoes').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, atualizacao: { id: registro.id, tipo: 'manual', autorNome: registro.autor_nome, texto, criadoEm: new Date().toISOString() } };
+}
+
 // atualização parcial de propósito — o Kanban (arrastar card), o Gantt e a
 // tabela de tarefas (cada célula editada isoladamente) mandam só o campo
 // que mudou, sem precisar reenviar a tarefa inteira; o formulário de edição
@@ -2810,6 +2871,7 @@ async function acaoAtualizarTarefa(req: any) {
   if (Object.keys(atualizacao).length > 0) {
     const { error } = await db.from('projeto_tarefas').update(atualizacao).eq('id', req.id);
     if (error) return { ok: false, erro: error.message };
+    await registrarAtualizacaoAutomatica(req.id, req.contaId, existente, atualizacao);
   }
 
   const preds = normalizarPredecessoras(req.id, req);

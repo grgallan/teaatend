@@ -1227,3 +1227,20 @@ create table if not exists projeto_tarefa_anexos (
 );
 alter table projeto_tarefa_anexos enable row level security;
 create index if not exists idx_proj_tarefa_anexos_tarefa on projeto_tarefa_anexos (tarefa_id);
+
+-- "Atualizações" da tarefa (aba nova na tela de Informações) — duas
+-- origens na mesma tabela: 'automatica' (gerada sozinha a cada
+-- atualizarTarefa que muda campo relevante — Status, datas, % concluída,
+-- Recursos, Prioridade, Segmento/Módulo/Rotina, Nome) e 'manual'
+-- (comentário digitado por quem gerencia o projeto, com texto rico, igual
+-- as Movimentações de atendimento)
+create table if not exists projeto_tarefa_atualizacoes (
+  id text primary key,
+  tarefa_id text not null references projeto_tarefas(id) on delete cascade,
+  tipo text not null default 'manual',
+  autor_nome text not null,
+  texto text not null,
+  criado_em timestamptz default now()
+);
+alter table projeto_tarefa_atualizacoes enable row level security;
+create index if not exists idx_proj_tarefa_atualizacoes_tarefa on projeto_tarefa_atualizacoes (tarefa_id);
