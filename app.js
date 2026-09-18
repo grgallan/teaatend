@@ -9687,9 +9687,47 @@ function projRemoverTarefaUi(id){
 /* ---------- Quadro — mesmas tarefas da aba Tarefas, agrupadas por Segmento
    num formato tipo board (uma linha por tarefa raiz, com as subtarefas
    escondidas numa mini-tabela por baixo). É só outra visualização dos
-   mesmos dados: status/% concluída/datas continuam só leitura aqui, edição
-   é pela tabela Tarefas ou abrindo "Informações da tarefa". Reaproveita
+   mesmos dados — as colunas (menos "Tarefa", que é fixa) podem ser
+   escondidas em "⚙ Colunas" (preferência salva por navegador, mesmo
+   esquema da tabela Tarefas) e os campos editáveis lá também são editáveis
+   aqui, reaproveitando as mesmas células/onchange/onblur. Reaproveita
    .tag.status-*, .avatar e projBateriaHtml já usados no resto do app. ---------- */
+const PROJ_QUADRO_COLUNAS = [
+  { key:'tarefa', label:'Tarefa', fixa:true },
+  { key:'responsavel', label:'Resp.' },
+  { key:'status', label:'Status' },
+  { key:'percentual', label:'% concluída' },
+  { key:'duracao', label:'Dias', num:true },
+  { key:'cronograma', label:'Cronograma' },
+  { key:'inicio', label:'Início' },
+  { key:'termino', label:'Término' },
+];
+const PROJ_QUADRO_COLUNAS_PADRAO = PROJ_QUADRO_COLUNAS.filter(c=>!c.fixa).map(c=>c.key);
+let projQuadroColunasVisiveis = new Set(PROJ_QUADRO_COLUNAS_PADRAO);
+(function projCarregarPrefsColunasQuadro(){
+  try{
+    const salvo = JSON.parse(localStorage.getItem('projQuadroColunas_v1')||'null');
+    if(Array.isArray(salvo)) projQuadroColunasVisiveis = new Set(salvo);
+  }catch(e){ /* mantém o padrão */ }
+})();
+function colunasVisiveisQuadro(){
+  return PROJ_QUADRO_COLUNAS.filter(c=>c.fixa || projQuadroColunasVisiveis.has(c.key));
+}
+function renderPainelColunasQuadro(){
+  const painel = document.getElementById('projQuadroColunasPainel');
+  const opcionais = PROJ_QUADRO_COLUNAS.filter(c=>!c.fixa);
+  painel.innerHTML = opcionais.map(c=>`
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;cursor:pointer;white-space:nowrap;">
+      <input type="checkbox" style="width:auto;" ${projQuadroColunasVisiveis.has(c.key)?'checked':''} onchange="projQuadroAlternarColuna('${c.key}', this.checked)">
+      ${escaparHtml(c.label)}
+    </label>`).join('');
+}
+function projQuadroAlternarColuna(key, visivel){
+  if(visivel) projQuadroColunasVisiveis.add(key);
+  else projQuadroColunasVisiveis.delete(key);
+  try{ localStorage.setItem('projQuadroColunas_v1', JSON.stringify([...projQuadroColunasVisiveis])); }catch(e){}
+  renderQuadroProjeto();
+}
 const PROJ_QUADRO_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 function projQuadroDataCurta(iso){
   if(!iso) return '';
@@ -9730,10 +9768,6 @@ function projQuadroCronogramaHtml(inicio, fim){
   if(!texto) return `<span class="proj-quadro-cron vazio">sem data</span>`;
   return `<span class="proj-quadro-cron">${escaparHtml(texto)}</span>`;
 }
-function projQuadroDataHtml(iso){
-  const texto = projQuadroDataLonga(iso);
-  return texto ? `<span class="proj-quadro-data">${escaparHtml(texto)}</span>` : `<span class="proj-quadro-data" style="color:var(--muted);">—</span>`;
-}
 // descendentes achatados (todos os níveis abaixo da tarefa raiz), na ordem
 // da árvore — a sub-tabela do Quadro mostra tudo de uma vez, sem
 // hierarquia visual própria (diferente da tabela Tarefas)
@@ -9758,46 +9792,90 @@ async function projQuadroAdicionarTarefa(segmento){
   projetoTarefas = r.tarefas || projetoTarefas;
   renderQuadroProjeto();
 }
+// select de status estilizado como as mesmas .tag.status-* usadas no resto
+// do app (a cor muda sozinha no próximo render, já que toda edição do
+// Quadro recarrega projetoTarefas inteiro e rechama renderQuadroProjeto)
+function projQuadroStatusSelectHtml(t){
+  return `<select class="tag status-${statusSlug(t.status)}" onchange="projSalvarCampoTarefa('${t.id}','status',this.value)">
+    ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
+  </select>`;
+}
+function projQuadroCelulaTarefa(t, filhos){
+  return `<td>
+    <div class="proj-quadro-nome">
+      <button type="button" class="proj-quadro-toggle${filhos.length===0?' oculto':''}" onclick="projQuadroAlternarTarefa('${t.id}')">▾</button>
+      <input type="text" class="proj-tarefa-titulo proj-quadro-titulo-input" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
+      ${filhos.length>0?`<span class="proj-quadro-sub-conta">${filhos.length}</span>`:''}
+      <button type="button" class="proj-quadro-info-btn" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
+    </div>
+  </td>`;
+}
+function projQuadroCelulaResponsavel(t){
+  return `<td>
+    <div class="proj-quadro-nome" style="gap:6px;">
+      ${projQuadroAvatarHtml(t.responsavel)}
+      <input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" style="flex:1;min-width:60px;" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)">
+    </div>
+  </td>`;
+}
+function projQuadroCelulaPercentual(t, filhos){
+  const pct = t.percentualConcluido||0;
+  if(filhos.length>0){
+    return `<td><div class="proj-quadro-nome" style="gap:8px;" title="Calculado automaticamente a partir das subtarefas">${projBateriaHtml(pct)}<span style="color:var(--muted);font-size:11.5px;">${pct}%</span></div></td>`;
+  }
+  return `<td><div class="proj-quadro-nome" style="gap:8px;">${projBateriaHtml(pct)}<input type="number" min="0" max="100" step="1" value="${pct}" style="width:42px;" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)"></div></td>`;
+}
+function projQuadroCelulaDuracao(t, filhos){
+  if(filhos.length>0) return `<td class="num" style="color:var(--muted);" title="Calculado automaticamente a partir das subtarefas">${t.duracaoDias||1} d</td>`;
+  return `<td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" style="width:46px;text-align:right;" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>`;
+}
+function projQuadroCelulaData(t, filhos, campo){
+  const campoReal = campo==='inicio' ? 'dataInicio' : 'dataFim';
+  const valor = t[campoReal];
+  if(filhos.length>0){
+    return `<td style="color:var(--muted);" title="Calculado automaticamente a partir das subtarefas">${escaparHtml(projQuadroDataLonga(valor))||'—'}</td>`;
+  }
+  return `<td><input type="date" value="${valor||''}" style="width:118px;" onchange="projSalvarCampoTarefa('${t.id}','${campoReal}',this.value)"></td>`;
+}
+function projQuadroCelulaHtml(t, filhos, key){
+  switch(key){
+    case 'tarefa': return projQuadroCelulaTarefa(t, filhos);
+    case 'responsavel': return projQuadroCelulaResponsavel(t);
+    case 'status': return `<td>${projQuadroStatusSelectHtml(t)}</td>`;
+    case 'percentual': return projQuadroCelulaPercentual(t, filhos);
+    case 'duracao': return projQuadroCelulaDuracao(t, filhos);
+    case 'cronograma': return `<td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>`;
+    case 'inicio': return projQuadroCelulaData(t, filhos, 'inicio');
+    case 'termino': return projQuadroCelulaData(t, filhos, 'termino');
+    default: return '<td></td>';
+  }
+}
 function projQuadroSubtarefaLinhaHtml(t){
   const predTexto = (t.predecessorasIds||[])
     .map(pid=>projTarefaNumeros.get(String(pid)))
     .filter(n=>n!==undefined)
     .sort((a,b)=>a-b)
-    .join(',') || '—';
+    .join(',');
   return `<tr>
-    <td><button type="button" class="proj-quadro-titulo-link" onclick="projAbrirInfoTarefa('${t.id}')">${escaparHtml(t.titulo)}</button></td>
-    <td>${projQuadroAvatarHtml(t.responsavel)}</td>
-    <td><span class="tag status-${statusSlug(t.status)}">${escaparHtml(t.status)}</span></td>
+    <td>
+      <div class="proj-quadro-nome" style="gap:4px;">
+        <input type="text" class="proj-quadro-sub-titulo-input" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
+        <button type="button" class="proj-quadro-info-btn" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
+      </div>
+    </td>
+    <td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>
+    <td>${projQuadroStatusSelectHtml(t)}</td>
     <td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>
-    <td style="color:var(--muted);">${escaparHtml(t.descricao||'') || '—'}</td>
-    <td style="color:var(--muted);">${escaparHtml(predTexto)}</td>
+    <td><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>
+    <td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" style="width:40px;" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>
   </tr>`;
 }
-function projQuadroTarefaLinhaHtml(t){
+function projQuadroTarefaLinhaHtml(t, colunas){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
-  return `<tr class="proj-quadro-tarefa-linha${colapsada?' colapsada':''}" data-id="${t.id}">
-    <td>
-      <div class="proj-quadro-nome">
-        <button type="button" class="proj-quadro-toggle${filhos.length===0?' oculto':''}" onclick="projQuadroAlternarTarefa('${t.id}')">▾</button>
-        <button type="button" class="proj-quadro-titulo-link" onclick="projAbrirInfoTarefa('${t.id}')">${escaparHtml(t.titulo)}</button>
-        ${filhos.length>0?`<span class="proj-quadro-sub-conta">${filhos.length}</span>`:''}
-      </div>
-    </td>
-    <td>${projQuadroAvatarHtml(t.responsavel)}</td>
-    <td><span class="tag status-${statusSlug(t.status)}">${escaparHtml(t.status)}</span></td>
-    <td>
-      <div class="proj-quadro-nome" style="gap:8px;">
-        ${projBateriaHtml(t.percentualConcluido||0)}
-        <span style="color:var(--muted);font-size:11.5px;">${t.percentualConcluido||0}%</span>
-      </div>
-    </td>
-    <td class="num">${t.duracaoDias||1}</td>
-    <td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>
-    <td>${projQuadroDataHtml(t.dataInicio)}</td>
-    <td>${projQuadroDataHtml(t.dataFim)}</td>
-  </tr>${filhos.length>0?`<tr class="proj-quadro-sub-wrap"${colapsada?' style="display:none;"':''}>
-    <td colspan="8">
+  const celulas = colunas.map(c=>projQuadroCelulaHtml(t, filhos, c.key)).join('');
+  return `<tr class="proj-quadro-tarefa-linha${colapsada?' colapsada':''}" data-id="${t.id}">${celulas}</tr>${filhos.length>0?`<tr class="proj-quadro-sub-wrap"${colapsada?' style="display:none;"':''}>
+    <td colspan="${colunas.length}">
       <div class="proj-quadro-sub-caixa">
         <table class="proj-quadro-sub-tabela">
           <thead><tr><th>Subtarefa</th><th>Resp.</th><th>Status</th><th>Cronograma</th><th>Anotações</th><th>Préd.</th></tr></thead>
@@ -9808,7 +9886,7 @@ function projQuadroTarefaLinhaHtml(t){
     </td>
   </tr>`:''}`;
 }
-function projQuadroGrupoHtml(nomeGrupo, tarefas){
+function projQuadroGrupoHtml(nomeGrupo, tarefas, colunas){
   const colapsado = projQuadroGruposColapsados.has(nomeGrupo);
   const somaDuracao = tarefas.reduce((s,t)=>s+(Number(t.duracaoDias)||0),0);
   const somaPeso = tarefas.reduce((s,t)=>s+Math.max(1,Number(t.duracaoDias)||1),0);
@@ -9816,7 +9894,7 @@ function projQuadroGrupoHtml(nomeGrupo, tarefas){
   const pctGrupo = somaPeso>0 ? Math.round(somaPct/somaPeso) : 0;
   return `<tbody>
     <tr class="proj-quadro-grupo-linha${colapsado?' colapsado':''}">
-      <td colspan="8">
+      <td colspan="${colunas.length}">
         <div class="proj-quadro-grupo-barra" onclick="projQuadroAlternarGrupo('${escaparHtml(nomeGrupo).replace(/'/g,"\\'")}')">
           <div class="rail"></div>
           <span class="proj-quadro-grupo-chevron">▾</span>
@@ -9827,9 +9905,19 @@ function projQuadroGrupoHtml(nomeGrupo, tarefas){
     </tr>
   </tbody>
   <tbody class="proj-quadro-corpo${colapsado?' colapsado':''}">
-    ${tarefas.map(projQuadroTarefaLinhaHtml).join('')}
-    <tr><td colspan="8"><button type="button" class="proj-quadro-add" onclick="projQuadroAdicionarTarefa('${escaparHtml(nomeGrupo==='(sem segmento)'?'':nomeGrupo).replace(/'/g,"\\'")}')">+ Adicionar tarefa</button></td></tr>
+    ${tarefas.map(t=>projQuadroTarefaLinhaHtml(t, colunas)).join('')}
+    <tr><td colspan="${colunas.length}"><button type="button" class="proj-quadro-add" onclick="projQuadroAdicionarTarefa('${escaparHtml(nomeGrupo==='(sem segmento)'?'':nomeGrupo).replace(/'/g,"\\'")}')">+ Adicionar tarefa</button></td></tr>
   </tbody>`;
+}
+function projQuadroRodapeCelulaHtml(key, ctx){
+  switch(key){
+    case 'tarefa': return `<td><span class="k">Total</span></td>`;
+    case 'status': return `<td>${ctx.raiz.length} tarefa${ctx.raiz.length===1?'':'s'}</td>`;
+    case 'percentual': return `<td>${ctx.pctGeral}%</td>`;
+    case 'duracao': return `<td class="num">${ctx.todasDuracao} d</td>`;
+    case 'cronograma': return `<td>${ctx.rangeTexto}</td>`;
+    default: return '<td></td>';
+  }
 }
 function renderQuadroProjeto(){
   const wrap = document.getElementById('projQuadroWrap');
@@ -9839,6 +9927,7 @@ function renderQuadroProjeto(){
     wrap.innerHTML = `<div class="proj-quadro-board" style="padding:24px;text-align:center;color:var(--muted);">Nenhuma tarefa ainda.</div>`;
     return;
   }
+  const colunas = colunasVisiveisQuadro();
   const grupos = new Map();
   raiz.forEach(t=>{
     const nome = t.segmento || '(sem segmento)';
@@ -9851,30 +9940,21 @@ function renderQuadroProjeto(){
   const pctGeral = pesoTotal>0 ? Math.round(pctTotal/pesoTotal) : 0;
   const datasInicio = raiz.map(t=>t.dataInicio).filter(Boolean).sort();
   const datasFim = raiz.map(t=>t.dataFim).filter(Boolean).sort();
+  const rangeTexto = datasInicio[0]&&datasFim[datasFim.length-1] ? escaparHtml(projQuadroDataCurta(datasInicio[0])+' – '+projQuadroDataCurta(datasFim[datasFim.length-1])) : '—';
+  const ctx = { raiz, pctGeral, todasDuracao, rangeTexto };
   wrap.innerHTML = `
     <div class="proj-quadro-board">
       <div class="proj-quadro-scroll">
         <table class="proj-quadro-tabela">
           <thead>
             <tr>
-              <th>Tarefa</th>
-              <th>Resp.</th>
-              <th>Status</th>
-              <th>% concluída</th>
-              <th class="num">Dias</th>
-              <th>Cronograma</th>
-              <th>Início</th>
-              <th>Término</th>
+              ${colunas.map(c=>`<th${c.num?' class="num"':''}>${escaparHtml(c.label)}</th>`).join('')}
             </tr>
           </thead>
-          ${[...grupos.entries()].map(([nome,tarefas])=>projQuadroGrupoHtml(nome,tarefas)).join('')}
+          ${[...grupos.entries()].map(([nome,tarefas])=>projQuadroGrupoHtml(nome,tarefas,colunas)).join('')}
           <tfoot>
             <tr class="proj-quadro-rodape">
-              <td colspan="2"><span class="k">Total</span></td>
-              <td>${raiz.length} tarefa${raiz.length===1?'':'s'}</td>
-              <td>${pctGeral}%</td>
-              <td class="num">${todasDuracao} d</td>
-              <td colspan="3">${datasInicio[0]&&datasFim[datasFim.length-1] ? escaparHtml(projQuadroDataCurta(datasInicio[0])+' – '+projQuadroDataCurta(datasFim[datasFim.length-1])) : '—'}</td>
+              ${colunas.map(c=>projQuadroRodapeCelulaHtml(c.key, ctx)).join('')}
             </tr>
           </tfoot>
         </table>
@@ -12962,6 +13042,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.addEventListener('click', e=>{
     if(!e.target.closest('#projColunasPainel') && !e.target.closest('#btnProjColunas')){
       document.getElementById('projColunasPainel').style.display = 'none';
+    }
+  });
+  document.getElementById('btnProjQuadroColunas').addEventListener('click', e=>{
+    e.stopPropagation();
+    const painel = document.getElementById('projQuadroColunasPainel');
+    const abrindo = painel.style.display === 'none';
+    if(abrindo) renderPainelColunasQuadro();
+    painel.style.display = abrindo ? '' : 'none';
+  });
+  document.addEventListener('click', e=>{
+    if(!e.target.closest('#projQuadroColunasPainel') && !e.target.closest('#btnProjQuadroColunas')){
+      document.getElementById('projQuadroColunasPainel').style.display = 'none';
     }
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);

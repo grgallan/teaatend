@@ -520,10 +520,10 @@
   .proj-quadro-board{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;}
   .proj-quadro-scroll{overflow-x:auto;}
   .proj-quadro-tabela{width:100%;border-collapse:collapse;min-width:900px;}
-  .proj-quadro-tabela thead th{position:sticky;top:0;background:var(--panel-2);z-index:2;text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .proj-quadro-tabela thead th{position:sticky;top:0;background:var(--panel-2);z-index:2;text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
   .proj-quadro-tabela thead th.num{text-align:right;}
   .proj-quadro-grupo-linha td{padding:0;border:none;}
-  .proj-quadro-grupo-barra{display:flex;align-items:center;gap:8px;padding:10px 10px 10px 8px;background:var(--panel-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);cursor:pointer;}
+  .proj-quadro-grupo-barra{display:flex;align-items:center;gap:8px;padding:8px 10px 8px 8px;background:var(--panel-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);cursor:pointer;}
   .proj-quadro-grupo-barra .rail{width:5px;align-self:stretch;border-radius:3px;background:var(--accent);flex:none;}
   .proj-quadro-grupo-chevron{width:16px;flex:none;color:var(--muted);display:inline-block;transition:transform .15s ease;}
   .proj-quadro-grupo-linha.colapsado .proj-quadro-grupo-chevron{transform:rotate(-90deg);}
@@ -532,26 +532,31 @@
   .proj-quadro-corpo.colapsado{display:none;}
   .proj-quadro-tarefa-linha{border-bottom:1px solid var(--line);}
   .proj-quadro-tarefa-linha:hover{background:var(--panel-2);}
-  .proj-quadro-tarefa-linha td{padding:8px 10px;vertical-align:middle;}
+  .proj-quadro-tarefa-linha td{padding:6px 10px;vertical-align:middle;}
   .proj-quadro-nome{display:flex;align-items:center;gap:6px;}
   .proj-quadro-toggle{width:16px;height:16px;flex:none;border:none;background:none;color:var(--muted);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;transition:transform .15s ease;}
   .proj-quadro-toggle.oculto{visibility:hidden;}
   .proj-quadro-tarefa-linha.colapsada .proj-quadro-toggle{transform:rotate(-90deg);}
-  .proj-quadro-titulo-link{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--text);cursor:pointer;text-align:left;}
-  .proj-quadro-titulo-link:hover{color:var(--accent);text-decoration:underline;}
+  .proj-quadro-titulo-input{flex:1;min-width:60px;font-weight:600;}
+  .proj-quadro-sub-titulo-input{width:100%;}
+  .proj-quadro-info-btn{border:none;background:none;color:var(--muted);cursor:pointer;padding:0 2px;flex:none;font-size:12px;line-height:1;}
+  .proj-quadro-info-btn:hover{color:var(--accent);}
   .proj-quadro-sub-conta{font-size:10px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:0 6px;flex:none;}
   .proj-quadro-cron{display:inline-block;font-size:11px;font-weight:600;background:var(--accent-dim);color:var(--accent);border-radius:999px;padding:3px 9px;white-space:nowrap;}
   .proj-quadro-cron.vazio{background:var(--panel-2);color:var(--muted);font-weight:500;}
-  .proj-quadro-data{color:var(--muted);font-size:12px;white-space:nowrap;}
+  .proj-quadro-tabela input[type=text],.proj-quadro-tabela input[type=number],.proj-quadro-tabela input[type=date],
+  .proj-quadro-sub-tabela input[type=text]{border:1px solid transparent;background:transparent;font-size:inherit;color:inherit;font-family:inherit;padding:3px 4px;border-radius:6px;box-sizing:border-box;}
+  .proj-quadro-tabela input:focus,.proj-quadro-sub-tabela input:focus{border-color:var(--line);background:var(--bg);outline:none;}
+  .proj-quadro-tabela select.tag,.proj-quadro-sub-tabela select.tag{border:none;cursor:pointer;font:inherit;appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:18px;}
   .proj-quadro-sub-wrap td{padding:0;border:none;}
-  .proj-quadro-sub-caixa{margin:0 10px 10px 34px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);}
+  .proj-quadro-sub-caixa{margin:0 10px 8px 34px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);}
   .proj-quadro-sub-tabela{width:100%;border-collapse:collapse;}
-  .proj-quadro-sub-tabela thead th{position:static;background:var(--panel-2);font-size:9.5px;padding:6px 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;border-bottom:1px solid var(--line);}
+  .proj-quadro-sub-tabela thead th{position:static;background:var(--panel-2);font-size:9.5px;padding:5px 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;border-bottom:1px solid var(--line);}
   .proj-quadro-sub-tabela tbody tr{border-top:1px solid var(--line);}
-  .proj-quadro-sub-tabela td{padding:7px 10px;font-size:12px;vertical-align:middle;}
-  .proj-quadro-add{padding:9px 18px;font-size:12px;color:var(--muted);background:none;border:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;cursor:pointer;width:100%;text-align:left;}
+  .proj-quadro-sub-tabela td{padding:5px 10px;font-size:12px;vertical-align:middle;}
+  .proj-quadro-add{padding:7px 18px;font-size:12px;color:var(--muted);background:none;border:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;cursor:pointer;width:100%;text-align:left;}
   .proj-quadro-add:hover{color:var(--accent);}
-  .proj-quadro-rodape td{padding:10px;border-top:2px solid var(--line);background:var(--panel-2);font-weight:700;}
+  .proj-quadro-rodape td{padding:8px 10px;border-top:2px solid var(--line);background:var(--panel-2);font-weight:700;}
   .proj-quadro-rodape .k{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;}
 
   /* Mapa mental de tarefas */
@@ -1900,6 +1905,12 @@
       </div>
 
       <div class="proj-sub-view" id="proj-sub-quadro" style="display:none;">
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+          <div style="position:relative;">
+            <button type="button" class="ghost" id="btnProjQuadroColunas" style="width:auto;padding:8px 14px;">⚙ Colunas</button>
+            <div id="projQuadroColunasPainel" class="proj-colunas-painel" style="display:none;"></div>
+          </div>
+        </div>
         <div id="projQuadroWrap"></div>
       </div>
 
