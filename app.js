@@ -9847,12 +9847,19 @@ function projQuadroCronogramaHtml(inicio, fim){
 }
 // descendentes achatados (todos os níveis abaixo da tarefa raiz), na
 // ordem da árvore, cada um com seu nível (1 = filho direto da raiz, 2 =
-// neto, ...) — a sub-tabela do Quadro mostra tudo de uma vez, mas com
-// indentação por nível pra deixar a hierarquia visível (subitem de
-// subitem não pode parecer irmão do subitem de primeiro nível)
+// neto, ...) e se tem filhos — a sub-tabela do Quadro mostra tudo achatado
+// (sem tabela aninhada dentro de tabela aninhada), mas com indentação por
+// nível, toggle de recolher pra quem tem filho, e some com os
+// descendentes de quem estiver recolhido (mesmo projTarefaColapsadas
+// global, então o estado é o mesmo entre Quadro e Tarefas)
 function projQuadroDescendentes(paiId, nivel){
   nivel = nivel || 1;
-  return projFilhosDe(paiId).flatMap(t=>[{t,nivel}, ...projQuadroDescendentes(t.id, nivel+1)]);
+  return projFilhosDe(paiId).flatMap(t=>{
+    const filhosDele = projFilhosDe(t.id);
+    const item = { t, nivel, temFilhos: filhosDele.length>0 };
+    if(filhosDele.length===0 || projTarefaColapsadas.has(t.id)) return [item];
+    return [item, ...projQuadroDescendentes(t.id, nivel+1)];
+  });
 }
 let projQuadroGruposColapsados = new Set();
 function projQuadroAlternarGrupo(nomeGrupo){
@@ -9889,6 +9896,18 @@ function projQuadroCelulaTarefaPrincipal(t, filhos){
       <button type="button" class="proj-quadro-toggle${filhos.length===0?' oculto':''}" onclick="projQuadroAlternarTarefa('${t.id}')">▾</button>
       <input type="text" class="proj-tarefa-titulo proj-quadro-titulo-input" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
       ${filhos.length>0?`<span class="proj-quadro-sub-conta">${filhos.length}</span>`:''}
+    </div>
+  </td>`;
+}
+// nome de uma linha da sub-tabela (subtarefa) — indentado por nível e,
+// quando ela mesma tem filhos, com toggle de recolher (igual "mãe" da
+// tabela Tarefas); a linha toda ganha a classe proj-tarefa-mae pra ficar
+// cinza, distinguindo de quem é só folha
+function projQuadroCelulaSubNome(t, filhos, nivel){
+  return `<td>
+    <div class="proj-tarefa-nome-linha" style="padding-left:${nivel*16}px;">
+      <button type="button" class="proj-quadro-toggle${filhos.length===0?' oculto':''}" onclick="projQuadroAlternarTarefa('${t.id}')">▾</button>
+      <input type="text" class="proj-tarefa-titulo" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
     </div>
   </td>`;
 }
@@ -9976,7 +9995,7 @@ function projQuadroCelulaAcoes(t){
 // outras colunas (as mesmas de PROJ_COLUNAS_TAREFAS) reaproveitam DIRETO
 // a mesma função de célula da tabela Tarefas, garantindo a mesma edição
 function projQuadroCelulaHtml(t, filhos, key, ehSub, nivel){
-  if(key==='nome' && !ehSub) return projQuadroCelulaTarefaPrincipal(t, filhos);
+  if(key==='nome') return ehSub ? projQuadroCelulaSubNome(t, filhos, nivel||1) : projQuadroCelulaTarefaPrincipal(t, filhos);
   if(key==='recursos') return projQuadroCelulaRecursos(t);
   if(key==='status') return `<td>${projQuadroStatusSelectHtml(t)}</td>`;
   if(key==='percentual') return projQuadroCelulaPercentual(t, filhos);
@@ -9989,7 +10008,7 @@ function projQuadroCelulaHtml(t, filhos, key, ehSub, nivel){
     .filter(n=>n!==undefined)
     .sort((a,b)=>a-b)
     .join(',');
-  return projTarefaCelulaHtml(t, key==='nome' ? (nivel||0) : 0, filhos, colapsada, numero, predTexto, key, true);
+  return projTarefaCelulaHtml(t, 0, filhos, colapsada, numero, predTexto, key, true);
 }
 function projQuadroCabecalhoHtml(colunas, tipo){
   return colunas.map(c=>{
@@ -10001,10 +10020,12 @@ function projQuadroCabecalhoHtml(colunas, tipo){
 function projQuadroColgroupHtml(colunas, conjunto){
   return `<colgroup>${colunas.map(c=>`<col style="width:${conjunto.largura(c)}px;">`).join('')}</colgroup>`;
 }
-function projQuadroSubtarefaLinhaHtml(t, nivel, colunasSub){
+function projQuadroSubtarefaLinhaHtml({t, nivel, temFilhos}, colunasSub){
   const filhos = projFilhosDe(t.id);
+  const colapsada = projTarefaColapsadas.has(t.id);
   const celulas = colunasSub.map(c=>projQuadroCelulaHtml(t, filhos, c.key, true, nivel)).join('');
-  return `<tr data-id="${t.id}">${celulas}</tr>`;
+  const classes = [temFilhos?'proj-tarefa-mae':'', colapsada?'colapsada':''].filter(Boolean).join(' ');
+  return `<tr data-id="${t.id}"${classes?` class="${classes}"`:''}>${celulas}</tr>`;
 }
 function projQuadroTarefaLinhaHtml(t, colunas, colunasSub){
   const filhos = projFilhosDe(t.id);
@@ -10013,11 +10034,13 @@ function projQuadroTarefaLinhaHtml(t, colunas, colunasSub){
   return `<tr class="proj-quadro-tarefa-linha${colapsada?' colapsada':''}" data-id="${t.id}">${celulas}</tr>${filhos.length>0?`<tr class="proj-quadro-sub-wrap"${colapsada?' style="display:none;"':''}>
     <td colspan="${colunas.length}">
       <div class="proj-quadro-sub-caixa">
-        <table class="proj-quadro-sub-tabela">
-          ${projQuadroColgroupHtml(colunasSub, projQuadroSubColunas)}
-          <thead><tr>${projQuadroCabecalhoHtml(colunasSub, 'sub')}</tr></thead>
-          <tbody>${projQuadroDescendentes(t.id).map(({t:sub,nivel})=>projQuadroSubtarefaLinhaHtml(sub, nivel, colunasSub)).join('')}</tbody>
-        </table>
+        <div class="proj-quadro-sub-scroll">
+          <table class="proj-quadro-sub-tabela">
+            ${projQuadroColgroupHtml(colunasSub, projQuadroSubColunas)}
+            <thead><tr>${projQuadroCabecalhoHtml(colunasSub, 'sub')}</tr></thead>
+            <tbody>${projQuadroDescendentes(t.id).map(item=>projQuadroSubtarefaLinhaHtml(item, colunasSub)).join('')}</tbody>
+          </table>
+        </div>
         <button type="button" class="proj-quadro-add" onclick="projAdicionarTarefaUi('${t.id}')">+ Adicionar subtarefa</button>
       </div>
     </td>
