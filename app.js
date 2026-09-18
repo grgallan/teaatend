@@ -8838,6 +8838,7 @@ function goProjSub(sub){
   document.querySelectorAll('.proj-sub-view').forEach(v=>{ v.style.display = (v.id === 'proj-sub-'+sub) ? '' : 'none'; });
   if(sub==='dashboard') renderDashboardProjeto();
   else if(sub==='tarefas') renderTabelaTarefas();
+  else if(sub==='quadro') renderQuadroProjeto();
   else if(sub==='kanban') renderKanbanProjeto();
   else if(sub==='gantt'){
     if(!document.getElementById('proj_gantt_de').value){
@@ -9385,6 +9386,7 @@ async function projTabelaAlterarSegmento(id, valor){
   renderTabelaTarefas();
   if(projSubAba==='kanban') renderKanbanProjeto();
   else if(projSubAba==='gantt') renderGanttProjeto();
+  else if(projSubAba==='quadro') renderQuadroProjeto();
 }
 async function projTabelaAlterarModulo(id, valor){
   const conta = contaAtual();
@@ -9394,6 +9396,7 @@ async function projTabelaAlterarModulo(id, valor){
   renderTabelaTarefas();
   if(projSubAba==='kanban') renderKanbanProjeto();
   else if(projSubAba==='gantt') renderGanttProjeto();
+  else if(projSubAba==='quadro') renderQuadroProjeto();
 }
 
 /* ---------- exportar tarefas em PDF/Excel — exporta exatamente as colunas
@@ -9613,6 +9616,7 @@ async function importarExcelTarefasProjeto(arquivo){
     else if(projSubAba==='gantt') renderGanttProjeto();
     else if(projSubAba==='mapa') renderMapaMentalProjeto();
     else if(projSubAba==='dashboard') renderDashboardProjeto();
+    else if(projSubAba==='quadro') renderQuadroProjeto();
   }, 'Importar');
 }
 
@@ -9630,6 +9634,7 @@ async function projAdicionarTarefaUi(tarefaPaiId){
   renderTabelaTarefas();
   if(projSubAba==='kanban') renderKanbanProjeto();
   else if(projSubAba==='gantt') renderGanttProjeto();
+  else if(projSubAba==='quadro') renderQuadroProjeto();
   const inputs = document.querySelectorAll('#projTarefasTabelaCorpo .proj-tarefa-titulo');
   const ultimo = inputs[inputs.length-1];
   if(ultimo){ ultimo.focus(); ultimo.select(); }
@@ -9642,6 +9647,7 @@ async function projSalvarCampoTarefa(id, campo, valor){
   renderTabelaTarefas();
   if(projSubAba==='kanban') renderKanbanProjeto();
   else if(projSubAba==='gantt') renderGanttProjeto();
+  else if(projSubAba==='quadro') renderQuadroProjeto();
 }
 async function projSalvarPredecessoras(id, texto){
   const numeros = texto.split(',').map(s=>s.trim()).filter(Boolean).map(s=>parseInt(s,10)).filter(n=>Number.isFinite(n));
@@ -9652,6 +9658,7 @@ async function projSalvarPredecessoras(id, texto){
   projetoTarefas = r.tarefas || projetoTarefas;
   renderTabelaTarefas();
   if(projSubAba==='gantt') renderGanttProjeto();
+  else if(projSubAba==='quadro') renderQuadroProjeto();
 }
 function projDescendentesDe(id){
   const diretos = projFilhosDe(id);
@@ -9670,10 +9677,209 @@ function projRemoverTarefaUi(id){
       projetoTarefas = r.tarefas || projetoTarefas.filter(t=>!idsRemovidos.has(t.id));
       renderTabelaTarefas();
       if(projSubAba==='kanban') renderKanbanProjeto();
+      else if(projSubAba==='quadro') renderQuadroProjeto();
       toast('Tarefa removida');
     },
     'Remover'
   );
+}
+
+/* ---------- Quadro — mesmas tarefas da aba Tarefas, agrupadas por Segmento
+   num formato tipo board (uma linha por tarefa raiz, com as subtarefas
+   escondidas numa mini-tabela por baixo). É só outra visualização dos
+   mesmos dados: status/% concluída/datas continuam só leitura aqui, edição
+   é pela tabela Tarefas ou abrindo "Informações da tarefa". Reaproveita
+   .tag.status-*, .avatar e projBateriaHtml já usados no resto do app. ---------- */
+const PROJ_QUADRO_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function projQuadroDataCurta(iso){
+  if(!iso) return '';
+  const [y,m,d] = String(iso).split('-').map(Number);
+  if(!y||!m||!d) return '';
+  return `${d} ${PROJ_QUADRO_MESES[m-1]}`;
+}
+function projQuadroDataLonga(iso){
+  if(!iso) return '';
+  const [y,m,d] = String(iso).split('-').map(Number);
+  if(!y||!m||!d) return '';
+  return `${d} ${PROJ_QUADRO_MESES[m-1]}, ${y}`;
+}
+function projQuadroCronogramaTexto(inicio, fim){
+  if(!inicio && !fim) return '';
+  if(inicio && !fim) return projQuadroDataCurta(inicio);
+  if(!inicio && fim) return projQuadroDataCurta(fim);
+  if(inicio===fim) return projQuadroDataCurta(inicio);
+  const [ya,ma,da] = String(inicio).split('-').map(Number);
+  const [yb,mb,db] = String(fim).split('-').map(Number);
+  if(ya===yb && ma===mb) return `${da} – ${db} ${PROJ_QUADRO_MESES[mb-1]}`;
+  return `${projQuadroDataCurta(inicio)} – ${projQuadroDataCurta(fim)}`;
+}
+function projQuadroIniciais(primeiroNome){
+  const partes = String(primeiroNome||'').trim().split(/\s+/).filter(Boolean);
+  if(partes.length===0) return '';
+  if(partes.length===1) return partes[0].slice(0,2).toUpperCase();
+  return (partes[0][0]+partes[partes.length-1][0]).toUpperCase();
+}
+function projQuadroAvatarHtml(responsavel){
+  const nomes = String(responsavel||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(nomes.length===0) return `<span class="avatar" style="background:transparent;border:1.5px dashed var(--line);color:var(--muted);" title="Sem recurso definido">?</span>`;
+  const extra = nomes.length > 1 ? `<span class="proj-quadro-sub-conta" title="${escaparHtml(nomes.join(', '))}">+${nomes.length-1}</span>` : '';
+  return `<span class="avatar" title="${escaparHtml(nomes.join(', '))}">${projQuadroIniciais(nomes[0])}</span>${extra}`;
+}
+function projQuadroCronogramaHtml(inicio, fim){
+  const texto = projQuadroCronogramaTexto(inicio, fim);
+  if(!texto) return `<span class="proj-quadro-cron vazio">sem data</span>`;
+  return `<span class="proj-quadro-cron">${escaparHtml(texto)}</span>`;
+}
+function projQuadroDataHtml(iso){
+  const texto = projQuadroDataLonga(iso);
+  return texto ? `<span class="proj-quadro-data">${escaparHtml(texto)}</span>` : `<span class="proj-quadro-data" style="color:var(--muted);">—</span>`;
+}
+// descendentes achatados (todos os níveis abaixo da tarefa raiz), na ordem
+// da árvore — a sub-tabela do Quadro mostra tudo de uma vez, sem
+// hierarquia visual própria (diferente da tabela Tarefas)
+function projQuadroDescendentes(paiId){
+  return projFilhosDe(paiId).flatMap(t=>[t, ...projQuadroDescendentes(t.id)]);
+}
+let projQuadroGruposColapsados = new Set();
+function projQuadroAlternarGrupo(nomeGrupo){
+  if(projQuadroGruposColapsados.has(nomeGrupo)) projQuadroGruposColapsados.delete(nomeGrupo);
+  else projQuadroGruposColapsados.add(nomeGrupo);
+  renderQuadroProjeto();
+}
+function projQuadroAlternarTarefa(id){
+  if(projTarefaColapsadas.has(id)) projTarefaColapsadas.delete(id);
+  else projTarefaColapsadas.add(id);
+  renderQuadroProjeto();
+}
+async function projQuadroAdicionarTarefa(segmento){
+  const conta = contaAtual();
+  const r = await api('criarTarefa', { projetoId: projetoAtualId, tarefaPaiId: '', titulo: 'Nova tarefa', contaId: conta.id, segmento: segmento || '' });
+  if(!r.ok){ toast(r.erro || 'Não foi possível criar a tarefa.'); return; }
+  projetoTarefas = r.tarefas || projetoTarefas;
+  renderQuadroProjeto();
+}
+function projQuadroSubtarefaLinhaHtml(t){
+  const predTexto = (t.predecessorasIds||[])
+    .map(pid=>projTarefaNumeros.get(String(pid)))
+    .filter(n=>n!==undefined)
+    .sort((a,b)=>a-b)
+    .join(',') || '—';
+  return `<tr>
+    <td><button type="button" class="proj-quadro-titulo-link" onclick="projAbrirInfoTarefa('${t.id}')">${escaparHtml(t.titulo)}</button></td>
+    <td>${projQuadroAvatarHtml(t.responsavel)}</td>
+    <td><span class="tag status-${statusSlug(t.status)}">${escaparHtml(t.status)}</span></td>
+    <td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>
+    <td style="color:var(--muted);">${escaparHtml(t.descricao||'') || '—'}</td>
+    <td style="color:var(--muted);">${escaparHtml(predTexto)}</td>
+  </tr>`;
+}
+function projQuadroTarefaLinhaHtml(t){
+  const filhos = projFilhosDe(t.id);
+  const colapsada = projTarefaColapsadas.has(t.id);
+  return `<tr class="proj-quadro-tarefa-linha${colapsada?' colapsada':''}" data-id="${t.id}">
+    <td>
+      <div class="proj-quadro-nome">
+        <button type="button" class="proj-quadro-toggle${filhos.length===0?' oculto':''}" onclick="projQuadroAlternarTarefa('${t.id}')">▾</button>
+        <button type="button" class="proj-quadro-titulo-link" onclick="projAbrirInfoTarefa('${t.id}')">${escaparHtml(t.titulo)}</button>
+        ${filhos.length>0?`<span class="proj-quadro-sub-conta">${filhos.length}</span>`:''}
+      </div>
+    </td>
+    <td>${projQuadroAvatarHtml(t.responsavel)}</td>
+    <td><span class="tag status-${statusSlug(t.status)}">${escaparHtml(t.status)}</span></td>
+    <td>
+      <div class="proj-quadro-nome" style="gap:8px;">
+        ${projBateriaHtml(t.percentualConcluido||0)}
+        <span style="color:var(--muted);font-size:11.5px;">${t.percentualConcluido||0}%</span>
+      </div>
+    </td>
+    <td class="num">${t.duracaoDias||1}</td>
+    <td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>
+    <td>${projQuadroDataHtml(t.dataInicio)}</td>
+    <td>${projQuadroDataHtml(t.dataFim)}</td>
+  </tr>${filhos.length>0?`<tr class="proj-quadro-sub-wrap"${colapsada?' style="display:none;"':''}>
+    <td colspan="8">
+      <div class="proj-quadro-sub-caixa">
+        <table class="proj-quadro-sub-tabela">
+          <thead><tr><th>Subtarefa</th><th>Resp.</th><th>Status</th><th>Cronograma</th><th>Anotações</th><th>Préd.</th></tr></thead>
+          <tbody>${projQuadroDescendentes(t.id).map(projQuadroSubtarefaLinhaHtml).join('')}</tbody>
+        </table>
+        <button type="button" class="proj-quadro-add" onclick="projAdicionarTarefaUi('${t.id}')">+ Adicionar subtarefa</button>
+      </div>
+    </td>
+  </tr>`:''}`;
+}
+function projQuadroGrupoHtml(nomeGrupo, tarefas){
+  const colapsado = projQuadroGruposColapsados.has(nomeGrupo);
+  const somaDuracao = tarefas.reduce((s,t)=>s+(Number(t.duracaoDias)||0),0);
+  const somaPeso = tarefas.reduce((s,t)=>s+Math.max(1,Number(t.duracaoDias)||1),0);
+  const somaPct = tarefas.reduce((s,t)=>s+Math.max(1,Number(t.duracaoDias)||1)*(Number(t.percentualConcluido)||0),0);
+  const pctGrupo = somaPeso>0 ? Math.round(somaPct/somaPeso) : 0;
+  return `<tbody>
+    <tr class="proj-quadro-grupo-linha${colapsado?' colapsado':''}">
+      <td colspan="8">
+        <div class="proj-quadro-grupo-barra" onclick="projQuadroAlternarGrupo('${escaparHtml(nomeGrupo).replace(/'/g,"\\'")}')">
+          <div class="rail"></div>
+          <span class="proj-quadro-grupo-chevron">▾</span>
+          <span class="proj-quadro-grupo-titulo">${escaparHtml(nomeGrupo)}</span>
+          <span class="proj-quadro-grupo-conta">${tarefas.length} tarefa${tarefas.length===1?'':'s'} · ${somaDuracao} d · ${pctGrupo}% concl.</span>
+        </div>
+      </td>
+    </tr>
+  </tbody>
+  <tbody class="proj-quadro-corpo${colapsado?' colapsado':''}">
+    ${tarefas.map(projQuadroTarefaLinhaHtml).join('')}
+    <tr><td colspan="8"><button type="button" class="proj-quadro-add" onclick="projQuadroAdicionarTarefa('${escaparHtml(nomeGrupo==='(sem segmento)'?'':nomeGrupo).replace(/'/g,"\\'")}')">+ Adicionar tarefa</button></td></tr>
+  </tbody>`;
+}
+function renderQuadroProjeto(){
+  const wrap = document.getElementById('projQuadroWrap');
+  projNumerarTarefas();
+  const raiz = projFilhosDe(null);
+  if(raiz.length===0){
+    wrap.innerHTML = `<div class="proj-quadro-board" style="padding:24px;text-align:center;color:var(--muted);">Nenhuma tarefa ainda.</div>`;
+    return;
+  }
+  const grupos = new Map();
+  raiz.forEach(t=>{
+    const nome = t.segmento || '(sem segmento)';
+    if(!grupos.has(nome)) grupos.set(nome, []);
+    grupos.get(nome).push(t);
+  });
+  const todasDuracao = raiz.reduce((s,t)=>s+(Number(t.duracaoDias)||0),0);
+  const pesoTotal = raiz.reduce((s,t)=>s+Math.max(1,Number(t.duracaoDias)||1),0);
+  const pctTotal = raiz.reduce((s,t)=>s+Math.max(1,Number(t.duracaoDias)||1)*(Number(t.percentualConcluido)||0),0);
+  const pctGeral = pesoTotal>0 ? Math.round(pctTotal/pesoTotal) : 0;
+  const datasInicio = raiz.map(t=>t.dataInicio).filter(Boolean).sort();
+  const datasFim = raiz.map(t=>t.dataFim).filter(Boolean).sort();
+  wrap.innerHTML = `
+    <div class="proj-quadro-board">
+      <div class="proj-quadro-scroll">
+        <table class="proj-quadro-tabela">
+          <thead>
+            <tr>
+              <th>Tarefa</th>
+              <th>Resp.</th>
+              <th>Status</th>
+              <th>% concluída</th>
+              <th class="num">Dias</th>
+              <th>Cronograma</th>
+              <th>Início</th>
+              <th>Término</th>
+            </tr>
+          </thead>
+          ${[...grupos.entries()].map(([nome,tarefas])=>projQuadroGrupoHtml(nome,tarefas)).join('')}
+          <tfoot>
+            <tr class="proj-quadro-rodape">
+              <td colspan="2"><span class="k">Total</span></td>
+              <td>${raiz.length} tarefa${raiz.length===1?'':'s'}</td>
+              <td>${pctGeral}%</td>
+              <td class="num">${todasDuracao} d</td>
+              <td colspan="3">${datasInicio[0]&&datasFim[datasFim.length-1] ? escaparHtml(projQuadroDataCurta(datasInicio[0])+' – '+projQuadroDataCurta(datasFim[datasFim.length-1])) : '—'}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>`;
 }
 
 /* ---------- tela "Informações sobre a tarefa" (estilo MS Project) — Geral/
@@ -9750,6 +9956,7 @@ async function projPitAtualizarCampoData(campo, valor){
   renderTabelaTarefas();
   if(projSubAba==='kanban') renderKanbanProjeto();
   else if(projSubAba==='gantt') renderGanttProjeto();
+  else if(projSubAba==='quadro') renderQuadroProjeto();
 }
 function projPitRenderPredecessoras(){
   const corpo = document.getElementById('pitPredecessorasCorpo');
@@ -9859,6 +10066,7 @@ async function projPitSalvar(){
   renderTabelaTarefas();
   if(projSubAba==='kanban') renderKanbanProjeto();
   else if(projSubAba==='gantt') renderGanttProjeto();
+  else if(projSubAba==='quadro') renderQuadroProjeto();
   toast('Tarefa atualizada');
 }
 

@@ -514,6 +514,46 @@
   .proj-dash-lista-alerta{font-size:12px;padding:6px 0;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;}
   .proj-dash-lista-alerta:first-child{border-top:none;}
 
+  /* Quadro de tarefas — agrupado por Segmento, estilo board (Elemento/
+     Subelemento), reaproveitando .tag.status-*, .avatar e .proj-bateria já
+     usados em outras telas do app */
+  .proj-quadro-board{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;}
+  .proj-quadro-scroll{overflow-x:auto;}
+  .proj-quadro-tabela{width:100%;border-collapse:collapse;min-width:900px;}
+  .proj-quadro-tabela thead th{position:sticky;top:0;background:var(--panel-2);z-index:2;text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:700;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .proj-quadro-tabela thead th.num{text-align:right;}
+  .proj-quadro-grupo-linha td{padding:0;border:none;}
+  .proj-quadro-grupo-barra{display:flex;align-items:center;gap:8px;padding:10px 10px 10px 8px;background:var(--panel-2);border-top:1px solid var(--line);border-bottom:1px solid var(--line);cursor:pointer;}
+  .proj-quadro-grupo-barra .rail{width:5px;align-self:stretch;border-radius:3px;background:var(--accent);flex:none;}
+  .proj-quadro-grupo-chevron{width:16px;flex:none;color:var(--muted);display:inline-block;transition:transform .15s ease;}
+  .proj-quadro-grupo-linha.colapsado .proj-quadro-grupo-chevron{transform:rotate(-90deg);}
+  .proj-quadro-grupo-titulo{font-weight:700;font-size:13.5px;}
+  .proj-quadro-grupo-conta{font-size:10.5px;font-weight:700;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 8px;}
+  .proj-quadro-corpo.colapsado{display:none;}
+  .proj-quadro-tarefa-linha{border-bottom:1px solid var(--line);}
+  .proj-quadro-tarefa-linha:hover{background:var(--panel-2);}
+  .proj-quadro-tarefa-linha td{padding:8px 10px;vertical-align:middle;}
+  .proj-quadro-nome{display:flex;align-items:center;gap:6px;}
+  .proj-quadro-toggle{width:16px;height:16px;flex:none;border:none;background:none;color:var(--muted);cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;transition:transform .15s ease;}
+  .proj-quadro-toggle.oculto{visibility:hidden;}
+  .proj-quadro-tarefa-linha.colapsada .proj-quadro-toggle{transform:rotate(-90deg);}
+  .proj-quadro-titulo-link{background:none;border:none;padding:0;font:inherit;font-weight:600;color:var(--text);cursor:pointer;text-align:left;}
+  .proj-quadro-titulo-link:hover{color:var(--accent);text-decoration:underline;}
+  .proj-quadro-sub-conta{font-size:10px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:0 6px;flex:none;}
+  .proj-quadro-cron{display:inline-block;font-size:11px;font-weight:600;background:var(--accent-dim);color:var(--accent);border-radius:999px;padding:3px 9px;white-space:nowrap;}
+  .proj-quadro-cron.vazio{background:var(--panel-2);color:var(--muted);font-weight:500;}
+  .proj-quadro-data{color:var(--muted);font-size:12px;white-space:nowrap;}
+  .proj-quadro-sub-wrap td{padding:0;border:none;}
+  .proj-quadro-sub-caixa{margin:0 10px 10px 34px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg);}
+  .proj-quadro-sub-tabela{width:100%;border-collapse:collapse;}
+  .proj-quadro-sub-tabela thead th{position:static;background:var(--panel-2);font-size:9.5px;padding:6px 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;border-bottom:1px solid var(--line);}
+  .proj-quadro-sub-tabela tbody tr{border-top:1px solid var(--line);}
+  .proj-quadro-sub-tabela td{padding:7px 10px;font-size:12px;vertical-align:middle;}
+  .proj-quadro-add{padding:9px 18px;font-size:12px;color:var(--muted);background:none;border:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;cursor:pointer;width:100%;text-align:left;}
+  .proj-quadro-add:hover{color:var(--accent);}
+  .proj-quadro-rodape td{padding:10px;border-top:2px solid var(--line);background:var(--panel-2);font-weight:700;}
+  .proj-quadro-rodape .k{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;}
+
   /* Mapa mental de tarefas */
   .proj-mapa-svg{display:block;}
   .proj-mapa-node{position:absolute;background:var(--panel);border:1.5px solid var(--line);border-radius:10px;padding:10px 14px;font-size:13.5px;max-width:220px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
@@ -1826,6 +1866,7 @@
       <div class="subtabs" id="projSubtabs">
         <div class="subtab active" data-projsub="dashboard">Dashboard</div>
         <div class="subtab" data-projsub="tarefas">Tarefas</div>
+        <div class="subtab" data-projsub="quadro">Quadro</div>
         <div class="subtab" data-projsub="kanban">Kanban</div>
         <div class="subtab" data-projsub="gantt">Cronograma</div>
         <div class="subtab" data-projsub="mapa">Mapa Mental</div>
@@ -1856,6 +1897,10 @@
             <tbody id="projTarefasTabelaCorpo"></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="proj-sub-view" id="proj-sub-quadro" style="display:none;">
+        <div id="projQuadroWrap"></div>
       </div>
 
       <div class="proj-sub-view" id="proj-sub-kanban" style="display:none;">
