@@ -10362,6 +10362,8 @@ function projAbrirInfoTarefa(id){
   projPitRenderRecursos();
   projPitRenderAtendimentos();
   carregarAnexosTarefa(id);
+  carregarAtualizacoesTarefa(id);
+  document.getElementById('pit_atualizacao_texto').innerHTML = '';
   document.getElementById('projInfoTarefaModal').classList.add('show');
 }
 function projPitFechar(){
@@ -10595,6 +10597,61 @@ async function removerAnexoTarefaUi(id, tarefaId){
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarAnexosTarefa(tarefaId);
   toast('Anexo removido');
+}
+
+/* ---------- Atualizações da tarefa — duas origens misturadas na mesma
+   lista: "automatica" (o próprio servidor gera ao gravar atualizarTarefa,
+   comparando o antes/depois de Status/datas/% concluída/Recursos/
+   Prioridade/Segmento-Módulo-Rotina/Nome) e "manual" (comentário digitado
+   aqui, com texto rico — mesmo editor .rt-toolbar/.rt-editor já usado nas
+   Movimentações de atendimento e na Solução). ---------- */
+let pitAtualizacoesCache = [];
+async function carregarAtualizacoesTarefa(tarefaId){
+  const cont = document.getElementById('pitAtualizacoesLista');
+  cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Carregando…</div>`;
+  try{
+    const r = await api('listarAtualizacoesTarefa', { tarefaId });
+    if(!r.ok){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
+    pitAtualizacoesCache = r.atualizacoes || [];
+    renderAtualizacoesTarefaLista();
+  }catch(e){
+    cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Não foi possível carregar as atualizações.</div>`;
+  }
+}
+function renderAtualizacoesTarefaLista(){
+  const cont = document.getElementById('pitAtualizacoesLista');
+  if(pitAtualizacoesCache.length === 0){ cont.innerHTML = `<div class="empty" style="padding:8px 0;font-size:12.5px;">Nenhuma atualização ainda.</div>`; return; }
+  cont.innerHTML = pitAtualizacoesCache.map(a=>{
+    if(a.tipo === 'automatica'){
+      return `<div class="mov-item pit-atualizacao-auto">
+        <div class="mov-topo">
+          <div class="mov-autor"><span style="font-size:13px;">🔄</span><span class="mov-nome">${escaparHtml(a.autorNome)}</span></div>
+          <div class="mov-data">${movFmtDataHora(a.criadoEm)}</div>
+        </div>
+        <div class="mov-conteudo rt-content">${sanitizarHtml(a.texto)}</div>
+      </div>`;
+    }
+    return `<div class="mov-item">
+      <div class="mov-topo">
+        <div class="mov-autor"><div class="mov-avatar">${movIniciais(a.autorNome)}</div><span class="mov-nome">${escaparHtml(a.autorNome)}</span></div>
+        <div class="mov-data">${movFmtDataHora(a.criadoEm)}</div>
+      </div>
+      <div class="mov-conteudo rt-content">${sanitizarHtml(a.texto)}</div>
+    </div>`;
+  }).join('');
+}
+async function enviarAtualizacaoTarefaUi(){
+  if(!pitTarefaId) return;
+  const editor = document.getElementById('pit_atualizacao_texto');
+  const texto = sanitizarHtml(editor.innerHTML.trim());
+  if(!stripHtml(texto)){ toast('Escreva algo antes de adicionar.'); return; }
+  const conta = contaAtual();
+  const r = await api('criarAtualizacaoTarefa', { tarefaId: pitTarefaId, texto, contaId: conta.id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível adicionar a atualização.'); return; }
+  editor.innerHTML = '';
+  pitAtualizacoesCache.push(r.atualizacao);
+  renderAtualizacoesTarefaLista();
+  toast('Atualização adicionada');
 }
 
 /* ---------- Kanban de tarefas (3 colunas fixas — status de tarefa não é
@@ -13367,6 +13424,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnPitAddPredecessora').addEventListener('click', projPitAdicionarPredecessora);
   document.getElementById('btnPitAddRecurso').addEventListener('click', projPitAdicionarRecurso);
+  document.getElementById('btnPitAddAtualizacao').addEventListener('click', enviarAtualizacaoTarefaUi);
   document.getElementById('btnPitCancelar').addEventListener('click', projPitFechar);
   document.getElementById('btnPitSalvar').addEventListener('click', projPitSalvar);
   document.getElementById('pit_segmento').addEventListener('change', e=>{
