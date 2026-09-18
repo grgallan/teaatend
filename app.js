@@ -9692,40 +9692,85 @@ function projRemoverTarefaUi(id){
    esquema da tabela Tarefas) e os campos editáveis lá também são editáveis
    aqui, reaproveitando as mesmas células/onchange/onblur. Reaproveita
    .tag.status-*, .avatar e projBateriaHtml já usados no resto do app. ---------- */
-const PROJ_QUADRO_COLUNAS = [
-  { key:'tarefa', label:'Tarefa', fixa:true },
-  { key:'responsavel', label:'Resp.' },
-  { key:'status', label:'Status' },
-  { key:'percentual', label:'% concluída' },
-  { key:'duracao', label:'Dias', num:true },
-  { key:'cronograma', label:'Cronograma' },
-  { key:'inicio', label:'Início' },
-  { key:'termino', label:'Término' },
-];
-const PROJ_QUADRO_COLUNAS_PADRAO = PROJ_QUADRO_COLUNAS.filter(c=>!c.fixa).map(c=>c.key);
-let projQuadroColunasVisiveis = new Set(PROJ_QUADRO_COLUNAS_PADRAO);
-(function projCarregarPrefsColunasQuadro(){
+// as colunas do Quadro são as MESMAS de PROJ_COLUNAS_TAREFAS (assim toda
+// coluna que existe em Tarefas também pode ser escolhida/editada aqui),
+// menos "toggle" (o Quadro tem seu próprio botão de recolher embutido no
+// nome) — e com "Cronograma" (faixa Início–Término, só leitura) adicionada
+// como coluna extra exclusiva do Quadro. Tarefa raiz e subtarefa têm cada
+// uma sua própria visibilidade/ordem de colunas (independentes).
+const PROJ_QUADRO_COLUNAS = PROJ_COLUNAS_TAREFAS
+  .filter(c=>c.key!=='toggle')
+  .map(c=>({...c}))
+  .concat([{ key:'cronograma', label:'Cronograma', largura:120 }]);
+const PROJ_QUADRO_PADRAO_VISIVEIS = ['recursos','status','percentual','duracao','cronograma','inicio','termino'];
+const PROJ_QUADRO_SUB_PADRAO_VISIVEIS = ['recursos','status','cronograma','anotacoes','predecessoras'];
+// ordem inicial "arrumada" (só até acomodar as colunas visíveis por
+// padrão + as fixas — o resto, que começa escondido, vem depois na ordem
+// natural de PROJ_COLUNAS_TAREFAS) pra não nascer bagunçado antes do
+// usuário arrastar pela primeira vez; uma vez que ele arrasta, o que fica
+// salvo no navegador manda
+const PROJ_QUADRO_ORDEM_PADRAO = ['numero','nome','status','percentual','duracao','cronograma','inicio','termino','recursos','acoes'];
+const PROJ_QUADRO_SUB_ORDEM_PADRAO = ['numero','nome','recursos','status','cronograma','anotacoes','predecessoras','acoes'];
+// "conjunto de colunas" — mesma mecânica (ordem arrastável + visibilidade
+// opcional, cada uma persistida por navegador) usada duas vezes (tarefa
+// raiz e subtarefa), por isso virou uma fábrica em vez de duplicar tudo
+function projQuadroCriarConjuntoColunas(chaveOrdem, chaveVisiveis, padraoVisiveis, ordemPadrao){
+  let ordem = ordemPadrao || null;
+  let visiveis = new Set(padraoVisiveis);
   try{
-    const salvo = JSON.parse(localStorage.getItem('projQuadroColunas_v1')||'null');
-    if(Array.isArray(salvo)) projQuadroColunasVisiveis = new Set(salvo);
+    const salvoOrdem = JSON.parse(localStorage.getItem(chaveOrdem)||'null');
+    if(Array.isArray(salvoOrdem)) ordem = salvoOrdem;
+  }catch(e){ /* mantém null (ordem padrão) */ }
+  try{
+    const salvoVis = JSON.parse(localStorage.getItem(chaveVisiveis)||'null');
+    if(Array.isArray(salvoVis)) visiveis = new Set(salvoVis);
   }catch(e){ /* mantém o padrão */ }
-})();
-function colunasVisiveisQuadro(){
-  return PROJ_QUADRO_COLUNAS.filter(c=>c.fixa || projQuadroColunasVisiveis.has(c.key));
+  function ordenadasBase(){
+    if(!ordem) return PROJ_QUADRO_COLUNAS;
+    const porKey = new Map(PROJ_QUADRO_COLUNAS.map(c=>[c.key,c]));
+    const out = ordem.map(k=>porKey.get(k)).filter(Boolean);
+    PROJ_QUADRO_COLUNAS.forEach(c=>{ if(!out.includes(c)) out.push(c); });
+    return out;
+  }
+  return {
+    visiveisSet: visiveis,
+    ordenadasBase,
+    visiveisOrdenadas(){ return ordenadasBase().filter(c=>c.fixa || visiveis.has(c.key)); },
+    reordenar(campoArrastado, campoAlvo){
+      if(!campoArrastado || !campoAlvo || campoArrastado===campoAlvo) return;
+      const atual = ordenadasBase().map(c=>c.key);
+      const semArrastado = atual.filter(k=>k!==campoArrastado);
+      const idxAlvo = semArrastado.indexOf(campoAlvo);
+      if(idxAlvo===-1) return;
+      semArrastado.splice(idxAlvo, 0, campoArrastado);
+      ordem = semArrastado;
+      try{ localStorage.setItem(chaveOrdem, JSON.stringify(ordem)); }catch(e){}
+    },
+    alternarVisivel(key, visivel){
+      if(visivel) visiveis.add(key);
+      else visiveis.delete(key);
+      try{ localStorage.setItem(chaveVisiveis, JSON.stringify([...visiveis])); }catch(e){}
+    },
+  };
 }
-function renderPainelColunasQuadro(){
-  const painel = document.getElementById('projQuadroColunasPainel');
+const projQuadroColunas = projQuadroCriarConjuntoColunas('projQuadroColunasOrdem_v1', 'projQuadroColunasVisiveis_v2', PROJ_QUADRO_PADRAO_VISIVEIS, PROJ_QUADRO_ORDEM_PADRAO);
+const projQuadroSubColunas = projQuadroCriarConjuntoColunas('projQuadroSubColunasOrdem_v1', 'projQuadroSubColunasVisiveis_v2', PROJ_QUADRO_SUB_PADRAO_VISIVEIS, PROJ_QUADRO_SUB_ORDEM_PADRAO);
+function renderPainelColunasQuadroGenerico(elId, conjunto){
+  const painel = document.getElementById(elId);
   const opcionais = PROJ_QUADRO_COLUNAS.filter(c=>!c.fixa);
   painel.innerHTML = opcionais.map(c=>`
     <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;cursor:pointer;white-space:nowrap;">
-      <input type="checkbox" style="width:auto;" ${projQuadroColunasVisiveis.has(c.key)?'checked':''} onchange="projQuadroAlternarColuna('${c.key}', this.checked)">
+      <input type="checkbox" style="width:auto;" ${conjunto.visiveisSet.has(c.key)?'checked':''} onchange="projQuadroAlternarColunaGenerico(this, '${c.key}')">
       ${escaparHtml(c.label)}
     </label>`).join('');
+  painel.dataset.conjunto = elId==='projQuadroColunasPainel' ? 'principal' : 'sub';
 }
-function projQuadroAlternarColuna(key, visivel){
-  if(visivel) projQuadroColunasVisiveis.add(key);
-  else projQuadroColunasVisiveis.delete(key);
-  try{ localStorage.setItem('projQuadroColunas_v1', JSON.stringify([...projQuadroColunasVisiveis])); }catch(e){}
+function renderPainelColunasQuadro(){ renderPainelColunasQuadroGenerico('projQuadroColunasPainel', projQuadroColunas); }
+function renderPainelColunasQuadroSub(){ renderPainelColunasQuadroGenerico('projQuadroSubColunasPainel', projQuadroSubColunas); }
+function projQuadroAlternarColunaGenerico(checkboxEl, key){
+  const painel = checkboxEl.closest('.proj-colunas-painel');
+  const conjunto = painel.dataset.conjunto==='sub' ? projQuadroSubColunas : projQuadroColunas;
+  conjunto.alternarVisivel(key, checkboxEl.checked);
   renderQuadroProjeto();
 }
 const PROJ_QUADRO_MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -9757,11 +9802,30 @@ function projQuadroIniciais(primeiroNome){
   if(partes.length===1) return partes[0].slice(0,2).toUpperCase();
   return (partes[0][0]+partes[partes.length-1][0]).toUpperCase();
 }
+// hash simples e determinístico (mesmo nome sempre cai na mesma cor,
+// entre sessões/recarregamentos) — usado tanto pra colorir avatar de
+// recurso quanto rótulo de grupo
+function projQuadroHash(texto){
+  let h = 0;
+  const s = String(texto||'');
+  for(let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+const PROJ_QUADRO_CORES_AVATAR = ['#e6577a','#5b6fd8','#2fa89a','#e08a3c','#8a6bd6','#4fa8d8','#c9574f','#4fae6e','#c77dc9','#a8843c','#4f9dc9','#d65f8e'];
+function projQuadroCorAvatar(nome){
+  return PROJ_QUADRO_CORES_AVATAR[projQuadroHash(nome) % PROJ_QUADRO_CORES_AVATAR.length];
+}
+// cores de agrupamento reaproveitam os tokens semânticos já existentes no
+// app (mesma paleta usada em status/gráficos), só pra dar uma cor
+// diferente e consistente por Segmento — não tem relação com status
+const PROJ_QUADRO_CORES_GRUPO = ['--ok','--blue','--bad','--warn','--purple','--yellow','--accent','--muted'];
+function projQuadroCorGrupo(nome){
+  return `var(${PROJ_QUADRO_CORES_GRUPO[projQuadroHash(nome) % PROJ_QUADRO_CORES_GRUPO.length]})`;
+}
 function projQuadroAvatarHtml(responsavel){
   const nomes = String(responsavel||'').split(',').map(s=>s.trim()).filter(Boolean);
-  if(nomes.length===0) return `<span class="avatar" style="background:transparent;border:1.5px dashed var(--line);color:var(--muted);" title="Sem recurso definido">?</span>`;
-  const extra = nomes.length > 1 ? `<span class="proj-quadro-sub-conta" title="${escaparHtml(nomes.join(', '))}">+${nomes.length-1}</span>` : '';
-  return `<span class="avatar" title="${escaparHtml(nomes.join(', '))}">${projQuadroIniciais(nomes[0])}</span>${extra}`;
+  if(nomes.length===0) return `<span class="avatar proj-quadro-avatar-vazio" title="Sem recurso definido">?</span>`;
+  return nomes.map(n=>`<span class="avatar" style="background:${projQuadroCorAvatar(n)};color:#fff;" title="${escaparHtml(n)}">${escaparHtml(projQuadroIniciais(n))}</span>`).join('');
 }
 function projQuadroCronogramaHtml(inicio, fim){
   const texto = projQuadroCronogramaTexto(inicio, fim);
@@ -9800,21 +9864,15 @@ function projQuadroStatusSelectHtml(t){
     ${PROJ_TAREFA_STATUS.map(s=>`<option value="${s}" ${s===t.status?'selected':''}>${s}</option>`).join('')}
   </select>`;
 }
-function projQuadroCelulaTarefa(t, filhos){
+// nome da tarefa RAIZ — igual à célula "nome" de Tarefas, mas com o botão
+// de recolher/expandir subtarefas e o contador embutidos (o Quadro não
+// tem coluna própria de recolher, é parte do nome)
+function projQuadroCelulaTarefaPrincipal(t, filhos){
   return `<td>
     <div class="proj-quadro-nome">
       <button type="button" class="proj-quadro-toggle${filhos.length===0?' oculto':''}" onclick="projQuadroAlternarTarefa('${t.id}')">▾</button>
       <input type="text" class="proj-tarefa-titulo proj-quadro-titulo-input" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
       ${filhos.length>0?`<span class="proj-quadro-sub-conta">${filhos.length}</span>`:''}
-      <button type="button" class="proj-quadro-info-btn" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
-    </div>
-  </td>`;
-}
-function projQuadroCelulaResponsavel(t){
-  return `<td>
-    <div class="proj-quadro-nome" style="gap:6px;">
-      ${projQuadroAvatarHtml(t.responsavel)}
-      <input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" style="flex:1;min-width:60px;" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)">
     </div>
   </td>`;
 }
@@ -9825,69 +9883,66 @@ function projQuadroCelulaPercentual(t, filhos){
   }
   return `<td><div class="proj-quadro-nome" style="gap:8px;">${projBateriaHtml(pct)}<input type="number" min="0" max="100" step="1" value="${pct}" style="width:42px;" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)"></div></td>`;
 }
-function projQuadroCelulaDuracao(t, filhos){
-  if(filhos.length>0) return `<td class="num" style="color:var(--muted);" title="Calculado automaticamente a partir das subtarefas">${t.duracaoDias||1} d</td>`;
-  return `<td class="num"><input type="number" min="1" step="1" value="${t.duracaoDias||1}" style="width:46px;text-align:right;" onchange="projSalvarCampoTarefa('${t.id}','duracaoDias',this.value)"></td>`;
+// coluna Recursos com avatar colorido por pessoa (uma bolinha por nome,
+// cor consistente por nome) + o mesmo campo de texto livre (separado por
+// vírgula) que a tabela Tarefas usa pra editar
+function projQuadroCelulaRecursos(t){
+  return `<td>
+    <div class="proj-quadro-recursos-cel">
+      <div class="proj-quadro-avatares">${projQuadroAvatarHtml(t.responsavel)}</div>
+      <input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" style="flex:1;min-width:60px;" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)">
+    </div>
+  </td>`;
 }
-function projQuadroCelulaData(t, filhos, campo){
-  const campoReal = campo==='inicio' ? 'dataInicio' : 'dataFim';
-  const valor = t[campoReal];
-  if(filhos.length>0){
-    return `<td style="color:var(--muted);" title="Calculado automaticamente a partir das subtarefas">${escaparHtml(projQuadroDataLonga(valor))||'—'}</td>`;
-  }
-  return `<td><input type="date" value="${valor||''}" style="width:118px;" onchange="projSalvarCampoTarefa('${t.id}','${campoReal}',this.value)"></td>`;
-}
-function projQuadroCelulaHtml(t, filhos, key){
-  switch(key){
-    case 'tarefa': return projQuadroCelulaTarefa(t, filhos);
-    case 'responsavel': return projQuadroCelulaResponsavel(t);
-    case 'status': return `<td>${projQuadroStatusSelectHtml(t)}</td>`;
-    case 'percentual': return projQuadroCelulaPercentual(t, filhos);
-    case 'duracao': return projQuadroCelulaDuracao(t, filhos);
-    case 'cronograma': return `<td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>`;
-    case 'inicio': return projQuadroCelulaData(t, filhos, 'inicio');
-    case 'termino': return projQuadroCelulaData(t, filhos, 'termino');
-    default: return '<td></td>';
-  }
-}
-function projQuadroSubtarefaLinhaHtml(t){
+// dispatcher das células — "nome"/"recursos"/"status"/"percentual"/
+// "cronograma" têm tratamento visual próprio do Quadro; todas as outras
+// colunas (as mesmas de PROJ_COLUNAS_TAREFAS) reaproveitam DIRETO a mesma
+// função de célula da tabela Tarefas, garantindo a mesma edição
+function projQuadroCelulaHtml(t, filhos, key, ehSub){
+  if(key==='nome' && !ehSub) return projQuadroCelulaTarefaPrincipal(t, filhos);
+  if(key==='recursos') return projQuadroCelulaRecursos(t);
+  if(key==='status') return `<td>${projQuadroStatusSelectHtml(t)}</td>`;
+  if(key==='percentual') return projQuadroCelulaPercentual(t, filhos);
+  if(key==='cronograma') return `<td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>`;
+  const colapsada = projTarefaColapsadas.has(t.id);
+  const numero = projTarefaNumeros.get(String(t.id)) || '';
   const predTexto = (t.predecessorasIds||[])
     .map(pid=>projTarefaNumeros.get(String(pid)))
     .filter(n=>n!==undefined)
     .sort((a,b)=>a-b)
     .join(',');
-  return `<tr>
-    <td>
-      <div class="proj-quadro-nome" style="gap:4px;">
-        <input type="text" class="proj-quadro-sub-titulo-input" value="${escaparHtml(t.titulo)}" onblur="projSalvarCampoTarefa('${t.id}','titulo',this.value)">
-        <button type="button" class="proj-quadro-info-btn" title="Informações da tarefa" onclick="projAbrirInfoTarefa('${t.id}')">ℹ</button>
-      </div>
-    </td>
-    <td><input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)"></td>
-    <td>${projQuadroStatusSelectHtml(t)}</td>
-    <td>${projQuadroCronogramaHtml(t.dataInicio, t.dataFim)}</td>
-    <td><input type="text" value="${escaparHtml(t.descricao||'')}" placeholder="Anotações" onblur="projSalvarCampoTarefa('${t.id}','descricao',this.value)"></td>
-    <td><input type="text" value="${escaparHtml(predTexto)}" placeholder="ex: 2,3" title="Números das tarefas predecessoras" style="width:40px;" onblur="projSalvarPredecessoras('${t.id}',this.value)"></td>
-  </tr>`;
+  return projTarefaCelulaHtml(t, 0, filhos, colapsada, numero, predTexto, key, true);
 }
-function projQuadroTarefaLinhaHtml(t, colunas){
+function projQuadroCabecalhoHtml(colunas){
+  return colunas.map(c=>{
+    const classes = [c.num?'num':'', c.semResize?'':'lista-th-arrastavel'].filter(Boolean).join(' ');
+    return `<th${classes?` class="${classes}"`:''} data-col="${c.key}" title="${c.semResize?'':'Arraste pra reordenar'}">${escaparHtml(c.label)}</th>`;
+  }).join('');
+}
+function projQuadroSubtarefaLinhaHtml(t, colunasSub){
+  const filhos = projFilhosDe(t.id);
+  const celulas = colunasSub.map(c=>projQuadroCelulaHtml(t, filhos, c.key, true)).join('');
+  return `<tr data-id="${t.id}">${celulas}</tr>`;
+}
+function projQuadroTarefaLinhaHtml(t, colunas, colunasSub){
   const filhos = projFilhosDe(t.id);
   const colapsada = projTarefaColapsadas.has(t.id);
-  const celulas = colunas.map(c=>projQuadroCelulaHtml(t, filhos, c.key)).join('');
+  const celulas = colunas.map(c=>projQuadroCelulaHtml(t, filhos, c.key, false)).join('');
   return `<tr class="proj-quadro-tarefa-linha${colapsada?' colapsada':''}" data-id="${t.id}">${celulas}</tr>${filhos.length>0?`<tr class="proj-quadro-sub-wrap"${colapsada?' style="display:none;"':''}>
     <td colspan="${colunas.length}">
       <div class="proj-quadro-sub-caixa">
         <table class="proj-quadro-sub-tabela">
-          <thead><tr><th>Subtarefa</th><th>Resp.</th><th>Status</th><th>Cronograma</th><th>Anotações</th><th>Préd.</th></tr></thead>
-          <tbody>${projQuadroDescendentes(t.id).map(projQuadroSubtarefaLinhaHtml).join('')}</tbody>
+          <thead><tr>${projQuadroCabecalhoHtml(colunasSub)}</tr></thead>
+          <tbody>${projQuadroDescendentes(t.id).map(sub=>projQuadroSubtarefaLinhaHtml(sub, colunasSub)).join('')}</tbody>
         </table>
         <button type="button" class="proj-quadro-add" onclick="projAdicionarTarefaUi('${t.id}')">+ Adicionar subtarefa</button>
       </div>
     </td>
   </tr>`:''}`;
 }
-function projQuadroGrupoHtml(nomeGrupo, tarefas, colunas){
+function projQuadroGrupoHtml(nomeGrupo, tarefas, colunas, colunasSub){
   const colapsado = projQuadroGruposColapsados.has(nomeGrupo);
+  const cor = projQuadroCorGrupo(nomeGrupo);
   const somaDuracao = tarefas.reduce((s,t)=>s+(Number(t.duracaoDias)||0),0);
   const somaPeso = tarefas.reduce((s,t)=>s+Math.max(1,Number(t.duracaoDias)||1),0);
   const somaPct = tarefas.reduce((s,t)=>s+Math.max(1,Number(t.duracaoDias)||1)*(Number(t.percentualConcluido)||0),0);
@@ -9896,22 +9951,22 @@ function projQuadroGrupoHtml(nomeGrupo, tarefas, colunas){
     <tr class="proj-quadro-grupo-linha${colapsado?' colapsado':''}">
       <td colspan="${colunas.length}">
         <div class="proj-quadro-grupo-barra" onclick="projQuadroAlternarGrupo('${escaparHtml(nomeGrupo).replace(/'/g,"\\'")}')">
-          <div class="rail"></div>
-          <span class="proj-quadro-grupo-chevron">▾</span>
-          <span class="proj-quadro-grupo-titulo">${escaparHtml(nomeGrupo)}</span>
+          <div class="rail" style="background:${cor};"></div>
+          <span class="proj-quadro-grupo-chevron" style="color:${cor};">▾</span>
+          <span class="proj-quadro-grupo-titulo" style="color:${cor};">${escaparHtml(nomeGrupo)}</span>
           <span class="proj-quadro-grupo-conta">${tarefas.length} tarefa${tarefas.length===1?'':'s'} · ${somaDuracao} d · ${pctGrupo}% concl.</span>
         </div>
       </td>
     </tr>
   </tbody>
   <tbody class="proj-quadro-corpo${colapsado?' colapsado':''}">
-    ${tarefas.map(t=>projQuadroTarefaLinhaHtml(t, colunas)).join('')}
+    ${tarefas.map(t=>projQuadroTarefaLinhaHtml(t, colunas, colunasSub)).join('')}
     <tr><td colspan="${colunas.length}"><button type="button" class="proj-quadro-add" onclick="projQuadroAdicionarTarefa('${escaparHtml(nomeGrupo==='(sem segmento)'?'':nomeGrupo).replace(/'/g,"\\'")}')">+ Adicionar tarefa</button></td></tr>
   </tbody>`;
 }
 function projQuadroRodapeCelulaHtml(key, ctx){
   switch(key){
-    case 'tarefa': return `<td><span class="k">Total</span></td>`;
+    case 'nome': return `<td><span class="k">Total</span></td>`;
     case 'status': return `<td>${ctx.raiz.length} tarefa${ctx.raiz.length===1?'':'s'}</td>`;
     case 'percentual': return `<td>${ctx.pctGeral}%</td>`;
     case 'duracao': return `<td class="num">${ctx.todasDuracao} d</td>`;
@@ -9927,7 +9982,8 @@ function renderQuadroProjeto(){
     wrap.innerHTML = `<div class="proj-quadro-board" style="padding:24px;text-align:center;color:var(--muted);">Nenhuma tarefa ainda.</div>`;
     return;
   }
-  const colunas = colunasVisiveisQuadro();
+  const colunas = projQuadroColunas.visiveisOrdenadas();
+  const colunasSub = projQuadroSubColunas.visiveisOrdenadas();
   const grupos = new Map();
   raiz.forEach(t=>{
     const nome = t.segmento || '(sem segmento)';
@@ -9947,11 +10003,9 @@ function renderQuadroProjeto(){
       <div class="proj-quadro-scroll">
         <table class="proj-quadro-tabela">
           <thead>
-            <tr>
-              ${colunas.map(c=>`<th${c.num?' class="num"':''}>${escaparHtml(c.label)}</th>`).join('')}
-            </tr>
+            <tr>${projQuadroCabecalhoHtml(colunas)}</tr>
           </thead>
-          ${[...grupos.entries()].map(([nome,tarefas])=>projQuadroGrupoHtml(nome,tarefas,colunas)).join('')}
+          ${[...grupos.entries()].map(([nome,tarefas])=>projQuadroGrupoHtml(nome,tarefas,colunas,colunasSub)).join('')}
           <tfoot>
             <tr class="proj-quadro-rodape">
               ${colunas.map(c=>projQuadroRodapeCelulaHtml(c.key, ctx)).join('')}
@@ -9960,6 +10014,67 @@ function renderQuadroProjeto(){
         </table>
       </div>
     </div>`;
+}
+// arrastar cabeçalho pra reordenar — mesmo mecanismo (Pointer Events +
+// ghost) de projIniciarDragColunaTarefas, só que genérico pros dois
+// "conjuntos" de colunas do Quadro (tarefa raiz e subtarefa) e sem
+// resize (o Quadro não tem largura de coluna ajustável)
+function projQuadroIniciarDragColuna(e, thEl, tabelaSeletor, conjunto){
+  const campo = thEl.dataset.col;
+  if(!campo) return;
+  // a sub-tabela de subtarefas fica ANINHADA dentro de uma célula da
+  // tabela principal, então um simples ".proj-quadro-tabela thead th"
+  // também bateria com cabeçalhos da sub-tabela (ela é descendente da
+  // principal); por isso o alvo do "solte aqui" precisa estar no MESMO
+  // nível (dentro ou fora de uma .proj-quadro-sub-tabela) que a coluna
+  // sendo arrastada
+  const arrastandoDaSub = tabelaSeletor === '.proj-quadro-sub-tabela';
+  const label = thEl.textContent.trim();
+  const startX = e.clientX, startY = e.clientY;
+  const rect = thEl.getBoundingClientRect();
+  const offsetX = e.clientX-rect.left, offsetY = e.clientY-rect.top;
+  let arrastando = false, ghost = null, thAlvo = null;
+  thEl.setPointerCapture(e.pointerId);
+  function limpar(){ if(thAlvo) thAlvo.classList.remove('lista-th-drop-alvo'); thAlvo = null; }
+  function mover(ev){
+    if(!arrastando){
+      if(Math.hypot(ev.clientX-startX, ev.clientY-startY) < 6) return;
+      arrastando = true;
+      ghost = document.createElement('div');
+      ghost.className = 'lista-coluna-ghost';
+      ghost.textContent = label;
+      document.body.appendChild(ghost);
+    }
+    ghost.style.left = (ev.clientX-offsetX)+'px';
+    ghost.style.top = (ev.clientY-offsetY)+'px';
+    ghost.style.display = 'none';
+    const alvoEl = document.elementFromPoint(ev.clientX, ev.clientY);
+    ghost.style.display = '';
+    limpar();
+    const thCandidato = alvoEl && alvoEl.closest('thead th[data-col]');
+    const thHover = (thCandidato && !!thCandidato.closest('.proj-quadro-sub-tabela') === arrastandoDaSub) ? thCandidato : null;
+    if(thHover && thHover !== thEl){
+      thAlvo = thHover;
+      thAlvo.classList.add('lista-th-drop-alvo');
+    }
+  }
+  function soltar(){
+    thEl.removeEventListener('pointermove', mover);
+    if(arrastando){
+      const alvo = thAlvo ? thAlvo.dataset.col : null;
+      limpar();
+      ghost.remove();
+      if(alvo){ conjunto.reordenar(campo, alvo); renderQuadroProjeto(); }
+    }
+  }
+  function cancelar(){
+    thEl.removeEventListener('pointermove', mover);
+    limpar();
+    if(ghost) ghost.remove();
+  }
+  thEl.addEventListener('pointermove', mover);
+  thEl.addEventListener('pointerup', soltar, { once:true });
+  thEl.addEventListener('pointercancel', cancelar, { once:true });
 }
 
 /* ---------- tela "Informações sobre a tarefa" (estilo MS Project) — Geral/
@@ -13051,9 +13166,32 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(abrindo) renderPainelColunasQuadro();
     painel.style.display = abrindo ? '' : 'none';
   });
+  document.getElementById('btnProjQuadroSubColunas').addEventListener('click', e=>{
+    e.stopPropagation();
+    const painel = document.getElementById('projQuadroSubColunasPainel');
+    const abrindo = painel.style.display === 'none';
+    if(abrindo) renderPainelColunasQuadroSub();
+    painel.style.display = abrindo ? '' : 'none';
+  });
   document.addEventListener('click', e=>{
     if(!e.target.closest('#projQuadroColunasPainel') && !e.target.closest('#btnProjQuadroColunas')){
       document.getElementById('projQuadroColunasPainel').style.display = 'none';
+    }
+    if(!e.target.closest('#projQuadroSubColunasPainel') && !e.target.closest('#btnProjQuadroSubColunas')){
+      document.getElementById('projQuadroSubColunasPainel').style.display = 'none';
+    }
+  });
+  // arrastar cabeçalho pra reordenar coluna do Quadro — um listener só,
+  // delegado no wrap (que nunca é recriado, só seu innerHTML muda a cada
+  // render), cobre tanto o cabeçalho da tabela principal quanto o de
+  // qualquer sub-tabela de subtarefas aberta
+  document.getElementById('projQuadroWrap').addEventListener('pointerdown', e=>{
+    const th = e.target.closest('th[data-col]');
+    if(!th || !th.classList.contains('lista-th-arrastavel')) return;
+    if(th.closest('.proj-quadro-sub-tabela')){
+      projQuadroIniciarDragColuna(e, th, '.proj-quadro-sub-tabela', projQuadroSubColunas);
+    } else if(th.closest('.proj-quadro-tabela')){
+      projQuadroIniciarDragColuna(e, th, '.proj-quadro-tabela', projQuadroColunas);
     }
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
