@@ -9702,6 +9702,9 @@ const PROJ_QUADRO_COLUNAS = PROJ_COLUNAS_TAREFAS
   .filter(c=>c.key!=='toggle')
   .map(c=>({...c}))
   .concat([{ key:'cronograma', label:'Cronograma', largura:120 }]);
+// no Quadro a coluna Ações só tem o botão "⋮" (bem mais estreita do que
+// na tabela Tarefas, que mostra os 3 ícones lado a lado)
+PROJ_QUADRO_COLUNAS.find(c=>c.key==='acoes').largura = 46;
 const PROJ_QUADRO_PADRAO_VISIVEIS = ['recursos','status','percentual','duracao','cronograma','inicio','termino'];
 const PROJ_QUADRO_SUB_PADRAO_VISIVEIS = ['recursos','status','cronograma','anotacoes','predecessoras'];
 // ordem inicial "arrumada" (só até acomodar as colunas visíveis por
@@ -9714,9 +9717,10 @@ const PROJ_QUADRO_SUB_ORDEM_PADRAO = ['numero','nome','recursos','status','crono
 // "conjunto de colunas" — mesma mecânica (ordem arrastável + visibilidade
 // opcional, cada uma persistida por navegador) usada duas vezes (tarefa
 // raiz e subtarefa), por isso virou uma fábrica em vez de duplicar tudo
-function projQuadroCriarConjuntoColunas(chaveOrdem, chaveVisiveis, padraoVisiveis, ordemPadrao){
+function projQuadroCriarConjuntoColunas(chaveOrdem, chaveVisiveis, chaveLarguras, padraoVisiveis, ordemPadrao){
   let ordem = ordemPadrao || null;
   let visiveis = new Set(padraoVisiveis);
+  let larguras = {};
   try{
     const salvoOrdem = JSON.parse(localStorage.getItem(chaveOrdem)||'null');
     if(Array.isArray(salvoOrdem)) ordem = salvoOrdem;
@@ -9724,6 +9728,10 @@ function projQuadroCriarConjuntoColunas(chaveOrdem, chaveVisiveis, padraoVisivei
   try{
     const salvoVis = JSON.parse(localStorage.getItem(chaveVisiveis)||'null');
     if(Array.isArray(salvoVis)) visiveis = new Set(salvoVis);
+  }catch(e){ /* mantém o padrão */ }
+  try{
+    const salvoLarguras = JSON.parse(localStorage.getItem(chaveLarguras)||'null');
+    if(salvoLarguras && typeof salvoLarguras==='object') larguras = salvoLarguras;
   }catch(e){ /* mantém o padrão */ }
   function ordenadasBase(){
     if(!ordem) return PROJ_QUADRO_COLUNAS;
@@ -9751,10 +9759,15 @@ function projQuadroCriarConjuntoColunas(chaveOrdem, chaveVisiveis, padraoVisivei
       else visiveis.delete(key);
       try{ localStorage.setItem(chaveVisiveis, JSON.stringify([...visiveis])); }catch(e){}
     },
+    largura(col){ return larguras[col.key] || col.largura || 100; },
+    definirLargura(key, px){
+      larguras[key] = px;
+      try{ localStorage.setItem(chaveLarguras, JSON.stringify(larguras)); }catch(e){}
+    },
   };
 }
-const projQuadroColunas = projQuadroCriarConjuntoColunas('projQuadroColunasOrdem_v1', 'projQuadroColunasVisiveis_v2', PROJ_QUADRO_PADRAO_VISIVEIS, PROJ_QUADRO_ORDEM_PADRAO);
-const projQuadroSubColunas = projQuadroCriarConjuntoColunas('projQuadroSubColunasOrdem_v1', 'projQuadroSubColunasVisiveis_v2', PROJ_QUADRO_SUB_PADRAO_VISIVEIS, PROJ_QUADRO_SUB_ORDEM_PADRAO);
+const projQuadroColunas = projQuadroCriarConjuntoColunas('projQuadroColunasOrdem_v1', 'projQuadroColunasVisiveis_v2', 'projQuadroColunasLarguras_v1', PROJ_QUADRO_PADRAO_VISIVEIS, PROJ_QUADRO_ORDEM_PADRAO);
+const projQuadroSubColunas = projQuadroCriarConjuntoColunas('projQuadroSubColunasOrdem_v1', 'projQuadroSubColunasVisiveis_v2', 'projQuadroSubColunasLarguras_v1', PROJ_QUADRO_SUB_PADRAO_VISIVEIS, PROJ_QUADRO_SUB_ORDEM_PADRAO);
 function renderPainelColunasQuadroGenerico(elId, conjunto){
   const painel = document.getElementById(elId);
   const opcionais = PROJ_QUADRO_COLUNAS.filter(c=>!c.fixa);
@@ -9832,11 +9845,14 @@ function projQuadroCronogramaHtml(inicio, fim){
   if(!texto) return `<span class="proj-quadro-cron vazio">sem data</span>`;
   return `<span class="proj-quadro-cron">${escaparHtml(texto)}</span>`;
 }
-// descendentes achatados (todos os níveis abaixo da tarefa raiz), na ordem
-// da árvore — a sub-tabela do Quadro mostra tudo de uma vez, sem
-// hierarquia visual própria (diferente da tabela Tarefas)
-function projQuadroDescendentes(paiId){
-  return projFilhosDe(paiId).flatMap(t=>[t, ...projQuadroDescendentes(t.id)]);
+// descendentes achatados (todos os níveis abaixo da tarefa raiz), na
+// ordem da árvore, cada um com seu nível (1 = filho direto da raiz, 2 =
+// neto, ...) — a sub-tabela do Quadro mostra tudo de uma vez, mas com
+// indentação por nível pra deixar a hierarquia visível (subitem de
+// subitem não pode parecer irmão do subitem de primeiro nível)
+function projQuadroDescendentes(paiId, nivel){
+  nivel = nivel || 1;
+  return projFilhosDe(paiId).flatMap(t=>[{t,nivel}, ...projQuadroDescendentes(t.id, nivel+1)]);
 }
 let projQuadroGruposColapsados = new Set();
 function projQuadroAlternarGrupo(nomeGrupo){
@@ -9883,14 +9899,48 @@ function projQuadroCelulaPercentual(t, filhos){
   }
   return `<td><div class="proj-quadro-nome" style="gap:8px;">${projBateriaHtml(pct)}<input type="number" min="0" max="100" step="1" value="${pct}" style="width:42px;" onchange="projSalvarCampoTarefa('${t.id}','percentualConcluido',this.value)"></div></td>`;
 }
-// coluna Recursos com avatar colorido por pessoa (uma bolinha por nome,
-// cor consistente por nome) + o mesmo campo de texto livre (separado por
-// vírgula) que a tabela Tarefas usa pra editar
+// coluna Recursos — só as bolinhas (uma por pessoa, cor consistente por
+// nome); escolher quem é responsável é pelo "+", que abre uma listinha
+// marcável com os recursos já cadastrados no projeto (aba Recursos)
+let projQuadroRecursoPickerAberto = null;
+function projQuadroAlternarPickerRecursos(id){
+  projQuadroRecursoPickerAberto = (projQuadroRecursoPickerAberto === id) ? null : id;
+  projQuadroMenuAcoesAberto = null;
+  renderQuadroProjeto();
+}
+function projQuadroFecharPickerRecursos(){
+  projQuadroRecursoPickerAberto = null;
+  renderQuadroProjeto();
+}
+function projQuadroAlternarRecursoTarefa(id, nomeRecurso, marcado){
+  const t = projetoTarefas.find(x=>String(x.id)===String(id));
+  if(!t) return;
+  const atuais = String(t.responsavel||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const novos = marcado ? [...new Set([...atuais, nomeRecurso])] : atuais.filter(n=>n!==nomeRecurso);
+  projSalvarCampoTarefa(id, 'responsavel', novos.join(', '));
+}
+function projQuadroPickerRecursosHtml(t){
+  const atuais = new Set(String(t.responsavel||'').split(',').map(s=>s.trim()).filter(Boolean));
+  if(projRecursosCadastro.length===0){
+    return `<div class="proj-quadro-menu-acoes proj-quadro-picker-recursos"><div style="padding:6px 8px;color:var(--muted);font-size:12px;white-space:normal;max-width:180px;">Nenhum recurso cadastrado no projeto ainda — cadastre na aba Recursos.</div></div>`;
+  }
+  return `<div class="proj-quadro-menu-acoes proj-quadro-picker-recursos">
+    ${projRecursosCadastro.map(r=>`
+      <label>
+        <input type="checkbox" style="width:auto;" ${atuais.has(r.nome)?'checked':''} onchange="projQuadroAlternarRecursoTarefa('${t.id}', '${escaparHtml(r.nome).replace(/'/g,"\\'")}', this.checked)">
+        ${escaparHtml(r.nome)}
+      </label>`).join('')}
+  </div>`;
+}
 function projQuadroCelulaRecursos(t){
+  const aberto = projQuadroRecursoPickerAberto === t.id;
   return `<td>
     <div class="proj-quadro-recursos-cel">
       <div class="proj-quadro-avatares">${projQuadroAvatarHtml(t.responsavel)}</div>
-      <input type="text" value="${escaparHtml(t.responsavel||'')}" placeholder="Recursos" style="flex:1;min-width:60px;" onblur="projSalvarCampoTarefa('${t.id}','responsavel',this.value)">
+      <div class="proj-quadro-menu-wrap">
+        <button type="button" class="proj-quadro-recurso-add" title="Escolher recursos" onclick="event.stopPropagation();projQuadroAlternarPickerRecursos('${t.id}')">+</button>
+        ${aberto ? projQuadroPickerRecursosHtml(t) : ''}
+      </div>
     </div>
   </td>`;
 }
@@ -9901,6 +9951,7 @@ function projQuadroCelulaRecursos(t){
 let projQuadroMenuAcoesAberto = null;
 function projQuadroAlternarMenuAcoes(id){
   projQuadroMenuAcoesAberto = (projQuadroMenuAcoesAberto === id) ? null : id;
+  projQuadroRecursoPickerAberto = null;
   renderQuadroProjeto();
 }
 function projQuadroFecharMenuAcoes(){
@@ -9924,7 +9975,7 @@ function projQuadroCelulaAcoes(t){
 // "cronograma"/"acoes" têm tratamento visual próprio do Quadro; todas as
 // outras colunas (as mesmas de PROJ_COLUNAS_TAREFAS) reaproveitam DIRETO
 // a mesma função de célula da tabela Tarefas, garantindo a mesma edição
-function projQuadroCelulaHtml(t, filhos, key, ehSub){
+function projQuadroCelulaHtml(t, filhos, key, ehSub, nivel){
   if(key==='nome' && !ehSub) return projQuadroCelulaTarefaPrincipal(t, filhos);
   if(key==='recursos') return projQuadroCelulaRecursos(t);
   if(key==='status') return `<td>${projQuadroStatusSelectHtml(t)}</td>`;
@@ -9938,17 +9989,21 @@ function projQuadroCelulaHtml(t, filhos, key, ehSub){
     .filter(n=>n!==undefined)
     .sort((a,b)=>a-b)
     .join(',');
-  return projTarefaCelulaHtml(t, 0, filhos, colapsada, numero, predTexto, key, true);
+  return projTarefaCelulaHtml(t, key==='nome' ? (nivel||0) : 0, filhos, colapsada, numero, predTexto, key, true);
 }
-function projQuadroCabecalhoHtml(colunas){
+function projQuadroCabecalhoHtml(colunas, tipo){
   return colunas.map(c=>{
     const classes = [c.num?'num':'', c.semResize?'':'lista-th-arrastavel'].filter(Boolean).join(' ');
-    return `<th${classes?` class="${classes}"`:''} data-col="${c.key}" title="${c.semResize?'':'Arraste pra reordenar'}">${escaparHtml(c.label)}</th>`;
+    const resizer = c.semResize ? '' : `<span class="proj-col-resizer" onmousedown="projQuadroIniciarResizeColuna(event,'${c.key}','${tipo}')"></span>`;
+    return `<th${classes?` class="${classes}"`:''} data-col="${c.key}" title="${c.semResize?'':'Arraste pra reordenar'}">${escaparHtml(c.label)}${resizer}</th>`;
   }).join('');
 }
-function projQuadroSubtarefaLinhaHtml(t, colunasSub){
+function projQuadroColgroupHtml(colunas, conjunto){
+  return `<colgroup>${colunas.map(c=>`<col style="width:${conjunto.largura(c)}px;">`).join('')}</colgroup>`;
+}
+function projQuadroSubtarefaLinhaHtml(t, nivel, colunasSub){
   const filhos = projFilhosDe(t.id);
-  const celulas = colunasSub.map(c=>projQuadroCelulaHtml(t, filhos, c.key, true)).join('');
+  const celulas = colunasSub.map(c=>projQuadroCelulaHtml(t, filhos, c.key, true, nivel)).join('');
   return `<tr data-id="${t.id}">${celulas}</tr>`;
 }
 function projQuadroTarefaLinhaHtml(t, colunas, colunasSub){
@@ -9959,8 +10014,9 @@ function projQuadroTarefaLinhaHtml(t, colunas, colunasSub){
     <td colspan="${colunas.length}">
       <div class="proj-quadro-sub-caixa">
         <table class="proj-quadro-sub-tabela">
-          <thead><tr>${projQuadroCabecalhoHtml(colunasSub)}</tr></thead>
-          <tbody>${projQuadroDescendentes(t.id).map(sub=>projQuadroSubtarefaLinhaHtml(sub, colunasSub)).join('')}</tbody>
+          ${projQuadroColgroupHtml(colunasSub, projQuadroSubColunas)}
+          <thead><tr>${projQuadroCabecalhoHtml(colunasSub, 'sub')}</tr></thead>
+          <tbody>${projQuadroDescendentes(t.id).map(({t:sub,nivel})=>projQuadroSubtarefaLinhaHtml(sub, nivel, colunasSub)).join('')}</tbody>
         </table>
         <button type="button" class="proj-quadro-add" onclick="projAdicionarTarefaUi('${t.id}')">+ Adicionar subtarefa</button>
       </div>
@@ -10029,8 +10085,9 @@ function renderQuadroProjeto(){
     <div class="proj-quadro-board">
       <div class="proj-quadro-scroll">
         <table class="proj-quadro-tabela">
+          ${projQuadroColgroupHtml(colunas, projQuadroColunas)}
           <thead>
-            <tr>${projQuadroCabecalhoHtml(colunas)}</tr>
+            <tr>${projQuadroCabecalhoHtml(colunas, 'principal')}</tr>
           </thead>
           ${[...grupos.entries()].map(([nome,tarefas])=>projQuadroGrupoHtml(nome,tarefas,colunas,colunasSub)).join('')}
           <tfoot>
@@ -10102,6 +10159,48 @@ function projQuadroIniciarDragColuna(e, thEl, tabelaSeletor, conjunto){
   thEl.addEventListener('pointermove', mover);
   thEl.addEventListener('pointerup', soltar, { once:true });
   thEl.addEventListener('pointercancel', cancelar, { once:true });
+}
+// redimensionar coluna — mesmo mecanismo de projIniciarResizeColuna
+// (mousedown na alcinha, arrasta, solta), só que aplica a largura em
+// TODAS as tabelas daquele "tipo" ao mesmo tempo (uma tarefa raiz aberta
+// mexe só na principal; como pode ter várias sub-tabelas abertas ao
+// mesmo tempo — uma por tarefa expandida — elas todas usam a MESMA
+// configuração de colunas da subtarefa, então redimensionar uma redimensiona
+// todas, pra ficarem sempre consistentes entre si)
+let projQuadroResizeEstado = null;
+function projQuadroIniciarResizeColuna(e, key, tipo){
+  e.preventDefault();
+  e.stopPropagation();
+  const conjunto = tipo==='sub' ? projQuadroSubColunas : projQuadroColunas;
+  const col = PROJ_QUADRO_COLUNAS.find(c=>c.key===key);
+  if(!col) return;
+  const idx = conjunto.visiveisOrdenadas().findIndex(c=>c.key===key);
+  if(idx===-1) return;
+  projQuadroResizeEstado = { conjunto, key, tipo, idx, xInicial: e.clientX, larguraInicial: conjunto.largura(col) };
+  document.addEventListener('mousemove', projQuadroMoverResizeColuna);
+  document.addEventListener('mouseup', projQuadroFinalizarResizeColuna, { once:true });
+}
+function projQuadroTabelasDoTipo(tipo){
+  return tipo==='sub'
+    ? document.querySelectorAll('.proj-quadro-sub-tabela')
+    : document.querySelectorAll('table.proj-quadro-tabela');
+}
+function projQuadroMoverResizeColuna(e){
+  if(!projQuadroResizeEstado) return;
+  const { idx, tipo, xInicial, larguraInicial } = projQuadroResizeEstado;
+  const nova = Math.max(40, larguraInicial + (e.clientX - xInicial));
+  projQuadroTabelasDoTipo(tipo).forEach(tabela=>{
+    const colEl = tabela.querySelectorAll(':scope > colgroup > col')[idx];
+    if(colEl) colEl.style.width = nova+'px';
+  });
+}
+function projQuadroFinalizarResizeColuna(e){
+  document.removeEventListener('mousemove', projQuadroMoverResizeColuna);
+  if(!projQuadroResizeEstado) return;
+  const { conjunto, key, xInicial, larguraInicial } = projQuadroResizeEstado;
+  const nova = Math.max(40, larguraInicial + (e.clientX - xInicial));
+  conjunto.definirLargura(key, nova);
+  projQuadroResizeEstado = null;
 }
 
 /* ---------- tela "Informações sobre a tarefa" (estilo MS Project) — Geral/
@@ -13213,6 +13312,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   // render), cobre tanto o cabeçalho da tabela principal quanto o de
   // qualquer sub-tabela de subtarefas aberta
   document.getElementById('projQuadroWrap').addEventListener('pointerdown', e=>{
+    if(e.target.closest('.proj-col-resizer')) return;
     const th = e.target.closest('th[data-col]');
     if(!th || !th.classList.contains('lista-th-arrastavel')) return;
     if(th.closest('.proj-quadro-sub-tabela')){
@@ -13222,9 +13322,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
   });
   document.addEventListener('click', e=>{
-    if(projQuadroMenuAcoesAberto!==null && !e.target.closest('.proj-quadro-menu-wrap')){
-      projQuadroFecharMenuAcoes();
-    }
+    if(e.target.closest('.proj-quadro-menu-wrap')) return;
+    if(projQuadroMenuAcoesAberto!==null) projQuadroFecharMenuAcoes();
+    if(projQuadroRecursoPickerAberto!==null) projQuadroFecharPickerRecursos();
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
   document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
