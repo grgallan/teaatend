@@ -36,6 +36,17 @@
     --on-accent:oklch(99% 0 0);
     --ok:oklch(45% 0.14 150); --warn:oklch(55% 0.15 75); --bad:oklch(52% 0.19 25); --yellow:oklch(52% 0.13 100); --blue:oklch(50% 0.14 230); --purple:oklch(50% 0.14 300);
   }
+  /* geração nativa de PDF (Android/Capacitor, via html2pdf/html2canvas): essa
+     lib não entende oklch()/color-mix(), então enquanto a captura roda troca
+     os tokens de cor por hex simples — vale pros dois temas (claro/escuro),
+     por isso vem depois do bloco html[data-theme="light"] acima, pra ganhar
+     do empate de especificidade */
+  html.pdf-nativo-ativo{
+    --bg:#1b1e26; --panel:#262a35; --panel-2:#2f3440; --line:rgba(255,255,255,.09);
+    --text:#f2f3f6; --muted:#9199a8; --accent:#63c3d9; --accent-dim:rgba(99,195,217,.16);
+    --on-accent:#1c1f27;
+    --ok:#6fd88a; --warn:#e0b34c; --bad:#e0685a; --yellow:#e0d24c; --blue:#6bb0e0; --purple:#c088e0;
+  }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
     font-family:'Space Grotesk',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -1127,10 +1138,12 @@
 </nav>
 
 <main>
-  <div id="printHeader"></div>
-  <div id="printOrcamento"></div>
-  <div id="printProjetoTarefas"></div>
-  <div id="printProjetoMapa"></div>
+  <div id="printArea">
+    <div id="printHeader"></div>
+    <div id="printOrcamento"></div>
+    <div id="printProjetoTarefas"></div>
+    <div id="printProjetoMapa"></div>
+  </div>
   <div class="install-banner" id="installBanner">
     <span>Instale este app na tela inicial para usar offline.</span>
     <button id="installBtn">Instalar</button>
