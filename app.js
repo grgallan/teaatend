@@ -8259,12 +8259,16 @@ async function carregarOrcamentos(){
 function renderListaOrcamentos(){
   const cont = document.getElementById('listaOrcamentos');
   if(orcamentosCache.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">🧾</div>Nenhum orçamento ainda.</div>`; return; }
+  const conta = contaAtual();
+  // administrador do cliente só acompanha (abre o PDF pra conferir) — não
+  // edita, copia nem exclui, igual o backend já exige
+  const podeGerenciar = conta && (conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE');
   cont.innerHTML = orcamentosCache.map(o=>{
     const status = orcStatusInfo(o.status);
     const partesValidade = o.validade ? o.validade.split('-') : null;
     const partesAceite = o.dataAceite ? o.dataAceite.split('-') : null;
     return `<div class="ativ-item">
-      <div class="ativ-corpo" onclick="editarOrcamentoUi('${o.id}')">
+      <div class="ativ-corpo" onclick="${podeGerenciar ? `editarOrcamentoUi('${o.id}')` : `gerarPdfOrcamento('${o.id}')`}">
         <div class="ativ-titulo">Nº ${escaparHtml(o.numero)} — ${escaparHtml(o.cliente)}</div>
         ${o.assunto ? `<div class="ativ-desc">${escaparHtml(o.assunto)}</div>` : ''}
         <div class="ativ-meta">
@@ -8277,10 +8281,10 @@ function renderListaOrcamentos(){
         </div>
       </div>
       <div class="ativ-acoes">
-        <button class="ghost" onclick="event.stopPropagation();copiarOrcamentoUi('${o.id}')" title="Copiar orçamento">⧉</button>
+        ${podeGerenciar ? `<button class="ghost" onclick="event.stopPropagation();copiarOrcamentoUi('${o.id}')" title="Copiar orçamento">⧉</button>` : ''}
         <button class="ghost" onclick="event.stopPropagation();gerarPdfOrcamento('${o.id}')" title="Gerar PDF">🖨</button>
         <button class="ghost" onclick="event.stopPropagation();gerarExcelOrcamento('${o.id}')" title="Gerar Excel">📊</button>
-        <button class="ghost" onclick="event.stopPropagation();removerOrcamentoUi('${o.id}')" title="Excluir">🗑</button>
+        ${podeGerenciar ? `<button class="ghost" onclick="event.stopPropagation();removerOrcamentoUi('${o.id}')" title="Excluir">🗑</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -12535,7 +12539,14 @@ function goView(name){
     carregarAtividades();
   }
   if(name==='orcamentos'){
-    limparFormOrcamento();
+    // criar/editar orçamento é coisa de quem gerencia (ADMIN/ATENDENTE) —
+    // igual o backend já exige em podeGerenciarOrcamento; administrador do
+    // cliente só acompanha os orçamentos feitos pro próprio cliente (visto
+    // em renderListaOrcamentos), sem ver o formulário de criação/edição
+    const contaOrc = contaAtual();
+    const podeGerenciarOrc = contaOrc && (contaOrc.perfil === 'ADMIN' || contaOrc.perfil === 'ATENDENTE');
+    document.getElementById('cardFormOrcamento').style.display = podeGerenciarOrc ? '' : 'none';
+    if(podeGerenciarOrc) limparFormOrcamento();
     carregarOrcamentos();
   }
   if(name==='projetos'){

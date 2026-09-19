@@ -3090,9 +3090,20 @@ async function gerarNumeroOrcamento(empresaId?: string): Promise<string> {
 }
 
 async function acaoListarOrcamentos(req: any) {
-  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: true, orcamentos: [] };
+  const { data: conta } = await db.from('contas').select('perfil,admin_cliente,cliente_id').eq('id', req.contaId).maybeSingle();
+  if (!conta) return { ok: true, orcamentos: [] };
+  const podeGerenciar = conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE';
+  // administrador do cliente só acompanha os orçamentos feitos pro próprio
+  // cliente, sem poder criar/editar/excluir (igual Projetos/Atividades)
+  if (!podeGerenciar && !(conta.perfil === 'USUARIO' && conta.admin_cliente && conta.cliente_id)) return { ok: true, orcamentos: [] };
+
   let query = db.from('orcamentos').select('*').order('criado_em', { ascending: false });
   if (req.empresaId) query = query.eq('empresa_id', req.empresaId);
+  if (!podeGerenciar) {
+    const { data: clienteInfo } = await db.from('clientes').select('nome').eq('id', conta.cliente_id).maybeSingle();
+    if (!clienteInfo) return { ok: true, orcamentos: [] };
+    query = query.eq('cliente', clienteInfo.nome);
+  }
   const { data, error } = await query;
   if (error) return { ok: false, erro: error.message };
   const orcamentos = data || [];
@@ -3112,10 +3123,17 @@ async function acaoListarOrcamentos(req: any) {
 }
 
 async function acaoObterOrcamento(req: any) {
-  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: false, erro: 'Sem permissão pra acessar orçamentos.' };
+  const { data: conta } = await db.from('contas').select('perfil,admin_cliente,cliente_id').eq('id', req.contaId).maybeSingle();
+  if (!conta) return { ok: false, erro: 'Sem permissão pra acessar orçamentos.' };
+  const podeGerenciar = conta.perfil === 'ADMIN' || conta.perfil === 'ATENDENTE';
+  if (!podeGerenciar && !(conta.perfil === 'USUARIO' && conta.admin_cliente && conta.cliente_id)) return { ok: false, erro: 'Sem permissão pra acessar orçamentos.' };
   if (!req.id) return { ok: false, erro: 'Orçamento não informado.' };
   const { data: o } = await db.from('orcamentos').select('*').eq('id', req.id).maybeSingle();
   if (!o) return { ok: false, erro: 'Orçamento não encontrado.' };
+  if (!podeGerenciar) {
+    const { data: clienteInfo } = await db.from('clientes').select('nome').eq('id', conta.cliente_id).maybeSingle();
+    if (!clienteInfo || clienteInfo.nome !== o.cliente) return { ok: false, erro: 'Você não tem permissão pra ver esse orçamento.' };
+  }
   const { data: itens, error } = await db.from('orcamento_itens').select('*').eq('orcamento_id', req.id).order('ordem');
   if (error) return { ok: false, erro: error.message };
   const { totalHoras, totalValor } = calcularTotaisOrcamento(itens || []);
@@ -3191,6 +3209,7 @@ async function acaoListarAnexosOrcamento(req: any) {
 }
 
 async function acaoAdicionarAnexoOrcamento(req: any) {
+  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: false, erro: 'Sem permissão pra anexar arquivos.' };
   if (!req.orcamentoId) return { ok: false, erro: 'Orçamento não informado.' };
   try {
     const salvo = await salvarAnexo(req.base64, req.tipo, req.nome);
@@ -3204,6 +3223,7 @@ async function acaoAdicionarAnexoOrcamento(req: any) {
 }
 
 async function acaoRemoverAnexoOrcamento(req: any) {
+  if (!(await podeGerenciarOrcamento(req.contaId))) return { ok: false, erro: 'Sem permissão pra remover anexos.' };
   await db.from('orcamento_anexos').delete().eq('id', req.id);
   return { ok: true };
 }
