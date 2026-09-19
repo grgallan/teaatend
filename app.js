@@ -3458,8 +3458,17 @@ function slugArquivo(texto){
 }
 
 // dentro do app Android (Capacitor) a WebView não tem window.print() — gera o
-// PDF no próprio JS (html2pdf) e abre o menu de compartilhar nativo do Android
-async function gerarPdfNativo(titulo){
+// PDF no próprio JS (html2pdf) e abre o menu de compartilhar nativo do Android.
+// "elementoId": quando informado, captura só esse elemento (ex.: "printArea")
+// em vez do <body> inteiro — o html2canvas embutido no html2pdf não entende
+// as cores modernas oklch()/color-mix() que o app usa bastante, e ele lê o
+// estilo computado de TODO mundo na página (até elemento escondido), então
+// só evita o erro "unsupported color function" quem não passa nem perto de
+// nenhum elemento com essas cores — dai a classe "pdf-nativo-ativo" também,
+// que troca os tokens de cor (--ok, --muted etc.) por hex simples enquanto
+// a captura roda, cobrindo quem usa var(--token) direto no HTML impresso
+// (ex.: o Mapa Mental do projeto)
+async function gerarPdfNativo(titulo, elementoId){
   const plugins = window.Capacitor.Plugins || {};
   const { Filesystem, Share } = plugins;
   if(!Filesystem || !Share){
@@ -3468,15 +3477,17 @@ async function gerarPdfNativo(titulo){
     return;
   }
   toast('Gerando PDF…');
+  document.documentElement.classList.add('pdf-nativo-ativo');
   try{
     await carregarHtml2Pdf();
+    const elemento = (elementoId && document.getElementById(elementoId)) || document.body;
     const blob = await comEstiloDeImpressaoAtivo(()=>
       window.html2pdf().set({
         margin: 10,
         html2canvas: { scale: 2, useCORS: true },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
         pagebreak: { mode: ['css', 'legacy'] },
-      }).from(document.body).outputPdf('blob')
+      }).from(elemento).outputPdf('blob')
     );
     const base64 = await lerArquivoBase64(blob);
     const nomeArquivo = `${slugArquivo(titulo)}.pdf`;
@@ -3485,6 +3496,7 @@ async function gerarPdfNativo(titulo){
   }catch(err){
     toast(err && err.message ? err.message : 'Não foi possível gerar o PDF.');
   } finally {
+    document.documentElement.classList.remove('pdf-nativo-ativo');
     document.body.classList.remove('print-modo-atendimento'); // sem window.print(), o afterprint que tiraria essa classe nunca dispara
   }
 }
@@ -3511,7 +3523,7 @@ async function salvarWorkbook(livro, nomeArquivo){
   await Share.share({ title: nomeArquivo, dialogTitle: 'Compartilhar planilha', files: [gravado.uri] });
 }
 
-function prepararImpressao(titulo, filtrosTexto){
+function prepararImpressao(titulo, filtrosTexto, elementoId){
   const agora = new Date();
   const dataHora = agora.toLocaleDateString('pt-BR') + ' às ' + agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const logo = empresaAtual && empresaAtual.logoUrl ? `<img class="print-logo" src="${empresaAtual.logoUrl}">` : '';
@@ -3526,7 +3538,7 @@ function prepararImpressao(titulo, filtrosTexto){
       </div>
     </div>
   `;
-  if(emAppNativo()){ gerarPdfNativo(titulo); return; }
+  if(emAppNativo()){ gerarPdfNativo(titulo, elementoId); return; }
   window.print();
 }
 
@@ -8350,7 +8362,7 @@ async function gerarPdfOrcamento(id){
   `;
   document.body.classList.add('print-modo-orcamento');
   window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-orcamento'); }, { once:true });
-  prepararImpressao(`Orçamento Nº ${o.numero}`, '');
+  prepararImpressao(`Orçamento Nº ${o.numero}`, '', 'printArea');
 }
 
 async function gerarExcelOrcamento(id){
@@ -9461,7 +9473,7 @@ function gerarPdfTarefasProjeto(){
     </table>`;
   document.body.classList.add('print-modo-projeto-tarefas');
   window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-projeto-tarefas'); }, { once:true });
-  prepararImpressao(`Tarefas — ${projetoAtual.nome}`, '');
+  prepararImpressao(`Tarefas — ${projetoAtual.nome}`, '', 'printArea');
 }
 // cores de status igual ao "bom/neutro" clássico do próprio Excel — mesma
 // leitura visual da bateria colorida da tela (verde concluída, amarelo em
@@ -11160,7 +11172,7 @@ function gerarPdfMapaMentalProjeto(){
   document.getElementById('printProjetoMapa').innerHTML = `<div class="proj-print-mapa-wrap" style="transform:scale(${escala});">${wrap.innerHTML}</div>`;
   document.body.classList.add('print-modo-projeto-mapa');
   window.addEventListener('afterprint', ()=>{ document.body.classList.remove('print-modo-projeto-mapa'); }, { once:true });
-  prepararImpressao(`Mapa Mental — ${projetoAtual.nome}`, '');
+  prepararImpressao(`Mapa Mental — ${projetoAtual.nome}`, '', 'printArea');
 }
 
 /* ---------- vínculo do projeto com atendimentos existentes (muitos-pra-
