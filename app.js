@@ -13493,6 +13493,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     atualizarValorTotalFin();
   });
   document.getElementById('btnGerarLancamento').addEventListener('click', gerarLancamento);
+  // Previsão de Baixa por padrão acompanha o Vencimento (só se ainda não
+  // foi preenchida à mão, pra não sobrescrever um ajuste manual)
+  document.getElementById('fin_vencimento').addEventListener('change', e=>{
+    const previsao = document.getElementById('fin_previsao');
+    if(!previsao.value) previsao.value = e.target.value;
+  });
   document.getElementById('finTipoLancamento').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     selecionarTipoLancamento(chip.dataset.tipo);
