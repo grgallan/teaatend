@@ -5017,19 +5017,161 @@ let finTipoLancamento = 'RECEITA'; // tipo escolhido no formulário de "Criar La
 // colunas da tabela de Lançamentos (visão em tabela, igual Atendimentos,
 // com célula editável estilo Tarefas do Projeto)
 const LANC_COLUNAS = [
-  { key:'tipo', label:'Tipo', filtravel:true, largura:'7%' },
-  { key:'cliente', label:'Cliente/Fornecedor', filtravel:true, largura:'15%' },
-  { key:'categoria', label:'Categoria', filtravel:true, largura:'10%' },
-  { key:'valor', label:'Valor', num:true, largura:'9%' },
+  { key:'tipo', label:'Tipo', filtravel:true, agrupaComo:'tipo', fixa:true, largura:'7%' },
+  { key:'cliente', label:'Cliente/Fornecedor', filtravel:true, agrupaComo:'cliente', fixa:true, largura:'15%' },
+  { key:'categoria', label:'Categoria', filtravel:true, agrupaComo:'categoria', largura:'10%' },
+  { key:'valor', label:'Valor', num:true, fixa:true, largura:'9%' },
   { key:'emissao', label:'Emissão', largura:'8%' },
-  { key:'vencimento', label:'Vencimento', largura:'8%' },
+  { key:'vencimento', label:'Vencimento', fixa:true, largura:'8%' },
   { key:'previsao', label:'Previsão', largura:'8%' },
   { key:'baixa', label:'Baixa/Pagto.', largura:'8%' },
   { key:'documento', label:'Documento', largura:'9%' },
   { key:'historico', label:'Histórico', largura:'10%' },
-  { key:'status', label:'Status', filtravel:true, largura:'8%' },
-  { key:'acoes', label:'', largura:'110px' },
+  { key:'status', label:'Status', filtravel:true, agrupaComo:'status', fixa:true, largura:'8%' },
+  { key:'acoes', label:'', fixa:true, largura:'110px' },
 ];
+// colunas opcionais visíveis (seletor "⚙ Colunas") — mesmo padrão de
+// projColunasOpcionaisVisiveis (Tarefas do Projeto): Set + localStorage.
+// Colunas "fixa" nunca aparecem no seletor, sempre ficam visíveis.
+const LANC_COLUNAS_OPCIONAIS_PADRAO = ['categoria','emissao','previsao','baixa','documento','historico'];
+let finColunasOpcionaisVisiveis = new Set(LANC_COLUNAS_OPCIONAIS_PADRAO);
+(function(){
+  try{
+    const salvo = localStorage.getItem('finColunasOpcionais_v1');
+    if(salvo) finColunasOpcionaisVisiveis = new Set(JSON.parse(salvo));
+  }catch(e){}
+})();
+function finColunasVisiveis(){
+  return LANC_COLUNAS.filter(c=>c.fixa || finColunasOpcionaisVisiveis.has(c.key));
+}
+function renderPainelColunasLancamentos(){
+  const painel = document.getElementById('finColunasPainel');
+  if(!painel) return;
+  const opcionais = LANC_COLUNAS.filter(c=>!c.fixa);
+  painel.innerHTML = opcionais.map(c=>`
+    <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;padding:4px 0;cursor:pointer;white-space:nowrap;">
+      <input type="checkbox" style="width:auto;" ${finColunasOpcionaisVisiveis.has(c.key)?'checked':''} onchange="finAlternarColunaOpcional('${c.key}', this.checked)">
+      ${escaparHtml(c.label)}
+    </label>`).join('');
+}
+function finAlternarColunaOpcional(key, visivel){
+  if(visivel) finColunasOpcionaisVisiveis.add(key);
+  else finColunasOpcionaisVisiveis.delete(key);
+  try{ localStorage.setItem('finColunasOpcionais_v1', JSON.stringify([...finColunasOpcionaisVisiveis])); }catch(e){}
+  renderListaLancamentos();
+}
+
+// agrupamento — mesmo conceito de listaAgrupamentos (Atendimentos), mas
+// via chips clicáveis em vez de arrastar coluna (a tabela de Lançamentos
+// não tem reordenação de colunas por drag)
+const FIN_CAMPOS_AGRUPAVEIS = [
+  { campo:'tipo', label:'Tipo' },
+  { campo:'cliente', label:'Cliente/Fornecedor' },
+  { campo:'categoria', label:'Categoria' },
+  { campo:'status', label:'Status' },
+];
+let finAgrupamentos = [];
+let finGruposColapsados = new Set();
+function finValorAgrupamento(l, campo){
+  if(campo==='tipo') return l.tipo==='DESPESA' ? 'Despesa' : 'Receita';
+  if(campo==='categoria') return l.categoria || '(sem categoria)';
+  return l[campo];
+}
+function finAdicionarAgrupamento(campo){
+  if(!finAgrupamentos.includes(campo)) finAgrupamentos.push(campo);
+  renderListaLancamentos();
+}
+function finRemoverAgrupamento(campo){
+  finAgrupamentos = finAgrupamentos.filter(c=>c!==campo);
+  renderListaLancamentos();
+}
+function renderFinAgruparChips(){
+  const cont = document.getElementById('finAgruparChips');
+  if(!cont) return;
+  const ativos = finAgrupamentos.map(campo=>{
+    const info = FIN_CAMPOS_AGRUPAVEIS.find(c=>c.campo===campo);
+    return `<div class="lookup-tag">${escaparHtml(info ? info.label : campo)}<button type="button" onclick="finRemoverAgrupamento('${campo}')">×</button></div>`;
+  }).join('');
+  const disponiveis = FIN_CAMPOS_AGRUPAVEIS.filter(c=>!finAgrupamentos.includes(c.campo)).map(c=>
+    `<div class="chip" style="cursor:pointer;" onclick="finAdicionarAgrupamento('${c.campo}')">+ ${escaparHtml(c.label)}</div>`
+  ).join('');
+  cont.innerHTML = ativos + disponiveis;
+}
+function finAgrupar(itens, campos){
+  if(campos.length === 0) return null;
+  const [campo, ...resto] = campos;
+  const grupos = new Map();
+  itens.forEach(l=>{
+    const chave = finValorAgrupamento(l, campo);
+    if(!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(l);
+  });
+  return [...grupos.entries()].map(([chave, itensGrupo])=>({
+    chave, itens: itensGrupo, filhos: finAgrupar(itensGrupo, resto),
+  }));
+}
+function finToggleGrupoColapsado(caminho){
+  if(finGruposColapsados.has(caminho)) finGruposColapsados.delete(caminho);
+  else finGruposColapsados.add(caminho);
+  renderListaLancamentos();
+}
+// líquido do grupo = receitas − despesas, pra bater com o saldo do resumo
+function finRenderGrupo(grupo, caminhoPai, numColunas){
+  const caminho = caminhoPai ? `${caminhoPai}|||${grupo.chave}` : String(grupo.chave);
+  const colapsado = finGruposColapsados.has(caminho);
+  const liquido = grupo.itens.reduce((s,l)=> s + (l.tipo==='DESPESA' ? -Number(l.valorTotal) : Number(l.valorTotal)), 0);
+  const caminhoEscapado = caminho.replace(/'/g, "\\'");
+  const linhaGrupo = `<tr class="lista-linha-grupo" onclick="finToggleGrupoColapsado('${caminhoEscapado}')" style="cursor:pointer;background:var(--panel-2);">
+    <td colspan="${numColunas}" style="font-weight:700;">
+      ${colapsado ? '▸' : '▾'} ${escaparHtml(String(grupo.chave))}
+      <span style="color:var(--muted);font-weight:400;">(${grupo.itens.length})</span>
+      <span style="float:right;font-family:'JetBrains Mono',monospace;color:${liquido<0?'var(--bad)':'var(--ok)'};">${liquido<0?'− ':''}${fmtMoeda(Math.abs(liquido))}</span>
+    </td>
+  </tr>`;
+  if(colapsado) return linhaGrupo;
+  const linhasFilhas = grupo.filhos
+    ? grupo.filhos.map(g=>finRenderGrupo(g, caminho, numColunas)).join('')
+    : grupo.itens.map(finLinhaHtml).join('');
+  return linhaGrupo + linhasFilhas;
+}
+
+// seleção múltipla + baixa em massa — mesmo padrão de `selecionados`/
+// `toggleSelecao`/`atualizarBarraSelecao` (Atendimentos)
+let finSelecionados = new Set();
+function finToggleSelecao(id, marcado){
+  if(marcado) finSelecionados.add(id); else finSelecionados.delete(id);
+  finAtualizarBarraSelecao();
+}
+function finToggleSelecionarTodos(marcado){
+  const ids = [...document.querySelectorAll('.fin-chk-item')].map(c=>c.dataset.id);
+  if(marcado) ids.forEach(id=>finSelecionados.add(id));
+  else ids.forEach(id=>finSelecionados.delete(id));
+  renderListaLancamentos();
+}
+function finAtualizarBarraSelecao(){
+  const barra = document.getElementById('finBarraSelecao');
+  if(!barra) return;
+  const n = finSelecionados.size;
+  barra.style.display = n === 0 ? 'none' : '';
+  if(n > 0) document.getElementById('finContadorSelecionados').textContent = `${n} selecionado${n>1?'s':''}`;
+}
+function finLimparSelecao(){
+  finSelecionados.clear();
+  document.querySelectorAll('.fin-chk-item').forEach(c=>c.checked=false);
+  const chkTodos = document.getElementById('finChkTodos');
+  if(chkTodos) chkTodos.checked = false;
+  finAtualizarBarraSelecao();
+}
+function abrirModalBaixarLote(){
+  if(finSelecionados.size === 0) return;
+  finLancamentoEmFoco = null;
+  document.getElementById('fin_baixar_titulo').textContent = 'Dar baixa em massa';
+  document.getElementById('fin_baixar_texto').textContent = `Confirme a data de baixa/pagamento pros ${finSelecionados.size} lançamento${finSelecionados.size>1?'s':''} selecionado${finSelecionados.size>1?'s':''} (só os que estiverem em aberto serão baixados).`;
+  document.getElementById('fin_baixar_label_data').textContent = 'Data de Baixa/Pagamento';
+  document.getElementById('fin_data_baixa_input').value = new Date().toISOString().slice(0,10);
+  document.getElementById('baixarLancamentoModal').classList.add('show');
+}
+
 let finFiltrosColuna = {};       // { campo: Set(valores) } — criado sob demanda
 let finFiltroColunaAberta = null;
 
@@ -5088,7 +5230,8 @@ function finCelulaFiltroColuna(c){
   </span>`;
 }
 function finRenderCabecalho(colunas){
-  return `<tr>${colunas.map(c=>{
+  const chkTodos = `<th style="width:26px;"><input type="checkbox" id="finChkTodos" onchange="finToggleSelecionarTodos(this.checked)"></th>`;
+  return `<tr>${chkTodos}${colunas.map(c=>{
     const estilo = `${c.num ? 'text-align:right;' : ''}${c.largura ? `width:${c.largura};` : ''}`;
     const filtro = c.filtravel ? finCelulaFiltroColuna(c) : '';
     return `<th style="${estilo}">${escaparHtml(c.label)}${filtro}</th>`;
@@ -5121,28 +5264,50 @@ function finCelulaAcoes(l){
     </div>
   </td>`;
 }
-function finLinhaHtml(l){
+// dispatcher de célula — mesmo espírito de projTarefaCelulaHtml: 1 função
+// por coluna, chamada só pras colunas que estiverem visíveis (seletor
+// "⚙ Colunas"), pra que esconder uma coluna realmente pare de renderizá-la
+function finCelulaHtml(l, key){
   const despesa = l.tipo === 'DESPESA';
-  const opcoesCategoria = categoriasFinanceiras.filter(c=>c.tipo===l.tipo);
-  return `<tr>
-    <td><span class="fin-tipo-tag ${l.tipo}">${despesa ? 'Despesa' : 'Receita'}</span></td>
-    <td><input type="text" value="${escaparHtml(l.cliente)}" onblur="finSalvarCampoLancamento('${l.id}','cliente',this.value)"></td>
-    <td>
-      <select onchange="finSalvarCampoLancamento('${l.id}','categoria',this.value)">
-        <option value="">(nenhuma)</option>
-        ${opcoesCategoria.map(c=>`<option value="${escaparHtml(c.nome)}" ${c.nome===l.categoria?'selected':''}>${escaparHtml(c.nome)}</option>`).join('')}
-      </select>
-    </td>
-    <td class="num"><input type="number" step="0.01" min="0" value="${l.valorTotal}" style="${despesa ? 'color:var(--bad);' : ''}" onchange="finSalvarCampoLancamento('${l.id}','valorTotal',this.value)"></td>
-    <td><input type="date" value="${l.dataEmissao||''}" onchange="finSalvarCampoLancamento('${l.id}','dataEmissao',this.value)"></td>
-    <td><input type="date" value="${l.dataVencimento||''}" onchange="finSalvarCampoLancamento('${l.id}','dataVencimento',this.value)"></td>
-    <td><input type="date" value="${l.dataPrevisaoBaixa||''}" onchange="finSalvarCampoLancamento('${l.id}','dataPrevisaoBaixa',this.value)"></td>
-    <td style="color:var(--muted);">${finFmtData(l.dataBaixa)}</td>
-    <td><input type="text" value="${escaparHtml(l.numeroNotaFiscal)}" onblur="finSalvarCampoLancamento('${l.id}','numeroNotaFiscal',this.value)"></td>
-    <td><input type="text" value="${escaparHtml(l.historico)}" onblur="finSalvarCampoLancamento('${l.id}','historico',this.value)"></td>
-    <td><span class="fin-status ${l.status}">${l.status}</span></td>
-    ${finCelulaAcoes(l)}
-  </tr>`;
+  switch(key){
+    case 'tipo':
+      return `<td><span class="fin-tipo-tag ${l.tipo}">${despesa ? 'Despesa' : 'Receita'}</span></td>`;
+    case 'cliente':
+      return `<td><input type="text" value="${escaparHtml(l.cliente)}" onblur="finSalvarCampoLancamento('${l.id}','cliente',this.value)"></td>`;
+    case 'categoria': {
+      const opcoesCategoria = categoriasFinanceiras.filter(c=>c.tipo===l.tipo);
+      return `<td>
+        <select onchange="finSalvarCampoLancamento('${l.id}','categoria',this.value)">
+          <option value="">(nenhuma)</option>
+          ${opcoesCategoria.map(c=>`<option value="${escaparHtml(c.nome)}" ${c.nome===l.categoria?'selected':''}>${escaparHtml(c.nome)}</option>`).join('')}
+        </select>
+      </td>`;
+    }
+    case 'valor':
+      return `<td class="num"><input type="number" step="0.01" min="0" value="${l.valorTotal}" style="${despesa ? 'color:var(--bad);' : ''}" onchange="finSalvarCampoLancamento('${l.id}','valorTotal',this.value)"></td>`;
+    case 'emissao':
+      return `<td><input type="date" value="${l.dataEmissao||''}" onchange="finSalvarCampoLancamento('${l.id}','dataEmissao',this.value)"></td>`;
+    case 'vencimento':
+      return `<td><input type="date" value="${l.dataVencimento||''}" onchange="finSalvarCampoLancamento('${l.id}','dataVencimento',this.value)"></td>`;
+    case 'previsao':
+      return `<td><input type="date" value="${l.dataPrevisaoBaixa||''}" onchange="finSalvarCampoLancamento('${l.id}','dataPrevisaoBaixa',this.value)"></td>`;
+    case 'baixa':
+      return `<td style="color:var(--muted);">${finFmtData(l.dataBaixa)}</td>`;
+    case 'documento':
+      return `<td><input type="text" value="${escaparHtml(l.numeroNotaFiscal)}" onblur="finSalvarCampoLancamento('${l.id}','numeroNotaFiscal',this.value)"></td>`;
+    case 'historico':
+      return `<td><input type="text" value="${escaparHtml(l.historico)}" onblur="finSalvarCampoLancamento('${l.id}','historico',this.value)"></td>`;
+    case 'status':
+      return `<td><span class="fin-status ${l.status}">${l.status}</span></td>`;
+    case 'acoes':
+      return finCelulaAcoes(l);
+    default:
+      return '<td></td>';
+  }
+}
+function finLinhaHtml(l){
+  const chk = `<td onclick="event.stopPropagation();"><input type="checkbox" class="fin-chk-item" data-id="${l.id}" ${finSelecionados.has(l.id)?'checked':''} onclick="finToggleSelecao('${l.id}', this.checked)"></td>`;
+  return `<tr>${chk}${finColunasVisiveis().map(c=>finCelulaHtml(l, c.key)).join('')}</tr>`;
 }
 // salva 1 campo só (edição inline na tabela) — mesmo padrão de
 // projSalvarCampoTarefa: manda só o campo que mudou pro atualizarLancamento
@@ -5289,6 +5454,26 @@ async function carregarLancamentos(){
   }catch(e){ /* silencioso */ }
 }
 
+// resumo/saldo da tela — mesma conta de renderResumoFinanceiro (recebido/
+// a receber/pago/a pagar/saldo), mas a partir dos ITENS JÁ FILTRADOS pela
+// tabela (filtro de coluna + período), pra acompanhar os filtros da tela
+function renderResumoListaLancamentos(itens){
+  const cont = document.getElementById('finListaResumoBoxes');
+  if(!cont) return;
+  const soma = (tipo, status) => itens.filter(l=>l.tipo===tipo && l.status===status).reduce((s,l)=>s+Number(l.valorTotal), 0);
+  const recebido = soma('RECEITA','BAIXADO');
+  const aReceber = soma('RECEITA','ABERTO');
+  const pago = soma('DESPESA','BAIXADO');
+  const aPagar = soma('DESPESA','ABERTO');
+  const saldo = recebido - pago;
+  cont.innerHTML = `
+    <div class="box"><div class="k">Recebido</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
+    <div class="box"><div class="k">A Receber</div><div class="v" style="color:var(--accent)">${fmtMoeda(aReceber)}</div></div>
+    <div class="box"><div class="k">Pago</div><div class="v">${fmtMoeda(pago)}</div></div>
+    <div class="box"><div class="k">A Pagar</div><div class="v" style="color:var(--bad)">${fmtMoeda(aPagar)}</div></div>
+    <div class="box"><div class="k">Saldo (recebido − pago)</div><div class="v" style="color:${saldo>=0?'var(--ok)':'var(--bad)'};">${saldo<0?'− ':''}${fmtMoeda(Math.abs(saldo))}</div></div>
+  `;
+}
 function renderListaLancamentos(){
   const cont = document.getElementById('listaLancamentos');
   let itens = lancamentosCache.filter(finPassaFiltrosColuna);
@@ -5297,18 +5482,34 @@ function renderListaLancamentos(){
   if(de) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento >= de);
   if(ate) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento <= ate);
 
-  if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">💵</div>Nenhum lançamento encontrado.</div>`; return; }
+  renderFinAgruparChips();
+  renderResumoListaLancamentos(itens);
+
+  if(itens.length === 0){
+    cont.innerHTML = `<div class="empty"><div class="big">💵</div>Nenhum lançamento encontrado.</div>`;
+    finAtualizarBarraSelecao();
+    return;
+  }
+
+  const colunasVisiveis = finColunasVisiveis();
+  const numColunas = colunasVisiveis.length + 1; // + coluna de seleção
+  const corpo = finAgrupamentos.length > 0
+    ? finAgrupar(itens, finAgrupamentos).map(g=>finRenderGrupo(g, '', numColunas)).join('')
+    : itens.map(finLinhaHtml).join('');
 
   cont.innerHTML = `
     <div class="card" style="padding:0;">
       <div style="overflow-x:auto;">
         <table class="lista-tabela fin-tabela">
-          <thead>${finRenderCabecalho(LANC_COLUNAS)}</thead>
-          <tbody>${itens.map(finLinhaHtml).join('')}</tbody>
+          <thead>${finRenderCabecalho(colunasVisiveis)}</thead>
+          <tbody>${corpo}</tbody>
         </table>
       </div>
     </div>
   `;
+  const chkTodos = document.getElementById('finChkTodos');
+  if(chkTodos) chkTodos.checked = itens.every(l=>finSelecionados.has(l.id));
+  finAtualizarBarraSelecao();
 }
 
 function abrirModalBaixar(id){
@@ -5329,12 +5530,25 @@ async function confirmarBaixaLancamento(){
   const dataBaixa = document.getElementById('fin_data_baixa_input').value;
   if(!dataBaixa){ toast('Informe a data de baixa'); return; }
   const conta = contaAtual();
-  const r = await api('baixarLancamento', { contaId: conta.id, id: finLancamentoEmFoco, dataBaixa });
-  if(!r.ok){ toast(r.erro || 'Não foi possível dar baixa.'); return; }
-  fecharModalBaixar();
-  await carregarLancamentos();
-  renderListaLancamentos();
-  toast('Baixa registrada');
+  // finLancamentoEmFoco null = modo em massa (abrirModalBaixarLote), usa os
+  // ids marcados na tabela em vez de um único lançamento
+  if(finLancamentoEmFoco){
+    const r = await api('baixarLancamento', { contaId: conta.id, id: finLancamentoEmFoco, dataBaixa });
+    if(!r.ok){ toast(r.erro || 'Não foi possível dar baixa.'); return; }
+    fecharModalBaixar();
+    await carregarLancamentos();
+    renderListaLancamentos();
+    toast('Baixa registrada');
+  } else {
+    const ids = [...finSelecionados];
+    const r = await api('baixarLancamentosEmMassa', { contaId: conta.id, ids, dataBaixa });
+    if(!r.ok){ toast(r.erro || 'Não foi possível dar baixa em massa.'); return; }
+    fecharModalBaixar();
+    finLimparSelecao();
+    await carregarLancamentos();
+    renderListaLancamentos();
+    toast(`${r.atualizados} de ${r.total} lançamento${r.total>1?'s':''} baixado${r.atualizados===1?'':'s'}`);
+  }
 }
 
 async function cancelarLancamentoUi(id){
@@ -13084,6 +13298,20 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     renderListaLancamentos();
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap') && !e.target.closest('#finFiltroColunaPortal')) finFecharFiltroColuna(); });
+  document.getElementById('btnFinColunas').addEventListener('click', e=>{
+    e.stopPropagation();
+    const painel = document.getElementById('finColunasPainel');
+    const abrindo = painel.style.display === 'none';
+    if(abrindo) renderPainelColunasLancamentos();
+    painel.style.display = abrindo ? '' : 'none';
+  });
+  document.addEventListener('click', e=>{
+    if(!e.target.closest('#finColunasPainel') && !e.target.closest('#btnFinColunas')){
+      document.getElementById('finColunasPainel').style.display = 'none';
+    }
+  });
+  document.getElementById('btnFinLimparSelecao').addEventListener('click', finLimparSelecao);
+  document.getElementById('btnFinBaixarLote').addEventListener('click', abrirModalBaixarLote);
   document.getElementById('fin_baixar_cancelar').addEventListener('click', fecharModalBaixar);
   document.getElementById('fin_baixar_confirmar').addEventListener('click', confirmarBaixaLancamento);
   document.getElementById('fin_duplicar_cancelar').addEventListener('click', fecharModalDuplicar);
