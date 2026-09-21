@@ -265,11 +265,15 @@
   .summary .box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;}
   .summary .box .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
   .summary .box .v{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;}
-  /* resumo do Financeiro (Recebido/A Receber/Pago/A Pagar) — sempre os 4
-     numa linha só, mesmo abaixo dos 860px de .summary{grid-template-columns:repeat(4,1fr)} */
+  /* resumo do Financeiro — sempre numa linha só, mesmo abaixo dos 860px de
+     .summary{grid-template-columns:repeat(4,1fr)}. Resumo Financeiro tem 4
+     cards (Recebido/A Receber/Pago/A Pagar, com o Saldo fora do grid, num
+     .saldo-box à parte); a tabela de Lançamentos tem 5 (os mesmos 4 + Saldo
+     dentro do próprio grid) — por isso as duas variantes de coluna. */
   .fin-resumo-linha{grid-template-columns:repeat(4, minmax(0,1fr));}
-  .fin-resumo-linha .box{padding:10px;}
-  .fin-resumo-linha .box .v{font-size:15px;}
+  .fin-resumo-linha-5{grid-template-columns:repeat(5, minmax(0,1fr));}
+  .fin-resumo-linha .box, .fin-resumo-linha-5 .box{padding:10px;}
+  .fin-resumo-linha .box .v, .fin-resumo-linha-5 .box .v{font-size:15px;}
   .saldo-box{margin-top:4px;padding:16px;border-radius:var(--radius);background:var(--accent-dim);border:1px solid color-mix(in oklch, var(--accent) 30%, transparent);}
   .saldo-box .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;}
   .saldo-box .v{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;}
@@ -1715,7 +1719,7 @@
         </div>
       </div>
 
-      <div class="summary fin-resumo-linha" id="finListaResumoBoxes"></div>
+      <div class="summary fin-resumo-linha-5" id="finListaResumoBoxes"></div>
 
       <div class="card" id="finBarraSelecao" style="display:none;padding:12px 14px;">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
