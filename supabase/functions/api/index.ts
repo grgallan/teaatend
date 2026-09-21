@@ -1785,7 +1785,8 @@ async function acaoCriarLancamento(req: any) {
     id: gerarId(), tipo, cliente: req.cliente, mes_referencia: mesReferencia,
     valor_total: Number(req.valorTotal) || 0, atendimento_ids: req.atendimentoIds || [],
     categoria: req.categoria || '', data_emissao: req.dataEmissao || '',
-    data_vencimento: req.dataVencimento || '', numero_nota_fiscal: req.numeroNotaFiscal || '',
+    data_vencimento: req.dataVencimento || '', data_previsao_baixa: req.dataPrevisaoBaixa || '',
+    numero_nota_fiscal: req.numeroNotaFiscal || '',
     historico: req.historico || '', status: 'ABERTO', criado_por: conta ? conta.nome : '',
     empresa_id: req.empresaId,
   };
