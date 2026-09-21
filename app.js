@@ -6187,7 +6187,7 @@ function renderResumoFinanceiro(){
   const saldo = recebido - pago; // só o que já entrou/saiu de fato, sem contar o que ainda está em aberto
 
   document.getElementById('finResumoBoxes').innerHTML = `
-    <div class="summary">
+    <div class="summary fin-resumo-linha">
       <div class="box"><div class="k">Recebido</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
       <div class="box"><div class="k">A Receber</div><div class="v" style="color:var(--accent)">${fmtMoeda(aReceber)}</div></div>
       <div class="box"><div class="k">Pago</div><div class="v">${fmtMoeda(pago)}</div></div>
