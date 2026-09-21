@@ -5064,6 +5064,98 @@ function finFinalizarResizeColuna(e){
   try{ localStorage.setItem('finColunaLarguras_v1', JSON.stringify(finColunaLarguras)); }catch(e){}
   finResizeEstado = null;
 }
+// ordem das colunas — mesmo mecanismo de projTarefaColunasOrdem/
+// projIniciarDragColunaTarefas (Tarefas do Projeto): arrastar o cabeçalho
+// pra reordenar, persistido por navegador. null = ainda não mexeu, usa a
+// ordem padrão de LANC_COLUNAS
+let finColunasOrdem = null;
+(function(){
+  try{
+    const salvo = JSON.parse(localStorage.getItem('finColunasOrdem_v1')||'null');
+    if(Array.isArray(salvo)) finColunasOrdem = salvo;
+  }catch(e){ finColunasOrdem = null; }
+})();
+function finColunasOrdenadasBase(){
+  if(!finColunasOrdem) return LANC_COLUNAS;
+  const porKey = new Map(LANC_COLUNAS.map(c=>[c.key,c]));
+  const ordenadas = finColunasOrdem.map(k=>porKey.get(k)).filter(Boolean);
+  // uma coluna nova, adicionada depois da última vez que reordenou, entra
+  // no fim (na ordem padrão), pra nunca sumir
+  LANC_COLUNAS.forEach(c=>{ if(!ordenadas.includes(c)) ordenadas.push(c); });
+  return ordenadas;
+}
+function finReordenarColuna(campoArrastado, campoAlvo){
+  if(!campoArrastado || !campoAlvo || campoArrastado === campoAlvo) return;
+  const atual = finColunasOrdenadasBase().map(c=>c.key);
+  const semArrastado = atual.filter(k=>k!==campoArrastado);
+  const idxAlvo = semArrastado.indexOf(campoAlvo);
+  if(idxAlvo===-1) return;
+  semArrastado.splice(idxAlvo, 0, campoArrastado);
+  finColunasOrdem = semArrastado;
+  try{ localStorage.setItem('finColunasOrdem_v1', JSON.stringify(finColunasOrdem)); }catch(e){}
+  renderListaLancamentos();
+}
+// arrastar o cabeçalho pra reordenar — Pointer Events, mesmo mecanismo de
+// projIniciarDragColunaTarefas
+function finIniciarDragColuna(e, thEl){
+  const campo = thEl.dataset.col;
+  const labelEl = thEl.querySelector('span');
+  const label = labelEl ? labelEl.textContent : campo;
+  const startX = e.clientX, startY = e.clientY;
+  const rect = thEl.getBoundingClientRect();
+  const offsetX = e.clientX - rect.left, offsetY = e.clientY - rect.top;
+  let arrastando = false;
+  let ghost = null;
+  let thAlvoReordenar = null;
+
+  thEl.setPointerCapture(e.pointerId);
+
+  function limparAlvo(){
+    if(thAlvoReordenar) thAlvoReordenar.classList.remove('lista-th-drop-alvo');
+    thAlvoReordenar = null;
+  }
+  function mover(ev){
+    if(!arrastando){
+      if(Math.hypot(ev.clientX-startX, ev.clientY-startY) < 6) return;
+      arrastando = true;
+      ghost = document.createElement('div');
+      ghost.className = 'lista-coluna-ghost';
+      ghost.textContent = label;
+      document.body.appendChild(ghost);
+    }
+    ghost.style.left = (ev.clientX-offsetX)+'px';
+    ghost.style.top = (ev.clientY-offsetY)+'px';
+    ghost.style.display = 'none';
+    const alvo = document.elementFromPoint(ev.clientX, ev.clientY);
+    ghost.style.display = '';
+    limparAlvo();
+    const thHover = alvo && alvo.closest('#finTabelaCabecalho th[data-col]');
+    if(thHover && thHover !== thEl){
+      const colHover = LANC_COLUNAS.find(c=>c.key===thHover.dataset.col);
+      if(colHover && !colHover.semResize){
+        thAlvoReordenar = thHover;
+        thAlvoReordenar.classList.add('lista-th-drop-alvo');
+      }
+    }
+  }
+  function soltar(){
+    thEl.removeEventListener('pointermove', mover);
+    if(arrastando){
+      const alvo = thAlvoReordenar ? thAlvoReordenar.dataset.col : null;
+      limparAlvo();
+      ghost.remove();
+      if(alvo) finReordenarColuna(campo, alvo);
+    }
+  }
+  function cancelar(){
+    thEl.removeEventListener('pointermove', mover);
+    limparAlvo();
+    if(ghost) ghost.remove();
+  }
+  thEl.addEventListener('pointermove', mover);
+  thEl.addEventListener('pointerup', soltar, { once:true });
+  thEl.addEventListener('pointercancel', cancelar, { once:true });
+}
 // colunas opcionais visíveis (seletor "⚙ Colunas") — mesmo padrão de
 // projColunasOpcionaisVisiveis (Tarefas do Projeto): Set + localStorage.
 // Colunas "fixa" nunca aparecem no seletor, sempre ficam visíveis.
@@ -5076,7 +5168,7 @@ let finColunasOpcionaisVisiveis = new Set(LANC_COLUNAS_OPCIONAIS_PADRAO);
   }catch(e){}
 })();
 function finColunasVisiveis(){
-  return LANC_COLUNAS.filter(c=>c.fixa || finColunasOpcionaisVisiveis.has(c.key));
+  return finColunasOrdenadasBase().filter(c=>c.fixa || finColunasOpcionaisVisiveis.has(c.key));
 }
 function renderPainelColunasLancamentos(){
   const painel = document.getElementById('finColunasPainel');
@@ -5095,9 +5187,10 @@ function finAlternarColunaOpcional(key, visivel){
   renderListaLancamentos();
 }
 
-// agrupamento — mesmo conceito de listaAgrupamentos (Atendimentos), mas
-// via chips clicáveis em vez de arrastar coluna (a tabela de Lançamentos
-// não tem reordenação de colunas por drag)
+// agrupamento — mesmo conceito de listaAgrupamentos (Atendimentos), mas via
+// chips clicáveis em vez de arrastar coluna: o drag do cabeçalho já é usado
+// pra reordenar (finIniciarDragColuna), então usar o mesmo gesto pra
+// agrupar ficaria ambíguo
 const FIN_CAMPOS_AGRUPAVEIS = [
   { campo:'tipo', label:'Tipo' },
   { campo:'cliente', label:'Cliente/Fornecedor' },
@@ -5272,7 +5365,7 @@ function finRenderCabecalho(colunas){
     const estilo = `${c.num ? 'text-align:right;' : ''}position:relative;`;
     const filtro = c.filtravel ? finCelulaFiltroColuna(c) : '';
     const resizer = c.semResize ? '' : `<span class="proj-col-resizer" onmousedown="finIniciarResizeColuna(event,'${c.key}')"></span>`;
-    return `<th style="${estilo}">${escaparHtml(c.label)}${filtro}${resizer}</th>`;
+    return `<th class="${c.semResize?'':'lista-th-arrastavel'}" data-col="${c.key}" style="${estilo}" title="${c.semResize?'':'Arraste pra reordenar'}"><span>${escaparHtml(c.label)}</span>${filtro}${resizer}</th>`;
   }).join('')}</tr>`;
 }
 // menu de ações da tabela de Lançamentos — 1 botão (⋮) que abre um menu
@@ -5563,7 +5656,7 @@ function renderListaLancamentos(){
       <div style="overflow-x:auto;">
         <table class="lista-tabela fin-tabela">
           <colgroup id="finTabelaColgroup">${finRenderColgroup(colunasVisiveis)}</colgroup>
-          <thead>${finRenderCabecalho(colunasVisiveis)}</thead>
+          <thead id="finTabelaCabecalho">${finRenderCabecalho(colunasVisiveis)}</thead>
           <tbody>${corpo}</tbody>
         </table>
       </div>
@@ -13360,6 +13453,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     renderListaLancamentos();
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap') && !e.target.closest('#finFiltroColunaPortal')) finFecharFiltroColuna(); });
+  // arrastar coluna pra reordenar (mesmo mecanismo de Tarefas do Projeto) —
+  // delegado em #listaLancamentos (persistente) porque a tabela inteira é
+  // recriada a cada render, então um listener preso no <thead> se perderia
+  document.getElementById('listaLancamentos').addEventListener('pointerdown', e=>{
+    if(e.target.closest('.proj-col-resizer')) return;
+    if(e.target.closest('.lista-th-filtro-wrap')) return; // clique no ▾ de filtro não inicia arrastar
+    const th = e.target.closest('#finTabelaCabecalho th[data-col]');
+    if(!th) return;
+    const col = LANC_COLUNAS.find(c=>c.key===th.dataset.col);
+    if(!col || col.semResize) return;
+    finIniciarDragColuna(e, th);
+  });
   document.getElementById('btnFinColunas').addEventListener('click', e=>{
     e.stopPropagation();
     const painel = document.getElementById('finColunasPainel');
