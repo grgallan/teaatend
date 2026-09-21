@@ -5094,6 +5094,33 @@ function finRenderCabecalho(colunas){
     return `<th style="${estilo}">${escaparHtml(c.label)}${filtro}</th>`;
   }).join('')}</tr>`;
 }
+// menu de ações da tabela de Lançamentos — mesmo padrão do
+// projQuadroCelulaAcoes (Quadro/Tarefas do Projeto): 1 botão (⋮) que abre
+// um menu com as ações, em vez de vários botões-ícone lado a lado
+let finMenuAcoesAberto = null;
+function finAlternarMenuAcoes(id){
+  finMenuAcoesAberto = (finMenuAcoesAberto === id) ? null : id;
+  renderListaLancamentos();
+}
+function finFecharMenuAcoes(){
+  finMenuAcoesAberto = null;
+  renderListaLancamentos();
+}
+function finCelulaAcoes(l){
+  const despesa = l.tipo === 'DESPESA';
+  const aberto = finMenuAcoesAberto === l.id;
+  return `<td class="fin-tabela-acoes proj-td-sem-clip">
+    <div class="proj-quadro-menu-wrap">
+      <button type="button" class="ghost proj-quadro-menu-btn" title="Ações" onclick="event.stopPropagation();finAlternarMenuAcoes('${l.id}')">⋮</button>
+      ${aberto ? `<div class="proj-quadro-menu-acoes">
+        ${l.status==='ABERTO' ? `<button type="button" onclick="finFecharMenuAcoes();abrirModalBaixar('${l.id}')">${despesa?'💰 Marcar como pago':'✓ Baixar'}</button>` : ''}
+        <button type="button" onclick="finFecharMenuAcoes();abrirModalDuplicar('${l.id}')">⧉ Duplicar</button>
+        ${l.status!=='CANCELADO' ? `<button type="button" onclick="finFecharMenuAcoes();cancelarLancamentoUi('${l.id}')">✕ Cancelar</button>` : ''}
+        <button type="button" class="danger" onclick="finFecharMenuAcoes();removerLancamentoUi('${l.id}')">🗑 Excluir</button>
+      </div>` : ''}
+    </div>
+  </td>`;
+}
 function finLinhaHtml(l){
   const despesa = l.tipo === 'DESPESA';
   const opcoesCategoria = categoriasFinanceiras.filter(c=>c.tipo===l.tipo);
@@ -5114,12 +5141,7 @@ function finLinhaHtml(l){
     <td><input type="text" value="${escaparHtml(l.numeroNotaFiscal)}" onblur="finSalvarCampoLancamento('${l.id}','numeroNotaFiscal',this.value)"></td>
     <td><input type="text" value="${escaparHtml(l.historico)}" onblur="finSalvarCampoLancamento('${l.id}','historico',this.value)"></td>
     <td><span class="fin-status ${l.status}">${l.status}</span></td>
-    <td class="fin-tabela-acoes">
-      ${l.status==='ABERTO' ? `<button class="ghost" onclick="abrirModalBaixar('${l.id}')" title="${despesa?'Marcar como pago':'Baixar'}">${despesa?'💰':'✓'}</button>` : ''}
-      <button class="ghost" onclick="abrirModalDuplicar('${l.id}')" title="Duplicar">⧉</button>
-      ${l.status!=='CANCELADO' ? `<button class="ghost" onclick="cancelarLancamentoUi('${l.id}')" title="Cancelar">✕</button>` : ''}
-      <button class="ghost" onclick="removerLancamentoUi('${l.id}')" title="Excluir">🗑</button>
-    </td>
+    ${finCelulaAcoes(l)}
   </tr>`;
 }
 // salva 1 campo só (edição inline na tabela) — mesmo padrão de
@@ -13708,6 +13730,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(e.target.closest('.proj-quadro-menu-wrap')) return;
     if(projQuadroMenuAcoesAberto!==null) projQuadroFecharMenuAcoes();
     if(projQuadroRecursoPickerAberto!==null) projQuadroFecharPickerRecursos();
+    if(finMenuAcoesAberto!==null) finFecharMenuAcoes();
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
   document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
