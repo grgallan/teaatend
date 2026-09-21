@@ -5028,7 +5028,7 @@ const LANC_COLUNAS = [
   { key:'documento', label:'Documento', largura:120 },
   { key:'historico', label:'Histórico', largura:160 },
   { key:'status', label:'Status', filtravel:true, agrupaComo:'status', fixa:true, largura:100 },
-  { key:'acoes', label:'', fixa:true, largura:90, semResize:true },
+  { key:'acoes', label:'', fixa:true, largura:90, semResize:true, semExportar:true },
 ];
 // larguras de coluna redimensionáveis (arrastar a borda direita do
 // cabeçalho) — mesmo mecanismo de projIniciarResizeColuna (Tarefas do
@@ -5303,6 +5303,52 @@ let finFiltrosColuna = {};       // { campo: Set(valores) } — criado sob deman
 let finFiltroColunaAberta = null;
 
 function finFmtData(s){ if(!s) return '—'; const [y,m,d]=String(s).split('-'); return `${d}/${m}/${y}`; }
+
+// valor de uma célula em texto puro, pra exportação Excel — mesmo espírito
+// de projValorColunaTexto (Tarefas do Projeto)
+function finValorColunaTexto(l, key){
+  switch(key){
+    case 'tipo': return l.tipo==='DESPESA' ? 'Despesa' : 'Receita';
+    case 'cliente': return l.cliente || '';
+    case 'categoria': return l.categoria || '';
+    case 'valor': return Number(l.valorTotal) || 0;
+    case 'emissao': return l.dataEmissao ? finFmtData(l.dataEmissao) : '';
+    case 'vencimento': return l.dataVencimento ? finFmtData(l.dataVencimento) : '';
+    case 'previsao': return l.dataPrevisaoBaixa ? finFmtData(l.dataPrevisaoBaixa) : '';
+    case 'baixa': return l.dataBaixa ? finFmtData(l.dataBaixa) : '';
+    case 'documento': return l.numeroNotaFiscal || '';
+    case 'historico': return l.historico || '';
+    case 'status': return l.status || '';
+    default: return '';
+  }
+}
+// exporta os lançamentos que estão na tela agora (mesmos filtros de coluna
+// e de período, mesmas colunas visíveis e na mesma ordem) — mesmo padrão
+// de gerarExcelTarefasProjeto
+async function gerarExcelLancamentos(){
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+  let itens = lancamentosCache.filter(finPassaFiltrosColuna);
+  const de = document.getElementById('fin_lista_de').value;
+  const ate = document.getElementById('fin_lista_ate').value;
+  if(de) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento >= de);
+  if(ate) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento <= ate);
+  if(itens.length === 0){ toast('Nenhum lançamento pra exportar.'); return; }
+
+  const colunas = finColunasVisiveis().filter(c=>!c.semExportar);
+  const aoa = [colunas.map(c=>c.label)];
+  itens.forEach(l=>{ aoa.push(colunas.map(c=>finValorColunaTexto(l, c.key))); });
+  const planilha = XLSX.utils.aoa_to_sheet(aoa);
+
+  colunas.forEach((c, idx)=>{
+    const cel = planilha[XLSX.utils.encode_cell({ r:0, c:idx })];
+    if(cel) cel.s = { font:{ bold:true, color:{ rgb:'FFFFFF' } }, fill:{ fgColor:{ rgb:'305496' } }, alignment:{ vertical:'center' } };
+  });
+  planilha['!cols'] = colunas.map(c=>({ wch: Math.max(6, Math.round(finLarguraColuna(c)/7)) }));
+
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, planilha, 'Lançamentos');
+  await salvarWorkbook(livro, 'lancamentos-financeiro.xlsx');
+}
 
 function finPassaFiltrosColuna(l){
   return Object.entries(finFiltrosColuna).every(([campo,set])=>{
@@ -5613,6 +5659,7 @@ function renderResumoListaLancamentos(itens){
   // (data prevista de quando vai ser recebido/pago)
   const previstoReceber = itens.filter(l=>l.tipo==='RECEITA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
   const previstoPagar = itens.filter(l=>l.tipo==='DESPESA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
+  const previstoLiquido = previstoReceber - previstoPagar;
   cont.innerHTML = `
     <div class="box"><div class="k">Recebido</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
     <div class="box"><div class="k">A Receber</div><div class="v" style="color:var(--accent)">${fmtMoeda(aReceber)}</div></div>
@@ -5624,6 +5671,7 @@ function renderResumoListaLancamentos(itens){
       <div style="display:flex;gap:32px;flex-wrap:wrap;margin-top:2px;">
         <div><div style="font-size:11px;color:var(--muted);">A Receber</div><div class="v" style="color:var(--accent);">${fmtMoeda(previstoReceber)}</div></div>
         <div><div style="font-size:11px;color:var(--muted);">A Pagar</div><div class="v" style="color:var(--bad);">${fmtMoeda(previstoPagar)}</div></div>
+        <div><div style="font-size:11px;color:var(--muted);">Líquido (a receber − a pagar)</div><div class="v" style="color:${previstoLiquido>=0?'var(--ok)':'var(--bad)'};">${previstoLiquido<0?'− ':''}${fmtMoeda(Math.abs(previstoLiquido))}</div></div>
       </div>
     </div>
   `;
@@ -13479,6 +13527,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnFinLimparSelecao').addEventListener('click', finLimparSelecao);
   document.getElementById('btnFinBaixarLote').addEventListener('click', abrirModalBaixarLote);
+  document.getElementById('btnFinNovoLancamento').addEventListener('click', ()=>goFinSub('lancar'));
+  document.getElementById('btnFinExcel').addEventListener('click', gerarExcelLancamentos);
   document.getElementById('fin_baixar_cancelar').addEventListener('click', fecharModalBaixar);
   document.getElementById('fin_baixar_confirmar').addEventListener('click', confirmarBaixaLancamento);
   document.getElementById('fin_duplicar_cancelar').addEventListener('click', fecharModalDuplicar);
