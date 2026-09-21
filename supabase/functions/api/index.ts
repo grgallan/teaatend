@@ -280,6 +280,7 @@ async function rotear(req: any): Promise<any> {
     case 'duplicarLancamento': return acaoDuplicarLancamento(req);
     case 'atualizarLancamento': return acaoAtualizarLancamento(req);
     case 'baixarLancamento': return acaoBaixarLancamento(req);
+    case 'baixarLancamentosEmMassa': return acaoBaixarLancamentosEmMassa(req);
     case 'cancelarLancamento': return acaoCancelarLancamento(req);
     case 'removerLancamento': return acaoRemoverLancamento(req);
     case 'importarNotaFiscal': return acaoImportarNotaFiscal(req);
@@ -1848,6 +1849,29 @@ async function acaoBaixarLancamento(req: any) {
   }).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
+}
+
+// baixa em massa (via seleção na tabela de Lançamentos) — mesmo padrão de
+// acaoAlterarStatusEmMassa: lê os selecionados, ignora quem não está mais
+// ABERTO (já baixado/cancelado), aplica um por um e conta quantos deram certo
+async function acaoBaixarLancamentosEmMassa(req: any) {
+  if (!(await podeAgir(req.contaId, 'financeiro.lista', 'editar'))) return { ok: false, erro: 'Você não tem permissão para dar baixa em lançamentos.' };
+  const ids: string[] = Array.isArray(req.ids) ? req.ids : [];
+  if (ids.length === 0) return { ok: false, erro: 'Nenhum lançamento selecionado.' };
+  if (!req.dataBaixa) return { ok: false, erro: 'Informe a data de baixa.' };
+
+  const { data: atuais, error: erroSelect } = await db.from('lancamentos_financeiros').select('id,status').in('id', ids);
+  if (erroSelect) return { ok: false, erro: 'Erro ao ler lançamentos: ' + erroSelect.message };
+
+  let atualizados = 0;
+  for (const l of atuais || []) {
+    if (l.status !== 'ABERTO') continue;
+    const { error } = await db.from('lancamentos_financeiros').update({
+      status: 'BAIXADO', data_baixa: req.dataBaixa, atualizado_em: new Date().toISOString(),
+    }).eq('id', l.id);
+    if (!error) atualizados++;
+  }
+  return { ok: true, total: ids.length, atualizados };
 }
 
 async function acaoCancelarLancamento(req: any) {
