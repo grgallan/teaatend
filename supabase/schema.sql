@@ -1251,3 +1251,28 @@ alter table projeto_tarefas alter column status set default 'Não Iniciado';
 update projeto_tarefas set status = 'Não Iniciado' where status = 'A FAZER';
 update projeto_tarefas set status = 'Em Andamento' where status = 'EM ANDAMENTO';
 update projeto_tarefas set status = 'Concluída' where status = 'CONCLUÍDA';
+
+-- ---------- Financeiro: Cliente/Fornecedor, Categorias e Contas a Pagar ----------
+-- unifica cliente e fornecedor no mesmo cadastro (CNPJ, nome fantasia e
+-- empresa valem pros dois) — "tipo" diferencia; cadastro já existente
+-- continua CLIENTE (comportamento de antes de existir fornecedor)
+alter table clientes add column if not exists tipo text not null default 'CLIENTE' check (tipo in ('CLIENTE','FORNECEDOR','AMBOS'));
+
+-- categoria financeira (Aluguel, Consultoria, Assinatura de software...) —
+-- cadastro simples igual Segmentos, com uma "tipo" a mais (RECEITA ou
+-- DESPESA) pra filtrar certo no formulário de lançamento
+create table if not exists categorias_financeiras (
+  id text primary key,
+  nome text not null,
+  tipo text not null default 'DESPESA' check (tipo in ('RECEITA','DESPESA')),
+  empresa_id text references empresas(id)
+);
+alter table categorias_financeiras enable row level security;
+
+-- lancamentos_financeiros passa a cobrir Contas a Pagar também, não só
+-- Contas a Receber — "tipo" diferencia os dois. O campo "cliente" (nome)
+-- não foi renomeado pra não quebrar a migração idempotente deste arquivo;
+-- num lançamento DESPESA ele guarda o nome do FORNECEDOR.
+alter table lancamentos_financeiros add column if not exists tipo text not null default 'RECEITA' check (tipo in ('RECEITA','DESPESA'));
+alter table lancamentos_financeiros add column if not exists data_emissao text;
+alter table lancamentos_financeiros add column if not exists categoria text default '';
