@@ -3034,6 +3034,18 @@
   </div>
 </div>
 
+<div class="modal-bg" id="duplicarLancamentoModal">
+  <div class="modal">
+    <h3>Duplicar lançamento</h3>
+    <p style="color:var(--muted);font-size:13px;margin:4px 0 16px;">Cria cópias deste lançamento nos meses seguintes, mantendo o mesmo dia de vencimento (só muda o mês/ano). Cada cópia nasce em aberto, sem nº de documento.</p>
+    <div class="field"><label>Quantas vezes duplicar</label><input type="number" min="1" max="36" step="1" id="fin_duplicar_quantidade" value="1"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="fin_duplicar_cancelar">Cancelar</button>
+      <button class="confirm neutro" id="fin_duplicar_confirmar">Duplicar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="salvarRelatorioModal">
   <div class="modal">
     <h3 id="salvarRelatorioTitulo">Salvar relatório</h3>
