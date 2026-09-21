@@ -5643,6 +5643,24 @@ async function carregarLancamentos(){
   }catch(e){ /* silencioso */ }
 }
 
+// card "Previsto pela Previsão de Baixa" (A Receber/A Pagar/Líquido, só o
+// que ainda está ABERTO mas já tem uma Data de Previsão de Baixa) —
+// compartilhado entre a tabela de Lançamentos e o Resumo Financeiro, cada
+// um passando os próprios itens já filtrados
+function finPrevistoBoxHtml(itens){
+  const previstoReceber = itens.filter(l=>l.tipo==='RECEITA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
+  const previstoPagar = itens.filter(l=>l.tipo==='DESPESA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
+  const previstoLiquido = previstoReceber - previstoPagar;
+  return `
+    <div class="saldo-box" style="grid-column:1 / -1;">
+      <div class="k">Previsto pela Previsão de Baixa (ainda em aberto)</div>
+      <div style="display:flex;gap:32px;flex-wrap:wrap;margin-top:2px;">
+        <div><div style="font-size:11px;color:var(--muted);">A Receber</div><div class="v" style="color:var(--accent);">${fmtMoeda(previstoReceber)}</div></div>
+        <div><div style="font-size:11px;color:var(--muted);">A Pagar</div><div class="v" style="color:var(--bad);">${fmtMoeda(previstoPagar)}</div></div>
+        <div><div style="font-size:11px;color:var(--muted);">Líquido (a receber − a pagar)</div><div class="v" style="color:${previstoLiquido>=0?'var(--ok)':'var(--bad)'};">${previstoLiquido<0?'− ':''}${fmtMoeda(Math.abs(previstoLiquido))}</div></div>
+      </div>
+    </div>`;
+}
 // resumo/saldo da tela — mesma conta de renderResumoFinanceiro (recebido/
 // a receber/pago/a pagar/saldo), mas a partir dos ITENS JÁ FILTRADOS pela
 // tabela (filtro de coluna + período), pra acompanhar os filtros da tela
@@ -5655,25 +5673,13 @@ function renderResumoListaLancamentos(itens){
   const pago = soma('DESPESA','BAIXADO');
   const aPagar = soma('DESPESA','ABERTO');
   const saldo = recebido - pago;
-  // previsto = ainda em aberto, mas já com uma Previsão de Baixa informada
-  // (data prevista de quando vai ser recebido/pago)
-  const previstoReceber = itens.filter(l=>l.tipo==='RECEITA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
-  const previstoPagar = itens.filter(l=>l.tipo==='DESPESA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
-  const previstoLiquido = previstoReceber - previstoPagar;
   cont.innerHTML = `
     <div class="box"><div class="k">Recebido</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
     <div class="box"><div class="k">A Receber</div><div class="v" style="color:var(--accent)">${fmtMoeda(aReceber)}</div></div>
     <div class="box"><div class="k">Pago</div><div class="v">${fmtMoeda(pago)}</div></div>
     <div class="box"><div class="k">A Pagar</div><div class="v" style="color:var(--bad)">${fmtMoeda(aPagar)}</div></div>
     <div class="box"><div class="k">Saldo (recebido − pago)</div><div class="v" style="color:${saldo>=0?'var(--ok)':'var(--bad)'};">${saldo<0?'− ':''}${fmtMoeda(Math.abs(saldo))}</div></div>
-    <div class="saldo-box" style="grid-column:1 / -1;">
-      <div class="k">Previsto pela Previsão de Baixa (ainda em aberto)</div>
-      <div style="display:flex;gap:32px;flex-wrap:wrap;margin-top:2px;">
-        <div><div style="font-size:11px;color:var(--muted);">A Receber</div><div class="v" style="color:var(--accent);">${fmtMoeda(previstoReceber)}</div></div>
-        <div><div style="font-size:11px;color:var(--muted);">A Pagar</div><div class="v" style="color:var(--bad);">${fmtMoeda(previstoPagar)}</div></div>
-        <div><div style="font-size:11px;color:var(--muted);">Líquido (a receber − a pagar)</div><div class="v" style="color:${previstoLiquido>=0?'var(--ok)':'var(--bad)'};">${previstoLiquido<0?'− ':''}${fmtMoeda(Math.abs(previstoLiquido))}</div></div>
-      </div>
-    </div>
+    ${finPrevistoBoxHtml(itens)}
   `;
 }
 function renderListaLancamentos(){
@@ -6152,6 +6158,7 @@ function renderResumoFinanceiro(){
       <div class="k">Saldo do período (recebido − pago)</div>
       <div class="v" style="color:${saldo>=0?'var(--ok)':'var(--bad)'};">${saldo<0?'− ':''}${fmtMoeda(Math.abs(saldo))}</div>
     </div>
+    ${finPrevistoBoxHtml(itens)}
   `;
 }
 
