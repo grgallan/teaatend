@@ -5010,12 +5010,128 @@ function usarRelatorioPublicado(id){
    receber, e DESPESA/contas a pagar por fornecedor — mesma tabela,
    diferenciada pelo campo "tipo") ---------- */
 let finAtendimentosSelecionados = new Set();
-let finFiltroTipo = new Set();
-let finFiltroCliente = new Set();
-let finFiltroStatus = new Set();
 let lancamentosCache = [];
-let finLancamentoEmFoco = null; // id do lançamento sendo baixado/editado no modal
+let finLancamentoEmFoco = null; // id do lançamento sendo baixado/editado/duplicado no modal
 let finTipoLancamento = 'RECEITA'; // tipo escolhido no formulário de "Criar Lançamento"
+
+// colunas da tabela de Lançamentos (visão em tabela, igual Atendimentos,
+// com célula editável estilo Tarefas do Projeto)
+const LANC_COLUNAS = [
+  { key:'tipo', label:'Tipo', filtravel:true, largura:'7%' },
+  { key:'cliente', label:'Cliente/Fornecedor', filtravel:true, largura:'15%' },
+  { key:'categoria', label:'Categoria', filtravel:true, largura:'10%' },
+  { key:'valor', label:'Valor', num:true, largura:'9%' },
+  { key:'emissao', label:'Emissão', largura:'8%' },
+  { key:'vencimento', label:'Vencimento', largura:'8%' },
+  { key:'previsao', label:'Previsão', largura:'8%' },
+  { key:'baixa', label:'Baixa/Pagto.', largura:'8%' },
+  { key:'documento', label:'Documento', largura:'9%' },
+  { key:'historico', label:'Histórico', largura:'10%' },
+  { key:'status', label:'Status', filtravel:true, largura:'8%' },
+  { key:'acoes', label:'', largura:'110px' },
+];
+let finFiltrosColuna = {};       // { campo: Set(valores) } — criado sob demanda
+let finFiltroColunaAberta = null;
+
+function finFmtData(s){ if(!s) return '—'; const [y,m,d]=String(s).split('-'); return `${d}/${m}/${y}`; }
+
+function finPassaFiltrosColuna(l){
+  return Object.entries(finFiltrosColuna).every(([campo,set])=>{
+    if(!set || set.size===0) return true;
+    if(campo==='categoria') return set.has(l.categoria || '');
+    return set.has(l[campo]);
+  });
+}
+// valores distintos de uma coluna filtrável — [valor, rótulo], já que
+// tipo guarda RECEITA/DESPESA mas mostra Receita/Despesa no dropdown
+function finDistintosColuna(campo){
+  const mapa = new Map();
+  lancamentosCache.forEach(l=>{
+    if(campo==='tipo') mapa.set(l.tipo, l.tipo==='DESPESA' ? 'Despesa' : 'Receita');
+    else if(campo==='categoria'){ const v = l.categoria || ''; mapa.set(v, v || '(sem categoria)'); }
+    else mapa.set(l[campo], l[campo]);
+  });
+  return [...mapa.entries()].sort((a,b)=>String(a[1]).localeCompare(String(b[1]), 'pt-BR'));
+}
+function finFecharFiltroColuna(){
+  finFiltroColunaAberta = null;
+  const portal = document.getElementById('finFiltroColunaPortal');
+  if(portal){ portal.classList.remove('show'); portal.innerHTML = ''; }
+}
+// mesmo padrão do filtro de coluna de Atendimentos/Tarefas — portal fixo
+// fora da tabela, porque o wrapper com scroll não deixa um dropdown
+// position:absolute aparecer visível
+function finToggleFiltroColuna(campo, spanEl){
+  const jaAberto = finFiltroColunaAberta === campo;
+  finFecharFiltroColuna();
+  if(jaAberto) return;
+  finFiltroColunaAberta = campo;
+  const portal = document.getElementById('finFiltroColunaPortal');
+  if(!portal || !spanEl) return;
+  const set = finFiltrosColuna[campo] || (finFiltrosColuna[campo] = new Set());
+  const pares = finDistintosColuna(campo);
+  const itens = pares.map(([v,label])=>`<div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="${escaparHtml(v)}">${set.has(v) ? '✓ ' : ''}${escaparHtml(label)}</div>`).join('');
+  portal.innerHTML = `
+    <div class="lista-filtro-coluna-item" data-campo="${campo}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
+    ${itens}
+  `;
+  const r = spanEl.getBoundingClientRect();
+  portal.style.left = `${r.left}px`;
+  portal.style.top = `${r.bottom + 4}px`;
+  portal.classList.add('show');
+}
+function finCelulaFiltroColuna(c){
+  const set = finFiltrosColuna[c.key] || (finFiltrosColuna[c.key] = new Set());
+  const ativo = set.size > 0;
+  return `<span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;margin-left:6px;">
+    <span onclick="finToggleFiltroColuna('${c.key}', this)" style="cursor:pointer;${ativo ? 'color:var(--accent);' : ''}" title="Filtrar ${escaparHtml(c.label)}">▾</span>
+  </span>`;
+}
+function finRenderCabecalho(colunas){
+  return `<tr>${colunas.map(c=>{
+    const estilo = `${c.num ? 'text-align:right;' : ''}${c.largura ? `width:${c.largura};` : ''}`;
+    const filtro = c.filtravel ? finCelulaFiltroColuna(c) : '';
+    return `<th style="${estilo}">${escaparHtml(c.label)}${filtro}</th>`;
+  }).join('')}</tr>`;
+}
+function finLinhaHtml(l){
+  const despesa = l.tipo === 'DESPESA';
+  const opcoesCategoria = categoriasFinanceiras.filter(c=>c.tipo===l.tipo);
+  return `<tr>
+    <td><span class="fin-tipo-tag ${l.tipo}">${despesa ? 'Despesa' : 'Receita'}</span></td>
+    <td><input type="text" value="${escaparHtml(l.cliente)}" onblur="finSalvarCampoLancamento('${l.id}','cliente',this.value)"></td>
+    <td>
+      <select onchange="finSalvarCampoLancamento('${l.id}','categoria',this.value)">
+        <option value="">(nenhuma)</option>
+        ${opcoesCategoria.map(c=>`<option value="${escaparHtml(c.nome)}" ${c.nome===l.categoria?'selected':''}>${escaparHtml(c.nome)}</option>`).join('')}
+      </select>
+    </td>
+    <td class="num"><input type="number" step="0.01" min="0" value="${l.valorTotal}" style="${despesa ? 'color:var(--bad);' : ''}" onchange="finSalvarCampoLancamento('${l.id}','valorTotal',this.value)"></td>
+    <td><input type="date" value="${l.dataEmissao||''}" onchange="finSalvarCampoLancamento('${l.id}','dataEmissao',this.value)"></td>
+    <td><input type="date" value="${l.dataVencimento||''}" onchange="finSalvarCampoLancamento('${l.id}','dataVencimento',this.value)"></td>
+    <td><input type="date" value="${l.dataPrevisaoBaixa||''}" onchange="finSalvarCampoLancamento('${l.id}','dataPrevisaoBaixa',this.value)"></td>
+    <td style="color:var(--muted);">${finFmtData(l.dataBaixa)}</td>
+    <td><input type="text" value="${escaparHtml(l.numeroNotaFiscal)}" onblur="finSalvarCampoLancamento('${l.id}','numeroNotaFiscal',this.value)"></td>
+    <td><input type="text" value="${escaparHtml(l.historico)}" onblur="finSalvarCampoLancamento('${l.id}','historico',this.value)"></td>
+    <td><span class="fin-status ${l.status}">${l.status}</span></td>
+    <td class="fin-tabela-acoes">
+      ${l.status==='ABERTO' ? `<button class="ghost" onclick="abrirModalBaixar('${l.id}')" title="${despesa?'Marcar como pago':'Baixar'}">${despesa?'💰':'✓'}</button>` : ''}
+      <button class="ghost" onclick="abrirModalDuplicar('${l.id}')" title="Duplicar">⧉</button>
+      ${l.status!=='CANCELADO' ? `<button class="ghost" onclick="cancelarLancamentoUi('${l.id}')" title="Cancelar">✕</button>` : ''}
+      <button class="ghost" onclick="removerLancamentoUi('${l.id}')" title="Excluir">🗑</button>
+    </td>
+  </tr>`;
+}
+// salva 1 campo só (edição inline na tabela) — mesmo padrão de
+// projSalvarCampoTarefa: manda só o campo que mudou pro atualizarLancamento
+// (que já aceita atualização parcial) e recarrega
+async function finSalvarCampoLancamento(id, campo, valor){
+  const conta = contaAtual();
+  const r = await api('atualizarLancamento', { contaId: conta.id, id, [campo]: valor });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); renderListaLancamentos(); return; }
+  await carregarLancamentos();
+  renderListaLancamentos();
+}
 
 function popularClientesFinanceiro(){
   const sel = document.getElementById('fin_cliente');
@@ -5151,21 +5267,9 @@ async function carregarLancamentos(){
   }catch(e){ /* silencioso */ }
 }
 
-function renderFinFiltros(){
-  document.getElementById('finFiltroTipo').innerHTML = `<div class="chip ${finFiltroTipo.size===0?'on':''}" data-valor="TODOS">Receita e despesa</div>` +
-    [['RECEITA','Receita'],['DESPESA','Despesa']].map(([v,l])=>`<div class="chip ${finFiltroTipo.has(v)?'on':''}" data-valor="${v}">${l}</div>`).join('');
-  document.getElementById('finFiltroCliente').innerHTML = `<div class="chip ${finFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
-    clientes.map(c=>`<div class="chip ${finFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
-  document.getElementById('finFiltroStatus').innerHTML = `<div class="chip ${finFiltroStatus.size===0?'on':''}" data-valor="TODOS">Todos status</div>` +
-    ['ABERTO','BAIXADO','CANCELADO'].map(s=>`<div class="chip ${finFiltroStatus.has(s)?'on':''}" data-valor="${s}">${s}</div>`).join('');
-}
-
 function renderListaLancamentos(){
   const cont = document.getElementById('listaLancamentos');
-  let itens = lancamentosCache.slice();
-  if(finFiltroTipo.size > 0) itens = itens.filter(l=>finFiltroTipo.has(l.tipo));
-  if(finFiltroCliente.size > 0) itens = itens.filter(l=>finFiltroCliente.has(l.cliente));
-  if(finFiltroStatus.size > 0) itens = itens.filter(l=>finFiltroStatus.has(l.status));
+  let itens = lancamentosCache.filter(finPassaFiltrosColuna);
   const de = document.getElementById('fin_lista_de').value;
   const ate = document.getElementById('fin_lista_ate').value;
   if(de) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento >= de);
@@ -5173,42 +5277,16 @@ function renderListaLancamentos(){
 
   if(itens.length === 0){ cont.innerHTML = `<div class="empty"><div class="big">💵</div>Nenhum lançamento encontrado.</div>`; return; }
 
-  const fmtData = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
-
-  cont.innerHTML = itens.map(l=>{
-    const despesa = l.tipo === 'DESPESA';
-    const rotuloDoc = despesa ? 'Doc.' : 'NF';
-    const infoLinha = despesa
-      ? [l.categoria, l.numeroNotaFiscal ? `${rotuloDoc} ${l.numeroNotaFiscal}` : ''].filter(Boolean).join(' · ') || 'Conta a pagar'
-      : `Referência: ${escaparHtml(l.mesReferencia)}${l.numeroNotaFiscal ? ' · NF ' + escaparHtml(l.numeroNotaFiscal) : ''}`;
-    return `
-    <div class="fin-lancamento">
-      <div class="fin-topo">
-        <div>
-          <div class="fin-cliente">${despesa ? '🧾 ' : ''}${escaparHtml(l.cliente)}</div>
-          <div class="fin-mes">${infoLinha}</div>
-        </div>
-        <div style="text-align:right;">
-          <div class="fin-valor" style="${despesa ? 'color:var(--bad);' : ''}">${despesa ? '− ' : ''}${fmtMoeda(l.valorTotal)}</div>
-          <span class="fin-status ${l.status}">${l.status}</span>
-        </div>
+  cont.innerHTML = `
+    <div class="card" style="padding:0;">
+      <div style="overflow-x:auto;">
+        <table class="lista-tabela fin-tabela">
+          <thead>${finRenderCabecalho(LANC_COLUNAS)}</thead>
+          <tbody>${itens.map(finLinhaHtml).join('')}</tbody>
+        </table>
       </div>
-      <div class="fin-datas">
-        <div><b>Emissão</b>${fmtData(l.dataEmissao)}</div>
-        <div><b>Vencimento</b>${fmtData(l.dataVencimento)}</div>
-        <div><b>${despesa ? 'Previsão de pagto.' : 'Previsão de baixa'}</b>${fmtData(l.dataPrevisaoBaixa)}</div>
-        <div><b>${despesa ? 'Data de pagamento' : 'Data de baixa'}</b>${fmtData(l.dataBaixa)}</div>
-      </div>
-      ${l.historico ? `<div class="fin-historico">${escaparHtml(l.historico)}</div>` : ''}
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
-        ${l.status === 'ABERTO' ? `<button class="primary" onclick="abrirModalBaixar('${l.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">${despesa ? 'Marcar como pago' : 'Baixar'}</button>` : ''}
-        <button class="ghost" onclick="abrirModalEditarLancamento('${l.id}')">Editar</button>
-        <button class="ghost" onclick="abrirModalDuplicar('${l.id}')">Duplicar</button>
-        ${l.status !== 'CANCELADO' ? `<button class="ghost" onclick="cancelarLancamentoUi('${l.id}')">Cancelar</button>` : ''}
-        <button class="ghost" onclick="removerLancamentoUi('${l.id}')">Excluir</button>
-      </div>
-    </div>`;
-  }).join('');
+    </div>
+  `;
 }
 
 function abrirModalBaixar(id){
@@ -5235,50 +5313,6 @@ async function confirmarBaixaLancamento(){
   await carregarLancamentos();
   renderListaLancamentos();
   toast('Baixa registrada');
-}
-
-function abrirModalEditarLancamento(id){
-  const l = lancamentosCache.find(x=>x.id===id);
-  if(!l) return;
-  finLancamentoEmFoco = id;
-  const despesa = l.tipo === 'DESPESA';
-  document.getElementById('fin_edit_titulo').textContent = despesa ? 'Editar conta a pagar' : 'Editar lançamento';
-  document.getElementById('fin_edit_label_nome').textContent = despesa ? 'Fornecedor' : 'Cliente';
-  document.getElementById('fin_edit_label_doc').textContent = despesa ? 'Número do Documento/Boleto' : 'Número da Nota Fiscal';
-  document.getElementById('fin_edit_cliente').value = l.cliente || '';
-  document.getElementById('fin_edit_valor').value = l.valorTotal || '';
-  const opcoesCategoria = categoriasFinanceiras.filter(c=>c.tipo===l.tipo);
-  document.getElementById('fin_edit_categoria').innerHTML = `<option value="">(nenhuma)</option>` + opcoesCategoria.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
-  document.getElementById('fin_edit_categoria').value = l.categoria || '';
-  document.getElementById('fin_edit_emissao').value = l.dataEmissao || '';
-  document.getElementById('fin_edit_vencimento').value = l.dataVencimento || '';
-  document.getElementById('fin_edit_previsao').value = l.dataPrevisaoBaixa || '';
-  document.getElementById('fin_edit_nota_fiscal').value = l.numeroNotaFiscal || '';
-  document.getElementById('fin_edit_historico').value = l.historico || '';
-  document.getElementById('editarLancamentoModal').classList.add('show');
-}
-function fecharModalEditarLancamento(){
-  document.getElementById('editarLancamentoModal').classList.remove('show');
-  finLancamentoEmFoco = null;
-}
-async function confirmarEdicaoLancamento(){
-  const conta = contaAtual();
-  const r = await api('atualizarLancamento', {
-    contaId: conta.id, id: finLancamentoEmFoco,
-    cliente: document.getElementById('fin_edit_cliente').value.trim(),
-    valorTotal: Number(document.getElementById('fin_edit_valor').value) || 0,
-    categoria: document.getElementById('fin_edit_categoria').value,
-    dataEmissao: document.getElementById('fin_edit_emissao').value,
-    dataVencimento: document.getElementById('fin_edit_vencimento').value,
-    dataPrevisaoBaixa: document.getElementById('fin_edit_previsao').value,
-    numeroNotaFiscal: document.getElementById('fin_edit_nota_fiscal').value.trim(),
-    historico: document.getElementById('fin_edit_historico').value.trim(),
-  });
-  if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
-  fecharModalEditarLancamento();
-  await carregarLancamentos();
-  renderListaLancamentos();
-  toast('Lançamento atualizado');
 }
 
 async function cancelarLancamentoUi(id){
@@ -12669,7 +12703,6 @@ function goView(name){
     popularFornecedoresFinanceiro();
     popularMesesFinanceiro();
     renderFinAtendimentosLista();
-    renderFinFiltros();
     carregarLancamentos().then(renderListaLancamentos);
     carregarNotasImportadas().then(renderListaNotasImportadas);
     document.getElementById('fin_xml_preview').style.display = 'none';
@@ -13016,25 +13049,21 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     selecionarTipoLancamento(chip.dataset.tipo);
   });
-  document.getElementById('finFiltroTipo').addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    toggleFiltroMultiplo(finFiltroTipo, chip.dataset.valor);
-    renderFinFiltros(); renderListaLancamentos();
+  document.getElementById('finFiltroColunaPortal').addEventListener('click', e=>{
+    const item = e.target.closest('.lista-filtro-coluna-item');
+    if(!item) return;
+    const campo = item.dataset.campo;
+    const valor = item.dataset.valor;
+    const set = finFiltrosColuna[campo] || (finFiltrosColuna[campo] = new Set());
+    if(valor === '') set.clear();
+    else if(set.has(valor)) set.delete(valor);
+    else set.add(valor);
+    finFecharFiltroColuna();
+    renderListaLancamentos();
   });
-  document.getElementById('finFiltroCliente').addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    toggleFiltroMultiplo(finFiltroCliente, chip.dataset.valor);
-    renderFinFiltros(); renderListaLancamentos();
-  });
-  document.getElementById('finFiltroStatus').addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    toggleFiltroMultiplo(finFiltroStatus, chip.dataset.valor);
-    renderFinFiltros(); renderListaLancamentos();
-  });
+  document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap') && !e.target.closest('#finFiltroColunaPortal')) finFecharFiltroColuna(); });
   document.getElementById('fin_baixar_cancelar').addEventListener('click', fecharModalBaixar);
   document.getElementById('fin_baixar_confirmar').addEventListener('click', confirmarBaixaLancamento);
-  document.getElementById('fin_editar_cancelar').addEventListener('click', fecharModalEditarLancamento);
-  document.getElementById('fin_editar_confirmar').addEventListener('click', confirmarEdicaoLancamento);
   document.getElementById('fin_duplicar_cancelar').addEventListener('click', fecharModalDuplicar);
   document.getElementById('fin_duplicar_confirmar').addEventListener('click', confirmarDuplicarLancamento);
   document.getElementById('fin_xml_arquivo').addEventListener('change', aoEscolherArquivoXml);
