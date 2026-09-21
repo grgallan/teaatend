@@ -5145,6 +5145,9 @@ function finIniciarDragColuna(e, thEl){
       limparAlvo();
       ghost.remove();
       if(alvo) finReordenarColuna(campo, alvo);
+    }else{
+      // sem arrastar (não passou do limiar de 6px) = foi um clique — ordena
+      finOrdenarPor(campo);
     }
   }
   function cancelar(){
@@ -5402,6 +5405,36 @@ function finCelulaFiltroColuna(c){
     <span onclick="finToggleFiltroColuna('${c.key}', this)" style="cursor:pointer;${ativo ? 'color:var(--accent);' : ''}" title="Filtrar ${escaparHtml(c.label)}">▾</span>
   </span>`;
 }
+// ordenar por coluna (clique no cabeçalho, sem arrastar) — mesmo mecanismo
+// de ordenarListaPor/valorOrdenacaoLista (Atendimentos): valores CRUS (não
+// formatados) pra datas ISO e números ordenarem certo
+let finOrdenacao = null; // null = ordem natural (como veio da API)
+function finValorOrdenacao(l, campo){
+  switch(campo){
+    case 'tipo': return l.tipo==='DESPESA' ? 'Despesa' : 'Receita';
+    case 'cliente': return l.cliente || '';
+    case 'categoria': return l.categoria || '';
+    case 'valor': return Number(l.valorTotal) || 0;
+    case 'emissao': return l.dataEmissao || '';
+    case 'vencimento': return l.dataVencimento || '';
+    case 'previsao': return l.dataPrevisaoBaixa || '';
+    case 'baixa': return l.dataBaixa || '';
+    case 'documento': return l.numeroNotaFiscal || '';
+    case 'historico': return l.historico || '';
+    case 'status': return l.status || '';
+    default: return '';
+  }
+}
+function finCompararOrdenacao(a, b, campo, direcao){
+  const va = finValorOrdenacao(a, campo), vb = finValorOrdenacao(b, campo);
+  const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : String(va).localeCompare(String(vb), 'pt-BR');
+  return direcao === 'asc' ? cmp : -cmp;
+}
+function finOrdenarPor(campo){
+  if(finOrdenacao && finOrdenacao.campo === campo) finOrdenacao.direcao = finOrdenacao.direcao === 'asc' ? 'desc' : 'asc';
+  else finOrdenacao = { campo, direcao: 'asc' };
+  renderListaLancamentos();
+}
 function finRenderColgroup(colunas){
   return `<col style="width:26px;">${colunas.map(c=>`<col style="width:${finLarguraColuna(c)}px;">`).join('')}`;
 }
@@ -5411,7 +5444,10 @@ function finRenderCabecalho(colunas){
     const estilo = `${c.num ? 'text-align:right;' : ''}position:relative;`;
     const filtro = c.filtravel ? finCelulaFiltroColuna(c) : '';
     const resizer = c.semResize ? '' : `<span class="proj-col-resizer" onmousedown="finIniciarResizeColuna(event,'${c.key}')"></span>`;
-    return `<th class="${c.semResize?'':'lista-th-arrastavel'}" data-col="${c.key}" style="${estilo}" title="${c.semResize?'':'Arraste pra reordenar'}"><span>${escaparHtml(c.label)}</span>${filtro}${resizer}</th>`;
+    const ordenadoAtivo = !c.semResize && finOrdenacao && finOrdenacao.campo === c.key;
+    const seta = ordenadoAtivo ? (finOrdenacao.direcao === 'asc' ? ' ▲' : ' ▼') : '';
+    const classeOrdenado = ordenadoAtivo ? ' ordenado' : '';
+    return `<th class="${c.semResize?'':'lista-th-arrastavel'}${classeOrdenado}" data-col="${c.key}" style="${estilo}" title="${c.semResize?'':'Clique pra ordenar, arraste pra reordenar'}"><span>${escaparHtml(c.label)}</span>${seta}${filtro}${resizer}</th>`;
   }).join('')}</tr>`;
 }
 // menu de ações da tabela de Lançamentos — 1 botão (⋮) que abre um menu
@@ -5691,6 +5727,7 @@ function renderListaLancamentos(){
   const ate = document.getElementById('fin_lista_ate').value;
   if(de) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento >= de);
   if(ate) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento <= ate);
+  if(finOrdenacao) itens.sort((a,b)=>finCompararOrdenacao(a, b, finOrdenacao.campo, finOrdenacao.direcao));
 
   renderFinAgruparChips();
   renderResumoListaLancamentos(itens);
