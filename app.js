@@ -5614,6 +5614,7 @@ async function gerarLancamento(){
       contaId: conta.id, tipo, cliente, mesReferencia, valorTotal, atendimentoIds, dataVencimento,
       categoria: document.getElementById('fin_categoria').value,
       dataEmissao: document.getElementById('fin_emissao').value,
+      dataPrevisaoBaixa: document.getElementById('fin_previsao').value,
       numeroNotaFiscal: document.getElementById('fin_nota_fiscal').value.trim(),
       historico: document.getElementById('fin_historico_novo').value.trim(),
       empresaId: empresaAtual ? empresaAtual.id : '',
@@ -5621,6 +5622,7 @@ async function gerarLancamento(){
     if(!r.ok){ toast(r.erro || 'Não foi possível gerar o lançamento.'); return; }
     document.getElementById('fin_vencimento').value = '';
     document.getElementById('fin_emissao').value = '';
+    document.getElementById('fin_previsao').value = '';
     document.getElementById('fin_nota_fiscal').value = '';
     document.getElementById('fin_historico_novo').value = '';
     if(tipo === 'DESPESA') document.getElementById('fin_valor_despesa').value = '';
