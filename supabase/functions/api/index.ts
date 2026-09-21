@@ -277,6 +277,7 @@ async function rotear(req: any): Promise<any> {
     case 'removerRelatorio': return acaoRemoverRelatorio(req);
     case 'listarLancamentos': return acaoListarLancamentos(req);
     case 'criarLancamento': return acaoCriarLancamento(req);
+    case 'duplicarLancamento': return acaoDuplicarLancamento(req);
     case 'atualizarLancamento': return acaoAtualizarLancamento(req);
     case 'baixarLancamento': return acaoBaixarLancamento(req);
     case 'cancelarLancamento': return acaoCancelarLancamento(req);
@@ -1721,6 +1722,22 @@ function mesFromDataIso(dataIso: string): string {
   return `${partes[1]}/${partes[0]}`;
 }
 
+// soma "n" meses a uma data "YYYY-MM-DD", mantendo o DIA fixo — se o mês de
+// destino não tiver esse dia (ex.: dia 31 caindo em abril), usa o último
+// dia daquele mês em vez de estourar pro mês seguinte (evita o
+// comportamento padrão do JS Date de "rolar" a data)
+function somarMeses(dataIso: string, n: number): string {
+  const partes = String(dataIso || '').split('-').map(Number);
+  const [ano, mes, dia] = partes;
+  if (!ano || !mes || !dia) return '';
+  const totalMeses = (mes - 1) + n;
+  const novoAno = ano + Math.floor(totalMeses / 12);
+  const novoMes = (((totalMeses % 12) + 12) % 12) + 1;
+  const ultimoDiaDoMes = new Date(novoAno, novoMes, 0).getDate();
+  const novoDia = Math.min(dia, ultimoDiaDoMes);
+  return `${novoAno}-${String(novoMes).padStart(2, '0')}-${String(novoDia).padStart(2, '0')}`;
+}
+
 // "tipo" (RECEITA/DESPESA) faz essa mesma tabela cobrir tanto Contas a
 // Receber (comportamento de sempre) quanto Contas a Pagar. O campo
 // "cliente" não foi renomeado pra "cliente/fornecedor" pra não quebrar a
@@ -1791,6 +1808,36 @@ async function acaoAtualizarLancamento(req: any) {
   const { error } = await db.from('lancamentos_financeiros').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
+}
+
+// duplica um lançamento "quantidade" vezes — cada cópia mantém o mesmo
+// dia de vencimento (e de emissão, se houver), só avançando mês/ano; útil
+// pra lançar de uma vez várias parcelas de algo recorrente (aluguel,
+// assinatura...). As cópias sempre nascem em ABERTO, sem baixa nem nº de
+// documento (cada mês tem o seu próprio boleto/NF).
+async function acaoDuplicarLancamento(req: any) {
+  if (!(await podeAgir(req.contaId, 'financeiro.lancar', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para criar lançamentos.' };
+  if (!req.id) return { ok: false, erro: 'Lançamento não informado.' };
+  const quantidade = Math.max(1, Math.min(36, parseInt(req.quantidade, 10) || 1));
+  const { data: original } = await db.from('lancamentos_financeiros').select('*').eq('id', req.id).maybeSingle();
+  if (!original) return { ok: false, erro: 'Lançamento não encontrado.' };
+  const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
+  const novos = [];
+  for (let i = 1; i <= quantidade; i++) {
+    const novoVencimento = somarMeses(original.data_vencimento, i);
+    const novaEmissao = original.data_emissao ? somarMeses(original.data_emissao, i) : '';
+    novos.push({
+      id: gerarId(), tipo: original.tipo, cliente: original.cliente,
+      mes_referencia: novoVencimento ? mesFromDataIso(novoVencimento) : original.mes_referencia,
+      valor_total: original.valor_total, atendimento_ids: [], categoria: original.categoria || '',
+      data_emissao: novaEmissao, data_vencimento: novoVencimento || original.data_vencimento,
+      numero_nota_fiscal: '', status: 'ABERTO', historico: original.historico || '',
+      criado_por: conta ? conta.nome : '', empresa_id: original.empresa_id,
+    });
+  }
+  const { error } = await db.from('lancamentos_financeiros').insert(novos);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, quantidade: novos.length };
 }
 
 async function acaoBaixarLancamento(req: any) {

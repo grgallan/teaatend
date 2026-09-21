@@ -5203,6 +5203,7 @@ function renderListaLancamentos(){
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
         ${l.status === 'ABERTO' ? `<button class="primary" onclick="abrirModalBaixar('${l.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">${despesa ? 'Marcar como pago' : 'Baixar'}</button>` : ''}
         <button class="ghost" onclick="abrirModalEditarLancamento('${l.id}')">Editar</button>
+        <button class="ghost" onclick="abrirModalDuplicar('${l.id}')">Duplicar</button>
         ${l.status !== 'CANCELADO' ? `<button class="ghost" onclick="cancelarLancamentoUi('${l.id}')">Cancelar</button>` : ''}
         <button class="ghost" onclick="removerLancamentoUi('${l.id}')">Excluir</button>
       </div>
@@ -5296,6 +5297,26 @@ async function removerLancamentoUi(id){
   await carregarLancamentos();
   renderListaLancamentos();
   toast('Lançamento removido');
+}
+
+function abrirModalDuplicar(id){
+  finLancamentoEmFoco = id;
+  document.getElementById('fin_duplicar_quantidade').value = '1';
+  document.getElementById('duplicarLancamentoModal').classList.add('show');
+}
+function fecharModalDuplicar(){
+  document.getElementById('duplicarLancamentoModal').classList.remove('show');
+  finLancamentoEmFoco = null;
+}
+async function confirmarDuplicarLancamento(){
+  const quantidade = Number(document.getElementById('fin_duplicar_quantidade').value) || 1;
+  const conta = contaAtual();
+  const r = await api('duplicarLancamento', { contaId: conta.id, id: finLancamentoEmFoco, quantidade });
+  if(!r.ok){ toast(r.erro || 'Não foi possível duplicar.'); return; }
+  fecharModalDuplicar();
+  await carregarLancamentos();
+  renderListaLancamentos();
+  toast(r.quantidade === 1 ? 'Lançamento duplicado' : `${r.quantidade} lançamentos criados`);
 }
 
 /* ---------- importar nota fiscal (XML) ---------- */
@@ -13014,6 +13035,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('fin_baixar_confirmar').addEventListener('click', confirmarBaixaLancamento);
   document.getElementById('fin_editar_cancelar').addEventListener('click', fecharModalEditarLancamento);
   document.getElementById('fin_editar_confirmar').addEventListener('click', confirmarEdicaoLancamento);
+  document.getElementById('fin_duplicar_cancelar').addEventListener('click', fecharModalDuplicar);
+  document.getElementById('fin_duplicar_confirmar').addEventListener('click', confirmarDuplicarLancamento);
   document.getElementById('fin_xml_arquivo').addEventListener('change', aoEscolherArquivoXml);
   document.getElementById('btnSalvarNotaImportada').addEventListener('click', salvarNotaImportada);
 
