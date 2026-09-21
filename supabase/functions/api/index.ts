@@ -192,7 +192,7 @@ const MENUS_PERFIL_ACESSO = [
   'atividades', 'orcamentos', 'projetos',
   'videos', 'videos.novo', 'videos.lista',
   'cadastros', 'cadastros.atendentes', 'cadastros.clientes', 'cadastros.tipos', 'cadastros.segmentos', 'cadastros.modulos',
-  'cadastros.submodulos', 'cadastros.status', 'cadastros.valores', 'cadastros.usuarios',
+  'cadastros.submodulos', 'cadastros.status', 'cadastros.valores', 'cadastros.usuarios', 'cadastros.categoriasfinanceiras',
   'cadastros.perfisacesso', 'cadastros.empresas',
   'cadastros.tabelasrm', 'cadastros.camposrm', 'cadastros.relacionamentosrm', 'cadastros.tabelasauxrm',
   'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket', 'utilitarios.sqlrm',
@@ -236,8 +236,14 @@ function moduloParaApi(m: any) {
 function submoduloParaApi(s: any) {
   return { id: s.id, nome: s.nome, moduloId: s.modulo_id || '' };
 }
+// "tipo" diferencia cliente de fornecedor no mesmo cadastro (CLIENTE,
+// FORNECEDOR ou AMBOS) — cadastro antigo, sem essa coluna quando foi
+// criado, sempre volta CLIENTE (comportamento de antes de existir fornecedor)
 function clienteParaApi(c: any) {
-  return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0 };
+  return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0, tipo: c.tipo || 'CLIENTE' };
+}
+function categoriaFinanceiraParaApi(c: any) {
+  return { id: c.id, nome: c.nome, tipo: c.tipo || 'DESPESA', empresaId: c.empresa_id || '' };
 }
 function empresaParaApi(e: any) {
   return {
@@ -326,6 +332,9 @@ async function rotear(req: any): Promise<any> {
     case 'addCliente': return acaoAddCliente(req);
     case 'atualizarCliente': return acaoAtualizarCliente(req);
     case 'removerCliente': return acaoRemoverCliente(req);
+    case 'addCategoriaFinanceira': return acaoAddCategoriaFinanceira(req);
+    case 'atualizarCategoriaFinanceira': return acaoAtualizarCategoriaFinanceira(req);
+    case 'removerCategoriaFinanceira': return acaoRemoverCategoriaFinanceira(req);
     case 'addTipo': return acaoAddSimples('tipos', 'cadastros.tipos', req);
     case 'removerTipo': return acaoRemoverTipo(req);
     case 'addSegmento': return acaoAddSimples('segmentos', 'cadastros.segmentos', req);
@@ -471,7 +480,9 @@ async function acaoDados(req: any) {
   const empresaId = req.empresaId || null;
   let clientesQuery = db.from('clientes').select('*').order('nome');
   if (empresaId) clientesQuery = clientesQuery.eq('empresa_id', empresaId);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }] = await Promise.all([
+  let categoriasFinanceirasQuery = db.from('categorias_financeiras').select('*').order('nome');
+  if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -484,6 +495,7 @@ async function acaoDados(req: any) {
     db.from('conta_perfis_acesso').select('*'),
     db.from('empresas').select('*').order('nome'),
     db.from('conta_empresas').select('*'),
+    categoriasFinanceirasQuery,
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
@@ -632,6 +644,7 @@ async function acaoDados(req: any) {
     // mesmo tendo acesso total dentro da própria empresa dele
     empresas: (contaAtual && contaAtual.perfil === 'ADMIN') ? (empresasRaw || []).map(empresaParaApi) : [],
     tomticketErros,
+    categoriasFinanceiras: (categoriasFinanceirasRaw || []).map(categoriaFinanceiraParaApi),
   };
 }
 
@@ -1701,10 +1714,23 @@ async function podeAgir(contaId: string, menu: string, campo: 'visualizar' | 'ed
   return (permissoes || []).some((p: any) => !!p[campo]);
 }
 
+// "YYYY-MM-DD" -> "MM/AAAA", mesmo formato usado em atendimentos.mes
+function mesFromDataIso(dataIso: string): string {
+  const partes = String(dataIso || '').split('-');
+  if (partes.length < 2) return '';
+  return `${partes[1]}/${partes[0]}`;
+}
+
+// "tipo" (RECEITA/DESPESA) faz essa mesma tabela cobrir tanto Contas a
+// Receber (comportamento de sempre) quanto Contas a Pagar. O campo
+// "cliente" não foi renomeado pra "cliente/fornecedor" pra não quebrar a
+// migração idempotente do schema.sql — num lançamento DESPESA ele guarda
+// o nome do FORNECEDOR.
 function lancamentoParaApi(l: any) {
   return {
-    id: l.id, cliente: l.cliente, mesReferencia: l.mes_referencia, valorTotal: Number(l.valor_total),
-    atendimentoIds: l.atendimento_ids || [], dataVencimento: l.data_vencimento || '',
+    id: l.id, tipo: l.tipo || 'RECEITA', cliente: l.cliente, mesReferencia: l.mes_referencia, valorTotal: Number(l.valor_total),
+    atendimentoIds: l.atendimento_ids || [], categoria: l.categoria || '',
+    dataEmissao: l.data_emissao || '', dataVencimento: l.data_vencimento || '',
     dataBaixa: l.data_baixa || '', dataPrevisaoBaixa: l.data_previsao_baixa || '',
     numeroNotaFiscal: l.numero_nota_fiscal || '', status: l.status, historico: l.historico || '',
     criadoPor: l.criado_por || '', empresaId: l.empresa_id || '',
@@ -1722,12 +1748,25 @@ async function acaoListarLancamentos(req: any) {
 
 async function acaoCriarLancamento(req: any) {
   if (!(await podeAgir(req.contaId, 'financeiro.lancar', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para criar lançamentos.' };
-  if (!req.cliente || !req.mesReferencia) return { ok: false, erro: 'Cliente e mês de referência são obrigatórios.' };
+  const tipo = req.tipo === 'DESPESA' ? 'DESPESA' : 'RECEITA';
+  if (!req.cliente) return { ok: false, erro: tipo === 'DESPESA' ? 'Informe o fornecedor.' : 'Cliente é obrigatório.' };
+  if (tipo === 'DESPESA' && (!Number(req.valorTotal) || Number(req.valorTotal) <= 0)) return { ok: false, erro: 'Informe o valor da conta a pagar.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de criar o lançamento.' };
+  // mês de referência é central pra Contas a Receber (agrupa os
+  // atendimentos do período); numa Conta a Pagar ele só serve pros
+  // filtros/relatórios existentes continuarem funcionando, então é
+  // calculado sozinho a partir da emissão/vencimento se não vier
+  let mesReferencia = req.mesReferencia;
+  if (!mesReferencia) {
+    const dataBase = req.dataEmissao || req.dataVencimento;
+    if (tipo === 'DESPESA' && dataBase) mesReferencia = mesFromDataIso(dataBase);
+  }
+  if (!mesReferencia) return { ok: false, erro: 'Mês de referência é obrigatório.' };
   const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
   const registro = {
-    id: gerarId(), cliente: req.cliente, mes_referencia: req.mesReferencia,
+    id: gerarId(), tipo, cliente: req.cliente, mes_referencia: mesReferencia,
     valor_total: Number(req.valorTotal) || 0, atendimento_ids: req.atendimentoIds || [],
+    categoria: req.categoria || '', data_emissao: req.dataEmissao || '',
     data_vencimento: req.dataVencimento || '', numero_nota_fiscal: req.numeroNotaFiscal || '',
     historico: req.historico || '', status: 'ABERTO', criado_por: conta ? conta.nome : '',
     empresa_id: req.empresaId,
@@ -1741,6 +1780,10 @@ async function acaoAtualizarLancamento(req: any) {
   if (!(await podeAgir(req.contaId, 'financeiro.lista', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar lançamentos.' };
   if (!req.id) return { ok: false, erro: 'Lançamento não informado.' };
   const atualizado: any = { atualizado_em: new Date().toISOString() };
+  if (req.cliente !== undefined) atualizado.cliente = req.cliente;
+  if (req.categoria !== undefined) atualizado.categoria = req.categoria;
+  if (req.valorTotal !== undefined) atualizado.valor_total = Number(req.valorTotal) || 0;
+  if (req.dataEmissao !== undefined) atualizado.data_emissao = req.dataEmissao;
   if (req.dataVencimento !== undefined) atualizado.data_vencimento = req.dataVencimento;
   if (req.dataPrevisaoBaixa !== undefined) atualizado.data_previsao_baixa = req.dataPrevisaoBaixa;
   if (req.numeroNotaFiscal !== undefined) atualizado.numero_nota_fiscal = req.numeroNotaFiscal;
@@ -3591,6 +3634,38 @@ async function acaoAtualizarSubModulo(req: any) {
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
+const TIPOS_CATEGORIA_FINANCEIRA_VALIDOS = new Set(['RECEITA', 'DESPESA']);
+// categoria financeira (Aluguel, Consultoria, Assinatura de software...) —
+// cadastro simples igual Segmento/Tipo, só que com "tipo" a mais (RECEITA
+// ou DESPESA) pra filtrar certo no formulário de lançamento
+async function acaoAddCategoriaFinanceira(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.categoriasfinanceiras', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar isso.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome da categoria.' };
+  const registro = {
+    id: gerarId(), nome: req.nome,
+    tipo: TIPOS_CATEGORIA_FINANCEIRA_VALIDOS.has(req.tipo) ? req.tipo : 'DESPESA',
+    empresa_id: req.empresaId || null,
+  };
+  const { error } = await db.from('categorias_financeiras').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: categoriaFinanceiraParaApi(registro) };
+}
+async function acaoAtualizarCategoriaFinanceira(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.categoriasfinanceiras', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar isso.' };
+  if (!req.id) return { ok: false, erro: 'Categoria não informada.' };
+  const atualizado: any = {};
+  if (req.nome !== undefined) atualizado.nome = req.nome;
+  if (req.tipo !== undefined && TIPOS_CATEGORIA_FINANCEIRA_VALIDOS.has(req.tipo)) atualizado.tipo = req.tipo;
+  const { error } = await db.from('categorias_financeiras').update(atualizado).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRemoverCategoriaFinanceira(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.categoriasfinanceiras', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover isso.' };
+  await db.from('categorias_financeiras').delete().eq('id', req.id);
+  return { ok: true };
+}
+
 async function acaoRemoverCliente(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover clientes.' };
   await db.from('clientes').delete().eq('id', req.id);
@@ -3598,10 +3673,15 @@ async function acaoRemoverCliente(req: any) {
   await db.from('contas').delete().eq('perfil', 'USUARIO').eq('cliente_id', req.id);
   return { ok: true };
 }
+const TIPOS_CLIENTE_VALIDOS = new Set(['CLIENTE', 'FORNECEDOR', 'AMBOS']);
 async function acaoAddCliente(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar clientes.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um cliente.' };
-  const registro = { id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '', meta_mensal: Number(req.metaMensal) || 0, empresa_id: req.empresaId };
+  const registro = {
+    id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '',
+    meta_mensal: Number(req.metaMensal) || 0, empresa_id: req.empresaId,
+    tipo: TIPOS_CLIENTE_VALIDOS.has(req.tipo) ? req.tipo : 'CLIENTE',
+  };
   const { error } = await db.from('clientes').insert(registro);
   if (error) return { ok: false, erro: error.message };
   return { ok: true, registro: clienteParaApi(registro) };
@@ -3615,6 +3695,7 @@ async function acaoAtualizarCliente(req: any) {
   if (req.nomeFantasia !== undefined) atualizado.nome_fantasia = req.nomeFantasia;
   if (req.metaMensal !== undefined) atualizado.meta_mensal = Number(req.metaMensal) || 0;
   if (req.empresaId) atualizado.empresa_id = req.empresaId;
+  if (req.tipo !== undefined && TIPOS_CLIENTE_VALIDOS.has(req.tipo)) atualizado.tipo = req.tipo;
   const { error } = await db.from('clientes').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };

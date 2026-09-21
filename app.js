@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [];
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
 let rmTabelasTodas = null; // cache — todas as tabelas cadastradas, carregado 1x (usado pra preencher os <select> de escolher tabela); null = ainda não carregado
@@ -123,13 +123,14 @@ const MENUS_PERFIL_ACESSO = [
   ]},
   { chave:'cadastros', label:'Cadastros', subContainer:'#cadSubtabs', subDataAttr:'sub', submenus:[
     { chave:'atendentes', label:'Atendentes' },
-    { chave:'clientes', label:'Clientes' },
+    { chave:'clientes', label:'Clientes/Fornecedores' },
     { chave:'tipos', label:'Tipos' },
     { chave:'segmentos', label:'Segmentos' },
     { chave:'modulos', label:'Módulos' },
     { chave:'submodulos', label:'Rotinas' },
     { chave:'status', label:'Status' },
     { chave:'valores', label:'Valores' },
+    { chave:'categoriasfinanceiras', label:'Categorias Financeiras' },
     { chave:'usuarios', label:'Usuários (login)' },
     { chave:'perfisacesso', label:'Perfis de Acesso' },
     { chave:'empresas', label:'Empresas' },
@@ -784,6 +785,7 @@ async function carregarTudo(){
   const r = await api('dados', { contaId, empresaId });
   if(!r.ok) return false;
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; segmentos = r.segmentos||[]; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
+  categoriasFinanceiras = r.categoriasFinanceiras||[];
   atualizarBadgeAtendimentos();
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
@@ -1233,11 +1235,23 @@ function popularSelectRotinaPorModulo(moduloNome, valorAtual){
   sel.value = valorAtual || '';
 }
 
+// "clientes" agora também guarda fornecedor (cadastro unificado, campo
+// "tipo") — em qualquer seletor que só faz sentido pra CLIENTE de verdade
+// (atendimento, projeto, orçamento, agenda, vídeo, valores, usuário...)
+// usa isso em vez do array cru, senão fornecedor aparece como opção
+// indevida nesses lugares
+function clientesParaSelecao(){
+  return clientes.filter(c=>c.tipo!=='FORNECEDOR');
+}
+function fornecedoresParaSelecao(){
+  return clientes.filter(c=>c.tipo==='FORNECEDOR' || c.tipo==='AMBOS');
+}
+
 /* ---------- selects dinâmicos (form Novo) ---------- */
 function popularSelects(){
   const conta = contaAtual();
   const selCliente = document.getElementById('f_cliente');
-  selCliente.innerHTML = clientes.map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+  selCliente.innerHTML = clientesParaSelecao().map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
   if(conta && conta.perfil === 'USUARIO'){
     selCliente.value = conta.clienteId;
     selCliente.disabled = true;
@@ -1772,7 +1786,7 @@ function renderFiltroClienteDropdown(termo){
   const el = document.getElementById('filtroClienteDropdown');
   if(!el) return;
   const t = String(termo||'').trim().toLowerCase();
-  const opcoes = clientes.filter(c=> !t || c.nome.toLowerCase().includes(t));
+  const opcoes = clientesParaSelecao().filter(c=> !t || c.nome.toLowerCase().includes(t));
   if(opcoes.length === 0){ el.innerHTML = `<div class="lookup-dropdown-empty">Nenhum cliente encontrado.</div>`; return; }
   el.innerHTML = opcoes.map(c=>`<div class="lookup-dropdown-item ${filtroCliente.has(c.nome)?'sel':''}" data-cliente="${escaparHtml(c.nome)}">${filtroCliente.has(c.nome)?'✓ ':''}${escaparHtml(c.nome)}</div>`).join('');
 }
@@ -1877,7 +1891,7 @@ function filtroAvancadoOperadores(def){
 }
 function filtroAvancadoOpcoesValor(campo){
   switch(campo){
-    case 'cliente': return clientes.map(c=>c.nome);
+    case 'cliente': return clientesParaSelecao().map(c=>c.nome);
     case 'usuario': return contas.filter(c=>c.perfil==='USUARIO').map(c=>c.nome);
     case 'atendente': return contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
     case 'status': return statusList.map(s=>s.nome);
@@ -2751,7 +2765,7 @@ function renderResumo(){
     campoFiltroCliente.style.display = '';
     const elChips = document.getElementById('r_cliente_chips');
     elChips.innerHTML = `<div class="chip ${filtroResumoCliente.size===0?'on':''}" data-cliente="TODOS">Todos</div>` +
-      clientes.map(c=>`<div class="chip ${filtroResumoCliente.has(c.nome)?'on':''}" data-cliente="${c.nome}">${c.nome}</div>`).join('');
+      clientesParaSelecao().map(c=>`<div class="chip ${filtroResumoCliente.has(c.nome)?'on':''}" data-cliente="${c.nome}">${c.nome}</div>`).join('');
     if(filtroResumoCliente.size > 0) itens = itens.filter(r=>filtroResumoCliente.has(r.cliente));
   }else{
     campoFiltroCliente.style.display = 'none';
@@ -2805,7 +2819,7 @@ function renderResumo(){
     // meta mensal é cadastrada por cliente (Cadastros → Clientes) — compara
     // com o Valor Real já realizado no mês pra mostrar se já bateu ou não
     const metaPorCliente = {};
-    clientes.forEach(c=>{ metaPorCliente[c.nome] = Number(c.metaMensal)||0; });
+    clientesParaSelecao().forEach(c=>{ metaPorCliente[c.nome] = Number(c.metaMensal)||0; });
     const colunaMeta = (nome, v) => {
       if(!verValoresReal) return '';
       const meta = metaPorCliente[nome] || 0;
@@ -2894,7 +2908,7 @@ function renderFiltrosDashboard(){
   const isAtendente = conta && conta.perfil === 'ATENDENTE';
 
   document.getElementById('dashFiltroCliente').innerHTML = `<div class="chip ${dashFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
-    clientes.map(c=>`<div class="chip ${dashFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
+    clientesParaSelecao().map(c=>`<div class="chip ${dashFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
 
   const cardAt = document.getElementById('dashCardFiltroAtendente');
   cardAt.style.display = isAtendente ? 'none' : '';
@@ -3318,7 +3332,7 @@ function renderFiltrosGantt(){
 
   const elCliente = document.getElementById('ganttFiltroCliente');
   elCliente.innerHTML = `<div class="chip ${filtroGanttCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
-    clientes.map(c=>`<div class="chip ${filtroGanttCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
+    clientesParaSelecao().map(c=>`<div class="chip ${filtroGanttCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
 
   const elTipo = document.getElementById('ganttFiltroTipo');
   elTipo.innerHTML = `<div class="chip ${filtroGanttTipo.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
@@ -3580,7 +3594,7 @@ function gerarPdfAtendimento(){
 
 function renderRelatorioFiltros(){
   document.getElementById('relFiltroCliente').innerHTML = `<div class="chip ${relFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
-    clientes.map(c=>`<div class="chip ${relFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
+    clientesParaSelecao().map(c=>`<div class="chip ${relFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
   document.getElementById('relFiltroTipo').innerHTML = `<div class="chip ${relFiltroTipo.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
     tipos.map(t=>`<div class="chip ${relFiltroTipo.has(t.nome)?'on':''}" data-valor="${t.nome}">${labelTipo(t.nome)}</div>`).join('');
   document.getElementById('relFiltroStatus').innerHTML = `<div class="chip ${relFiltroStatus.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
@@ -4992,18 +5006,48 @@ function usarRelatorioPublicado(id){
   document.getElementById('cardPreviewRelatoriosPub').scrollIntoView({ behavior:'smooth' });
 }
 
-/* ---------- financeiro (lançamentos/faturas por cliente+mês) ---------- */
+/* ---------- financeiro (lançamentos/faturas por cliente+mês, RECEITA a
+   receber, e DESPESA/contas a pagar por fornecedor — mesma tabela,
+   diferenciada pelo campo "tipo") ---------- */
 let finAtendimentosSelecionados = new Set();
+let finFiltroTipo = new Set();
 let finFiltroCliente = new Set();
 let finFiltroStatus = new Set();
 let lancamentosCache = [];
 let finLancamentoEmFoco = null; // id do lançamento sendo baixado/editado no modal
+let finTipoLancamento = 'RECEITA'; // tipo escolhido no formulário de "Criar Lançamento"
 
 function popularClientesFinanceiro(){
   const sel = document.getElementById('fin_cliente');
   const atual = sel.value;
-  sel.innerHTML = clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  sel.innerHTML = clientesParaSelecao().map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
   if(atual && clientes.some(c=>c.nome===atual)) sel.value = atual;
+}
+
+function popularFornecedoresFinanceiro(){
+  const sel = document.getElementById('fin_fornecedor');
+  const atual = sel.value;
+  sel.innerHTML = fornecedoresParaSelecao().map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  if(atual && clientes.some(c=>c.nome===atual)) sel.value = atual;
+}
+
+// repopula a Categoria de acordo com o tipo escolhido (RECEITA/DESPESA) —
+// mesmo cadastro, filtrado
+function popularCategoriaFinanceiro(){
+  const sel = document.getElementById('fin_categoria');
+  const atual = sel.value;
+  const opcoes = categoriasFinanceiras.filter(c=>c.tipo===finTipoLancamento);
+  sel.innerHTML = `<option value="">(nenhuma)</option>` + opcoes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  if(atual && opcoes.some(c=>c.nome===atual)) sel.value = atual;
+}
+
+function selecionarTipoLancamento(tipo){
+  finTipoLancamento = tipo;
+  document.querySelectorAll('#finTipoLancamento .chip').forEach(c=>c.classList.toggle('on', c.dataset.tipo===tipo));
+  document.getElementById('finCamposReceita').style.display = tipo==='RECEITA' ? '' : 'none';
+  document.getElementById('finCamposDespesa').style.display = tipo==='DESPESA' ? '' : 'none';
+  document.getElementById('finLabelNotaFiscal').textContent = tipo==='DESPESA' ? 'Número do Documento/Boleto (opcional)' : 'Número da Nota Fiscal (opcional)';
+  popularCategoriaFinanceiro();
 }
 
 function popularMesesFinanceiro(){
@@ -5051,32 +5095,46 @@ function atualizarValorTotalFin(){
 }
 
 async function gerarLancamento(){
-  const cliente = document.getElementById('fin_cliente').value;
-  const mesReferencia = document.getElementById('fin_mes').value;
+  const tipo = finTipoLancamento;
   const dataVencimento = document.getElementById('fin_vencimento').value;
-  if(!cliente || !mesReferencia){ toast('Escolha cliente e mês'); return; }
   if(!dataVencimento){ toast('Informe a data de vencimento'); return; }
-  const atendimentoIds = [...finAtendimentosSelecionados];
-  if(atendimentoIds.length === 0){ toast('Marque ao menos um atendimento'); return; }
-  const valorTotal = atualizarValorTotalFin();
+
+  let cliente, mesReferencia, atendimentoIds = [], valorTotal;
+  if(tipo === 'RECEITA'){
+    cliente = document.getElementById('fin_cliente').value;
+    mesReferencia = document.getElementById('fin_mes').value;
+    if(!cliente || !mesReferencia){ toast('Escolha cliente e mês'); return; }
+    atendimentoIds = [...finAtendimentosSelecionados];
+    if(atendimentoIds.length === 0){ toast('Marque ao menos um atendimento'); return; }
+    valorTotal = atualizarValorTotalFin();
+  }else{
+    cliente = document.getElementById('fin_fornecedor').value;
+    valorTotal = Number(document.getElementById('fin_valor_despesa').value) || 0;
+    if(!cliente){ toast('Escolha o fornecedor'); return; }
+    if(valorTotal <= 0){ toast('Informe o valor da conta a pagar'); return; }
+  }
 
   const conta = contaAtual();
   const btn = document.getElementById('btnGerarLancamento');
   btn.disabled = true;
   try{
     const r = await api('criarLancamento', {
-      contaId: conta.id, cliente, mesReferencia, valorTotal, atendimentoIds, dataVencimento,
+      contaId: conta.id, tipo, cliente, mesReferencia, valorTotal, atendimentoIds, dataVencimento,
+      categoria: document.getElementById('fin_categoria').value,
+      dataEmissao: document.getElementById('fin_emissao').value,
       numeroNotaFiscal: document.getElementById('fin_nota_fiscal').value.trim(),
       historico: document.getElementById('fin_historico_novo').value.trim(),
       empresaId: empresaAtual ? empresaAtual.id : '',
     });
     if(!r.ok){ toast(r.erro || 'Não foi possível gerar o lançamento.'); return; }
     document.getElementById('fin_vencimento').value = '';
+    document.getElementById('fin_emissao').value = '';
     document.getElementById('fin_nota_fiscal').value = '';
     document.getElementById('fin_historico_novo').value = '';
+    if(tipo === 'DESPESA') document.getElementById('fin_valor_despesa').value = '';
     await carregarLancamentos();
     renderListaLancamentos();
-    toast('Lançamento gerado');
+    toast(tipo === 'DESPESA' ? 'Conta a pagar gerada' : 'Lançamento gerado');
   }catch(e){
     toast(e && e.message ? e.message : 'Não foi possível gerar o lançamento.');
   } finally {
@@ -5094,6 +5152,8 @@ async function carregarLancamentos(){
 }
 
 function renderFinFiltros(){
+  document.getElementById('finFiltroTipo').innerHTML = `<div class="chip ${finFiltroTipo.size===0?'on':''}" data-valor="TODOS">Receita e despesa</div>` +
+    [['RECEITA','Receita'],['DESPESA','Despesa']].map(([v,l])=>`<div class="chip ${finFiltroTipo.has(v)?'on':''}" data-valor="${v}">${l}</div>`).join('');
   document.getElementById('finFiltroCliente').innerHTML = `<div class="chip ${finFiltroCliente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
     clientes.map(c=>`<div class="chip ${finFiltroCliente.has(c.nome)?'on':''}" data-valor="${c.nome}">${c.nome}</div>`).join('');
   document.getElementById('finFiltroStatus').innerHTML = `<div class="chip ${finFiltroStatus.size===0?'on':''}" data-valor="TODOS">Todos status</div>` +
@@ -5103,6 +5163,7 @@ function renderFinFiltros(){
 function renderListaLancamentos(){
   const cont = document.getElementById('listaLancamentos');
   let itens = lancamentosCache.slice();
+  if(finFiltroTipo.size > 0) itens = itens.filter(l=>finFiltroTipo.has(l.tipo));
   if(finFiltroCliente.size > 0) itens = itens.filter(l=>finFiltroCliente.has(l.cliente));
   if(finFiltroStatus.size > 0) itens = itens.filter(l=>finFiltroStatus.has(l.status));
   const de = document.getElementById('fin_lista_de').value;
@@ -5114,35 +5175,48 @@ function renderListaLancamentos(){
 
   const fmtData = s => { if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; };
 
-  cont.innerHTML = itens.map(l=>`
+  cont.innerHTML = itens.map(l=>{
+    const despesa = l.tipo === 'DESPESA';
+    const rotuloDoc = despesa ? 'Doc.' : 'NF';
+    const infoLinha = despesa
+      ? [l.categoria, l.numeroNotaFiscal ? `${rotuloDoc} ${l.numeroNotaFiscal}` : ''].filter(Boolean).join(' · ') || 'Conta a pagar'
+      : `Referência: ${escaparHtml(l.mesReferencia)}${l.numeroNotaFiscal ? ' · NF ' + escaparHtml(l.numeroNotaFiscal) : ''}`;
+    return `
     <div class="fin-lancamento">
       <div class="fin-topo">
         <div>
-          <div class="fin-cliente">${escaparHtml(l.cliente)}</div>
-          <div class="fin-mes">Referência: ${escaparHtml(l.mesReferencia)}${l.numeroNotaFiscal ? ' · NF ' + escaparHtml(l.numeroNotaFiscal) : ''}</div>
+          <div class="fin-cliente">${despesa ? '🧾 ' : ''}${escaparHtml(l.cliente)}</div>
+          <div class="fin-mes">${infoLinha}</div>
         </div>
         <div style="text-align:right;">
-          <div class="fin-valor">${fmtMoeda(l.valorTotal)}</div>
+          <div class="fin-valor" style="${despesa ? 'color:var(--bad);' : ''}">${despesa ? '− ' : ''}${fmtMoeda(l.valorTotal)}</div>
           <span class="fin-status ${l.status}">${l.status}</span>
         </div>
       </div>
       <div class="fin-datas">
+        <div><b>Emissão</b>${fmtData(l.dataEmissao)}</div>
         <div><b>Vencimento</b>${fmtData(l.dataVencimento)}</div>
-        <div><b>Previsão de baixa</b>${fmtData(l.dataPrevisaoBaixa)}</div>
-        <div><b>Data de baixa</b>${fmtData(l.dataBaixa)}</div>
+        <div><b>${despesa ? 'Previsão de pagto.' : 'Previsão de baixa'}</b>${fmtData(l.dataPrevisaoBaixa)}</div>
+        <div><b>${despesa ? 'Data de pagamento' : 'Data de baixa'}</b>${fmtData(l.dataBaixa)}</div>
       </div>
       ${l.historico ? `<div class="fin-historico">${escaparHtml(l.historico)}</div>` : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
-        ${l.status === 'ABERTO' ? `<button class="primary" onclick="abrirModalBaixar('${l.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">Baixar</button>` : ''}
+        ${l.status === 'ABERTO' ? `<button class="primary" onclick="abrirModalBaixar('${l.id}')" style="flex:none;width:auto;padding:10px 18px;margin-top:0;">${despesa ? 'Marcar como pago' : 'Baixar'}</button>` : ''}
         <button class="ghost" onclick="abrirModalEditarLancamento('${l.id}')">Editar</button>
         ${l.status !== 'CANCELADO' ? `<button class="ghost" onclick="cancelarLancamentoUi('${l.id}')">Cancelar</button>` : ''}
         <button class="ghost" onclick="removerLancamentoUi('${l.id}')">Excluir</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function abrirModalBaixar(id){
   finLancamentoEmFoco = id;
+  const l = lancamentosCache.find(x=>x.id===id);
+  const despesa = l && l.tipo === 'DESPESA';
+  document.getElementById('fin_baixar_titulo').textContent = despesa ? 'Marcar conta como paga' : 'Dar baixa no lançamento';
+  document.getElementById('fin_baixar_texto').textContent = despesa ? 'Confirme a data em que o pagamento foi feito.' : 'Confirme a data em que o pagamento foi recebido.';
+  document.getElementById('fin_baixar_label_data').textContent = despesa ? 'Data de Pagamento' : 'Data de Baixa';
   document.getElementById('fin_data_baixa_input').value = new Date().toISOString().slice(0,10);
   document.getElementById('baixarLancamentoModal').classList.add('show');
 }
@@ -5166,6 +5240,16 @@ function abrirModalEditarLancamento(id){
   const l = lancamentosCache.find(x=>x.id===id);
   if(!l) return;
   finLancamentoEmFoco = id;
+  const despesa = l.tipo === 'DESPESA';
+  document.getElementById('fin_edit_titulo').textContent = despesa ? 'Editar conta a pagar' : 'Editar lançamento';
+  document.getElementById('fin_edit_label_nome').textContent = despesa ? 'Fornecedor' : 'Cliente';
+  document.getElementById('fin_edit_label_doc').textContent = despesa ? 'Número do Documento/Boleto' : 'Número da Nota Fiscal';
+  document.getElementById('fin_edit_cliente').value = l.cliente || '';
+  document.getElementById('fin_edit_valor').value = l.valorTotal || '';
+  const opcoesCategoria = categoriasFinanceiras.filter(c=>c.tipo===l.tipo);
+  document.getElementById('fin_edit_categoria').innerHTML = `<option value="">(nenhuma)</option>` + opcoesCategoria.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  document.getElementById('fin_edit_categoria').value = l.categoria || '';
+  document.getElementById('fin_edit_emissao').value = l.dataEmissao || '';
   document.getElementById('fin_edit_vencimento').value = l.dataVencimento || '';
   document.getElementById('fin_edit_previsao').value = l.dataPrevisaoBaixa || '';
   document.getElementById('fin_edit_nota_fiscal').value = l.numeroNotaFiscal || '';
@@ -5180,6 +5264,10 @@ async function confirmarEdicaoLancamento(){
   const conta = contaAtual();
   const r = await api('atualizarLancamento', {
     contaId: conta.id, id: finLancamentoEmFoco,
+    cliente: document.getElementById('fin_edit_cliente').value.trim(),
+    valorTotal: Number(document.getElementById('fin_edit_valor').value) || 0,
+    categoria: document.getElementById('fin_edit_categoria').value,
+    dataEmissao: document.getElementById('fin_edit_emissao').value,
     dataVencimento: document.getElementById('fin_edit_vencimento').value,
     dataPrevisaoBaixa: document.getElementById('fin_edit_previsao').value,
     numeroNotaFiscal: document.getElementById('fin_edit_nota_fiscal').value.trim(),
@@ -5552,16 +5640,23 @@ function renderResumoFinanceiro(){
   if(de) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento >= de);
   if(ate) itens = itens.filter(l=>l.dataVencimento && l.dataVencimento <= ate);
 
-  const somaPor = status => itens.filter(l=>l.status===status).reduce((s,l)=>s+Number(l.valorTotal), 0);
-  const recebido = somaPor('BAIXADO');
-  const aberto = somaPor('ABERTO');
-  const previsto = recebido + aberto; // total geral do período/filtro, independente de já ter sido baixado
+  const soma = (tipo, status) => itens.filter(l=>l.tipo===tipo && l.status===status).reduce((s,l)=>s+Number(l.valorTotal), 0);
+  const recebido = soma('RECEITA','BAIXADO');
+  const aReceber = soma('RECEITA','ABERTO');
+  const pago = soma('DESPESA','BAIXADO');
+  const aPagar = soma('DESPESA','ABERTO');
+  const saldo = recebido - pago; // só o que já entrou/saiu de fato, sem contar o que ainda está em aberto
 
   document.getElementById('finResumoBoxes').innerHTML = `
     <div class="summary">
-      <div class="box"><div class="k">Recebido (Baixado)</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
-      <div class="box"><div class="k">Em Aberto</div><div class="v" style="color:var(--accent)">${fmtMoeda(aberto)}</div></div>
-      <div class="box"><div class="k">Previsão Total</div><div class="v">${fmtMoeda(previsto)}</div></div>
+      <div class="box"><div class="k">Recebido</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
+      <div class="box"><div class="k">A Receber</div><div class="v" style="color:var(--accent)">${fmtMoeda(aReceber)}</div></div>
+      <div class="box"><div class="k">Pago</div><div class="v">${fmtMoeda(pago)}</div></div>
+      <div class="box"><div class="k">A Pagar</div><div class="v" style="color:var(--bad)">${fmtMoeda(aPagar)}</div></div>
+    </div>
+    <div class="saldo-box">
+      <div class="k">Saldo do período (recebido − pago)</div>
+      <div class="v" style="color:${saldo>=0?'var(--ok)':'var(--bad)'};">${saldo<0?'− ':''}${fmtMoeda(Math.abs(saldo))}</div>
     </div>
   `;
 }
@@ -5594,11 +5689,11 @@ function popularSelectsAgenda(){
   const conta = contaAtual();
   const selCliente = document.getElementById('ag_cliente');
   const valorAtualCliente = selCliente.value;
-  selCliente.innerHTML = `<option value="">(nenhum)</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  selCliente.innerHTML = `<option value="">(nenhum)</option>` + clientesParaSelecao().map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
   if([...selCliente.options].some(o=>o.value===valorAtualCliente)) selCliente.value = valorAtualCliente;
 
   const selClienteEdit = document.getElementById('ag_edit_cliente');
-  selClienteEdit.innerHTML = `<option value="">(nenhum)</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  selClienteEdit.innerHTML = `<option value="">(nenhum)</option>` + clientesParaSelecao().map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
 
   const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
   const isAdmin = ehAdminEfetivo(conta);
@@ -6012,7 +6107,7 @@ function exportarCsv(){
 
 /* ================= CADASTROS (somente ADMIN) ================= */
 function renderCadastrosTudo(){
-  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListSegmentos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso(); renderListEmpresas();
+  renderListAtendentes(); renderListClientes(); renderListTipos(); renderListSegmentos(); renderListModulos(); renderListSubModulos(); renderListStatus(); renderValoresForm(); renderTabelaValores(); renderListUsuarios(); renderListPerfisAcesso(); renderListEmpresas(); renderListCategoriasFinanceiras();
   renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
   renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
   renderEmpresasCheckboxes('at_empresas', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.empresaIds||[]) : (empresaAtual ? [empresaAtual.id] : []));
@@ -7226,8 +7321,10 @@ function renderListClientes(){
   const mostrarEmpresa = empresas.length > 1;
   el.innerHTML = clientes.map(c=>{
     const nomeEmpresa = mostrarEmpresa ? empresas.find(e=>String(e.id)===String(c.empresaId))?.nome : '';
+    const tipoLabel = { CLIENTE:'Cliente', FORNECEDOR:'Fornecedor', AMBOS:'Cliente e fornecedor' }[c.tipo] || 'Cliente';
     return `
     <div class="cad-item"><div class="info"><b>${escaparHtml(c.nome)}</b>
+      <span>${tipoLabel}</span>
       ${c.nomeFantasia ? `<span>${escaparHtml(c.nomeFantasia)}</span>` : ''}
       ${c.cnpj ? `<span>CNPJ: ${escaparHtml(c.cnpj)}</span>` : `<span style="color:var(--bad);">Sem CNPJ cadastrado</span>`}
       ${nomeEmpresa ? `<span>Empresa: ${escaparHtml(nomeEmpresa)}</span>` : ''}
@@ -7244,6 +7341,7 @@ function editarCliente(id){
   if(!c) return;
   editandoClienteId = id;
   document.getElementById('cl_nome').value = c.nome;
+  document.getElementById('cl_tipo').value = c.tipo || 'CLIENTE';
   document.getElementById('cl_cnpj').value = c.cnpj || '';
   document.getElementById('cl_nome_fantasia').value = c.nomeFantasia || '';
   document.getElementById('cl_meta_mensal').value = c.metaMensal ? c.metaMensal : '';
@@ -7255,6 +7353,7 @@ function editarCliente(id){
 function cancelarEdicaoCliente(){
   editandoClienteId = null;
   document.getElementById('cl_nome').value = '';
+  document.getElementById('cl_tipo').value = 'CLIENTE';
   document.getElementById('cl_cnpj').value = '';
   document.getElementById('cl_nome_fantasia').value = '';
   document.getElementById('cl_meta_mensal').value = '';
@@ -7285,7 +7384,7 @@ function extrairIdYoutube(url){
 function popularSelectsVideo(){
   const selCliente = document.getElementById('vid_cliente');
   const atual = selCliente.value;
-  selCliente.innerHTML = `<option value="">Todos os clientes</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  selCliente.innerHTML = `<option value="">Todos os clientes</option>` + clientesParaSelecao().map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
   if([...selCliente.options].some(o=>o.value===atual)) selCliente.value = atual;
 
   const selModulo = document.getElementById('vid_modulo');
@@ -7998,7 +8097,7 @@ function popularSelectsOrcamento(){
   const conta = contaAtual();
   const selCliente = document.getElementById('orc_cliente');
   const atual = selCliente.value;
-  selCliente.innerHTML = clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  selCliente.innerHTML = clientesParaSelecao().map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
   if([...selCliente.options].some(o=>o.value===atual)) selCliente.value = atual;
 
   const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
@@ -8467,6 +8566,21 @@ async function removerSegmento(id){
   toast('Segmento removido');
 }
 
+function renderListCategoriasFinanceiras(){
+  const el = document.getElementById('listCategoriasFinanceiras');
+  if(!el) return;
+  if(categoriasFinanceiras.length===0){ el.innerHTML = `<div class="empty">Nenhuma categoria cadastrada.</div>`; return; }
+  el.innerHTML = categoriasFinanceiras.map(c=>`
+    <div class="cad-item"><div class="info"><b>${escaparHtml(c.nome)}</b><span>${c.tipo==='RECEITA'?'Receita':'Despesa'}</span></div>
+    <div class="acts"><button class="danger" onclick="pedirConfirmacao('Remover categoria?','Remove das opções futuras de lançamento.', ()=>removerCategoriaFinanceira('${c.id}'))">Remover</button></div></div>`).join('');
+}
+async function removerCategoriaFinanceira(id){
+  const r = await api('removerCategoriaFinanceira', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  toast('Categoria removida');
+}
+
 let editandoModuloId = null;
 function popularSelectSegmentoModulo(valorAtual){
   document.getElementById('md_segmento').innerHTML = `<option value="">(nenhum)</option>` +
@@ -8669,7 +8783,7 @@ function popularSelectsProjeto(){
   const conta = contaAtual();
   const selCliente = document.getElementById('proj_cliente');
   const clienteAtual = selCliente.value;
-  selCliente.innerHTML = `<option value="">(nenhum)</option>` + clientes.map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
+  selCliente.innerHTML = `<option value="">(nenhum)</option>` + clientesParaSelecao().map(c=>`<option value="${escaparHtml(c.nome)}">${escaparHtml(c.nome)}</option>`).join('');
   if([...selCliente.options].some(o=>o.value===clienteAtual)) selCliente.value = clienteAtual;
 
   const atendentesNomes = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
@@ -11659,7 +11773,7 @@ function colunaInfo(key){ return COLUNAS_RELATORIO.find(c=>c.key===key); }
 
 function renderValoresForm(){
   document.getElementById('vl_atendente').innerHTML = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
-  document.getElementById('vl_cliente').innerHTML = clientes.map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+  document.getElementById('vl_cliente').innerHTML = clientesParaSelecao().map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
   document.getElementById('vl_tipo').innerHTML = tipos.map(t=>`<option value="${t.id}">${t.nome}</option>`).join('');
 
   const atendentes = contas.filter(c=>c.perfil==='ATENDENTE');
@@ -11715,7 +11829,7 @@ function normalizarBuscaTexto(s){
   return String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 }
 function renderListUsuarios(){
-  document.getElementById('us_cliente').innerHTML = clientes.map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+  document.getElementById('us_cliente').innerHTML = clientesParaSelecao().map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
   let lista = contas.filter(c=>c.perfil==='USUARIO');
   const termo = normalizarBuscaTexto(usuariosBusca.trim());
   if(termo){
@@ -12529,7 +12643,9 @@ function goView(name){
   if(name==='cubo'){ renderTodosSeletoresCubo(); renderCuboPerfilSelect(); renderCubo(); }
   if(name==='financeiro'){
     goFinSub(primeiraSubAbaVisivel('financeiro', finAba));
+    selecionarTipoLancamento('RECEITA');
     popularClientesFinanceiro();
+    popularFornecedoresFinanceiro();
     popularMesesFinanceiro();
     renderFinAtendimentosLista();
     renderFinFiltros();
@@ -12875,6 +12991,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     atualizarValorTotalFin();
   });
   document.getElementById('btnGerarLancamento').addEventListener('click', gerarLancamento);
+  document.getElementById('finTipoLancamento').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    selecionarTipoLancamento(chip.dataset.tipo);
+  });
+  document.getElementById('finFiltroTipo').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(finFiltroTipo, chip.dataset.valor);
+    renderFinFiltros(); renderListaLancamentos();
+  });
   document.getElementById('finFiltroCliente').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(finFiltroCliente, chip.dataset.valor);
@@ -13566,6 +13691,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
+    const tipo = document.getElementById('cl_tipo').value;
     const cnpj = document.getElementById('cl_cnpj').value.trim();
     const nomeFantasia = document.getElementById('cl_nome_fantasia').value.trim();
     const metaMensal = Number(document.getElementById('cl_meta_mensal').value) || 0;
@@ -13574,8 +13700,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const editando = !!editandoClienteId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId })
-      : await api('addCliente', { contaId, nome: nome.toUpperCase(), cnpj, nomeFantasia, metaMensal, empresaId });
+      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId })
+      : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
@@ -13601,6 +13727,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('sg_nome').value='';
     await carregarTudo(); renderListSegmentos(); popularSelects();
     toast('Segmento adicionado');
+  });
+
+  document.getElementById('btnAddCategoriaFinanceira').addEventListener('click', async ()=>{
+    const nome = document.getElementById('cf_nome').value.trim();
+    const tipo = document.getElementById('cf_tipo').value;
+    if(!nome){ toast('Informe o nome da categoria'); return; }
+    const r = await api('addCategoriaFinanceira', { contaId: contaAtual().id, nome, tipo, empresaId: empresaAtual ? empresaAtual.id : '' });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    document.getElementById('cf_nome').value='';
+    await carregarTudo(); renderListCategoriasFinanceiras();
+    toast('Categoria adicionada');
   });
 
   document.getElementById('btnAddModulo').addEventListener('click', async ()=>{

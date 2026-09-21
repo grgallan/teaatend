@@ -265,6 +265,9 @@
   .summary .box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px;}
   .summary .box .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
   .summary .box .v{font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .saldo-box{margin-top:4px;padding:16px;border-radius:var(--radius);background:var(--accent-dim);border:1px solid color-mix(in oklch, var(--accent) 30%, transparent);}
+  .saldo-box .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600;}
+  .saldo-box .v{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;}
 
   .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px;}
   .util-clicavel{cursor:pointer;}
@@ -945,7 +948,7 @@
   .fin-lancamento .fin-cliente{font-weight:700;font-size:14px;}
   .fin-lancamento .fin-mes{color:var(--muted);font-size:11.5px;}
   .fin-lancamento .fin-valor{font-size:17px;font-weight:800;color:var(--accent);}
-  .fin-lancamento .fin-datas{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11.5px;margin:8px 0;}
+  .fin-lancamento .fin-datas{display:grid;grid-template-columns:repeat(auto-fit,minmax(78px,1fr));gap:8px;font-size:11.5px;margin:8px 0;}
   .fin-lancamento .fin-datas b{display:block;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em;}
   .fin-lancamento .fin-historico{font-size:12px;color:var(--muted);background:var(--panel-2);border-radius:8px;padding:8px 10px;margin:6px 0;}
   .fin-status{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;white-space:nowrap;}
@@ -1605,17 +1608,36 @@
     <div class="fin-sub-view" id="fin-sub-lancar">
       <div class="card">
         <h2>Gerar novo lançamento</h2>
-        <div class="row">
-          <div class="field"><label>Cliente</label><select id="fin_cliente"></select></div>
-          <div class="field"><label>Mês de referência</label><select id="fin_mes"></select></div>
+        <div class="filters" id="finTipoLancamento" style="margin-bottom:14px;">
+          <div class="chip on" data-tipo="RECEITA">💰 Receita (a receber)</div>
+          <div class="chip" data-tipo="DESPESA">🧾 Despesa (a pagar)</div>
         </div>
-        <div id="finAtendimentosLista" style="margin:10px 0;"></div>
-        <div class="field"><label>Valor total (soma do Total Real dos marcados)</label>
-          <div id="finValorTotal" style="font-size:20px;font-weight:800;color:var(--accent);padding:8px 0;">R$ 0,00</div>
+
+        <div id="finCamposReceita">
+          <div class="row">
+            <div class="field"><label>Cliente</label><select id="fin_cliente"></select></div>
+            <div class="field"><label>Mês de referência</label><select id="fin_mes"></select></div>
+          </div>
+          <div id="finAtendimentosLista" style="margin:10px 0;"></div>
+          <div class="field"><label>Valor total (soma do Total Real dos marcados)</label>
+            <div id="finValorTotal" style="font-size:20px;font-weight:800;color:var(--accent);padding:8px 0;">R$ 0,00</div>
+          </div>
+        </div>
+
+        <div id="finCamposDespesa" style="display:none;">
+          <div class="row">
+            <div class="field"><label>Fornecedor</label><select id="fin_fornecedor"></select></div>
+            <div class="field"><label>Valor</label><input type="number" step="0.01" min="0" id="fin_valor_despesa" placeholder="Ex: 3200,00"></div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field"><label>Categoria <span style="font-weight:400;">(opcional)</span></label><select id="fin_categoria"><option value="">(nenhuma)</option></select></div>
+          <div class="field"><label>Data de Emissão <span style="font-weight:400;">(opcional)</span></label><input type="date" id="fin_emissao"></div>
         </div>
         <div class="row">
           <div class="field"><label>Data de Vencimento</label><input type="date" id="fin_vencimento"></div>
-          <div class="field"><label>Número da Nota Fiscal (opcional)</label><input type="text" id="fin_nota_fiscal" placeholder="Ex: 1234"></div>
+          <div class="field"><label id="finLabelNotaFiscal">Número da Nota Fiscal (opcional)</label><input type="text" id="fin_nota_fiscal" placeholder="Ex: 1234"></div>
         </div>
         <div class="field"><label>Histórico (opcional)</label><textarea id="fin_historico_novo" placeholder="Observações sobre esse lançamento"></textarea></div>
         <button class="primary" id="btnGerarLancamento" style="margin-bottom:4px;">Gerar Lançamento</button>
@@ -1657,7 +1679,8 @@
     <div class="fin-sub-view" id="fin-sub-lista" style="display:none;">
       <div class="card">
         <h2>Filtrar lançamentos</h2>
-        <div class="filters" id="finFiltroCliente"></div>
+        <div class="filters" id="finFiltroTipo"></div>
+        <div class="filters" id="finFiltroCliente" style="margin-top:8px;"></div>
         <div class="filters" id="finFiltroStatus" style="margin-top:8px;"></div>
         <div class="row" style="margin-top:10px;">
           <div class="field" style="margin-bottom:0;"><label>Vencimento de</label><input type="date" id="fin_lista_de"></div>
@@ -2117,13 +2140,14 @@
   <section class="view" id="view-cadastros">
     <div class="subtabs" id="cadSubtabs">
       <div class="subtab active" data-sub="atendentes">Atendentes</div>
-      <div class="subtab" data-sub="clientes">Clientes</div>
+      <div class="subtab" data-sub="clientes">Clientes/Fornec.</div>
       <div class="subtab" data-sub="tipos">Tipos</div>
       <div class="subtab" data-sub="segmentos">Segmentos</div>
       <div class="subtab" data-sub="modulos">Módulos</div>
       <div class="subtab" data-sub="submodulos">Rotinas</div>
       <div class="subtab" data-sub="status">Status</div>
       <div class="subtab" data-sub="valores">Valores</div>
+      <div class="subtab" data-sub="categoriasfinanceiras">Categorias Financeiras</div>
       <div class="subtab" data-sub="usuarios">Usuários (login)</div>
       <div class="subtab" data-sub="perfisacesso">Perfis de Acesso</div>
       <div class="subtab" data-sub="empresas">Empresas</div>
@@ -2164,8 +2188,17 @@
 
     <div class="cad-view" id="cad-clientes" style="display:none;">
       <div class="card">
-        <h2>Novo cliente</h2>
-        <div class="field"><label>Nome do cliente</label><input type="text" id="cl_nome"></div>
+        <h2>Novo cliente / fornecedor</h2>
+        <div class="row">
+          <div class="field"><label>Nome</label><input type="text" id="cl_nome"></div>
+          <div class="field"><label>Tipo</label>
+            <select id="cl_tipo">
+              <option value="CLIENTE">Cliente</option>
+              <option value="FORNECEDOR">Fornecedor</option>
+              <option value="AMBOS">Ambos</option>
+            </select>
+          </div>
+        </div>
         <div class="row">
           <div class="field"><label>CNPJ</label><input type="text" id="cl_cnpj" placeholder="Só números ou formatado, tanto faz"></div>
           <div class="field"><label>Nome Fantasia</label><input type="text" id="cl_nome_fantasia"></div>
@@ -2270,6 +2303,23 @@
         </p>
         <button class="primary" id="btnRecalcularValores">Recalcular valores de todos os atendimentos</button>
       </div>
+    </div>
+
+    <div class="cad-view" id="cad-categoriasfinanceiras" style="display:none;">
+      <div class="card">
+        <h2>Nova categoria financeira</h2>
+        <div class="row">
+          <div class="field"><label>Nome</label><input type="text" id="cf_nome" placeholder="Ex: Aluguel, Consultoria..."></div>
+          <div class="field"><label>Tipo</label>
+            <select id="cf_tipo">
+              <option value="DESPESA">Despesa</option>
+              <option value="RECEITA">Receita</option>
+            </select>
+          </div>
+        </div>
+        <button class="primary" id="btnAddCategoriaFinanceira">Adicionar categoria</button>
+      </div>
+      <div id="listCategoriasFinanceiras"></div>
     </div>
 
     <div class="cad-view" id="cad-usuarios" style="display:none;">
@@ -2900,9 +2950,9 @@
 
 <div class="modal-bg" id="baixarLancamentoModal">
   <div class="modal">
-    <h3>Dar baixa no lançamento</h3>
-    <p style="color:var(--muted);font-size:13px;margin:4px 0 16px;">Confirme a data em que o pagamento foi recebido.</p>
-    <div class="field"><label>Data de Baixa</label><input type="date" id="fin_data_baixa_input"></div>
+    <h3 id="fin_baixar_titulo">Dar baixa no lançamento</h3>
+    <p id="fin_baixar_texto" style="color:var(--muted);font-size:13px;margin:4px 0 16px;">Confirme a data em que o pagamento foi recebido.</p>
+    <div class="field"><label id="fin_baixar_label_data">Data de Baixa</label><input type="date" id="fin_data_baixa_input"></div>
     <div class="modal-actions" style="margin-top:14px;">
       <button class="cancel" id="fin_baixar_cancelar">Cancelar</button>
       <button class="confirm neutro" id="fin_baixar_confirmar">Confirmar baixa</button>
@@ -2962,12 +3012,20 @@
 
 <div class="modal-bg" id="editarLancamentoModal">
   <div class="modal">
-    <h3>Editar lançamento</h3>
+    <h3 id="fin_edit_titulo">Editar lançamento</h3>
+    <div class="row">
+      <div class="field"><label id="fin_edit_label_nome">Cliente</label><input type="text" id="fin_edit_cliente"></div>
+      <div class="field"><label>Valor</label><input type="number" step="0.01" min="0" id="fin_edit_valor"></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Categoria</label><select id="fin_edit_categoria"><option value="">(nenhuma)</option></select></div>
+      <div class="field"><label>Data de Emissão</label><input type="date" id="fin_edit_emissao"></div>
+    </div>
     <div class="row">
       <div class="field"><label>Data de Vencimento</label><input type="date" id="fin_edit_vencimento"></div>
       <div class="field"><label>Previsão de Baixa</label><input type="date" id="fin_edit_previsao"></div>
     </div>
-    <div class="field"><label>Número da Nota Fiscal</label><input type="text" id="fin_edit_nota_fiscal"></div>
+    <div class="field"><label id="fin_edit_label_doc">Número da Nota Fiscal</label><input type="text" id="fin_edit_nota_fiscal"></div>
     <div class="field"><label>Histórico</label><textarea id="fin_edit_historico"></textarea></div>
     <div class="modal-actions" style="margin-top:14px;">
       <button class="cancel" id="fin_editar_cancelar">Cancelar</button>
