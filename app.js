@@ -5017,19 +5017,53 @@ let finTipoLancamento = 'RECEITA'; // tipo escolhido no formulário de "Criar La
 // colunas da tabela de Lançamentos (visão em tabela, igual Atendimentos,
 // com célula editável estilo Tarefas do Projeto)
 const LANC_COLUNAS = [
-  { key:'tipo', label:'Tipo', filtravel:true, agrupaComo:'tipo', fixa:true, largura:'7%' },
-  { key:'cliente', label:'Cliente/Fornecedor', filtravel:true, agrupaComo:'cliente', fixa:true, largura:'15%' },
-  { key:'categoria', label:'Categoria', filtravel:true, agrupaComo:'categoria', largura:'10%' },
-  { key:'valor', label:'Valor', num:true, fixa:true, largura:'9%' },
-  { key:'emissao', label:'Emissão', largura:'8%' },
-  { key:'vencimento', label:'Vencimento', fixa:true, largura:'8%' },
-  { key:'previsao', label:'Previsão', largura:'8%' },
-  { key:'baixa', label:'Baixa/Pagto.', largura:'8%' },
-  { key:'documento', label:'Documento', largura:'9%' },
-  { key:'historico', label:'Histórico', largura:'10%' },
-  { key:'status', label:'Status', filtravel:true, agrupaComo:'status', fixa:true, largura:'8%' },
-  { key:'acoes', label:'', fixa:true, largura:'110px' },
+  { key:'tipo', label:'Tipo', filtravel:true, agrupaComo:'tipo', fixa:true, largura:90 },
+  { key:'cliente', label:'Cliente/Fornecedor', filtravel:true, agrupaComo:'cliente', fixa:true, largura:200 },
+  { key:'categoria', label:'Categoria', filtravel:true, agrupaComo:'categoria', largura:140 },
+  { key:'valor', label:'Valor', num:true, fixa:true, largura:110 },
+  { key:'emissao', label:'Emissão', largura:100 },
+  { key:'vencimento', label:'Vencimento', fixa:true, largura:100 },
+  { key:'previsao', label:'Previsão', largura:100 },
+  { key:'baixa', label:'Baixa/Pagto.', largura:110 },
+  { key:'documento', label:'Documento', largura:120 },
+  { key:'historico', label:'Histórico', largura:160 },
+  { key:'status', label:'Status', filtravel:true, agrupaComo:'status', fixa:true, largura:100 },
+  { key:'acoes', label:'', fixa:true, largura:90, semResize:true },
 ];
+// larguras de coluna redimensionáveis (arrastar a borda direita do
+// cabeçalho) — mesmo mecanismo de projIniciarResizeColuna (Tarefas do
+// Projeto): guarda px por coluna, Set + localStorage
+let finColunaLarguras = {};
+try{ finColunaLarguras = JSON.parse(localStorage.getItem('finColunaLarguras_v1')||'{}'); }catch(e){ finColunaLarguras = {}; }
+function finLarguraColuna(col){
+  return finColunaLarguras[col.key] || col.largura;
+}
+let finResizeEstado = null;
+function finIniciarResizeColuna(e, key){
+  e.preventDefault();
+  e.stopPropagation();
+  const col = LANC_COLUNAS.find(c=>c.key===key);
+  const idx = finColunasVisiveis().findIndex(c=>c.key===key) + 1; // +1 = coluna de seleção
+  finResizeEstado = { key, xInicial: e.clientX, larguraInicial: finLarguraColuna(col), idx };
+  document.addEventListener('mousemove', finMoverResizeColuna);
+  document.addEventListener('mouseup', finFinalizarResizeColuna, { once:true });
+}
+function finMoverResizeColuna(e){
+  if(!finResizeEstado) return;
+  const delta = e.clientX - finResizeEstado.xInicial;
+  const nova = Math.max(40, finResizeEstado.larguraInicial + delta);
+  const colEl = document.querySelectorAll('#finTabelaColgroup col')[finResizeEstado.idx];
+  if(colEl) colEl.style.width = nova + 'px';
+}
+function finFinalizarResizeColuna(e){
+  document.removeEventListener('mousemove', finMoverResizeColuna);
+  if(!finResizeEstado) return;
+  const delta = e.clientX - finResizeEstado.xInicial;
+  const nova = Math.max(40, finResizeEstado.larguraInicial + delta);
+  finColunaLarguras[finResizeEstado.key] = nova;
+  try{ localStorage.setItem('finColunaLarguras_v1', JSON.stringify(finColunaLarguras)); }catch(e){}
+  finResizeEstado = null;
+}
 // colunas opcionais visíveis (seletor "⚙ Colunas") — mesmo padrão de
 // projColunasOpcionaisVisiveis (Tarefas do Projeto): Set + localStorage.
 // Colunas "fixa" nunca aparecem no seletor, sempre ficam visíveis.
@@ -5229,39 +5263,55 @@ function finCelulaFiltroColuna(c){
     <span onclick="finToggleFiltroColuna('${c.key}', this)" style="cursor:pointer;${ativo ? 'color:var(--accent);' : ''}" title="Filtrar ${escaparHtml(c.label)}">▾</span>
   </span>`;
 }
+function finRenderColgroup(colunas){
+  return `<col style="width:26px;">${colunas.map(c=>`<col style="width:${finLarguraColuna(c)}px;">`).join('')}`;
+}
 function finRenderCabecalho(colunas){
   const chkTodos = `<th style="width:26px;"><input type="checkbox" id="finChkTodos" onchange="finToggleSelecionarTodos(this.checked)"></th>`;
   return `<tr>${chkTodos}${colunas.map(c=>{
-    const estilo = `${c.num ? 'text-align:right;' : ''}${c.largura ? `width:${c.largura};` : ''}`;
+    const estilo = `${c.num ? 'text-align:right;' : ''}position:relative;`;
     const filtro = c.filtravel ? finCelulaFiltroColuna(c) : '';
-    return `<th style="${estilo}">${escaparHtml(c.label)}${filtro}</th>`;
+    const resizer = c.semResize ? '' : `<span class="proj-col-resizer" onmousedown="finIniciarResizeColuna(event,'${c.key}')"></span>`;
+    return `<th style="${estilo}">${escaparHtml(c.label)}${filtro}${resizer}</th>`;
   }).join('')}</tr>`;
 }
-// menu de ações da tabela de Lançamentos — mesmo padrão do
-// projQuadroCelulaAcoes (Quadro/Tarefas do Projeto): 1 botão (⋮) que abre
-// um menu com as ações, em vez de vários botões-ícone lado a lado
-let finMenuAcoesAberto = null;
-function finAlternarMenuAcoes(id){
-  finMenuAcoesAberto = (finMenuAcoesAberto === id) ? null : id;
-  renderListaLancamentos();
-}
+// menu de ações da tabela de Lançamentos — 1 botão (⋮) que abre um menu
+// com as ações. Usa um portal fixo fora da tabela (mesmo mecanismo de
+// #acoesMenuPortal/toggleAcoesMenu), e NÃO o padrão de
+// projQuadroCelulaAcoes (menu position:absolute dentro da própria célula):
+// aqui a tabela fica dentro de um wrapper com overflow-x:auto, que corta/
+// rola um menu absoluto internamente — por isso precisa ser um portal
+// position:fixed, posicionado via getBoundingClientRect().
 function finFecharMenuAcoes(){
-  finMenuAcoesAberto = null;
-  renderListaLancamentos();
+  const portal = document.getElementById('finAcoesMenuPortal');
+  if(portal){ portal.classList.remove('show'); portal.dataset.abertoPara = ''; portal.innerHTML = ''; }
+}
+function finAlternarMenuAcoes(id, btnEl){
+  const portal = document.getElementById('finAcoesMenuPortal');
+  if(!portal || !btnEl) return;
+  const jaAbertoParaEsse = portal.classList.contains('show') && portal.dataset.abertoPara === String(id);
+  finFecharMenuAcoes();
+  if(jaAbertoParaEsse) return;
+  const l = lancamentosCache.find(x=>x.id===id);
+  if(!l) return;
+  const despesa = l.tipo === 'DESPESA';
+  portal.innerHTML = `
+    ${l.status==='ABERTO' ? `<div class="acoes-menu-item" onclick="finFecharMenuAcoes();abrirModalBaixar('${id}')">${despesa?'💰 Marcar como pago':'✓ Baixar'}</div>` : ''}
+    <div class="acoes-menu-item" onclick="finFecharMenuAcoes();abrirModalDuplicar('${id}')">⧉ Duplicar</div>
+    ${l.status!=='CANCELADO' ? `<div class="acoes-menu-item" onclick="finFecharMenuAcoes();cancelarLancamentoUi('${id}')">✕ Cancelar</div>` : ''}
+    <div class="acoes-menu-item danger" onclick="finFecharMenuAcoes();removerLancamentoUi('${id}')">🗑 Excluir</div>
+  `;
+  portal.dataset.abertoPara = String(id);
+  const r = btnEl.getBoundingClientRect();
+  portal.style.left = '';
+  portal.style.top = '';
+  portal.style.right = `${window.innerWidth - r.right}px`;
+  portal.style.bottom = `${window.innerHeight - r.top + 4}px`;
+  portal.classList.add('show');
 }
 function finCelulaAcoes(l){
-  const despesa = l.tipo === 'DESPESA';
-  const aberto = finMenuAcoesAberto === l.id;
-  return `<td class="fin-tabela-acoes proj-td-sem-clip">
-    <div class="proj-quadro-menu-wrap">
-      <button type="button" class="ghost proj-quadro-menu-btn" title="Ações" onclick="event.stopPropagation();finAlternarMenuAcoes('${l.id}')">⋮</button>
-      ${aberto ? `<div class="proj-quadro-menu-acoes">
-        ${l.status==='ABERTO' ? `<button type="button" onclick="finFecharMenuAcoes();abrirModalBaixar('${l.id}')">${despesa?'💰 Marcar como pago':'✓ Baixar'}</button>` : ''}
-        <button type="button" onclick="finFecharMenuAcoes();abrirModalDuplicar('${l.id}')">⧉ Duplicar</button>
-        ${l.status!=='CANCELADO' ? `<button type="button" onclick="finFecharMenuAcoes();cancelarLancamentoUi('${l.id}')">✕ Cancelar</button>` : ''}
-        <button type="button" class="danger" onclick="finFecharMenuAcoes();removerLancamentoUi('${l.id}')">🗑 Excluir</button>
-      </div>` : ''}
-    </div>
+  return `<td class="fin-tabela-acoes">
+    <button type="button" class="ghost" title="Ações" onclick="event.stopPropagation();finAlternarMenuAcoes('${l.id}', this)">⋮</button>
   </td>`;
 }
 // dispatcher de célula — mesmo espírito de projTarefaCelulaHtml: 1 função
@@ -5466,12 +5516,23 @@ function renderResumoListaLancamentos(itens){
   const pago = soma('DESPESA','BAIXADO');
   const aPagar = soma('DESPESA','ABERTO');
   const saldo = recebido - pago;
+  // previsto = ainda em aberto, mas já com uma Previsão de Baixa informada
+  // (data prevista de quando vai ser recebido/pago)
+  const previstoReceber = itens.filter(l=>l.tipo==='RECEITA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
+  const previstoPagar = itens.filter(l=>l.tipo==='DESPESA' && l.status==='ABERTO' && l.dataPrevisaoBaixa).reduce((s,l)=>s+Number(l.valorTotal), 0);
   cont.innerHTML = `
     <div class="box"><div class="k">Recebido</div><div class="v" style="color:var(--ok)">${fmtMoeda(recebido)}</div></div>
     <div class="box"><div class="k">A Receber</div><div class="v" style="color:var(--accent)">${fmtMoeda(aReceber)}</div></div>
     <div class="box"><div class="k">Pago</div><div class="v">${fmtMoeda(pago)}</div></div>
     <div class="box"><div class="k">A Pagar</div><div class="v" style="color:var(--bad)">${fmtMoeda(aPagar)}</div></div>
     <div class="box"><div class="k">Saldo (recebido − pago)</div><div class="v" style="color:${saldo>=0?'var(--ok)':'var(--bad)'};">${saldo<0?'− ':''}${fmtMoeda(Math.abs(saldo))}</div></div>
+    <div class="saldo-box" style="grid-column:1 / -1;">
+      <div class="k">Previsto pela Previsão de Baixa (ainda em aberto)</div>
+      <div style="display:flex;gap:32px;flex-wrap:wrap;margin-top:2px;">
+        <div><div style="font-size:11px;color:var(--muted);">A Receber</div><div class="v" style="color:var(--accent);">${fmtMoeda(previstoReceber)}</div></div>
+        <div><div style="font-size:11px;color:var(--muted);">A Pagar</div><div class="v" style="color:var(--bad);">${fmtMoeda(previstoPagar)}</div></div>
+      </div>
+    </div>
   `;
 }
 function renderListaLancamentos(){
@@ -5501,6 +5562,7 @@ function renderListaLancamentos(){
     <div class="card" style="padding:0;">
       <div style="overflow-x:auto;">
         <table class="lista-tabela fin-tabela">
+          <colgroup id="finTabelaColgroup">${finRenderColgroup(colunasVisiveis)}</colgroup>
           <thead>${finRenderCabecalho(colunasVisiveis)}</thead>
           <tbody>${corpo}</tbody>
         </table>
@@ -13955,10 +14017,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
   });
   document.addEventListener('click', e=>{
-    if(e.target.closest('.proj-quadro-menu-wrap')) return;
-    if(projQuadroMenuAcoesAberto!==null) projQuadroFecharMenuAcoes();
-    if(projQuadroRecursoPickerAberto!==null) projQuadroFecharPickerRecursos();
-    if(finMenuAcoesAberto!==null) finFecharMenuAcoes();
+    if(!e.target.closest('.proj-quadro-menu-wrap')){
+      if(projQuadroMenuAcoesAberto!==null) projQuadroFecharMenuAcoes();
+      if(projQuadroRecursoPickerAberto!==null) projQuadroFecharPickerRecursos();
+    }
+    if(!e.target.closest('#finAcoesMenuPortal')) finFecharMenuAcoes();
   });
   document.getElementById('btnProjTarefasPdf').addEventListener('click', gerarPdfTarefasProjeto);
   document.getElementById('btnProjTarefasExcel').addEventListener('click', gerarExcelTarefasProjeto);
