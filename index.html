@@ -1690,17 +1690,16 @@
 
     <div class="fin-sub-view" id="fin-sub-lista" style="display:none;">
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
-          <div>
-            <h2 style="margin:0;">Lançamentos</h2>
-            <p style="color:var(--muted);font-size:11.5px;margin:4px 0 0;">Clique no ▾ de uma coluna pra filtrar por ela. As células são editáveis direto na tabela.</p>
-          </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+          <button type="button" class="ghost" id="btnFinNovoLancamento" style="width:auto;padding:8px 14px;">+ Novo Lançamento</button>
           <div style="position:relative;">
             <button type="button" class="ghost" id="btnFinColunas" style="width:auto;padding:8px 14px;">⚙ Colunas</button>
             <div id="finColunasPainel" class="proj-colunas-painel" style="display:none;"></div>
           </div>
+          <button type="button" class="ghost" id="btnFinExcel" style="width:auto;padding:8px 14px;">📊 Gerar Excel</button>
         </div>
-        <div class="row" style="margin-top:10px;">
+        <p style="color:var(--muted);font-size:11.5px;margin:0 0 10px;">Clique no ▾ de uma coluna pra filtrar por ela. As células são editáveis direto na tabela.</p>
+        <div class="row" style="margin-top:0;">
           <div class="field" style="margin-bottom:0;"><label>Vencimento de</label><input type="date" id="fin_lista_de"></div>
           <div class="field" style="margin-bottom:0;"><label>Vencimento até</label><input type="date" id="fin_lista_ate"></div>
         </div>
