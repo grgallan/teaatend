@@ -5586,10 +5586,24 @@ function popularMesesFinanceiro(){
   sel.value = atual && meses.includes(atual) ? atual : meses[0];
 }
 
+// ids de atendimento que já entraram em algum lançamento (RECEITA) —
+// cancelado não conta, porque cancelar libera o atendimento pra ser
+// faturado de novo
+function atendimentoIdsJaFaturados(){
+  const set = new Set();
+  lancamentosCache.forEach(l=>{
+    if(l.status === 'CANCELADO') return;
+    (l.atendimentoIds || []).forEach(id=>set.add(String(id)));
+  });
+  return set;
+}
 function atendimentosParaFinanceiro(){
   const cliente = document.getElementById('fin_cliente').value;
   const mes = document.getElementById('fin_mes').value;
-  return atendimentos.filter(r=>r.cliente===cliente && r.mes===mes).sort((a,b)=>String(a.data).localeCompare(String(b.data)));
+  const jaFaturados = atendimentoIdsJaFaturados();
+  return atendimentos
+    .filter(r=>r.cliente===cliente && r.mes===mes && !jaFaturados.has(String(r.id)))
+    .sort((a,b)=>String(a.data).localeCompare(String(b.data)));
 }
 
 function renderFinAtendimentosLista(){
@@ -5664,6 +5678,9 @@ async function gerarLancamento(){
     if(tipo === 'DESPESA') document.getElementById('fin_valor_despesa').value = '';
     await carregarLancamentos();
     renderListaLancamentos();
+    // recarrega o checklist de atendimentos pra tirar quem acabou de entrar
+    // nesse lançamento — evita gerar duplicado clicando de novo sem trocar de aba
+    if(tipo === 'RECEITA') renderFinAtendimentosLista();
     toast(tipo === 'DESPESA' ? 'Conta a pagar gerada' : 'Lançamento gerado');
   }catch(e){
     toast(e && e.message ? e.message : 'Não foi possível gerar o lançamento.');
@@ -13188,7 +13205,7 @@ function goView(name){
     popularFornecedoresFinanceiro();
     popularMesesFinanceiro();
     renderFinAtendimentosLista();
-    carregarLancamentos().then(renderListaLancamentos);
+    carregarLancamentos().then(()=>{ renderListaLancamentos(); renderFinAtendimentosLista(); });
     carregarNotasImportadas().then(renderListaNotasImportadas);
     document.getElementById('fin_xml_preview').style.display = 'none';
     document.getElementById('fin_xml_arquivo').value = '';
