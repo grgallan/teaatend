@@ -389,6 +389,7 @@ async function rotear(req: any): Promise<any> {
     case 'removerEmpresa': return acaoRemoverEmpresa(req);
     case 'vincularEmpresasConta': return acaoVincularEmpresasConta(req);
     case 'removerTomticketErro': return acaoRemoverTomticketErro(req);
+    case 'salvarConfigTomticket': return acaoSalvarConfigTomticket(req);
     case 'rmListarTabelas': return acaoRmListarTabelas(req);
     case 'rmAddTabela': return acaoRmAddTabela(req);
     case 'rmAtualizarTabela': return acaoRmAtualizarTabela(req);
@@ -623,9 +624,15 @@ async function acaoDados(req: any) {
   }
 
   let tomticketErros: any[] = [];
+  let configTomticket = null;
   if (isAdmin) {
     const { data } = await db.from('tomticket_erros').select('*').order('criado_em', { ascending: false }).limit(100);
     tomticketErros = (data || []).map((e: any) => ({ id: e.id, ticketId: e.ticket_id, motivo: e.motivo, criadoEm: e.criado_em }));
+    const { data: config } = await db.from('tomticket_config').select('*').eq('id', 'default').maybeSingle();
+    configTomticket = config ? {
+      ativo: config.ativo !== false, clientePadrao: config.cliente_padrao || '', tipoAtendimento: config.tipo_atendimento || '',
+      empresaId: config.empresa_id || '',
+    } : { ativo: true, clientePadrao: 'CORAL', tipoAtendimento: 'TOMTICKET', empresaId: '' };
   }
 
   return {
@@ -646,6 +653,7 @@ async function acaoDados(req: any) {
     // mesmo tendo acesso total dentro da própria empresa dele
     empresas: (contaAtual && contaAtual.perfil === 'ADMIN') ? (empresasRaw || []).map(empresaParaApi) : [],
     tomticketErros,
+    configTomticket,
     categoriasFinanceiras: (categoriasFinanceirasRaw || []).map(categoriaFinanceiraParaApi),
   };
 }
@@ -3659,6 +3667,24 @@ async function acaoVincularEmpresasConta(req: any) {
 async function acaoRemoverTomticketErro(req: any) {
   if (!(await podeAgir(req.contaId, 'utilitarios.tomticket', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para gerenciar isso.' };
   await db.from('tomticket_erros').delete().eq('id', req.id);
+  return { ok: true };
+}
+// liga/desliga a importação automática e os valores usados nela (cliente
+// padrão, tipo do atendimento gerado, empresa vinculada) — o token da API
+// e o segredo do webhook continuam só nas Secrets da function
+// tomticket-webhook, nunca por aqui, por segurança
+async function acaoSalvarConfigTomticket(req: any) {
+  if (!(await podeAgir(req.contaId, 'utilitarios.tomticket', 'editar'))) return { ok: false, erro: 'Você não tem permissão para alterar as configurações do TomTicket.' };
+  const registro = {
+    id: 'default',
+    ativo: !!req.ativo,
+    cliente_padrao: String(req.clientePadrao || 'CORAL').trim(),
+    tipo_atendimento: String(req.tipoAtendimento || 'TOMTICKET').trim(),
+    empresa_id: req.empresaId || null,
+    atualizado_em: new Date().toISOString(),
+  };
+  const { error } = await db.from('tomticket_config').upsert(registro);
+  if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
 
