@@ -22,6 +22,7 @@ const CONFIG = {
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [];
+let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
 let rmTabelasTodas = null; // cache — todas as tabelas cadastradas, carregado 1x (usado pra preencher os <select> de escolher tabela); null = ainda não carregado
@@ -791,6 +792,7 @@ async function carregarTudo(){
   perfisAcesso = r.perfisAcesso||[];
   empresas = r.empresas||[];
   tomticketErros = r.tomticketErros||[];
+  configTomticket = r.configTomticket || null;
   // a sessão foi salva no login (antes de existir "perfisAcesso") — depois
   // do primeiro carregamento de dados, sincroniza com a versão mais
   // atual da própria conta (permissões podem ter mudado desde o login)
@@ -3808,6 +3810,40 @@ async function gerarExcelRelatorio(){
 /* ---------- Utilitários › eSocial › Evento 1200 (Remuneração) ----------
    Confronta o(s) XML(s) do evento 1200 com a planilha de Rubricas cadastrada
    e gera um Excel de conferência — tudo no navegador, sem passar pelo backend */
+// configurações da integração TomTicket — liga/desliga a importação
+// automática e ajusta cliente padrão/tipo/empresa (o token da API e o
+// segredo do webhook continuam só nas Secrets da function, nunca aqui)
+function renderConfigTomticket(){
+  const sel = document.getElementById('tt_empresa');
+  sel.innerHTML = `<option value="">(nenhuma)</option>` + empresas.map(e=>`<option value="${e.id}">${escaparHtml(e.nome)}</option>`).join('');
+  const cfg = configTomticket || { ativo: true, clientePadrao: 'CORAL', tipoAtendimento: 'TOMTICKET', empresaId: '' };
+  document.getElementById('tt_ativo').checked = !!cfg.ativo;
+  sel.value = cfg.empresaId || '';
+  document.getElementById('tt_cliente_padrao').value = cfg.clientePadrao || '';
+  document.getElementById('tt_tipo_atendimento').value = cfg.tipoAtendimento || '';
+}
+async function salvarConfigTomticket(){
+  const conta = contaAtual();
+  const btn = document.getElementById('btnSalvarConfigTomticket');
+  btn.disabled = true;
+  try{
+    const r = await api('salvarConfigTomticket', {
+      contaId: conta.id,
+      ativo: document.getElementById('tt_ativo').checked,
+      empresaId: document.getElementById('tt_empresa').value,
+      clientePadrao: document.getElementById('tt_cliente_padrao').value.trim(),
+      tipoAtendimento: document.getElementById('tt_tipo_atendimento').value.trim(),
+    });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar as configurações.'); return; }
+    await carregarTudo();
+    renderConfigTomticket();
+    toast('Configurações do TomTicket salvas');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível salvar as configurações.');
+  } finally {
+    btn.disabled = false;
+  }
+}
 function renderUtilTomticketLista(){
   const el = document.getElementById('utilTomticketLista');
   if(tomticketErros.length === 0){ el.innerHTML = `<div class="empty">Nenhuma pendência — tudo importado certinho.</div>`; return; }
@@ -13388,12 +13424,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.querySelector('[data-util-cat="tomticket"]').addEventListener('click', ()=>{
     document.getElementById('utilCategorias').style.display = 'none';
     document.getElementById('utilTomticket').style.display = '';
+    renderConfigTomticket();
     renderUtilTomticketLista();
   });
   document.getElementById('btnUtilTomticketVoltar').addEventListener('click', ()=>{
     document.getElementById('utilTomticket').style.display = 'none';
     document.getElementById('utilCategorias').style.display = '';
   });
+  document.getElementById('btnSalvarConfigTomticket').addEventListener('click', salvarConfigTomticket);
   document.querySelector('[data-util-cat="sqlrm"]').addEventListener('click', abrirGeradorSqlRm);
   document.getElementById('btnUtilSqlRmVoltar').addEventListener('click', ()=>{
     document.getElementById('utilSqlRm').style.display = 'none';
