@@ -1716,7 +1716,7 @@ function pedirConfirmacao(titulo, texto, acao, labelBotao){
    um menu popup posicionado dentro desses containers seria escondido pelo
    overflow deles. permissoesAcoesMenu guarda quem pode Editar/Copiar/Excluir
    pra sessão atual — é o mesmo pra toda a lista, só muda o id do atendimento */
-let permissoesAcoesMenu = { podeEditarBtn:false, isAdmin:false, podeExcluirBtn:false };
+let permissoesAcoesMenu = { podeEditarBtn:false, isAdmin:false, podeExcluirBtn:false, podeInserirBtn:false };
 function fecharAcoesMenu(){
   const portal = document.getElementById('acoesMenuPortal');
   if(portal){ portal.classList.remove('show'); portal.dataset.abertoPara = ''; }
@@ -1727,10 +1727,10 @@ function toggleAcoesMenu(id, btnEl){
   const jaAbertoParaEsse = portal.classList.contains('show') && portal.dataset.abertoPara === String(id);
   fecharAcoesMenu();
   if(jaAbertoParaEsse) return;
-  const { podeEditarBtn, isAdmin, podeExcluirBtn } = permissoesAcoesMenu;
+  const { podeEditarBtn, isAdmin, podeExcluirBtn, podeInserirBtn } = permissoesAcoesMenu;
   portal.innerHTML = `
     ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();editar('${id}')">✎ Editar</div>` : ''}
-    ${isAdmin ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();copiarAtendimento('${id}')">⧉ Copiar</div>` : ''}
+    ${podeInserirBtn ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();copiarAtendimento('${id}')">⧉ Copiar</div>` : ''}
     ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${id}'))">🗑 Excluir</div>` : ''}
   `;
   portal.dataset.abertoPara = String(id);
@@ -2044,7 +2044,13 @@ function renderLista(){
   const permAt = permissaoMenu(conta, 'atendimentos');
   const podeEditarBtn = permAt ? permAt.editar : podeEditar;
   const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
-  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn };
+  // "Copiar" cria um atendimento NOVO — mesma permissão (Inserir) e mesmo
+  // padrão usados pra decidir se a aba "Novo" aparece (aplicarVisibilidadeMenu
+  // mais abaixo): sem perfil de acesso configurado, todo mundo pode inserir
+  // por padrão (inclusive USUARIO, que já consegue abrir um chamado novo);
+  // um perfil de acesso pode restringir ou liberar isso por conta
+  const podeInserirBtn = permAt ? permAt.inserir : true;
+  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn, podeInserirBtn };
 
   const emTabela = visualizacaoAtendimentos !== 'cards' && window.matchMedia('(min-width: 860px)').matches;
   renderAgruparListaBar(emTabela);
@@ -2064,7 +2070,7 @@ function renderLista(){
 
   if(itens.length===0){ cont.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum atendimento encontrado.</div>`; return; }
 
-  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn };
+  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn };
 
   // em telas largas, a Lista vira uma tabela ordenável/agrupável (estilo
   // Cubo); no celular não tem coluna pra arrastar, então continua em cards
@@ -2335,7 +2341,7 @@ function renderLinhasVinculosFilhosTabela(nos, ctx, colunas, podeSelecionar, niv
 function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
   opts = opts || {};
   const ehFilho = !!opts.filho;
-  const { isAdmin, podeEditarBtn, podeExcluirBtn } = ctx;
+  const { isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn } = ctx;
   const [y,m,d] = String(r.data).split('-');
   const clicavel = podeUsarChat(r);
   const checkboxTd = !podeSelecionar ? '' : (ehFilho ? '<td></td>' :
@@ -2369,7 +2375,7 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
     }
   }).join('');
 
-  const acoesTd = ehFilho ? '<td></td>' : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
+  const acoesTd = ehFilho ? '<td></td>' : ((podeEditarBtn || podeExcluirBtn || podeInserirBtn || isAdmin) ? `
     <td onclick="event.stopPropagation();">
       <div class="acoes-wrap">
         <button class="ghost" onclick="toggleAcoesMenu('${r.id}', this)">⋮</button>
@@ -2463,7 +2469,7 @@ function iniciarPossivelDragColunaLista(e, thEl){
 function renderLinhaAtendimento(r, ctx, opts){
   opts = opts || {};
   const ehFilho = !!opts.filho;
-  const { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn } = ctx;
+  const { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn } = ctx;
   const [y,m,d] = String(r.data).split('-');
   const dataFmt = `${d}/${m}/${y}`;
   const qtdNum = Number(r.qtd);
@@ -2485,7 +2491,7 @@ function renderLinhaAtendimento(r, ctx, opts){
   // atendimento é sempre o primeiro passo antes de editar/excluir mesmo
   const acoes = ehFilho
     ? (clicavel ? `<div class="item-actions"><button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button></div>` : '')
-    : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
+    : ((podeEditarBtn || podeExcluirBtn || podeInserirBtn || isAdmin) ? `
       <div class="item-actions">
         <div class="acoes-wrap">
           <button class="ghost" onclick="event.stopPropagation();toggleAcoesMenu('${r.id}', this)">⋮ Ações</button>
@@ -11899,8 +11905,9 @@ function renderAtendimentosVinculadosProjeto(){
   const permAt = permissaoMenu(conta, 'atendimentos');
   const podeEditarBtn = permAt ? permAt.editar : podeEditar;
   const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
-  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn };
-  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn };
+  const podeInserirBtn = permAt ? permAt.inserir : true;
+  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn, podeInserirBtn };
+  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn };
 
   wrap.innerHTML = projetoAtendimentoIds.map(id=>{
     const r = atendimentos.find(x=>String(x.id)===String(id));
