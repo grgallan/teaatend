@@ -365,6 +365,7 @@ async function rotear(req: any): Promise<any> {
     case 'adicionarAnexo': return acaoAdicionarAnexo(req);
     case 'removerAnexo': return acaoRemoverAnexo(req);
     case 'listarMovimentacoes': return acaoListarMovimentacoes(req);
+    case 'listarMovimentacoesEmLote': return acaoListarMovimentacoesEmLote(req);
     case 'criarMovimentacao': return acaoCriarMovimentacao(req);
     case 'atualizarMovimentacao': return acaoAtualizarMovimentacao(req);
     case 'removerMovimentacao': return acaoRemoverMovimentacao(req);
@@ -1268,6 +1269,32 @@ async function acaoListarMovimentacoes(req: any) {
       ehResposta: !!m.eh_resposta,
     })),
   };
+}
+
+// versão em lote de acaoListarMovimentacoes, pro Construtor de Relatório
+// (opção "incluir movimentações") — sem endpoint em massa até agora, cada
+// atendimento só buscava sua conversa sob demanda ao abrir o chat. Não
+// marca como "vista" (isso é coisa da tela de chat) nem traz anexos (o
+// relatório só usa o texto) — mais leve de propósito pra não pesar num
+// relatório com muitos atendimentos de uma vez
+async function acaoListarMovimentacoesEmLote(req: any) {
+  const ids: string[] = Array.isArray(req.atendimentoIds) ? req.atendimentoIds.filter(Boolean) : [];
+  if (ids.length === 0) return { ok: true, movimentacoesPorAtendimento: {} };
+  const { data: movs, error } = await db.from('movimentacoes').select('*').in('atendimento_id', ids).order('criado_em');
+  if (error) return { ok: false, erro: error.message };
+  const porAtendimento: Record<string, any[]> = {};
+  (movs || []).forEach((m: any) => {
+    const item = {
+      id: m.id, atendimentoId: m.atendimento_id, autorNome: m.autor_nome, autorPerfil: m.autor_perfil,
+      texto: m.texto, respondendoA: m.respondendo_a || null, criadoEm: m.criado_em,
+      dataInicial: m.data_inicial || '', horaInicial: m.hora_inicial || '',
+      dataFinal: m.data_final || '', horaFinal: m.hora_final || '', intervaloMin: m.intervalo_min || 0,
+      ehResposta: !!m.eh_resposta,
+    };
+    if (!porAtendimento[m.atendimento_id]) porAtendimento[m.atendimento_id] = [];
+    porAtendimento[m.atendimento_id].push(item);
+  });
+  return { ok: true, movimentacoesPorAtendimento: porAtendimento };
 }
 
 async function acaoCriarMovimentacao(req: any) {

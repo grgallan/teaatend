@@ -3644,7 +3644,7 @@ function moverColunaRelatorio(key, direcao){
   if(j < 0 || j >= relColunas.length) return;
   [relColunas[i], relColunas[j]] = [relColunas[j], relColunas[i]];
   renderRelatorioColunas();
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
 }
 
 function calcularItensRelatorio(){
@@ -3707,7 +3707,7 @@ function renderRelatorioPreview(){
   if(colunasAtivas.length === 0){ cont.innerHTML = `<div class="empty">Marque ao menos uma coluna.</div>`; return; }
   if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado com esses filtros.</div>`; return; }
 
-  const linhaHtml = r => `<tr>${colunasAtivas.map(c=>`<td>${escaparHtml(String(c.formatar(r)))}</td>`).join('')}</tr>`;
+  const linhaHtml = r => `<tr>${colunasAtivas.map(c=>`<td>${escaparHtml(String(c.formatar(r)))}</td>`).join('')}</tr>${linhasMovimentacoesHtml(r, colunasAtivas.length)}`;
 
   let corpo;
   if(relAgrupar === 'nenhum'){
@@ -3733,10 +3733,21 @@ function renderRelatorioPreview(){
     <tbody>${corpo}${totalGeral}</tbody>
   </table>`;
 }
+// wrapper: busca as movimentações (se marcado) e só então (re)desenha a
+// pré-visualização — mantém renderRelatorioPreview() síncrona (chamada em
+// muito lugar só pra redesenhar sem esperar rede) e concentra o await só
+// em quem realmente precisa esperar terminar (Gerar PDF/Excel)
+async function atualizarRelatorioComMovimentacoes(){
+  const itens = calcularItensRelatorio();
+  await carregarMovimentacoesRelatorio(itens);
+  renderRelatorioPreview();
+}
 
 // os dois modelos abaixo NUNCA mudam — são o ponto de partida original.
 // "Detalhado" é um modelo novo que não mexe nos outros dois.
 function aplicarPresetRelatorio(tipo){
+  relIncluirMovimentacoes = false;
+  document.getElementById('rel_incluir_movimentacoes').checked = false;
   if(tipo === 'atendimentos'){
     relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horario','qtd','status'];
     relAgrupar = 'nenhum';
@@ -3755,7 +3766,7 @@ function aplicarPresetRelatorio(tipo){
   }
   document.getElementById('rel_agrupar').value = relAgrupar;
   renderRelatorioColunas();
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
 }
 
 function tituloEFiltrosRelatorio(){
@@ -3770,8 +3781,8 @@ function tituloEFiltrosRelatorio(){
   return { titulo, filtrosTexto: partes.join(' · ') };
 }
 
-function gerarPdfRelatorio(){
-  renderRelatorioPreview();
+async function gerarPdfRelatorio(){
+  await atualizarRelatorioComMovimentacoes();
   const { titulo, filtrosTexto } = tituloEFiltrosRelatorio();
   prepararImpressao(titulo, filtrosTexto);
 }
@@ -3779,6 +3790,7 @@ function gerarPdfRelatorio(){
 async function gerarExcelRelatorio(){
   if(relTipoVisualizacao === 'ficha'){ toast('O modelo "Detalhado" não sai em Excel — use o PDF.'); return; }
   const itens = calcularItensRelatorio();
+  await carregarMovimentacoesRelatorio(itens);
   const colunasAtivas = relColunas.map(colunaInfo).filter(Boolean);
   if(colunasAtivas.length === 0){ toast('Marque ao menos uma coluna.'); return; }
   if(itens.length === 0){ toast('Nada pra exportar com esses filtros.'); return; }
@@ -3786,7 +3798,7 @@ async function gerarExcelRelatorio(){
 
   const linhas = [colunasAtivas.map(c=>c.label)];
   if(relAgrupar === 'nenhum'){
-    itens.forEach(r=>linhas.push(colunasAtivas.map(c=>c.formatar(r))));
+    itens.forEach(r=>{ linhas.push(colunasAtivas.map(c=>c.formatar(r))); linhasMovimentacoesExcel(r).forEach(lm=>linhas.push(lm)); });
   }else{
     const chaveDe = r => relAgrupar==='cliente' ? r.cliente : relAgrupar==='atendente' ? (r.atendente||'(a definir)') : r.status;
     const grupos = {};
@@ -3794,7 +3806,7 @@ async function gerarExcelRelatorio(){
     const colunasNumericas = colunasAtivas.filter(c=>c.numerica);
     Object.entries(grupos).forEach(([nome, itensGrupo])=>{
       linhas.push([`${nome} (${itensGrupo.length})`]);
-      itensGrupo.forEach(r=>linhas.push(colunasAtivas.map(c=>c.formatar(r))));
+      itensGrupo.forEach(r=>{ linhas.push(colunasAtivas.map(c=>c.formatar(r))); linhasMovimentacoesExcel(r).forEach(lm=>linhas.push(lm)); });
       if(colunasNumericas.length > 0){
         linhas.push(['Subtotal', ...colunasNumericas.map(c=>{
           const soma = itensGrupo.reduce((s,r)=>s+c.valorBruto(r), 0);
@@ -4901,6 +4913,7 @@ function configAtualRelatorio(){
     colunas: relColunas.slice(),
     agrupar: relAgrupar,
     tipoVisualizacao: relTipoVisualizacao,
+    incluirMovimentacoes: relIncluirMovimentacoes,
     titulo: document.getElementById('rel_titulo').value.trim(),
     filtroCliente: [...relFiltroCliente],
     filtroTipo: [...relFiltroTipo],
@@ -4912,8 +4925,10 @@ function carregarConfigNoRelatorio(config){
   relColunas = (config.colunas || []).slice();
   relAgrupar = config.agrupar || 'nenhum';
   relTipoVisualizacao = config.tipoVisualizacao || 'tabela';
+  relIncluirMovimentacoes = !!config.incluirMovimentacoes;
   document.getElementById('rel_titulo').value = config.titulo || '';
   document.getElementById('rel_agrupar').value = relAgrupar;
+  document.getElementById('rel_incluir_movimentacoes').checked = relIncluirMovimentacoes;
   relFiltroCliente = new Set(config.filtroCliente || []);
   relFiltroTipo = new Set(config.filtroTipo || []);
   relFiltroStatus = new Set(config.filtroStatus || []);
@@ -5000,7 +5015,7 @@ function carregarRelatorioSalvoNoConstrutor(id){
   relEditandoId = id;
   carregarConfigNoRelatorio(r.config || {});
   renderRelatorioColunas();
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
   toast(`Editando "${r.nome}" — ajuste e clique em "💾 Salvar como relatório" pra atualizar`);
 }
 
@@ -5044,7 +5059,7 @@ function usarRelatorioPublicado(id){
   document.getElementById('rel_titulo').value = rel.nome;
   document.getElementById('relatorioPubTitulo').textContent = rel.nome;
   document.getElementById('cardPreviewRelatoriosPub').style.display = '';
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
   document.getElementById('cardPreviewRelatoriosPub').scrollIntoView({ behavior:'smooth' });
 }
 
@@ -12334,6 +12349,54 @@ let relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horar
 let relAgrupar = 'nenhum';
 let relTipoVisualizacao = 'tabela'; // 'tabela' ou 'ficha' (detalhado, com fotos)
 let relEditandoId = null; // id do relatório salvo sendo editado (null = novo)
+// "incluir movimentações" — só vale nas visões em tabela (não no "Detalhado"),
+// uma linha extra por movimentação logo abaixo da linha do atendimento dela.
+// Não tem endpoint em massa pra isso (só existe listarMovimentacoes por
+// atendimento, usado no chat), então busca tudo de uma vez só quando o
+// relatório é (re)gerado, cacheado por assinatura do conjunto de ids atual
+// pra não buscar de novo à toa a cada coluna/ordem mexida
+let relIncluirMovimentacoes = false;
+let movimentacoesPorAtendimentoRelatorio = {};
+let relMovimentacoesAssinatura = '';
+async function carregarMovimentacoesRelatorio(itens){
+  if(!relIncluirMovimentacoes || relTipoVisualizacao === 'ficha'){
+    movimentacoesPorAtendimentoRelatorio = {}; relMovimentacoesAssinatura = '';
+    return;
+  }
+  const ids = itens.map(r=>r.id);
+  const assinatura = ids.slice().sort().join(',');
+  if(assinatura === relMovimentacoesAssinatura) return;
+  relMovimentacoesAssinatura = assinatura;
+  if(ids.length === 0){ movimentacoesPorAtendimentoRelatorio = {}; return; }
+  const conta = contaAtual();
+  const r = await api('listarMovimentacoesEmLote', { contaId: conta ? conta.id : '', atendimentoIds: ids });
+  movimentacoesPorAtendimentoRelatorio = (r.ok && r.movimentacoesPorAtendimento) || {};
+}
+function formatarDataHoraBr(iso){
+  const d = iso ? new Date(iso) : null;
+  if(!d || isNaN(d.getTime())) return '';
+  const dia = String(d.getDate()).padStart(2,'0');
+  const mes = String(d.getMonth()+1).padStart(2,'0');
+  const hora = String(d.getHours()).padStart(2,'0');
+  const min = String(d.getMinutes()).padStart(2,'0');
+  return `${dia}/${mes}/${d.getFullYear()} ${hora}:${min}`;
+}
+function textoMovimentacaoRelatorio(m){
+  const quando = formatarDataHoraBr(m.criadoEm);
+  const autor = m.autorNome ? `${m.autorNome}${m.autorPerfil ? ' ('+m.autorPerfil+')' : ''}` : '';
+  const texto = stripHtml(m.texto || '');
+  return `${quando ? quando+' — ' : ''}${autor ? autor+': ' : ''}${texto}`;
+}
+function linhasMovimentacoesHtml(r, numColunas){
+  if(!relIncluirMovimentacoes) return '';
+  const movs = movimentacoesPorAtendimentoRelatorio[r.id] || [];
+  return movs.map(m=>`<tr class="rel-mov-linha"><td colspan="${numColunas}">↳ ${escaparHtml(textoMovimentacaoRelatorio(m))}</td></tr>`).join('');
+}
+function linhasMovimentacoesExcel(r){
+  if(!relIncluirMovimentacoes) return [];
+  const movs = movimentacoesPorAtendimentoRelatorio[r.id] || [];
+  return movs.map(m=>['', `↳ ${textoMovimentacaoRelatorio(m)}`]);
+}
 
 const COLUNAS_RELATORIO = [
   { key:'id', label:'Nº do Atendimento', formatar:r=>r.id },
@@ -13233,7 +13296,7 @@ function goView(name){
   if(name==='dashboard') renderDashboard();
   if(name==='gantt'){ renderFiltrosGantt(); renderGantt(); }
   if(name==='relatorio'){
-    renderRelatorioFiltros(); renderRelatorioColunas(); renderRelatorioPreview();
+    renderRelatorioFiltros(); renderRelatorioColunas(); atualizarRelatorioComMovimentacoes();
     carregarRelatoriosSalvos().then(renderListaRelatoriosSalvos);
   }
   if(name==='relatoriospub'){
@@ -13543,27 +13606,31 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('relFiltroCliente').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(relFiltroCliente, chip.dataset.valor);
-    renderRelatorioFiltros(); renderRelatorioPreview();
+    renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
   });
   document.getElementById('relFiltroTipo').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(relFiltroTipo, chip.dataset.valor);
-    renderRelatorioFiltros(); renderRelatorioPreview();
+    renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
   });
   document.getElementById('relFiltroStatus').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(relFiltroStatus, chip.dataset.valor);
-    renderRelatorioFiltros(); renderRelatorioPreview();
+    renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
   });
-  document.getElementById('rel_de').addEventListener('change', renderRelatorioPreview);
-  document.getElementById('rel_ate').addEventListener('change', renderRelatorioPreview);
-  document.getElementById('rel_agrupar').addEventListener('change', e=>{ relAgrupar = e.target.value; renderRelatorioPreview(); });
+  document.getElementById('rel_de').addEventListener('change', atualizarRelatorioComMovimentacoes);
+  document.getElementById('rel_ate').addEventListener('change', atualizarRelatorioComMovimentacoes);
+  document.getElementById('rel_agrupar').addEventListener('change', e=>{ relAgrupar = e.target.value; atualizarRelatorioComMovimentacoes(); });
+  document.getElementById('rel_incluir_movimentacoes').addEventListener('change', e=>{
+    relIncluirMovimentacoes = e.target.checked;
+    atualizarRelatorioComMovimentacoes();
+  });
   document.getElementById('relatorioColunasOrdem').addEventListener('click', e=>{
     const btn = e.target.closest('button[data-acao]'); if(!btn) return;
     const key = btn.dataset.key;
     if(btn.dataset.acao === 'remover'){
       relColunas = relColunas.filter(k=>k!==key);
-      renderRelatorioColunas(); renderRelatorioPreview();
+      renderRelatorioColunas(); atualizarRelatorioComMovimentacoes();
     }else{
       moverColunaRelatorio(key, btn.dataset.acao);
     }
@@ -13573,7 +13640,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const key = e.target.dataset.key;
     if(e.target.checked && !relColunas.includes(key)) relColunas.push(key);
     renderRelatorioColunas();
-    renderRelatorioPreview();
+    atualizarRelatorioComMovimentacoes();
   });
   document.getElementById('btnPdfRelatorio').addEventListener('click', gerarPdfRelatorio);
   document.getElementById('btnExcelRelatorio').addEventListener('click', gerarExcelRelatorio);
