@@ -12387,21 +12387,37 @@ function formatarDataSimplesBr(iso){
   const [y,m,d] = String(iso).split('-');
   return (y && m && d) ? `${d}/${m}/${y}` : String(iso);
 }
+// mesma conta de supabase/functions/api/index.ts:calcularQtdMovimentacao —
+// duração em horas (decimal) entre início e fim, descontando o intervalo
+function calcularHorasMovimentacao(m){
+  if(!m.dataInicial || !m.horaInicial || !m.dataFinal || !m.horaFinal) return null;
+  const ini = new Date(`${m.dataInicial}T${m.horaInicial}:00`).getTime();
+  const fim = new Date(`${m.dataFinal}T${m.horaFinal}:00`).getTime();
+  if(isNaN(ini) || isNaN(fim)) return null;
+  const totalMin = Math.max(0, (fim - ini) / 60000 - (Number(m.intervaloMin) || 0));
+  return totalMin / 60;
+}
 function textoMovimentacaoRelatorio(m){
-  const quando = formatarDataHoraBr(m.criadoEm);
   const autor = m.autorNome ? `${m.autorNome}${m.autorPerfil ? ' ('+m.autorPerfil+')' : ''}` : '';
   const texto = stripHtml(m.texto || '');
   // apontamento de horas da movimentação (quando ela registrou trabalho, não
   // só um comentário) — só entra quando tem algo preenchido, senão fica
   // poluindo uma movimentação que é só um comentário de chat
   const apontamento = [];
-  if(m.horaInicial) apontamento.push(`Hora Início: ${m.horaInicial}`);
-  if(m.intervaloMin) apontamento.push(`Intervalo: ${m.intervaloMin}min`);
-  if(m.horaFinal) apontamento.push(`Hora Final: ${m.horaFinal}`);
   if(m.dataInicial) apontamento.push(`Data Inicial: ${formatarDataSimplesBr(m.dataInicial)}`);
   if(m.dataFinal) apontamento.push(`Data Final: ${formatarDataSimplesBr(m.dataFinal)}`);
-  const tempo = apontamento.length > 0 ? ' · ' + apontamento.join(' · ') : '';
-  return `${quando ? quando+' — ' : ''}${autor ? autor+': ' : ''}${texto}${tempo}`;
+  if(m.horaInicial) apontamento.push(`Hora Início: ${m.horaInicial}`);
+  if(m.horaFinal) apontamento.push(`Hora Final: ${m.horaFinal}`);
+  if(m.intervaloMin) apontamento.push(`Intervalo: ${m.intervaloMin}min`);
+  const temApontamento = apontamento.length > 0;
+  // com apontamento, as próprias datas/horas já dizem "quando" — não repete
+  // o horário do comentário; sem apontamento (só um comentário de chat),
+  // mantém o horário do comentário como antes
+  const quando = formatarDataHoraBr(m.criadoEm);
+  const prefixo = temApontamento ? apontamento.join(' · ') + ' ' : (quando ? quando + ' — ' : '');
+  const horas = temApontamento ? calcularHorasMovimentacao(m) : null;
+  const totalHoras = horas !== null ? ` · Total Horas: ${horas.toFixed(2).replace('.',',')}h` : '';
+  return `${prefixo}${autor ? autor+': ' : ''}${texto}${totalHoras}`;
 }
 function linhasMovimentacoesHtml(r, numColunas){
   if(!relIncluirMovimentacoes) return '';
