@@ -22,6 +22,7 @@ const CONFIG = {
 const SESSAO_KEY = 'sessao_v4';
 
 let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [];
+let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
 let rmTabelasTodas = null; // cache — todas as tabelas cadastradas, carregado 1x (usado pra preencher os <select> de escolher tabela); null = ainda não carregado
@@ -791,6 +792,7 @@ async function carregarTudo(){
   perfisAcesso = r.perfisAcesso||[];
   empresas = r.empresas||[];
   tomticketErros = r.tomticketErros||[];
+  configTomticket = r.configTomticket || null;
   // a sessão foi salva no login (antes de existir "perfisAcesso") — depois
   // do primeiro carregamento de dados, sincroniza com a versão mais
   // atual da própria conta (permissões podem ter mudado desde o login)
@@ -1714,7 +1716,7 @@ function pedirConfirmacao(titulo, texto, acao, labelBotao){
    um menu popup posicionado dentro desses containers seria escondido pelo
    overflow deles. permissoesAcoesMenu guarda quem pode Editar/Copiar/Excluir
    pra sessão atual — é o mesmo pra toda a lista, só muda o id do atendimento */
-let permissoesAcoesMenu = { podeEditarBtn:false, isAdmin:false, podeExcluirBtn:false };
+let permissoesAcoesMenu = { podeEditarBtn:false, isAdmin:false, podeExcluirBtn:false, podeInserirBtn:false };
 function fecharAcoesMenu(){
   const portal = document.getElementById('acoesMenuPortal');
   if(portal){ portal.classList.remove('show'); portal.dataset.abertoPara = ''; }
@@ -1725,10 +1727,10 @@ function toggleAcoesMenu(id, btnEl){
   const jaAbertoParaEsse = portal.classList.contains('show') && portal.dataset.abertoPara === String(id);
   fecharAcoesMenu();
   if(jaAbertoParaEsse) return;
-  const { podeEditarBtn, isAdmin, podeExcluirBtn } = permissoesAcoesMenu;
+  const { podeEditarBtn, isAdmin, podeExcluirBtn, podeInserirBtn } = permissoesAcoesMenu;
   portal.innerHTML = `
     ${podeEditarBtn ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();editar('${id}')">✎ Editar</div>` : ''}
-    ${isAdmin ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();copiarAtendimento('${id}')">⧉ Copiar</div>` : ''}
+    ${podeInserirBtn ? `<div class="acoes-menu-item" onclick="fecharAcoesMenu();copiarAtendimento('${id}')">⧉ Copiar</div>` : ''}
     ${podeExcluirBtn ? `<div class="acoes-menu-item danger" onclick="fecharAcoesMenu();pedirConfirmacao('Excluir lançamento?','Essa ação não pode ser desfeita.', ()=>excluirAtendimento('${id}'))">🗑 Excluir</div>` : ''}
   `;
   portal.dataset.abertoPara = String(id);
@@ -2042,7 +2044,13 @@ function renderLista(){
   const permAt = permissaoMenu(conta, 'atendimentos');
   const podeEditarBtn = permAt ? permAt.editar : podeEditar;
   const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
-  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn };
+  // "Copiar" cria um atendimento NOVO — mesma permissão (Inserir) e mesmo
+  // padrão usados pra decidir se a aba "Novo" aparece (aplicarVisibilidadeMenu
+  // mais abaixo): sem perfil de acesso configurado, todo mundo pode inserir
+  // por padrão (inclusive USUARIO, que já consegue abrir um chamado novo);
+  // um perfil de acesso pode restringir ou liberar isso por conta
+  const podeInserirBtn = permAt ? permAt.inserir : true;
+  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn, podeInserirBtn };
 
   const emTabela = visualizacaoAtendimentos !== 'cards' && window.matchMedia('(min-width: 860px)').matches;
   renderAgruparListaBar(emTabela);
@@ -2062,7 +2070,7 @@ function renderLista(){
 
   if(itens.length===0){ cont.innerHTML = `<div class="empty"><div class="big">🗂️</div>Nenhum atendimento encontrado.</div>`; return; }
 
-  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn };
+  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn };
 
   // em telas largas, a Lista vira uma tabela ordenável/agrupável (estilo
   // Cubo); no celular não tem coluna pra arrastar, então continua em cards
@@ -2333,7 +2341,7 @@ function renderLinhasVinculosFilhosTabela(nos, ctx, colunas, podeSelecionar, niv
 function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
   opts = opts || {};
   const ehFilho = !!opts.filho;
-  const { isAdmin, podeEditarBtn, podeExcluirBtn } = ctx;
+  const { isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn } = ctx;
   const [y,m,d] = String(r.data).split('-');
   const clicavel = podeUsarChat(r);
   const checkboxTd = !podeSelecionar ? '' : (ehFilho ? '<td></td>' :
@@ -2367,7 +2375,7 @@ function renderLinhaTabela(r, ctx, colunas, podeSelecionar, opts){
     }
   }).join('');
 
-  const acoesTd = ehFilho ? '<td></td>' : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
+  const acoesTd = ehFilho ? '<td></td>' : ((podeEditarBtn || podeExcluirBtn || podeInserirBtn || isAdmin) ? `
     <td onclick="event.stopPropagation();">
       <div class="acoes-wrap">
         <button class="ghost" onclick="toggleAcoesMenu('${r.id}', this)">⋮</button>
@@ -2461,7 +2469,7 @@ function iniciarPossivelDragColunaLista(e, thEl){
 function renderLinhaAtendimento(r, ctx, opts){
   opts = opts || {};
   const ehFilho = !!opts.filho;
-  const { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn } = ctx;
+  const { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn } = ctx;
   const [y,m,d] = String(r.data).split('-');
   const dataFmt = `${d}/${m}/${y}`;
   const qtdNum = Number(r.qtd);
@@ -2483,7 +2491,7 @@ function renderLinhaAtendimento(r, ctx, opts){
   // atendimento é sempre o primeiro passo antes de editar/excluir mesmo
   const acoes = ehFilho
     ? (clicavel ? `<div class="item-actions"><button class="ghost chatbtn" onclick="event.stopPropagation();abrirDetalhe('${r.id}')">👁 Detalhes</button></div>` : '')
-    : ((podeEditarBtn || podeExcluirBtn || isAdmin) ? `
+    : ((podeEditarBtn || podeExcluirBtn || podeInserirBtn || isAdmin) ? `
       <div class="item-actions">
         <div class="acoes-wrap">
           <button class="ghost" onclick="event.stopPropagation();toggleAcoesMenu('${r.id}', this)">⋮ Ações</button>
@@ -3636,7 +3644,7 @@ function moverColunaRelatorio(key, direcao){
   if(j < 0 || j >= relColunas.length) return;
   [relColunas[i], relColunas[j]] = [relColunas[j], relColunas[i]];
   renderRelatorioColunas();
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
 }
 
 function calcularItensRelatorio(){
@@ -3699,7 +3707,7 @@ function renderRelatorioPreview(){
   if(colunasAtivas.length === 0){ cont.innerHTML = `<div class="empty">Marque ao menos uma coluna.</div>`; return; }
   if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado com esses filtros.</div>`; return; }
 
-  const linhaHtml = r => `<tr>${colunasAtivas.map(c=>`<td>${escaparHtml(String(c.formatar(r)))}</td>`).join('')}</tr>`;
+  const linhaHtml = r => `<tr>${colunasAtivas.map(c=>`<td>${escaparHtml(String(c.formatar(r)))}</td>`).join('')}</tr>${linhasMovimentacoesHtml(r, colunasAtivas.length)}`;
 
   let corpo;
   if(relAgrupar === 'nenhum'){
@@ -3725,10 +3733,21 @@ function renderRelatorioPreview(){
     <tbody>${corpo}${totalGeral}</tbody>
   </table>`;
 }
+// wrapper: busca as movimentações (se marcado) e só então (re)desenha a
+// pré-visualização — mantém renderRelatorioPreview() síncrona (chamada em
+// muito lugar só pra redesenhar sem esperar rede) e concentra o await só
+// em quem realmente precisa esperar terminar (Gerar PDF/Excel)
+async function atualizarRelatorioComMovimentacoes(){
+  const itens = calcularItensRelatorio();
+  await carregarMovimentacoesRelatorio(itens);
+  renderRelatorioPreview();
+}
 
 // os dois modelos abaixo NUNCA mudam — são o ponto de partida original.
 // "Detalhado" é um modelo novo que não mexe nos outros dois.
 function aplicarPresetRelatorio(tipo){
+  relIncluirMovimentacoes = false;
+  document.getElementById('rel_incluir_movimentacoes').checked = false;
   if(tipo === 'atendimentos'){
     relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horario','qtd','status'];
     relAgrupar = 'nenhum';
@@ -3747,7 +3766,7 @@ function aplicarPresetRelatorio(tipo){
   }
   document.getElementById('rel_agrupar').value = relAgrupar;
   renderRelatorioColunas();
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
 }
 
 function tituloEFiltrosRelatorio(){
@@ -3762,8 +3781,8 @@ function tituloEFiltrosRelatorio(){
   return { titulo, filtrosTexto: partes.join(' · ') };
 }
 
-function gerarPdfRelatorio(){
-  renderRelatorioPreview();
+async function gerarPdfRelatorio(){
+  await atualizarRelatorioComMovimentacoes();
   const { titulo, filtrosTexto } = tituloEFiltrosRelatorio();
   prepararImpressao(titulo, filtrosTexto);
 }
@@ -3771,6 +3790,7 @@ function gerarPdfRelatorio(){
 async function gerarExcelRelatorio(){
   if(relTipoVisualizacao === 'ficha'){ toast('O modelo "Detalhado" não sai em Excel — use o PDF.'); return; }
   const itens = calcularItensRelatorio();
+  await carregarMovimentacoesRelatorio(itens);
   const colunasAtivas = relColunas.map(colunaInfo).filter(Boolean);
   if(colunasAtivas.length === 0){ toast('Marque ao menos uma coluna.'); return; }
   if(itens.length === 0){ toast('Nada pra exportar com esses filtros.'); return; }
@@ -3778,7 +3798,7 @@ async function gerarExcelRelatorio(){
 
   const linhas = [colunasAtivas.map(c=>c.label)];
   if(relAgrupar === 'nenhum'){
-    itens.forEach(r=>linhas.push(colunasAtivas.map(c=>c.formatar(r))));
+    itens.forEach(r=>{ linhas.push(colunasAtivas.map(c=>c.formatar(r))); linhasMovimentacoesExcel(r).forEach(lm=>linhas.push(lm)); });
   }else{
     const chaveDe = r => relAgrupar==='cliente' ? r.cliente : relAgrupar==='atendente' ? (r.atendente||'(a definir)') : r.status;
     const grupos = {};
@@ -3786,7 +3806,7 @@ async function gerarExcelRelatorio(){
     const colunasNumericas = colunasAtivas.filter(c=>c.numerica);
     Object.entries(grupos).forEach(([nome, itensGrupo])=>{
       linhas.push([`${nome} (${itensGrupo.length})`]);
-      itensGrupo.forEach(r=>linhas.push(colunasAtivas.map(c=>c.formatar(r))));
+      itensGrupo.forEach(r=>{ linhas.push(colunasAtivas.map(c=>c.formatar(r))); linhasMovimentacoesExcel(r).forEach(lm=>linhas.push(lm)); });
       if(colunasNumericas.length > 0){
         linhas.push(['Subtotal', ...colunasNumericas.map(c=>{
           const soma = itensGrupo.reduce((s,r)=>s+c.valorBruto(r), 0);
@@ -3808,6 +3828,40 @@ async function gerarExcelRelatorio(){
 /* ---------- Utilitários › eSocial › Evento 1200 (Remuneração) ----------
    Confronta o(s) XML(s) do evento 1200 com a planilha de Rubricas cadastrada
    e gera um Excel de conferência — tudo no navegador, sem passar pelo backend */
+// configurações da integração TomTicket — liga/desliga a importação
+// automática e ajusta cliente padrão/tipo/empresa (o token da API e o
+// segredo do webhook continuam só nas Secrets da function, nunca aqui)
+function renderConfigTomticket(){
+  const sel = document.getElementById('tt_empresa');
+  sel.innerHTML = `<option value="">(nenhuma)</option>` + empresas.map(e=>`<option value="${e.id}">${escaparHtml(e.nome)}</option>`).join('');
+  const cfg = configTomticket || { ativo: true, clientePadrao: 'CORAL', tipoAtendimento: 'TOMTICKET', empresaId: '' };
+  document.getElementById('tt_ativo').checked = !!cfg.ativo;
+  sel.value = cfg.empresaId || '';
+  document.getElementById('tt_cliente_padrao').value = cfg.clientePadrao || '';
+  document.getElementById('tt_tipo_atendimento').value = cfg.tipoAtendimento || '';
+}
+async function salvarConfigTomticket(){
+  const conta = contaAtual();
+  const btn = document.getElementById('btnSalvarConfigTomticket');
+  btn.disabled = true;
+  try{
+    const r = await api('salvarConfigTomticket', {
+      contaId: conta.id,
+      ativo: document.getElementById('tt_ativo').checked,
+      empresaId: document.getElementById('tt_empresa').value,
+      clientePadrao: document.getElementById('tt_cliente_padrao').value.trim(),
+      tipoAtendimento: document.getElementById('tt_tipo_atendimento').value.trim(),
+    });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar as configurações.'); return; }
+    await carregarTudo();
+    renderConfigTomticket();
+    toast('Configurações do TomTicket salvas');
+  }catch(e){
+    toast(e && e.message ? e.message : 'Não foi possível salvar as configurações.');
+  } finally {
+    btn.disabled = false;
+  }
+}
 function renderUtilTomticketLista(){
   const el = document.getElementById('utilTomticketLista');
   if(tomticketErros.length === 0){ el.innerHTML = `<div class="empty">Nenhuma pendência — tudo importado certinho.</div>`; return; }
@@ -4859,6 +4913,7 @@ function configAtualRelatorio(){
     colunas: relColunas.slice(),
     agrupar: relAgrupar,
     tipoVisualizacao: relTipoVisualizacao,
+    incluirMovimentacoes: relIncluirMovimentacoes,
     titulo: document.getElementById('rel_titulo').value.trim(),
     filtroCliente: [...relFiltroCliente],
     filtroTipo: [...relFiltroTipo],
@@ -4870,8 +4925,10 @@ function carregarConfigNoRelatorio(config){
   relColunas = (config.colunas || []).slice();
   relAgrupar = config.agrupar || 'nenhum';
   relTipoVisualizacao = config.tipoVisualizacao || 'tabela';
+  relIncluirMovimentacoes = !!config.incluirMovimentacoes;
   document.getElementById('rel_titulo').value = config.titulo || '';
   document.getElementById('rel_agrupar').value = relAgrupar;
+  document.getElementById('rel_incluir_movimentacoes').checked = relIncluirMovimentacoes;
   relFiltroCliente = new Set(config.filtroCliente || []);
   relFiltroTipo = new Set(config.filtroTipo || []);
   relFiltroStatus = new Set(config.filtroStatus || []);
@@ -4958,7 +5015,7 @@ function carregarRelatorioSalvoNoConstrutor(id){
   relEditandoId = id;
   carregarConfigNoRelatorio(r.config || {});
   renderRelatorioColunas();
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
   toast(`Editando "${r.nome}" — ajuste e clique em "💾 Salvar como relatório" pra atualizar`);
 }
 
@@ -5002,7 +5059,7 @@ function usarRelatorioPublicado(id){
   document.getElementById('rel_titulo').value = rel.nome;
   document.getElementById('relatorioPubTitulo').textContent = rel.nome;
   document.getElementById('cardPreviewRelatoriosPub').style.display = '';
-  renderRelatorioPreview();
+  atualizarRelatorioComMovimentacoes();
   document.getElementById('cardPreviewRelatoriosPub').scrollIntoView({ behavior:'smooth' });
 }
 
@@ -11863,8 +11920,9 @@ function renderAtendimentosVinculadosProjeto(){
   const permAt = permissaoMenu(conta, 'atendimentos');
   const podeEditarBtn = permAt ? permAt.editar : podeEditar;
   const podeExcluirBtn = permAt ? permAt.excluir : podeEditar;
-  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn };
-  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn };
+  const podeInserirBtn = permAt ? permAt.inserir : true;
+  permissoesAcoesMenu = { podeEditarBtn, isAdmin, podeExcluirBtn, podeInserirBtn };
+  const ctx = { isUsuario, verValores, isAdmin, podeEditarBtn, podeExcluirBtn, podeInserirBtn };
 
   wrap.innerHTML = projetoAtendimentoIds.map(id=>{
     const r = atendimentos.find(x=>String(x.id)===String(id));
@@ -12291,6 +12349,54 @@ let relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horar
 let relAgrupar = 'nenhum';
 let relTipoVisualizacao = 'tabela'; // 'tabela' ou 'ficha' (detalhado, com fotos)
 let relEditandoId = null; // id do relatório salvo sendo editado (null = novo)
+// "incluir movimentações" — só vale nas visões em tabela (não no "Detalhado"),
+// uma linha extra por movimentação logo abaixo da linha do atendimento dela.
+// Não tem endpoint em massa pra isso (só existe listarMovimentacoes por
+// atendimento, usado no chat), então busca tudo de uma vez só quando o
+// relatório é (re)gerado, cacheado por assinatura do conjunto de ids atual
+// pra não buscar de novo à toa a cada coluna/ordem mexida
+let relIncluirMovimentacoes = false;
+let movimentacoesPorAtendimentoRelatorio = {};
+let relMovimentacoesAssinatura = '';
+async function carregarMovimentacoesRelatorio(itens){
+  if(!relIncluirMovimentacoes || relTipoVisualizacao === 'ficha'){
+    movimentacoesPorAtendimentoRelatorio = {}; relMovimentacoesAssinatura = '';
+    return;
+  }
+  const ids = itens.map(r=>r.id);
+  const assinatura = ids.slice().sort().join(',');
+  if(assinatura === relMovimentacoesAssinatura) return;
+  relMovimentacoesAssinatura = assinatura;
+  if(ids.length === 0){ movimentacoesPorAtendimentoRelatorio = {}; return; }
+  const conta = contaAtual();
+  const r = await api('listarMovimentacoesEmLote', { contaId: conta ? conta.id : '', atendimentoIds: ids });
+  movimentacoesPorAtendimentoRelatorio = (r.ok && r.movimentacoesPorAtendimento) || {};
+}
+function formatarDataHoraBr(iso){
+  const d = iso ? new Date(iso) : null;
+  if(!d || isNaN(d.getTime())) return '';
+  const dia = String(d.getDate()).padStart(2,'0');
+  const mes = String(d.getMonth()+1).padStart(2,'0');
+  const hora = String(d.getHours()).padStart(2,'0');
+  const min = String(d.getMinutes()).padStart(2,'0');
+  return `${dia}/${mes}/${d.getFullYear()} ${hora}:${min}`;
+}
+function textoMovimentacaoRelatorio(m){
+  const quando = formatarDataHoraBr(m.criadoEm);
+  const autor = m.autorNome ? `${m.autorNome}${m.autorPerfil ? ' ('+m.autorPerfil+')' : ''}` : '';
+  const texto = stripHtml(m.texto || '');
+  return `${quando ? quando+' — ' : ''}${autor ? autor+': ' : ''}${texto}`;
+}
+function linhasMovimentacoesHtml(r, numColunas){
+  if(!relIncluirMovimentacoes) return '';
+  const movs = movimentacoesPorAtendimentoRelatorio[r.id] || [];
+  return movs.map(m=>`<tr class="rel-mov-linha"><td colspan="${numColunas}">↳ ${escaparHtml(textoMovimentacaoRelatorio(m))}</td></tr>`).join('');
+}
+function linhasMovimentacoesExcel(r){
+  if(!relIncluirMovimentacoes) return [];
+  const movs = movimentacoesPorAtendimentoRelatorio[r.id] || [];
+  return movs.map(m=>['', `↳ ${textoMovimentacaoRelatorio(m)}`]);
+}
 
 const COLUNAS_RELATORIO = [
   { key:'id', label:'Nº do Atendimento', formatar:r=>r.id },
@@ -13190,7 +13296,7 @@ function goView(name){
   if(name==='dashboard') renderDashboard();
   if(name==='gantt'){ renderFiltrosGantt(); renderGantt(); }
   if(name==='relatorio'){
-    renderRelatorioFiltros(); renderRelatorioColunas(); renderRelatorioPreview();
+    renderRelatorioFiltros(); renderRelatorioColunas(); atualizarRelatorioComMovimentacoes();
     carregarRelatoriosSalvos().then(renderListaRelatoriosSalvos);
   }
   if(name==='relatoriospub'){
@@ -13388,12 +13494,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.querySelector('[data-util-cat="tomticket"]').addEventListener('click', ()=>{
     document.getElementById('utilCategorias').style.display = 'none';
     document.getElementById('utilTomticket').style.display = '';
+    renderConfigTomticket();
     renderUtilTomticketLista();
   });
   document.getElementById('btnUtilTomticketVoltar').addEventListener('click', ()=>{
     document.getElementById('utilTomticket').style.display = 'none';
     document.getElementById('utilCategorias').style.display = '';
   });
+  document.getElementById('btnSalvarConfigTomticket').addEventListener('click', salvarConfigTomticket);
   document.querySelector('[data-util-cat="sqlrm"]').addEventListener('click', abrirGeradorSqlRm);
   document.getElementById('btnUtilSqlRmVoltar').addEventListener('click', ()=>{
     document.getElementById('utilSqlRm').style.display = 'none';
@@ -13498,27 +13606,31 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('relFiltroCliente').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(relFiltroCliente, chip.dataset.valor);
-    renderRelatorioFiltros(); renderRelatorioPreview();
+    renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
   });
   document.getElementById('relFiltroTipo').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(relFiltroTipo, chip.dataset.valor);
-    renderRelatorioFiltros(); renderRelatorioPreview();
+    renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
   });
   document.getElementById('relFiltroStatus').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(relFiltroStatus, chip.dataset.valor);
-    renderRelatorioFiltros(); renderRelatorioPreview();
+    renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
   });
-  document.getElementById('rel_de').addEventListener('change', renderRelatorioPreview);
-  document.getElementById('rel_ate').addEventListener('change', renderRelatorioPreview);
-  document.getElementById('rel_agrupar').addEventListener('change', e=>{ relAgrupar = e.target.value; renderRelatorioPreview(); });
+  document.getElementById('rel_de').addEventListener('change', atualizarRelatorioComMovimentacoes);
+  document.getElementById('rel_ate').addEventListener('change', atualizarRelatorioComMovimentacoes);
+  document.getElementById('rel_agrupar').addEventListener('change', e=>{ relAgrupar = e.target.value; atualizarRelatorioComMovimentacoes(); });
+  document.getElementById('rel_incluir_movimentacoes').addEventListener('change', e=>{
+    relIncluirMovimentacoes = e.target.checked;
+    atualizarRelatorioComMovimentacoes();
+  });
   document.getElementById('relatorioColunasOrdem').addEventListener('click', e=>{
     const btn = e.target.closest('button[data-acao]'); if(!btn) return;
     const key = btn.dataset.key;
     if(btn.dataset.acao === 'remover'){
       relColunas = relColunas.filter(k=>k!==key);
-      renderRelatorioColunas(); renderRelatorioPreview();
+      renderRelatorioColunas(); atualizarRelatorioComMovimentacoes();
     }else{
       moverColunaRelatorio(key, btn.dataset.acao);
     }
@@ -13528,7 +13640,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const key = e.target.dataset.key;
     if(e.target.checked && !relColunas.includes(key)) relColunas.push(key);
     renderRelatorioColunas();
-    renderRelatorioPreview();
+    atualizarRelatorioComMovimentacoes();
   });
   document.getElementById('btnPdfRelatorio').addEventListener('click', gerarPdfRelatorio);
   document.getElementById('btnExcelRelatorio').addEventListener('click', gerarExcelRelatorio);

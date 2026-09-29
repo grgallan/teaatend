@@ -1276,3 +1276,20 @@ alter table categorias_financeiras enable row level security;
 alter table lancamentos_financeiros add column if not exists tipo text not null default 'RECEITA' check (tipo in ('RECEITA','DESPESA'));
 alter table lancamentos_financeiros add column if not exists data_emissao text;
 alter table lancamentos_financeiros add column if not exists categoria text default '';
+
+-- ---------- Configurações da integração TomTicket (Utilitários) ----------
+-- linha única (id fixo 'default') com o que passou a ser editável pela
+-- tela — liga/desliga a importação automática, e os valores que antes
+-- eram fixos no código da function tomticket-webhook (cliente padrão,
+-- tipo do atendimento gerado, empresa vinculada). O token da API e o
+-- segredo do webhook continuam só nas Secrets da function, nunca aqui.
+create table if not exists tomticket_config (
+  id text primary key default 'default',
+  ativo boolean not null default true,
+  cliente_padrao text not null default 'CORAL',
+  tipo_atendimento text not null default 'TOMTICKET',
+  empresa_id text references empresas(id),
+  atualizado_em timestamptz default now()
+);
+alter table tomticket_config enable row level security;
+insert into tomticket_config (id) values ('default') on conflict (id) do nothing;

@@ -11,8 +11,6 @@
 //                             da Conta → API, no painel do TomTicket)
 //   TOMTICKET_WEBHOOK_SECRET— um valor secreto escolhido por você, colocado
 //                             na query string da URL configurada no TomTicket
-//   TOMTICKET_EMPRESA_ID    — id da empresa (tabela empresas) que recebe
-//                             os atendimentos importados
 //
 // Configuração no TomTicket (Administração → Configurações da Conta →
 // Webhook): URL de destino = URL desta function depois de publicada, com
@@ -21,6 +19,15 @@
 // O campo "Segredo da Aplicação" da tela deles pode ficar com qualquer
 // valor — não é usado por essa function (não foi possível confirmar o
 // esquema de assinatura real que eles usam nesse campo).
+//
+// Ligar/desligar a importação, o cliente padrão, o tipo do atendimento
+// gerado e a empresa vinculada agora são configuráveis pela tela (app →
+// Utilitários → TomTicket → Configurações), guardados na tabela
+// tomticket_config (linha única, id 'default'). O token da API e o
+// segredo do webhook continuam só aqui nas Secrets, por segurança — a
+// tela nunca lida com esses dois valores. As constantes *_FALLBACK abaixo
+// só valem enquanto a tela ainda não foi salva nenhuma vez (linha
+// 'default' ainda não existe ou está com esses campos vazios).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -28,11 +35,22 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const TOMTICKET_API_TOKEN = Deno.env.get('TOMTICKET_API_TOKEN') || '';
 const TOMTICKET_WEBHOOK_SECRET = Deno.env.get('TOMTICKET_WEBHOOK_SECRET') || '';
-const TOMTICKET_EMPRESA_ID = Deno.env.get('TOMTICKET_EMPRESA_ID') || '';
-const TIPO_TOMTICKET = 'TOMTICKET';
-const CLIENTE_PADRAO = 'CORAL';
+const TOMTICKET_EMPRESA_ID_FALLBACK = Deno.env.get('TOMTICKET_EMPRESA_ID') || '';
+const TIPO_TOMTICKET_FALLBACK = 'TOMTICKET';
+const CLIENTE_PADRAO_FALLBACK = 'CORAL';
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+interface ConfigTomTicket { ativo: boolean; clientePadrao: string; tipoAtendimento: string; empresaId: string; }
+async function obterConfig(): Promise<ConfigTomTicket> {
+  const { data } = await db.from('tomticket_config').select('*').eq('id', 'default').maybeSingle();
+  return {
+    ativo: data ? data.ativo !== false : true,
+    clientePadrao: (data && data.cliente_padrao) || CLIENTE_PADRAO_FALLBACK,
+    tipoAtendimento: (data && data.tipo_atendimento) || TIPO_TOMTICKET_FALLBACK,
+    empresaId: (data && data.empresa_id) || TOMTICKET_EMPRESA_ID_FALLBACK,
+  };
+}
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -86,26 +104,29 @@ async function registrarErro(ticketId: string, motivo: string, payload: any) {
   await db.from('tomticket_erros').insert({ id: gerarId(), ticket_id: ticketId, motivo, payload });
 }
 
-async function garantirTipoTomTicket(): Promise<string> {
-  const { data: existente } = await db.from('tipos').select('id').ilike('nome', TIPO_TOMTICKET).maybeSingle();
+async function garantirTipoTomTicket(tipoAtendimento: string): Promise<string> {
+  const { data: existente } = await db.from('tipos').select('id').ilike('nome', tipoAtendimento).maybeSingle();
   if (existente) return existente.id;
   const id = gerarId();
-  await db.from('tipos').insert({ id, nome: TIPO_TOMTICKET });
+  await db.from('tipos').insert({ id, nome: tipoAtendimento });
   return id;
 }
 
 // quando a organização do chamado não bate com nenhum cliente cadastrado,
 // usa esse cliente fixo em vez de deixar de criar o atendimento
-async function garantirClientePadrao(): Promise<{ nome: string }> {
-  const { data: existente } = await db.from('clientes').select('nome').eq('empresa_id', TOMTICKET_EMPRESA_ID).ilike('nome', CLIENTE_PADRAO).maybeSingle();
+async function garantirClientePadrao(empresaId: string, clientePadrao: string): Promise<{ nome: string }> {
+  const { data: existente } = await db.from('clientes').select('nome').eq('empresa_id', empresaId).ilike('nome', clientePadrao).maybeSingle();
   if (existente) return existente;
-  await db.from('clientes').insert({ id: gerarId(), nome: CLIENTE_PADRAO, empresa_id: TOMTICKET_EMPRESA_ID });
-  return { nome: CLIENTE_PADRAO };
+  await db.from('clientes').insert({ id: gerarId(), nome: clientePadrao, empresa_id: empresaId });
+  return { nome: clientePadrao };
 }
 
 async function processarChamado(ticketId: string) {
-  if (!TOMTICKET_API_TOKEN || !TOMTICKET_EMPRESA_ID) {
-    console.error('[tomticket] TOMTICKET_API_TOKEN ou TOMTICKET_EMPRESA_ID não configurados — não é possível processar.');
+  const config = await obterConfig();
+  if (!config.ativo) return; // integração desligada pela tela — não faz nada
+
+  if (!TOMTICKET_API_TOKEN || !config.empresaId) {
+    console.error('[tomticket] TOMTICKET_API_TOKEN ou empresa vinculada não configurados — não é possível processar.');
     return;
   }
 
@@ -125,7 +146,7 @@ async function processarChamado(ticketId: string) {
 
   const [{ data: clienteEncontrado }, { data: atendenteEncontrado }] = await Promise.all([
     clienteNome
-      ? db.from('clientes').select('nome').eq('empresa_id', TOMTICKET_EMPRESA_ID).ilike('nome', clienteNome).maybeSingle()
+      ? db.from('clientes').select('nome').eq('empresa_id', config.empresaId).ilike('nome', clienteNome).maybeSingle()
       : Promise.resolve({ data: null }),
     db.from('contas').select('*').eq('perfil', 'ATENDENTE').ilike('nome', operatorNome).maybeSingle(),
   ]);
@@ -137,9 +158,9 @@ async function processarChamado(ticketId: string) {
     return;
   }
 
-  const cliente = clienteEncontrado || await garantirClientePadrao();
+  const cliente = clienteEncontrado || await garantirClientePadrao(config.empresaId, config.clientePadrao);
 
-  await garantirTipoTomTicket(); // garante que o Tipo "TOMTICKET" existe, pra aparecer certo nos filtros/relatórios
+  await garantirTipoTomTicket(config.tipoAtendimento); // garante que o Tipo existe, pra aparecer certo nos filtros/relatórios
 
   const agora = new Date();
   const data = agora.toISOString().slice(0, 10);
@@ -152,12 +173,12 @@ async function processarChamado(ticketId: string) {
   const { error } = await db.from('atendimentos').insert({
     id: gerarId(), data, mes,
     cliente: cliente.nome, usuario: usuarioNome || cliente.nome,
-    tipo: TIPO_TOMTICKET, modulo: '', submodulo: '',
+    tipo: config.tipoAtendimento, modulo: '', submodulo: '',
     atendente: atendenteEncontrado.nome, assunto: chamado.subject || '', detalhe,
     hi: '00:00', inter: '00:00', hf: '00:00', qtd: 0, vha: 0, total_ananda: 0, vhr: 0, total_real: 0,
     status: 'PENDENTE', anexo_url: '', anexo_nome: '', solucao: '', data_prevista: '',
     atendente2: '', horas_atendente2: 0, vha2: 0, total_ananda2: 0,
-    empresa_id: TOMTICKET_EMPRESA_ID, tomticket_id: ticketId,
+    empresa_id: config.empresaId, tomticket_id: ticketId,
   });
   if (error) await registrarErro(ticketId, `Erro ao gravar o atendimento: ${error.message}`, chamado);
 }

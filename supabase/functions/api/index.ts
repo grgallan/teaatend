@@ -365,6 +365,7 @@ async function rotear(req: any): Promise<any> {
     case 'adicionarAnexo': return acaoAdicionarAnexo(req);
     case 'removerAnexo': return acaoRemoverAnexo(req);
     case 'listarMovimentacoes': return acaoListarMovimentacoes(req);
+    case 'listarMovimentacoesEmLote': return acaoListarMovimentacoesEmLote(req);
     case 'criarMovimentacao': return acaoCriarMovimentacao(req);
     case 'atualizarMovimentacao': return acaoAtualizarMovimentacao(req);
     case 'removerMovimentacao': return acaoRemoverMovimentacao(req);
@@ -389,6 +390,7 @@ async function rotear(req: any): Promise<any> {
     case 'removerEmpresa': return acaoRemoverEmpresa(req);
     case 'vincularEmpresasConta': return acaoVincularEmpresasConta(req);
     case 'removerTomticketErro': return acaoRemoverTomticketErro(req);
+    case 'salvarConfigTomticket': return acaoSalvarConfigTomticket(req);
     case 'rmListarTabelas': return acaoRmListarTabelas(req);
     case 'rmAddTabela': return acaoRmAddTabela(req);
     case 'rmAtualizarTabela': return acaoRmAtualizarTabela(req);
@@ -623,9 +625,15 @@ async function acaoDados(req: any) {
   }
 
   let tomticketErros: any[] = [];
+  let configTomticket = null;
   if (isAdmin) {
     const { data } = await db.from('tomticket_erros').select('*').order('criado_em', { ascending: false }).limit(100);
     tomticketErros = (data || []).map((e: any) => ({ id: e.id, ticketId: e.ticket_id, motivo: e.motivo, criadoEm: e.criado_em }));
+    const { data: config } = await db.from('tomticket_config').select('*').eq('id', 'default').maybeSingle();
+    configTomticket = config ? {
+      ativo: config.ativo !== false, clientePadrao: config.cliente_padrao || '', tipoAtendimento: config.tipo_atendimento || '',
+      empresaId: config.empresa_id || '',
+    } : { ativo: true, clientePadrao: 'CORAL', tipoAtendimento: 'TOMTICKET', empresaId: '' };
   }
 
   return {
@@ -646,6 +654,7 @@ async function acaoDados(req: any) {
     // mesmo tendo acesso total dentro da própria empresa dele
     empresas: (contaAtual && contaAtual.perfil === 'ADMIN') ? (empresasRaw || []).map(empresaParaApi) : [],
     tomticketErros,
+    configTomticket,
     categoriasFinanceiras: (categoriasFinanceirasRaw || []).map(categoriaFinanceiraParaApi),
   };
 }
@@ -1260,6 +1269,32 @@ async function acaoListarMovimentacoes(req: any) {
       ehResposta: !!m.eh_resposta,
     })),
   };
+}
+
+// versão em lote de acaoListarMovimentacoes, pro Construtor de Relatório
+// (opção "incluir movimentações") — sem endpoint em massa até agora, cada
+// atendimento só buscava sua conversa sob demanda ao abrir o chat. Não
+// marca como "vista" (isso é coisa da tela de chat) nem traz anexos (o
+// relatório só usa o texto) — mais leve de propósito pra não pesar num
+// relatório com muitos atendimentos de uma vez
+async function acaoListarMovimentacoesEmLote(req: any) {
+  const ids: string[] = Array.isArray(req.atendimentoIds) ? req.atendimentoIds.filter(Boolean) : [];
+  if (ids.length === 0) return { ok: true, movimentacoesPorAtendimento: {} };
+  const { data: movs, error } = await db.from('movimentacoes').select('*').in('atendimento_id', ids).order('criado_em');
+  if (error) return { ok: false, erro: error.message };
+  const porAtendimento: Record<string, any[]> = {};
+  (movs || []).forEach((m: any) => {
+    const item = {
+      id: m.id, atendimentoId: m.atendimento_id, autorNome: m.autor_nome, autorPerfil: m.autor_perfil,
+      texto: m.texto, respondendoA: m.respondendo_a || null, criadoEm: m.criado_em,
+      dataInicial: m.data_inicial || '', horaInicial: m.hora_inicial || '',
+      dataFinal: m.data_final || '', horaFinal: m.hora_final || '', intervaloMin: m.intervalo_min || 0,
+      ehResposta: !!m.eh_resposta,
+    };
+    if (!porAtendimento[m.atendimento_id]) porAtendimento[m.atendimento_id] = [];
+    porAtendimento[m.atendimento_id].push(item);
+  });
+  return { ok: true, movimentacoesPorAtendimento: porAtendimento };
 }
 
 async function acaoCriarMovimentacao(req: any) {
@@ -3659,6 +3694,24 @@ async function acaoVincularEmpresasConta(req: any) {
 async function acaoRemoverTomticketErro(req: any) {
   if (!(await podeAgir(req.contaId, 'utilitarios.tomticket', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para gerenciar isso.' };
   await db.from('tomticket_erros').delete().eq('id', req.id);
+  return { ok: true };
+}
+// liga/desliga a importação automática e os valores usados nela (cliente
+// padrão, tipo do atendimento gerado, empresa vinculada) — o token da API
+// e o segredo do webhook continuam só nas Secrets da function
+// tomticket-webhook, nunca por aqui, por segurança
+async function acaoSalvarConfigTomticket(req: any) {
+  if (!(await podeAgir(req.contaId, 'utilitarios.tomticket', 'editar'))) return { ok: false, erro: 'Você não tem permissão para alterar as configurações do TomTicket.' };
+  const registro = {
+    id: 'default',
+    ativo: !!req.ativo,
+    cliente_padrao: String(req.clientePadrao || 'CORAL').trim(),
+    tipo_atendimento: String(req.tipoAtendimento || 'TOMTICKET').trim(),
+    empresa_id: req.empresaId || null,
+    atualizado_em: new Date().toISOString(),
+  };
+  const { error } = await db.from('tomticket_config').upsert(registro);
+  if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
 

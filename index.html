@@ -872,6 +872,7 @@
   .rel-tabela tr.rel-grupo td{background:var(--panel-2);font-weight:700;color:var(--accent);padding-top:12px;}
   .rel-tabela tr.rel-subtotal td{font-weight:600;color:var(--text);border-top:1px solid var(--line);font-size:11.5px;}
   .rel-tabela tr.rel-total td{font-weight:800;color:var(--accent);border-top:2px solid var(--text);font-size:12.5px;padding-top:10px;}
+  .rel-tabela tr.rel-mov-linha td{color:var(--muted);font-size:11px;font-style:italic;padding:3px 8px 3px 22px;background:color-mix(in oklch, var(--panel-2) 55%, transparent);}
   .rel-coluna-ordem{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;margin-bottom:5px;font-size:12.5px;}
   .rel-coluna-ordem .rel-coluna-nome{flex:1;}
   .rel-coluna-ordem button{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);width:24px;height:24px;font-size:12px;padding:0;cursor:pointer;}
@@ -1582,6 +1583,11 @@
           <option value="atendente">Atendente</option>
           <option value="status">Status</option>
         </select>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-top:14px;cursor:pointer;">
+          <input type="checkbox" id="rel_incluir_movimentacoes" style="width:auto;">
+          Incluir movimentações (uma linha abaixo de cada atendimento)
+        </label>
+        <p style="color:var(--muted);font-size:11.5px;margin:4px 0 0;">Não vale pro modelo "Detalhado" — só nas visões em tabela.</p>
       </div>
       <div class="card" id="cardColunasRelatorio">
         <h2>Colunas selecionadas (ordem de exibição)</h2>
@@ -2673,9 +2679,28 @@
 
     <div class="card" id="utilTomticket" style="display:none;">
       <button type="button" class="ghost" id="btnUtilTomticketVoltar" style="width:auto;padding:8px 14px;margin-bottom:12px;">← Voltar</button>
-      <h2>TomTicket — pendências de importação</h2>
-      <p style="color:var(--muted);font-size:12.5px;margin:-6px 0 12px;">Chamados do TomTicket em que o cliente ou o técnico associado não bateu com ninguém já cadastrado aqui — o atendimento não foi criado automaticamente. Corrija o cadastro (nome do Cliente ou do Atendente) e associe o técnico de novo lá no TomTicket pra tentar de novo.</p>
-      <div id="utilTomticketLista"></div>
+      <h2>TomTicket</h2>
+
+      <div class="card">
+        <h2>Configurações</h2>
+        <p style="color:var(--muted);font-size:12.5px;margin:-6px 0 12px;">O token da API e o segredo do webhook continuam configurados só no Supabase (Secrets da function), por segurança — aqui dá pra ligar/desligar a importação automática e ajustar o que ela usa.</p>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer;">
+          <input type="checkbox" id="tt_ativo" style="width:auto;">
+          Importação automática ativa
+        </label>
+        <div class="row">
+          <div class="field"><label>Empresa vinculada</label><select id="tt_empresa"></select></div>
+          <div class="field"><label>Cliente padrão <span style="font-weight:400;">(quando o chamado não bate com nenhum cliente cadastrado)</span></label><input type="text" id="tt_cliente_padrao" placeholder="Ex: CORAL"></div>
+        </div>
+        <div class="field"><label>Tipo do atendimento gerado</label><input type="text" id="tt_tipo_atendimento" placeholder="Ex: TOMTICKET"></div>
+        <button class="primary" id="btnSalvarConfigTomticket" style="margin-bottom:4px;">Salvar configurações</button>
+      </div>
+
+      <div class="card">
+        <h2>Pendências de importação</h2>
+        <p style="color:var(--muted);font-size:12.5px;margin:-6px 0 12px;">Chamados do TomTicket em que o cliente ou o técnico associado não bateu com ninguém já cadastrado aqui — o atendimento não foi criado automaticamente. Corrija o cadastro (nome do Cliente ou do Atendente) e associe o técnico de novo lá no TomTicket pra tentar de novo.</p>
+        <div id="utilTomticketLista"></div>
+      </div>
     </div>
 
     <div class="card" id="utilEsocial" style="display:none;">
