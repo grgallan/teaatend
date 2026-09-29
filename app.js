@@ -12381,11 +12381,27 @@ function formatarDataHoraBr(iso){
   const min = String(d.getMinutes()).padStart(2,'0');
   return `${dia}/${mes}/${d.getFullYear()} ${hora}:${min}`;
 }
+// "YYYY-MM-DD" (como data_inicial/data_final são gravadas) -> "DD/MM/AAAA"
+function formatarDataSimplesBr(iso){
+  if(!iso) return '';
+  const [y,m,d] = String(iso).split('-');
+  return (y && m && d) ? `${d}/${m}/${y}` : String(iso);
+}
 function textoMovimentacaoRelatorio(m){
   const quando = formatarDataHoraBr(m.criadoEm);
   const autor = m.autorNome ? `${m.autorNome}${m.autorPerfil ? ' ('+m.autorPerfil+')' : ''}` : '';
   const texto = stripHtml(m.texto || '');
-  return `${quando ? quando+' — ' : ''}${autor ? autor+': ' : ''}${texto}`;
+  // apontamento de horas da movimentação (quando ela registrou trabalho, não
+  // só um comentário) — só entra quando tem algo preenchido, senão fica
+  // poluindo uma movimentação que é só um comentário de chat
+  const apontamento = [];
+  if(m.horaInicial) apontamento.push(`Hora Início: ${m.horaInicial}`);
+  if(m.intervaloMin) apontamento.push(`Intervalo: ${m.intervaloMin}min`);
+  if(m.horaFinal) apontamento.push(`Hora Final: ${m.horaFinal}`);
+  if(m.dataInicial) apontamento.push(`Data Inicial: ${formatarDataSimplesBr(m.dataInicial)}`);
+  if(m.dataFinal) apontamento.push(`Data Final: ${formatarDataSimplesBr(m.dataFinal)}`);
+  const tempo = apontamento.length > 0 ? ' · ' + apontamento.join(' · ') : '';
+  return `${quando ? quando+' — ' : ''}${autor ? autor+': ' : ''}${texto}${tempo}`;
 }
 function linhasMovimentacoesHtml(r, numColunas){
   if(!relIncluirMovimentacoes) return '';
