@@ -3673,23 +3673,34 @@ function relContainerAtivo(){
   return document.getElementById('view-relatoriospub').classList.contains('active') ? 'relatorioPubPreview' : 'relatorioPreview';
 }
 
+// no modelo "Detalhado", o quê aparece em cada ficha segue as MESMAS colunas
+// escolhidas no card "Colunas" (igual à visão em tabela) — Detalhe/Solução
+// viram bloco de conteúdo rico (podem ter HTML/imagem) em vez de uma linha;
+// Cliente/Usuário (quando escolhidos) viram o título da ficha; o resto das
+// colunas escolhidas vira uma linha de "rótulo: valor" no topo
 function renderFichaRelatorio(itens, cont){
   if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado com esses filtros.</div>`; return; }
+  const colunasAtivas = relColunas.map(colunaInfo).filter(Boolean);
+  if(colunasAtivas.length === 0){ cont.innerHTML = `<div class="empty">Marque ao menos uma coluna.</div>`; return; }
+  const colunasConteudo = colunasAtivas.filter(c=>c.key==='detalhe' || c.key==='solucao');
+  const colunasTitulo = colunasAtivas.filter(c=>c.key==='cliente' || c.key==='usuario');
+  const colunasLinha = colunasAtivas.filter(c=>!colunasConteudo.includes(c) && !colunasTitulo.includes(c));
   cont.innerHTML = itens.map(r=>{
-    const [y,m,d] = String(r.data).split('-');
+    const titulo = colunasTitulo.length > 0 ? colunasTitulo.map(c=>c.formatar(r)).join(' · ') : `Atendimento ${r.id}`;
+    const linhaCampos = colunasLinha.map(c=>`${escaparHtml(c.label)}: ${escaparHtml(String(c.formatar(r)))}`).join(' · ');
+    const blocosConteudo = colunasConteudo.map(c=>`
+      <div class="rel-ficha-label">${escaparHtml(c.label)}</div>
+      <div class="rel-content">${r[c.key] ? sanitizarHtml(r[c.key]) : `<span style="color:var(--muted);">(sem ${c.label.toLowerCase()})</span>`}</div>
+    `).join('');
     const movs = movimentacoesPorAtendimentoRelatorio[r.id] || [];
     const movimentacoesHtml = movs.length > 0
       ? `<div class="rel-ficha-label">Movimentações</div>
          <div class="rel-ficha-movs">${movs.map(mv=>`<div class="rel-ficha-mov-item">↳ ${escaparHtml(textoMovimentacaoRelatorio(mv))}</div>`).join('')}</div>`
       : '';
     return `<div class="rel-ficha-item">
-      <h3>${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</h3>
-      <div class="rel-ficha-sub">${d}/${m}/${y} · Atendente: ${escaparHtml(r.atendente||'(a definir)')} · ${escaparHtml(r.status)}</div>
-      <div class="rel-ficha-sub">Horário: ${escaparHtml(colunaInfo('horario').formatar(r))} · ${escaparHtml(colunaInfo('qtd').formatar(r))} · Total Real: ${escaparHtml(colunaInfo('totalReal').formatar(r))} · Total Atendente: ${escaparHtml(colunaInfo('totalAnanda').formatar(r))}</div>
-      <div class="rel-ficha-label">Detalhe</div>
-      <div class="rel-content">${r.detalhe ? sanitizarHtml(r.detalhe) : '<span style="color:var(--muted);">(sem detalhe)</span>'}</div>
-      <div class="rel-ficha-label">Solução</div>
-      <div class="rel-content">${r.solucao ? sanitizarHtml(r.solucao) : '<span style="color:var(--muted);">(sem solução registrada)</span>'}</div>
+      <h3>${escaparHtml(titulo)}</h3>
+      ${linhaCampos ? `<div class="rel-ficha-sub">${linhaCampos}</div>` : ''}
+      ${blocosConteudo}
       ${movimentacoesHtml}
     </div>`;
   }).join('');
@@ -3766,7 +3777,7 @@ function aplicarPresetRelatorio(tipo){
     relTipoVisualizacao = 'tabela';
     document.getElementById('rel_titulo').value = 'Relatório Financeiro';
   }else{
-    relColunas = ['data','cliente','usuario','atendente','status'];
+    relColunas = ['cliente','usuario','data','atendente','status','horario','qtd','totalReal','totalAnanda','detalhe','solucao'];
     relAgrupar = 'nenhum';
     relTipoVisualizacao = 'ficha';
     document.getElementById('rel_titulo').value = 'Relatório Detalhado';
