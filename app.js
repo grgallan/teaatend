@@ -3677,13 +3677,20 @@ function renderFichaRelatorio(itens, cont){
   if(itens.length === 0){ cont.innerHTML = `<div class="empty">Nenhum atendimento encontrado com esses filtros.</div>`; return; }
   cont.innerHTML = itens.map(r=>{
     const [y,m,d] = String(r.data).split('-');
+    const movs = movimentacoesPorAtendimentoRelatorio[r.id] || [];
+    const movimentacoesHtml = movs.length > 0
+      ? `<div class="rel-ficha-label">Movimentações</div>
+         <div class="rel-ficha-movs">${movs.map(mv=>`<div class="rel-ficha-mov-item">↳ ${escaparHtml(textoMovimentacaoRelatorio(mv))}</div>`).join('')}</div>`
+      : '';
     return `<div class="rel-ficha-item">
       <h3>${escaparHtml(r.cliente)} · ${escaparHtml(r.usuario)}</h3>
       <div class="rel-ficha-sub">${d}/${m}/${y} · Atendente: ${escaparHtml(r.atendente||'(a definir)')} · ${escaparHtml(r.status)}</div>
+      <div class="rel-ficha-sub">Horário: ${escaparHtml(colunaInfo('horario').formatar(r))} · ${escaparHtml(colunaInfo('qtd').formatar(r))} · Total Real: ${escaparHtml(colunaInfo('totalReal').formatar(r))} · Total Atendente: ${escaparHtml(colunaInfo('totalAnanda').formatar(r))}</div>
       <div class="rel-ficha-label">Detalhe</div>
       <div class="rel-content">${r.detalhe ? sanitizarHtml(r.detalhe) : '<span style="color:var(--muted);">(sem detalhe)</span>'}</div>
       <div class="rel-ficha-label">Solução</div>
       <div class="rel-content">${r.solucao ? sanitizarHtml(r.solucao) : '<span style="color:var(--muted);">(sem solução registrada)</span>'}</div>
+      ${movimentacoesHtml}
     </div>`;
   }).join('');
 }
@@ -12349,17 +12356,20 @@ let relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horar
 let relAgrupar = 'nenhum';
 let relTipoVisualizacao = 'tabela'; // 'tabela' ou 'ficha' (detalhado, com fotos)
 let relEditandoId = null; // id do relatório salvo sendo editado (null = novo)
-// "incluir movimentações" — só vale nas visões em tabela (não no "Detalhado"),
-// uma linha extra por movimentação logo abaixo da linha do atendimento dela.
-// Não tem endpoint em massa pra isso (só existe listarMovimentacoes por
-// atendimento, usado no chat), então busca tudo de uma vez só quando o
+// "incluir movimentações" — na visão em tabela é opcional (uma linha extra
+// por movimentação logo abaixo da linha do atendimento dela); no modelo
+// "Detalhado" (ficha) as movimentações sempre aparecem, junto com horário e
+// valores do atendimento — por isso conta como "precisa buscar" nos dois
+// casos. Não tem endpoint em massa pra isso (só existe listarMovimentacoes
+// por atendimento, usado no chat), então busca tudo de uma vez só quando o
 // relatório é (re)gerado, cacheado por assinatura do conjunto de ids atual
 // pra não buscar de novo à toa a cada coluna/ordem mexida
 let relIncluirMovimentacoes = false;
 let movimentacoesPorAtendimentoRelatorio = {};
 let relMovimentacoesAssinatura = '';
 async function carregarMovimentacoesRelatorio(itens){
-  if(!relIncluirMovimentacoes || relTipoVisualizacao === 'ficha'){
+  const precisaBuscar = relIncluirMovimentacoes || relTipoVisualizacao === 'ficha';
+  if(!precisaBuscar){
     movimentacoesPorAtendimentoRelatorio = {}; relMovimentacoesAssinatura = '';
     return;
   }
@@ -12404,11 +12414,11 @@ function textoMovimentacaoRelatorio(m){
   // só um comentário) — só entra quando tem algo preenchido, senão fica
   // poluindo uma movimentação que é só um comentário de chat
   const apontamento = [];
-  if(m.dataInicial) apontamento.push(`Data Inicial: ${formatarDataSimplesBr(m.dataInicial)}`);
-  if(m.dataFinal) apontamento.push(`Data Final: ${formatarDataSimplesBr(m.dataFinal)}`);
-  if(m.horaInicial) apontamento.push(`Hora Início: ${m.horaInicial}`);
-  if(m.horaFinal) apontamento.push(`Hora Final: ${m.horaFinal}`);
-  if(m.intervaloMin) apontamento.push(`Intervalo: ${m.intervaloMin}min`);
+  if(m.dataInicial) apontamento.push(`DI: ${formatarDataSimplesBr(m.dataInicial)}`);
+  if(m.dataFinal) apontamento.push(`DF: ${formatarDataSimplesBr(m.dataFinal)}`);
+  if(m.horaInicial) apontamento.push(`HI: ${m.horaInicial}`);
+  if(m.horaFinal) apontamento.push(`HF: ${m.horaFinal}`);
+  if(m.intervaloMin) apontamento.push(`Inter: ${m.intervaloMin}min`);
   const temApontamento = apontamento.length > 0;
   // com apontamento, as próprias datas/horas já dizem "quando" — não repete
   // o horário do comentário; sem apontamento (só um comentário de chat),
