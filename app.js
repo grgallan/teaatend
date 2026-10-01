@@ -3607,6 +3607,9 @@ function renderRelatorioFiltros(){
     tipos.map(t=>`<div class="chip ${relFiltroTipo.has(t.nome)?'on':''}" data-valor="${t.nome}">${labelTipo(t.nome)}</div>`).join('');
   document.getElementById('relFiltroStatus').innerHTML = `<div class="chip ${relFiltroStatus.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
     statusList.map(s=>`<div class="chip ${relFiltroStatus.has(s.nome)?'on':''}" data-valor="${s.nome}">${s.nome}</div>`).join('');
+  const nomesAtendentesRelatorio = contas.filter(c=>c.perfil==='ATENDENTE').map(c=>c.nome);
+  document.getElementById('relFiltroAtendente').innerHTML = `<div class="chip ${relFiltroAtendente.size===0?'on':''}" data-valor="TODOS">Todos</div>` +
+    nomesAtendentesRelatorio.map(nome=>`<div class="chip ${relFiltroAtendente.has(nome)?'on':''}" data-valor="${nome}">${escaparHtml(nome)}</div>`).join('');
 }
 
 // lista reordenável (as que já estão escolhidas) + lista de disponíveis pra adicionar
@@ -3652,6 +3655,7 @@ function calcularItensRelatorio(){
   if(relFiltroCliente.size > 0) itens = itens.filter(r=>relFiltroCliente.has(r.cliente));
   if(relFiltroTipo.size > 0) itens = itens.filter(r=>relFiltroTipo.has(r.tipo));
   if(relFiltroStatus.size > 0) itens = itens.filter(r=>relFiltroStatus.has(r.status));
+  if(relFiltroAtendente.size > 0) itens = itens.filter(r=>relFiltroAtendente.has(r.atendente));
   const de = document.getElementById('rel_de').value;
   const ate = document.getElementById('rel_ate').value;
   if(de) itens = itens.filter(r=>String(r.data) >= de);
@@ -3793,6 +3797,7 @@ function tituloEFiltrosRelatorio(){
   if(relFiltroCliente.size > 0) partes.push(`Cliente: ${[...relFiltroCliente].join(', ')}`);
   if(relFiltroTipo.size > 0) partes.push(`Tipo: ${[...relFiltroTipo].map(labelTipo).join(', ')}`);
   if(relFiltroStatus.size > 0) partes.push(`Status: ${[...relFiltroStatus].join(', ')}`);
+  if(relFiltroAtendente.size > 0) partes.push(`Atendente: ${[...relFiltroAtendente].join(', ')}`);
   const de = document.getElementById('rel_de').value;
   const ate = document.getElementById('rel_ate').value;
   if(de || ate) partes.push(`Período: ${de || '(início)'} a ${ate || '(hoje)'}`);
@@ -4936,6 +4941,7 @@ function configAtualRelatorio(){
     filtroCliente: [...relFiltroCliente],
     filtroTipo: [...relFiltroTipo],
     filtroStatus: [...relFiltroStatus],
+    filtroAtendente: [...relFiltroAtendente],
   };
 }
 
@@ -4950,6 +4956,7 @@ function carregarConfigNoRelatorio(config){
   relFiltroCliente = new Set(config.filtroCliente || []);
   relFiltroTipo = new Set(config.filtroTipo || []);
   relFiltroStatus = new Set(config.filtroStatus || []);
+  relFiltroAtendente = new Set(config.filtroAtendente || []);
 }
 
 function abrirModalSalvarRelatorio(){
@@ -12363,6 +12370,7 @@ async function exportarCuboExcel(){
 let relFiltroCliente = new Set();
 let relFiltroTipo = new Set();
 let relFiltroStatus = new Set();
+let relFiltroAtendente = new Set();
 let relColunas = ['data','cliente','usuario','atendente','tipo','detalhe','horario','qtd','status']; // array — mantém a ordem escolhida
 let relAgrupar = 'nenhum';
 let relTipoVisualizacao = 'tabela'; // 'tabela' ou 'ficha' (detalhado, com fotos)
@@ -13669,6 +13677,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('relFiltroStatus').addEventListener('click', e=>{
     const chip = e.target.closest('.chip'); if(!chip) return;
     toggleFiltroMultiplo(relFiltroStatus, chip.dataset.valor);
+    renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
+  });
+  document.getElementById('relFiltroAtendente').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    toggleFiltroMultiplo(relFiltroAtendente, chip.dataset.valor);
     renderRelatorioFiltros(); atualizarRelatorioComMovimentacoes();
   });
   document.getElementById('rel_de').addEventListener('change', atualizarRelatorioComMovimentacoes);
