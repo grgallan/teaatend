@@ -144,6 +144,7 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'esocial', label:'eSocial' },
     { chave:'tomticket', label:'TomTicket' },
     { chave:'sqlrm', label:'Gerador SQL RM' },
+    { chave:'painelrecebiveis', label:'Painel de Recebíveis (RM)' },
   ]},
 ];
 
