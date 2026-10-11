@@ -12780,6 +12780,19 @@ function recebFiltrados(){
     })
   );
 }
+// linhas restritas por TODOS os outros filtros já marcados, menos o
+// próprio campo — usada só pra montar as OPÇÕES do dropdown de um filtro,
+// assim cada filtro "se cruza" com os demais (ex: já escolheu Ano=2026, o
+// dropdown de Mês só lista os meses que têm nota naquele ano)
+function recebLinhasParaOpcoes(campoExcluir){
+  return recebLinhas.filter(o=>
+    recebPainelFiltros.every(campo=>{
+      if(campo === campoExcluir) return true;
+      const set = recebFiltros[campo];
+      return !set || set.size===0 || set.has(recebValorFiltro(o, campo));
+    })
+  );
+}
 
 // só entram clientes que têm o relatório "Painel de Recebíveis" cadastrado
 // pra eles (Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios) — ter
@@ -12834,6 +12847,11 @@ async function recebAtualizarDoRm(){
     const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, slug: 'painel-recebiveis' });
     if(!r.ok){ document.getElementById('recebStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
     recebLinhas = recebNormalizar(r.linhas || []);
+    // calcula situação/saldo já aqui (não só no render) — o filtro por
+    // "Situação" e as opções dos outros filtros (que dependem da situação
+    // pra "cruzar" com o resto) precisam disso direto em recebLinhas
+    const hoje = recebHoje();
+    recebLinhas.forEach(o=>{ o.situacao = recebSit(o, hoje); o.saldo = (o.situacao==='Recebida'||o.situacao==='Cancelada') ? 0 : recebSaldo(o); });
     recebInfo = { quando: new Date().toISOString(), nomeRelatorio: r.nomeRelatorio || 'Painel de Recebíveis' };
     recebFiltros = Object.fromEntries(recebPainelFiltros.map(c=>[c, new Set()]));
     toast(`Painel atualizado com ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'} do RM.`);
@@ -12853,17 +12871,21 @@ async function recebAtualizarDoRm(){
 let recebFiltroColunaAberta = null; // qual campo está com o dropdown aberto agora
 // opções de UM campo filtrável — embutido (processado) ou "rm:X" (direto
 // da coluna crua da consulta, sem nenhum tratamento)
+// opções de UM campo — cruzadas com os demais filtros já marcados (ver
+// recebLinhasParaOpcoes), assim escolher um filtro estreita o que aparece
+// nos outros, igual uma tabela dinâmica/slicer
 function recebOpcoesPorCampo(campo){
-  if(campo==='mes') return [...new Set(recebLinhas.map(o=>o.m).filter(Boolean))].sort().map(m=>({ value:m, label:recebMesLbl(m) }));
-  if(campo==='situacao') return [...new Set(recebLinhas.map(o=>o.situacao).filter(Boolean))].map(v=>({ value:v, label:RECEB_PILL_TXT[v]||v }));
+  const linhas = recebLinhasParaOpcoes(campo);
+  if(campo==='mes') return [...new Set(linhas.map(o=>o.m).filter(Boolean))].sort().map(m=>({ value:m, label:recebMesLbl(m) }));
+  if(campo==='situacao') return [...new Set(linhas.map(o=>o.situacao).filter(Boolean))].map(v=>({ value:v, label:RECEB_PILL_TXT[v]||v }));
   if(campo==='cliente' || campo==='contrato'){
-    const m = {}; recebLinhas.forEach(o=>{ const k = campo==='cliente' ? o.g : o.k; m[k] = (m[k]||0) + o.t; });
+    const m = {}; linhas.forEach(o=>{ const k = campo==='cliente' ? o.g : o.k; m[k] = (m[k]||0) + o.t; });
     return Object.keys(m).sort((a,b)=>m[b]-m[a]).map(v=>campo==='contrato' ? { value:v, label:(c=>c.n+' '+c.d)(recebCtrLbl(v)) } : { value:v, label:v });
   }
-  if(campo==='municipio') return [...new Set(recebLinhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')).map(v=>({ value:v, label:v }));
+  if(campo==='municipio') return [...new Set(linhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')).map(v=>({ value:v, label:v }));
   if(campo.startsWith('rm:')){
     const vistos = new Set();
-    recebLinhas.forEach(o=>{ const v = recebValorFiltro(o, campo); if(v!=='') vistos.add(v); });
+    linhas.forEach(o=>{ const v = recebValorFiltro(o, campo); if(v!=='') vistos.add(v); });
     return [...vistos].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true})).map(v=>({ value:v, label:v }));
   }
   return [];
