@@ -13002,14 +13002,14 @@ const RECEB_MEDIDAS_PADRAO = {
   recebido: { label:'Recebido', fmt:'money' },
   emAberto: { label:'Em aberto', fmt:'money' },
   retencoes: { label:'Retenções na fonte', fmt:'money' },
-  qtdNotas: { label:'Qtd. de notas', fmt:'int' },
-  qtdCanceladas: { label:'Notas canceladas', fmt:'int' },
+  qtdNotas: { label:'Qtd. de notas', fmt:'int', casas:0 },
+  qtdCanceladas: { label:'Notas canceladas', fmt:'int', casas:0 },
   canceladas: { label:'Valor cancelado', fmt:'money' },
   vencido: { label:'Vencido', fmt:'money' },
   proximos7: { label:'Vence em 7 dias', fmt:'money' },
   aVencer: { label:'A vencer depois', fmt:'money' },
-  prazoMedio: { label:'Prazo médio de recebimento', fmt:'dias' },
-  pontualidade: { label:'Recebido no prazo', fmt:'pct' },
+  prazoMedio: { label:'Prazo médio de recebimento', fmt:'dias', casas:0 },
+  pontualidade: { label:'Recebido no prazo', fmt:'pct', casas:1 },
 };
 // catálogo EFETIVO de medidas — começa igual ao padrão, e é reconstruído
 // (recebReconstruirCatalogoMedidas) toda vez que recebPainelMedidas muda,
@@ -13021,7 +13021,7 @@ let RECEB_MEDIDAS = { ...RECEB_MEDIDAS_PADRAO };
 function recebReconstruirCatalogoMedidas(){
   RECEB_MEDIDAS = { ...RECEB_MEDIDAS_PADRAO };
   (recebPainelMedidas||[]).forEach(m=>{
-    RECEB_MEDIDAS[m.id] = { label:m.label, fmt:m.fmt, campo:m.campo, funcao:m.funcao };
+    RECEB_MEDIDAS[m.id] = { label:m.label, fmt:m.fmt, campo:m.campo, funcao:m.funcao, casas:m.casas };
   });
 }
 // campos numéricos que uma medida personalizada pode agregar: os já
@@ -13097,12 +13097,20 @@ function recebCalcularMedida(linhas, medida){
     default: return 0;
   }
 }
+// "casas" (casas decimais) é configurável pra qualquer formato que não
+// seja dinheiro — 0 = número inteiro, >0 = decimal com essa quantidade
+// de casas; sem "casas" definido, cai no padrão de cada formato (1 pro
+// percentual, 0 pros demais) — mantém o comportamento de sempre pras
+// medidas de sistema que nunca tiveram essa configuração
 function recebFormatarMedida(valor, medida){
-  const fmt = (RECEB_MEDIDAS[medida]||{}).fmt;
+  const def = RECEB_MEDIDAS[medida] || {};
+  const fmt = def.fmt;
   if(fmt==='money') return fmtMoeda(valor);
-  if(fmt==='pct') return (valor*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
-  if(fmt==='dias') return Math.round(valor)+' dias';
-  return String(Math.round(valor));
+  const casas = Number.isInteger(def.casas) ? def.casas : (fmt==='pct' ? 1 : 0);
+  if(fmt==='pct') return (valor*100).toLocaleString('pt-BR',{minimumFractionDigits:casas,maximumFractionDigits:casas})+'%';
+  const numFmt = valor.toLocaleString('pt-BR',{minimumFractionDigits:casas,maximumFractionDigits:casas});
+  if(fmt==='dias') return numFmt+' dias';
+  return numFmt;
 }
 // subtítulo pequeno sob o valor do KPI — só os casos que valem a pena
 function recebSubtituloMedida(linhas, medida){
@@ -13680,8 +13688,10 @@ function recebRenderListaMedidas(){
   cont.innerHTML = Object.entries(RECEB_MEDIDAS).map(([id,def])=>{
     const souSistema = !!RECEB_MEDIDAS_PADRAO[id];
     const detalhe = def.campo ? ` · ${escaparHtml(recebLabelCampoMedida(def.campo))} · ${escaparHtml(recebLabelFuncaoMedida(def.funcao))}` : (def.funcao==='contagem' ? ` · ${escaparHtml(recebLabelFuncaoMedida(def.funcao))}` : '');
+    const casas = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
+    const detalheFormato = def.fmt==='money' ? '' : ` · ${casas>0 ? casas+' casa'+(casas>1?'s':'')+' decimal'+(casas>1?'is':'') : 'inteiro'}`;
     return `<div class="row" style="align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
-      <div style="flex:1;"><b>${escaparHtml(def.label)}</b><span style="font-size:11px;color:var(--muted);margin-left:6px;">${souSistema ? 'sistema' : 'personalizada'}${detalhe}</span></div>
+      <div style="flex:1;"><b>${escaparHtml(def.label)}</b><span style="font-size:11px;color:var(--muted);margin-left:6px;">${souSistema ? 'sistema' : 'personalizada'}${detalhe}${detalheFormato}</span></div>
       <button class="ghost" type="button" data-editarmedida="${escaparHtml(id)}" style="width:auto;padding:4px 10px;">Editar</button>
       ${souSistema ? '' : `<button class="ghost" type="button" data-removermedida="${escaparHtml(id)}" style="width:auto;padding:4px 10px;color:var(--bad);">Remover</button>`}
     </div>`;
@@ -13697,8 +13707,12 @@ function recebPopularSelectCampoMedida(){
 function recebAtualizarCamposFormMedida(){
   const souSistema = recebEditandoMedidaId && !!RECEB_MEDIDAS_PADRAO[recebEditandoMedidaId];
   const funcao = document.getElementById('recebMedidaFuncao').value;
+  const formato = document.getElementById('recebMedidaFormato').value;
+  const tipoNumero = document.getElementById('recebMedidaTipoNumero').value;
   document.getElementById('recebMedidaCampoFuncao').style.display = souSistema ? 'none' : '';
   document.getElementById('recebMedidaCampoFuncaoCampo').style.display = (souSistema || funcao==='contagem') ? 'none' : '';
+  document.getElementById('recebMedidaLinhaCasas').style.display = formato!=='money' ? 'flex' : 'none';
+  document.getElementById('recebMedidaCampoCasas').style.display = (formato!=='money' && tipoNumero==='decimal') ? '' : 'none';
 }
 function recebResetFormMedida(){
   recebEditandoMedidaId = null;
@@ -13706,6 +13720,8 @@ function recebResetFormMedida(){
   nomeEl.value = '';
   document.getElementById('recebMedidaFuncao').value = 'soma';
   document.getElementById('recebMedidaFormato').value = 'money';
+  document.getElementById('recebMedidaTipoNumero').value = 'inteiro';
+  document.getElementById('recebMedidaCasas').value = '2';
   recebPopularSelectCampoMedida();
   recebAtualizarCamposFormMedida();
   document.getElementById('btnRecebAdicionarMedida').textContent = 'Adicionar medida';
@@ -13717,6 +13733,9 @@ function recebEditarMedida(id){
   document.getElementById('recebMedidaFormato').value = def.fmt || 'money';
   recebPopularSelectCampoMedida();
   document.getElementById('recebMedidaFuncao').value = def.funcao || 'soma';
+  const casasAtuais = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
+  document.getElementById('recebMedidaTipoNumero').value = casasAtuais>0 ? 'decimal' : 'inteiro';
+  document.getElementById('recebMedidaCasas').value = casasAtuais>0 ? casasAtuais : 2;
   recebAtualizarCamposFormMedida();
   if(def.campo) document.getElementById('recebMedidaCampo').value = def.campo;
   document.getElementById('btnRecebAdicionarMedida').textContent = 'Salvar alterações na medida';
@@ -15118,6 +15137,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     recebAdicionarFiltro(document.getElementById('recebNovoFiltroCampo').value);
   });
   document.getElementById('recebMedidaFuncao').addEventListener('change', recebAtualizarCamposFormMedida);
+  document.getElementById('recebMedidaFormato').addEventListener('change', recebAtualizarCamposFormMedida);
+  document.getElementById('recebMedidaTipoNumero').addEventListener('change', recebAtualizarCamposFormMedida);
   document.getElementById('recebListaMedidas').addEventListener('click', e=>{
     const editar = e.target.closest('[data-editarmedida]');
     if(editar){ recebEditarMedida(editar.dataset.editarmedida); return; }
@@ -15128,16 +15149,23 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const nome = document.getElementById('recebMedidaNome').value.trim();
     if(!nome){ toast('Dê um nome pra medida.'); return; }
     const fmt = document.getElementById('recebMedidaFormato').value;
+    // casas decimais só existe pra formato ≠ dinheiro — "Inteiro" sempre
+    // vira 0 casas, "Decimal" usa o número escolhido (1 a 4)
+    const casas = fmt==='money' ? undefined : (document.getElementById('recebMedidaTipoNumero').value==='decimal'
+      ? Math.max(1, Math.min(4, Number(document.getElementById('recebMedidaCasas').value) || 2))
+      : 0);
     const souSistema = recebEditandoMedidaId && !!RECEB_MEDIDAS_PADRAO[recebEditandoMedidaId];
     let entrada;
     if(souSistema){
       entrada = { id: recebEditandoMedidaId, label: nome, fmt };
+      if(casas!=null) entrada.casas = casas;
     }else{
       const funcao = document.getElementById('recebMedidaFuncao').value;
       const campo = document.getElementById('recebMedidaCampo').value;
       if(funcao!=='contagem' && !campo){ toast('Escolha o campo que a medida vai agregar.'); return; }
       entrada = { id: recebEditandoMedidaId || recebGerarIdMedida(), label: nome, fmt, funcao };
       if(funcao!=='contagem') entrada.campo = campo;
+      if(casas!=null) entrada.casas = casas;
     }
     const i = recebPainelMedidas.findIndex(m=>m.id===entrada.id);
     if(i>=0) recebPainelMedidas[i] = entrada; else recebPainelMedidas.push(entrada);
