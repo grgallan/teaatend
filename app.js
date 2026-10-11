@@ -12667,12 +12667,18 @@ function recebCellNum(v){ if(typeof v==='number') return v; if(v==null||v==='') 
 function recebIdLinha(mov, lan, nf){ const m=String(mov??'').trim(), l=String(lan??'').trim(); if(m&&m!=='0') return l&&l!=='0'?m+'-'+l:m; return 'NF'+String(nf??''); }
 function recebNormalizar(linhasRm){
   if(!linhasRm || !linhasRm.length) return [];
-  const chaves = Object.keys(linhasRm[0]);
+  // descobre as colunas varrendo TODAS as linhas, não só a primeira — o RM
+  // costuma omitir um campo da linha quando ele vem nulo, então se a 1ª
+  // linha calhar de ter "DATA RECEBIDO" (ou qualquer outro campo) nulo,
+  // usar só ela pra achar as chaves faria a coluna inteira sumir
+  const chavesSet = new Set();
+  linhasRm.forEach(r=>Object.keys(r).forEach(k=>chavesSet.add(k)));
+  const chaves = [...chavesSet];
   const H = chaves.map(recebNormH);
   const ix = (...ks)=>{ for(const k of ks){ const i=H.indexOf(k); if(i>=0) return chaves[i]; } return null; };
   const CH = {
     venc:ix('VENCIMENTO'), mes:ix('MES','COMPETENCIA'), cli:ix('CLIENTE'), emi:ix('EMISSAO'), nf:ix('NOTA FISCAL','NF'),
-    ctr:ix('CONTRATO'), mun:ix('PREFEITURA','MUNICIPIO'), rec:ix('VALOR RECEBIDO'), dtr:ix('DATA RECEBIDO'), pago:ix('PAGO (S)','PAGO'),
+    ctr:ix('CONTRATO'), mun:ix('PREFEITURA','MUNICIPIO'), rec:ix('VALOR RECEBIDO','RECEBIDO'), dtr:ix('DATA RECEBIDO'), pago:ix('PAGO (S)','PAGO'),
     st:ix('STATUS'), med:ix('VALOR MEDIDO'), inss:ix('INSS'), iss:ix('ISS'), irrf:ix('IRRF'), out:ix('OUTRAS RETENCOES'), tot:ix('TOTAL NF'), parc:ix('VALOR PARCELA'), mov:ix('IDMOV'), lan:ix('IDLAN'),
   };
   const g = (r,k) => CH[k]==null ? null : r[CH[k]];
