@@ -12697,6 +12697,7 @@ function recebNormalizar(linhasRm){
       md: recebCellNum(g(r,'med')), inss: recebCellNum(g(r,'inss')), iss: recebCellNum(g(r,'iss')), ot: recebCellNum(g(r,'out'))+recebCellNum(g(r,'irrf')),
       t: recebCellNum(g(r,'tot')), pc: recebCellNum(g(r,'parc')), id: recebIdLinha(g(r,'mov'), g(r,'lan'), g(r,'nf')),
       na: String(g(r,'nomeAbrev')??'').trim(),
+      _rm: r, // linha bruta da consulta, sem nenhum tratamento — usada no "Exportar Excel" pra trazer TODAS as colunas que o RM devolveu, não só as que o painel usa
     });
     movs.push(String(g(r,'mov')??'')||null);
   });
@@ -13260,8 +13261,11 @@ function recebRender(){
   linhas.forEach(o=>{ o.saldo = (o.situacao==='Recebida'||o.situacao==='Cancelada') ? 0 : recebSaldo(o); });
   recebRenderConteudo(linhas);
 }
-// exporta a consulta atual (já com os filtros aplicados) pro Excel — uma
-// linha por nota, com os mesmos campos que o RM devolveu, já tratados
+// exporta a consulta atual (já com os filtros aplicados) pro Excel — TODAS
+// as colunas que a consulta do RM devolveu de verdade (não só as que o
+// painel usa), com o nome e o valor exatos de cada uma, na ordem em que
+// aparecerem. "Saldo" vai no fim por ser calculado aqui, sem equivalente
+// na consulta
 async function recebExportarExcel(){
   const hoje = recebHoje();
   const linhas = recebFiltrados().map(o=>{
@@ -13269,19 +13273,17 @@ async function recebExportarExcel(){
     return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada') ? 0 : recebSaldo(o) };
   });
   if(linhas.length === 0){ toast('Nada pra exportar com esses filtros.'); return; }
-  const cabecalho = ['STATUS','MÊS','VENCIMENTO','EMISSÃO','NOTA FISCAL','CLIENTE','PREFEITURA','CONTRATO','TOTAL NF','RECEBIDO','DATA RECEBIDO','Saldo','VALOR MEDIDO','INSS','ISS','OUTRAS RETENÇÕES'];
-  const corpo = linhas.map(o=>{
-    const c = recebCtrLbl(o.k);
-    return [
-      o.situacao, o.m ? recebMesLbl(o.m) : '', recebFmtDia(o.v), recebFmtDia(o.e), o.nf, o.g, o.u, `${c.n} ${c.d}`.trim(),
-      Number(o.t.toFixed(2)), Number((o.r||0).toFixed(2)), recebFmtDia(o.d), Number(o.saldo.toFixed(2)),
-      Number(o.md.toFixed(2)), Number(o.inss.toFixed(2)), Number(o.iss.toFixed(2)), Number(o.ot.toFixed(2)),
-    ];
+  const colunasRm = [];
+  const vistas = new Set();
+  linhas.forEach(o=>{
+    Object.keys(o._rm || {}).forEach(k=>{ if(!vistas.has(k)){ vistas.add(k); colunasRm.push(k); } });
   });
+  const cabecalho = [...colunasRm, 'Saldo'];
+  const corpo = linhas.map(o=>[...colunasRm.map(k=>{ const v = o._rm ? o._rm[k] : undefined; return v==null ? '' : v; }), Number(o.saldo.toFixed(2))]);
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalho, ...corpo]), 'Recebíveis');
   await salvarWorkbook(livro, `painel-recebiveis-${hojeLocalISO()}.xlsx`);
-  toast(`Excel exportado com ${linhas.length} linha${linhas.length===1?'':'s'}.`);
+  toast(`Excel exportado com ${linhas.length} linha${linhas.length===1?'':'s'} e ${cabecalho.length} colunas.`);
 }
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
