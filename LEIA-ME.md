@@ -152,6 +152,24 @@ Depois de configurado, o botão "🔔 Avisos" dentro do app Android pede a
 permissão do sistema (Android 13+ exige isso explicitamente) e registra o
 aparelho sozinho — não precisa mexer em mais nada no site.
 
+### Relatórios Gerenciais TOTVS RM (Painel de Recebíveis)
+
+Cada cliente pode ter sua própria conexão com o TOTVS RM (endereço do
+serviço REST, usuário e senha), cadastrada em Cadastros → Clientes. A
+senha é cifrada (AES-GCM) antes de ir pro banco, com uma chave que só
+existe nas Secrets da função — sem ela configurada, a cifragem ainda
+funciona, só que com uma chave fraca e previsível, então configure antes
+de qualquer cliente salvar uma senha de RM:
+
+```bash
+# qualquer texto serve de chave — gerar um aleatório é mais seguro
+supabase secrets set RM_SENHA_CIFRA_CHAVE="$(openssl rand -hex 32)"
+```
+
+Reimplante a função (`supabase functions deploy api`) depois de configurar.
+Trocar essa chave depois invalida todas as senhas de RM já salvas (precisam
+ser digitadas de novo em Cadastros → Clientes).
+
 ## Passo 8 — publicar o site
 
 Igual à versão anterior: suba `index.html`, `app.js`, `manifest.json`,

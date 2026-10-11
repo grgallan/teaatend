@@ -1150,6 +1150,7 @@
       <div class="side-item navbtn" data-view="relatorio" id="sideRelatorio" title="Construtor"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path><path d="M9.5 15.5l5-5 1.5 1.5-5 5H9.5v-1.5z"></path></svg></span><span class="side-label">Construtor</span></div>
       <div class="side-item navbtn" data-view="relatoriospub" id="sideRelatoriosPub" title="Relatórios"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h9a1 1 0 0 1 1 1v13"></path><path d="M6 7h9a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"></path><path d="M9 12h5"></path><path d="M9 16h5"></path></svg></span><span class="side-label">Relatórios</span></div>
       <div class="side-item navbtn" data-view="cubo" id="sideCubo" title="Cubo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"></path><path d="M12 2v20"></path><path d="M4 6.5l8 4.5 8-4.5"></path></svg></span><span class="side-label">Cubo</span></div>
+      <div class="side-item navbtn" data-view="relatoriosgerenciaisrm" id="sideRelatoriosGerenciaisRm" title="Relatórios Gerenciais TOTVS RM"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M7 15l4-5 3 3 5-7"></path></svg></span><span class="side-label">Relat. Gerenciais RM</span></div>
     </div>
     <div class="nav-group">
       <div class="nav-group-label">Gestão</div>
@@ -1188,6 +1189,7 @@
     <div class="tab" data-view="relatorio" id="tabRelatorio">Construtor</div>
     <div class="tab" data-view="relatoriospub" id="tabRelatoriosPub">Relatórios</div>
     <div class="tab" data-view="cubo" id="tabCubo">Cubo</div>
+    <div class="tab" data-view="relatoriosgerenciaisrm" id="tabRelatoriosGerenciaisRm">Relat. Gerenciais RM</div>
     <div class="tab" data-view="financeiro" id="tabFinanceiro">Financeiro</div>
     <div class="tab" data-view="agenda" id="tabAgenda">Agenda</div>
     <div class="tab" data-view="atividades" id="tabAtividades">Atividades</div>
@@ -2271,6 +2273,14 @@
           <select id="cl_empresa"></select>
           <p style="color:var(--muted);font-size:11.5px;margin:4px 0 0;">Mudar a empresa de um cliente já existente faz ele sumir desta lista se a empresa escolhida não for a que está ativa agora.</p>
         </div>
+        <h2 style="font-size:14px;margin:18px 0 2px;">Conexão com o TOTVS RM (opcional)</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:0 0 12px;">Usada pelos Relatórios Gerenciais TOTVS RM (ex: Painel de Recebíveis) pra buscar os dados direto do RM desse cliente.</p>
+        <div class="field"><label>Endereço do serviço REST do RM</label><input type="text" id="cl_rm_url" placeholder="http://servidor-rm:8051"></div>
+        <div class="row">
+          <div class="field"><label>Usuário RM</label><input type="text" id="cl_rm_usuario" autocomplete="off"></div>
+          <div class="field"><label>Senha RM</label><input type="password" id="cl_rm_senha" autocomplete="new-password" placeholder="Digite pra definir/trocar"></div>
+        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;" id="cl_rm_senha_aviso"></p>
         <button class="primary" id="btnAddCliente">Adicionar cliente</button>
         <button class="ghost" id="btnCancelarEdicaoCliente" style="display:none;width:100%;margin-top:8px;">Cancelar edição</button>
       </div>
@@ -2584,6 +2594,106 @@
     </div>
   </section>
 
+  <!-- RELATÓRIOS GERENCIAIS TOTVS RM -->
+  <section class="view" id="view-relatoriosgerenciaisrm">
+    <div class="subtabs" id="rgrmSubtabs">
+      <div class="subtab active" data-rgrmsub="cadastro">Cadastro de Relatórios</div>
+      <div class="subtab" data-rgrmsub="painelrecebiveis">Painel de Recebíveis</div>
+    </div>
+
+    <div class="rgrm-sub-view" id="rgrm-sub-cadastro">
+      <div class="card">
+        <h2 id="rgrm_tituloForm">Novo relatório gerencial</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Cada linha é uma consulta SQL do RM (RealizaConsulta) disponível pro sistema — os mesmos dados que antes só existiam na tela de configuração do painel separado.</p>
+        <div class="field"><label>Nome do relatório</label><input type="text" id="rgrm_nome" placeholder="Ex: PAINEL DE RECEBIVEIS"></div>
+        <div class="row">
+          <div class="field"><label>Código da Sentença</label><input type="text" id="rgrm_sentenca" placeholder="Ex: PAINEL.RECEB"></div>
+          <div class="field"><label>Coligada</label><input type="text" id="rgrm_coligada" value="1"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Sistema (aplicação)</label><input type="text" id="rgrm_sistema" value="G" maxlength="2"></div>
+          <div class="field"><label>Parâmetros (opcional)</label><input type="text" id="rgrm_parametros" placeholder="Ex: DATAINI_D=2025-01-01"></div>
+        </div>
+        <button class="primary" id="btnAddRmRelatorio">Adicionar relatório</button>
+        <button class="ghost" id="btnCancelarEdicaoRmRelatorio" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div id="listRmRelatorios"></div>
+    </div>
+
+    <div class="rgrm-sub-view" id="rgrm-sub-painelrecebiveis" style="display:none;">
+      <div class="card">
+        <h2>Painel de Recebíveis</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Busca direto da API do TOTVS RM, usando a conexão cadastrada no cliente (Cadastros → Clientes).</p>
+        <div class="row">
+          <div class="field"><label>Cliente</label><select id="receb_cliente"></select></div>
+          <div class="field"><label>&nbsp;</label><button class="primary" id="btnRecebAtualizar" type="button" style="width:100%;">Atualizar do RM</button></div>
+        </div>
+        <p id="recebBaseInfo" style="color:var(--muted);font-size:12.5px;margin:4px 0 0;">Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".</p>
+        <p id="recebStatus" style="color:var(--bad);font-size:12.5px;margin:4px 0 0;"></p>
+      </div>
+
+      <div class="card" id="recebCardFiltros" style="display:none;">
+        <h2>Filtros</h2>
+        <div class="row">
+          <div class="field"><label>Competência de</label><select id="receb_de"></select></div>
+          <div class="field"><label>até</label><select id="receb_ate"></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Cliente (grupo)</label><select id="receb_filtro_cliente"></select></div>
+          <div class="field"><label>Município</label><select id="receb_filtro_municipio"></select></div>
+        </div>
+        <div class="field"><label>Contrato</label><select id="receb_filtro_contrato"></select></div>
+        <button class="ghost" id="btnRecebLimparFiltros" type="button" style="width:auto;padding:8px 14px;">Limpar filtros</button>
+      </div>
+
+      <div class="summary" id="recebKpis" style="display:none;"></div>
+
+      <div class="card" id="recebCardRegua" style="display:none;">
+        <h2>Régua de cobrança</h2>
+        <div class="summary" id="recebReguaNumeros"></div>
+        <div id="recebGraficoRegua" style="margin-top:10px;"></div>
+      </div>
+
+      <div class="card" id="recebCardMes" style="display:none;overflow-x:auto;">
+        <h2>Faturado e recebido mês a mês</h2>
+        <div id="recebGraficoMes"></div>
+        <div class="dash-legend" id="recebLegendaMes"></div>
+      </div>
+
+      <div class="card" id="recebCardClientes" style="display:none;">
+        <h2>Clientes</h2>
+        <div class="dash-sub">clique numa barra pra filtrar o painel por esse cliente</div>
+        <div id="recebBarrasClientes"></div>
+      </div>
+
+      <div class="card" id="recebCardMunicipios" style="display:none;">
+        <h2>Municípios</h2>
+        <div class="dash-sub">os 12 com maior faturamento no período — clique pra filtrar</div>
+        <div id="recebBarrasMunicipios"></div>
+      </div>
+
+      <div class="card" id="recebCardAbertas" style="display:none;">
+        <h2>Notas em aberto</h2>
+        <div class="dash-sub">tudo o que ainda não foi recebido, do vencimento mais antigo pro mais novo</div>
+        <div class="filters" id="recebSegAbertas">
+          <div class="chip on" data-seg="todas">Todas</div>
+          <div class="chip" data-seg="Atrasada">Vencidas</div>
+          <div class="chip" data-seg="Próximos dias">Próximos 7 dias</div>
+          <div class="chip" data-seg="A vencer">A vencer</div>
+        </div>
+        <input type="search" id="receb_busca" placeholder="Buscar nota, cliente, contrato ou município" style="margin-bottom:10px;">
+        <div style="overflow-x:auto;"><table class="valores-table" id="recebTabelaAbertas"></table></div>
+        <button class="ghost" id="btnRecebCopiarAbertas" type="button" style="width:auto;margin-top:10px;padding:8px 14px;">Copiar lista</button>
+      </div>
+
+      <div class="card" id="recebCardContratos" style="display:none;overflow-x:auto;">
+        <h2>Contratos</h2>
+        <div class="dash-sub">ordenados pelo maior faturado no período</div>
+        <table class="valores-table" id="recebTabelaContratos"></table>
+      </div>
+    </div>
+  </section>
+
   <!-- UTILITÁRIOS -->
   <section class="view" id="view-utilitarios">
     <div class="card" id="utilCategorias">
@@ -2802,6 +2912,7 @@
   <div class="navbtn" data-view="relatorio" id="navRelatorio"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path><path d="M9.5 15.5l5-5 1.5 1.5-5 5H9.5v-1.5z"></path></svg></span>Constr.</div>
   <div class="navbtn" data-view="relatoriospub" id="navRelatoriosPub"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h9a1 1 0 0 1 1 1v13"></path><path d="M6 7h9a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"></path><path d="M9 12h5"></path><path d="M9 16h5"></path></svg></span>Relat.</div>
   <div class="navbtn" data-view="cubo" id="navCubo"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4.5v11L12 22l-8-4.5v-11z"></path><path d="M12 2v20"></path><path d="M4 6.5l8 4.5 8-4.5"></path></svg></span>Cubo</div>
+  <div class="navbtn" data-view="relatoriosgerenciaisrm" id="navRelatoriosGerenciaisRm"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M7 15l4-5 3 3 5-7"></path></svg></span>Rel. RM</div>
   <div class="navbtn" data-view="financeiro" id="navFinanceiro"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"></rect><path d="M16 13h.01"></path><path d="M3 9h18"></path></svg></span>Financ.</div>
   <div class="navbtn" data-view="agenda" id="navAgenda"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18"></path><path d="M8 3v4"></path><path d="M16 3v4"></path></svg></span>Agenda</div>
   <div class="navbtn" data-view="atividades" id="navAtividades"><span class="ic"><svg viewBox="0 0 24 24" style="width:1em;height:1em;display:block;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg></span>Ativid.</div>

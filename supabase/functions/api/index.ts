@@ -32,6 +32,11 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 // notificações nativas do app Android (opcional) — veja o LEIA-ME.md pra gerar
 // a chave de conta de serviço do Firebase
 const FCM_SERVICE_ACCOUNT_JSON = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON') || '';
+// chave usada pra cifrar a senha do TOTVS RM de cada cliente antes de
+// gravar no banco (ver cifrarRmSenha/decifrarRmSenha) — qualquer texto
+// serve, vira uma chave AES-256 por hash; troque só se quiser invalidar
+// todas as senhas de RM já salvas (elas teriam que ser digitadas de novo)
+const RM_SENHA_CIFRA_CHAVE = Deno.env.get('RM_SENHA_CIFRA_CHAVE') || '';
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -50,6 +55,35 @@ function jsonResponse(body: unknown, status = 200) {
 
 function gerarId(): string {
   return 'id-' + crypto.randomUUID().slice(0, 10);
+}
+
+/* ---------- cifra da senha do TOTVS RM (AES-GCM, só com Web Crypto) ----------
+   RM_SENHA_CIFRA_CHAVE nunca sai das Secrets da function — o banco só
+   guarda o texto cifrado (iv + ciphertext, em base64), então um dump do
+   banco sozinho não expõe senha nenhuma. */
+let rmChaveAesCache: CryptoKey | null = null;
+async function rmChaveAes(): Promise<CryptoKey> {
+  if (rmChaveAesCache) return rmChaveAesCache;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(RM_SENHA_CIFRA_CHAVE));
+  rmChaveAesCache = await crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  return rmChaveAesCache;
+}
+async function cifrarRmSenha(senha: string): Promise<string> {
+  const chave = await rmChaveAes();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cifrado = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, chave, new TextEncoder().encode(senha));
+  const bytes = new Uint8Array(iv.length + cifrado.byteLength);
+  bytes.set(iv, 0);
+  bytes.set(new Uint8Array(cifrado), iv.length);
+  return btoa(String.fromCharCode(...bytes));
+}
+async function decifrarRmSenha(cifradoBase64: string): Promise<string> {
+  const bytes = Uint8Array.from(atob(cifradoBase64), (c) => c.charCodeAt(0));
+  const iv = bytes.slice(0, 12);
+  const cifrado = bytes.slice(12);
+  const chave = await rmChaveAes();
+  const texto = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, chave, cifrado);
+  return new TextDecoder().decode(texto);
 }
 
 // data de hoje em yyyy-MM-dd — usada pra preencher a Data Final (Prevista)
@@ -195,7 +229,8 @@ const MENUS_PERFIL_ACESSO = [
   'cadastros.submodulos', 'cadastros.status', 'cadastros.valores', 'cadastros.usuarios', 'cadastros.categoriasfinanceiras',
   'cadastros.perfisacesso', 'cadastros.empresas',
   'cadastros.tabelasrm', 'cadastros.camposrm', 'cadastros.relacionamentosrm', 'cadastros.tabelasauxrm',
-  'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket', 'utilitarios.sqlrm',
+  'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket', 'utilitarios.sqlrm', 'utilitarios.painelrecebiveis',
+  'relatoriosgerenciaisrm', 'relatoriosgerenciaisrm.cadastro', 'relatoriosgerenciaisrm.painelrecebiveis',
 ];
 
 function permissaoVaziaPorMenu() {
@@ -240,7 +275,15 @@ function submoduloParaApi(s: any) {
 // FORNECEDOR ou AMBOS) — cadastro antigo, sem essa coluna quando foi
 // criado, sempre volta CLIENTE (comportamento de antes de existir fornecedor)
 function clienteParaApi(c: any) {
-  return { id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0, tipo: c.tipo || 'CLIENTE' };
+  return {
+    id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0, tipo: c.tipo || 'CLIENTE',
+    // a senha em si NUNCA volta pro front (nem cifrada) — só se já tem uma
+    // salva, pra tela decidir o texto do placeholder do campo
+    rmUrl: c.rm_url || '', rmUsuario: c.rm_usuario || '', temSenhaRm: !!c.rm_senha_cifrada,
+  };
+}
+function rmRelatorioGerencialParaApi(r: any) {
+  return { id: r.id, slug: r.slug || '', nome: r.nome, codigoSentenca: r.codigo_sentenca, coligada: r.coligada || '1', sistema: r.sistema || 'G', parametros: r.parametros || '', empresaId: r.empresa_id || '' };
 }
 function categoriaFinanceiraParaApi(c: any) {
   return { id: c.id, nome: c.nome, tipo: c.tipo || 'DESPESA', empresaId: c.empresa_id || '' };
@@ -334,6 +377,10 @@ async function rotear(req: any): Promise<any> {
     case 'addCliente': return acaoAddCliente(req);
     case 'atualizarCliente': return acaoAtualizarCliente(req);
     case 'removerCliente': return acaoRemoverCliente(req);
+    case 'addRmRelatorioGerencial': return acaoAddRmRelatorioGerencial(req);
+    case 'atualizarRmRelatorioGerencial': return acaoAtualizarRmRelatorioGerencial(req);
+    case 'removerRmRelatorioGerencial': return acaoRemoverRmRelatorioGerencial(req);
+    case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
     case 'addCategoriaFinanceira': return acaoAddCategoriaFinanceira(req);
     case 'atualizarCategoriaFinanceira': return acaoAtualizarCategoriaFinanceira(req);
     case 'removerCategoriaFinanceira': return acaoRemoverCategoriaFinanceira(req);
@@ -486,7 +533,9 @@ async function acaoDados(req: any) {
   if (empresaId) clientesQuery = clientesQuery.eq('empresa_id', empresaId);
   let categoriasFinanceirasQuery = db.from('categorias_financeiras').select('*').order('nome');
   if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }] = await Promise.all([
+  let rmRelatoriosQuery = db.from('rm_relatorios_gerenciais').select('*').order('nome');
+  if (empresaId) rmRelatoriosQuery = rmRelatoriosQuery.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -500,6 +549,7 @@ async function acaoDados(req: any) {
     db.from('empresas').select('*').order('nome'),
     db.from('conta_empresas').select('*'),
     categoriasFinanceirasQuery,
+    rmRelatoriosQuery,
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
@@ -656,6 +706,7 @@ async function acaoDados(req: any) {
     tomticketErros,
     configTomticket,
     categoriasFinanceiras: (categoriasFinanceirasRaw || []).map(categoriaFinanceiraParaApi),
+    rmRelatoriosGerenciais: (rmRelatoriosRaw || []).map(rmRelatorioGerencialParaApi),
   };
 }
 
@@ -3803,11 +3854,13 @@ const TIPOS_CLIENTE_VALIDOS = new Set(['CLIENTE', 'FORNECEDOR', 'AMBOS']);
 async function acaoAddCliente(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar clientes.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um cliente.' };
-  const registro = {
+  const registro: any = {
     id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '',
     meta_mensal: Number(req.metaMensal) || 0, empresa_id: req.empresaId,
     tipo: TIPOS_CLIENTE_VALIDOS.has(req.tipo) ? req.tipo : 'CLIENTE',
+    rm_url: req.rmUrl || '', rm_usuario: req.rmUsuario || '',
   };
+  if (req.rmSenha) registro.rm_senha_cifrada = await cifrarRmSenha(req.rmSenha);
   const { error } = await db.from('clientes').insert(registro);
   if (error) return { ok: false, erro: error.message };
   return { ok: true, registro: clienteParaApi(registro) };
@@ -3822,10 +3875,106 @@ async function acaoAtualizarCliente(req: any) {
   if (req.metaMensal !== undefined) atualizado.meta_mensal = Number(req.metaMensal) || 0;
   if (req.empresaId) atualizado.empresa_id = req.empresaId;
   if (req.tipo !== undefined && TIPOS_CLIENTE_VALIDOS.has(req.tipo)) atualizado.tipo = req.tipo;
+  if (req.rmUrl !== undefined) atualizado.rm_url = req.rmUrl;
+  if (req.rmUsuario !== undefined) atualizado.rm_usuario = req.rmUsuario;
+  // a senha só é regravada quando a tela manda uma nova (campo em branco =
+  // "mantém a que já tá salva" — nunca aceitamos apagar só porque o campo
+  // voltou vazio, já que a senha nunca é reexibida pra poder ser "mantida")
+  if (req.rmSenha) atualizado.rm_senha_cifrada = await cifrarRmSenha(req.rmSenha);
   const { error } = await db.from('clientes').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
+/* ---------- Relatórios Gerenciais TOTVS RM: cadastro das consultas
+   (Código da Sentença/Coligada/Sistema/Parâmetros) + execução via RM ---------- */
+async function acaoAddRmRelatorioGerencial(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar relatórios gerenciais.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome do relatório.' };
+  if (!req.codigoSentenca || !String(req.codigoSentenca).trim()) return { ok: false, erro: 'Informe o código da sentença.' };
+  const registro = {
+    id: gerarId(), slug: null, nome: req.nome, codigo_sentenca: req.codigoSentenca,
+    coligada: req.coligada || '1', sistema: (req.sistema || 'G').toUpperCase(), parametros: req.parametros || '',
+    empresa_id: req.empresaId || null,
+  };
+  const { error } = await db.from('rm_relatorios_gerenciais').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: rmRelatorioGerencialParaApi(registro) };
+}
+async function acaoAtualizarRmRelatorioGerencial(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar relatórios gerenciais.' };
+  if (!req.id) return { ok: false, erro: 'Relatório não informado.' };
+  const atualizado: any = {};
+  if (req.nome !== undefined) atualizado.nome = req.nome;
+  if (req.codigoSentenca !== undefined) atualizado.codigo_sentenca = req.codigoSentenca;
+  if (req.coligada !== undefined) atualizado.coligada = req.coligada;
+  if (req.sistema !== undefined) atualizado.sistema = String(req.sistema).toUpperCase();
+  if (req.parametros !== undefined) atualizado.parametros = req.parametros;
+  const { error } = await db.from('rm_relatorios_gerenciais').update(atualizado).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRemoverRmRelatorioGerencial(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover relatórios gerenciais.' };
+  // o relatório "de fábrica" do Painel de Recebíveis (slug fixo) não pode
+  // ser removido por aqui — a tela dele depende de sempre existir
+  const { data: alvo } = await db.from('rm_relatorios_gerenciais').select('slug').eq('id', req.id).maybeSingle();
+  if (alvo && alvo.slug) return { ok: false, erro: 'Esse relatório é usado por uma tela do sistema e não pode ser removido.' };
+  await db.from('rm_relatorios_gerenciais').delete().eq('id', req.id);
+  return { ok: true };
+}
+// monta a URL de consulta igual o painel standalone fazia (RealizaConsulta
+// da API de Consultas SQL do RM), mas a chamada em si agora é feita AQUI
+// no backend — usuário/senha do RM nunca mais trafegam pro navegador
+function rmUrlConsulta(c: { url: string; sentenca: string; coligada: string; sistema: string; parametros?: string }): string {
+  const base = String(c.url || '').trim().replace(/\/+$/, '');
+  let u = `${base}/api/framework/v1/consultaSQLServer/RealizaConsulta/${encodeURIComponent(c.sentenca)}/${encodeURIComponent(c.coligada)}/${encodeURIComponent(c.sistema)}`;
+  if (c.parametros && c.parametros.trim()) u += '?parameters=' + encodeURIComponent(c.parametros.trim());
+  return u;
+}
+async function acaoExecutarRmRelatorioGerencial(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.painelrecebiveis', 'visualizar'))) return { ok: false, erro: 'Você não tem permissão para ver esse relatório.' };
+  if (!req.clienteId) return { ok: false, erro: 'Escolha um cliente.' };
+  const [{ data: cliente }, { data: relatorio }] = await Promise.all([
+    db.from('clientes').select('nome,rm_url,rm_usuario,rm_senha_cifrada').eq('id', req.clienteId).maybeSingle(),
+    req.relatorioId
+      ? db.from('rm_relatorios_gerenciais').select('*').eq('id', req.relatorioId).maybeSingle()
+      : db.from('rm_relatorios_gerenciais').select('*').eq('slug', req.slug || '').maybeSingle(),
+  ]);
+  if (!cliente) return { ok: false, erro: 'Cliente não encontrado.' };
+  if (!relatorio) return { ok: false, erro: 'Relatório não encontrado.' };
+  if (!cliente.rm_url || !cliente.rm_usuario || !cliente.rm_senha_cifrada) {
+    return { ok: false, erro: `O cliente ${cliente.nome} ainda não tem a conexão com o TOTVS RM configurada (Cadastros → Clientes).` };
+  }
+  let senha: string;
+  try {
+    senha = await decifrarRmSenha(cliente.rm_senha_cifrada);
+  } catch (_e) {
+    return { ok: false, erro: 'Não foi possível decifrar a senha salva do RM. Configure a senha de novo em Cadastros → Clientes.' };
+  }
+  const url = rmUrlConsulta({ url: cliente.rm_url, sentenca: relatorio.codigo_sentenca, coligada: relatorio.coligada, sistema: relatorio.sistema, parametros: relatorio.parametros });
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 120000);
+  try {
+    const resp = await fetch(url, {
+      headers: { Accept: 'application/json', Authorization: 'Basic ' + btoa(`${cliente.rm_usuario}:${senha}`) },
+      signal: ctl.signal,
+    });
+    const texto = await resp.text();
+    if (resp.status === 401 || resp.status === 403) return { ok: false, erro: `O RM recusou o acesso (HTTP ${resp.status}). Confira usuário, senha e a permissão do usuário na sentença, em Cadastros → Clientes.` };
+    if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${texto.slice(0, 300)}` };
+    let js: any;
+    try { js = JSON.parse(texto); } catch (_e) { return { ok: false, erro: 'A resposta do RM não veio em JSON. Confira o endereço do serviço REST cadastrado pro cliente.' }; }
+    const linhas = Array.isArray(js) ? js : (js.data || js.items || js.value || []);
+    if (!Array.isArray(linhas)) return { ok: false, erro: `A consulta ${relatorio.codigo_sentenca} não retornou uma lista de linhas.` };
+    return { ok: true, linhas, nomeRelatorio: relatorio.nome };
+  } catch (e: any) {
+    if (e?.name === 'AbortError') return { ok: false, erro: 'O RM demorou mais de 2 minutos para responder.' };
+    return { ok: false, erro: 'Não foi possível falar com o RM. Confira o endereço do serviço REST e se o servidor está acessível. ' + (e?.message || '') };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function acaoRemoverTipo(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.tipos', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover tipos.' };
   await db.from('tipos').delete().eq('id', req.id);
