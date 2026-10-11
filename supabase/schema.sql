@@ -1375,3 +1375,12 @@ insert into rm_painel_layouts (slug, widgets) values ('painel-recebiveis', '[
 -- em que aparecem na tela; vazio/ausente = usa os 4 de sempre (ver
 -- recebCarregarLayoutPainel no app.js)
 alter table rm_painel_layouts add column if not exists filtros jsonb not null default '[]';
+
+-- catálogo de medidas do painel — array de {id,label,fmt[,campo,funcao]}:
+-- um item com "campo"+"funcao" é uma medida PERSONALIZADA (agrega um
+-- campo com soma/média/contagem/...); um item cujo id bate com uma das
+-- 12 medidas de sistema (faturado, recebido, emAberto, ...) é só um
+-- override de nome/formato dela — a fórmula de negócio continua fixa no
+-- código (ver RECEB_MEDIDAS_PADRAO no app.js). Vazio/ausente = usa só as
+-- medidas de sistema, sem nenhuma personalizada.
+alter table rm_painel_layouts add column if not exists medidas jsonb not null default '[]';

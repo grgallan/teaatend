@@ -709,7 +709,7 @@ async function acaoDados(req: any) {
     configTomticket,
     categoriasFinanceiras: (categoriasFinanceirasRaw || []).map(categoriaFinanceiraParaApi),
     rmRelatoriosGerenciais: (rmRelatoriosRaw || []).map(rmRelatorioGerencialParaApi),
-    rmPainelLayouts: (rmPainelLayoutsRaw || []).map((p: any) => ({ slug: p.slug, widgets: p.widgets || [], filtros: p.filtros || [] })),
+    rmPainelLayouts: (rmPainelLayoutsRaw || []).map((p: any) => ({ slug: p.slug, widgets: p.widgets || [], filtros: p.filtros || [], medidas: p.medidas || [] })),
   };
 }
 
@@ -4001,7 +4001,8 @@ async function acaoSalvarRmPainelLayout(req: any) {
   if (!req.slug) return { ok: false, erro: 'Painel não informado.' };
   if (!Array.isArray(req.widgets)) return { ok: false, erro: 'Lista de widgets inválida.' };
   const filtros = Array.isArray(req.filtros) ? req.filtros : [];
-  const { error } = await db.from('rm_painel_layouts').upsert({ slug: req.slug, widgets: req.widgets, filtros, atualizado_em: new Date().toISOString() });
+  const medidas = Array.isArray(req.medidas) ? req.medidas : [];
+  const { error } = await db.from('rm_painel_layouts').upsert({ slug: req.slug, widgets: req.widgets, filtros, medidas, atualizado_em: new Date().toISOString() });
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
