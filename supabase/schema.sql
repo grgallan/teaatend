@@ -1327,3 +1327,14 @@ alter table rm_relatorios_gerenciais enable row level security;
 insert into rm_relatorios_gerenciais (id, slug, nome, codigo_sentenca, coligada, sistema, parametros)
   values ('rm-rel-painel-recebiveis', 'painel-recebiveis', 'PAINEL DE RECEBIVEIS', 'PAINEL.RECEB', '1', 'G', '')
   on conflict (id) do nothing;
+
+-- a Sentença/Coligada/Sistema são específicas da CONEXÃO RM de cada
+-- cliente (cada um tem seu próprio servidor RM) — por isso cada relatório
+-- gerencial passa a pertencer a um cliente; dois clientes que usam o
+-- "Painel de Recebíveis" viram DUAS linhas (mesmo slug, cliente_id
+-- diferente), por isso o unique antigo (só no slug) dá lugar a um
+-- composto (cliente_id, slug). A linha "de fábrica" acima fica sem
+-- cliente até alguém editá-la e escolher um.
+alter table rm_relatorios_gerenciais add column if not exists cliente_id text references clientes(id);
+alter table rm_relatorios_gerenciais drop constraint if exists rm_relatorios_gerenciais_slug_key;
+create unique index if not exists idx_rm_relatorios_cliente_slug on rm_relatorios_gerenciais (cliente_id, slug);

@@ -12532,26 +12532,37 @@ function goRgrmSub(sub){
 }
 
 /* ---------- Cadastro de Relatórios (CRUD simples, mesmo padrão de Categorias Financeiras) ---------- */
+function rgrmNomeCliente(clienteId){
+  const c = clientes.find(x=>String(x.id)===String(clienteId));
+  return c ? c.nome : '(cliente não encontrado)';
+}
+function popularSelectRgrmCliente(valorAtual){
+  const sel = document.getElementById('rgrm_cliente');
+  sel.innerHTML = `<option value="">Escolha o cliente</option>` + clientes.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}${c.rmUrl ? '' : ' (sem conexão RM configurada)'}</option>`).join('');
+  sel.value = valorAtual || '';
+}
 function renderListRmRelatorios(){
   const el = document.getElementById('listRmRelatorios');
   if(!el) return;
+  popularSelectRgrmCliente(document.getElementById('rgrm_cliente').value);
   if(rmRelatoriosGerenciais.length===0){ el.innerHTML = `<div class="empty">Nenhum relatório gerencial cadastrado.</div>`; return; }
   el.innerHTML = rmRelatoriosGerenciais.map(r=>`
     <div class="cad-item"><div class="info"><b>${escaparHtml(r.nome)}</b>
+      <span>Cliente: ${r.clienteId ? escaparHtml(rgrmNomeCliente(r.clienteId)) : '(nenhum — edite e escolha um cliente)'}</span>
       <span>Sentença: ${escaparHtml(r.codigoSentenca)}</span>
       <span>Coligada: ${escaparHtml(r.coligada)} · Sistema: ${escaparHtml(r.sistema)}</span>
       ${r.parametros ? `<span>Parâmetros: ${escaparHtml(r.parametros)}</span>` : ''}
-      ${r.slug ? `<span style="color:var(--muted);">Usado pela tela "Painel de Recebíveis" — não pode ser removido</span>` : ''}
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarRmRelatorio('${r.id}')">Editar</button>
-      ${r.slug ? '' : `<button class="danger" onclick="pedirConfirmacao('Remover relatório?','Isso remove só o cadastro da consulta — não mexe em nada dentro do RM.', ()=>removerRmRelatorio('${r.id}'))">Remover</button>`}
+      <button class="danger" onclick="pedirConfirmacao('Remover relatório?','Isso remove só o cadastro da consulta — não mexe em nada dentro do RM.', ()=>removerRmRelatorio('${r.id}'))">Remover</button>
     </div></div>`).join('');
 }
 function editarRmRelatorio(id){
   const r = rmRelatoriosGerenciais.find(x=>String(x.id)===String(id));
   if(!r) return;
   editandoRmRelatorioId = id;
+  popularSelectRgrmCliente(r.clienteId);
   document.getElementById('rgrm_nome').value = r.nome;
   document.getElementById('rgrm_sentenca').value = r.codigoSentenca;
   document.getElementById('rgrm_coligada').value = r.coligada;
@@ -12564,6 +12575,7 @@ function editarRmRelatorio(id){
 }
 function cancelarEdicaoRmRelatorio(){
   editandoRmRelatorioId = null;
+  popularSelectRgrmCliente('');
   document.getElementById('rgrm_nome').value = '';
   document.getElementById('rgrm_sentenca').value = '';
   document.getElementById('rgrm_coligada').value = '1';
@@ -12587,7 +12599,10 @@ let recebClienteId = '';
 let recebLinhas = []; // já normalizado (ver recebNormalizar)
 let recebInfo = null; // { quando, nomeRelatorio }
 let recebCarregando = false;
-let recebFiltroDe = '', recebFiltroAte = '', recebFiltroCliente = '', recebFiltroMunicipio = '', recebFiltroContrato = '';
+// os 4 filtros são multi-seleção (um "lookup": busca + chips dos
+// escolhidos + lista com checkbox, mesmo padrão já usado no Gerador SQL
+// RM) — Set vazio = "todos", igual os filtros do Construtor de Relatório
+let recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
 let recebSegAbertas = 'todas';
 let recebUltimaListaAbertas = [];
 
@@ -12678,21 +12693,29 @@ function recebNormalizar(linhasRm){
 
 function recebFiltrados(){
   return recebLinhas.filter(o=>
-    (!recebFiltroDe || o.m >= recebFiltroDe) &&
-    (!recebFiltroAte || o.m <= recebFiltroAte) &&
-    (!recebFiltroCliente || o.g === recebFiltroCliente) &&
-    (!recebFiltroMunicipio || o.u === recebFiltroMunicipio) &&
-    (!recebFiltroContrato || o.k === recebFiltroContrato)
+    (recebFiltros.competencia.size===0 || recebFiltros.competencia.has(o.m)) &&
+    (recebFiltros.cliente.size===0 || recebFiltros.cliente.has(o.g)) &&
+    (recebFiltros.municipio.size===0 || recebFiltros.municipio.has(o.u)) &&
+    (recebFiltros.contrato.size===0 || recebFiltros.contrato.has(o.k))
   );
 }
 
+// só entram clientes que têm o relatório "Painel de Recebíveis" cadastrado
+// pra eles (Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios) — ter
+// só a conexão RM no cadastro do cliente não basta, falta a sentença
+function recebClientesDisponiveis(){
+  const idsComRelatorio = new Set(rmRelatoriosGerenciais.filter(r=>r.slug==='painel-recebiveis' && r.clienteId).map(r=>r.clienteId));
+  return clientes.filter(c=>idsComRelatorio.has(String(c.id)));
+}
 function recebAbrir(){
-  const clientesComRm = clientes.filter(c=>c.rmUrl);
+  const disponiveis = recebClientesDisponiveis();
   const sel = document.getElementById('receb_cliente');
-  sel.innerHTML = clientesComRm.length === 0
-    ? `<option value="">Nenhum cliente com conexão RM cadastrada</option>`
-    : clientesComRm.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
-  if(recebClienteId && clientesComRm.some(c=>String(c.id)===String(recebClienteId))) sel.value = recebClienteId;
+  sel.innerHTML = disponiveis.length === 0
+    ? `<option value="">Nenhum cliente com relatório cadastrado</option>`
+    : disponiveis.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}${c.rmUrl ? '' : ' (falta configurar a conexão RM)'}</option>`).join('');
+  if(disponiveis.length === 0) document.getElementById('recebStatus').textContent = 'Cadastre um relatório "Painel de Recebíveis" pra algum cliente em Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios.';
+  else document.getElementById('recebStatus').textContent = '';
+  if(recebClienteId && disponiveis.some(c=>String(c.id)===String(recebClienteId))) sel.value = recebClienteId;
   else recebClienteId = sel.value || '';
   recebRender();
 }
@@ -12709,7 +12732,7 @@ async function recebAtualizarDoRm(){
     if(!r.ok){ document.getElementById('recebStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
     recebLinhas = recebNormalizar(r.linhas || []);
     recebInfo = { quando: new Date().toISOString(), nomeRelatorio: r.nomeRelatorio || 'Painel de Recebíveis' };
-    recebFiltroDe = ''; recebFiltroAte = ''; recebFiltroCliente = ''; recebFiltroMunicipio = ''; recebFiltroContrato = '';
+    recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
     toast(`Painel atualizado com ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'} do RM.`);
     recebRender();
   } finally {
@@ -12717,30 +12740,49 @@ async function recebAtualizarDoRm(){
     btn.disabled = false; btn.textContent = 'Atualizar do RM';
   }
 }
-function recebOpts(sel, vals, todos, fmt){
-  const atual = sel.value;
-  sel.innerHTML = `<option value="">${todos}</option>` + vals.map(v=>`<option value="${escaparHtml(v)}">${escaparHtml(fmt?fmt(v):v)}</option>`).join('');
-  if(vals.includes(atual) || atual==='') sel.value = atual;
+// "lookup" de multi-seleção (busca + chips dos escolhidos + lista com
+// checkbox) — mesmo padrão visual já usado no Gerador SQL RM, só que
+// genérico pra qualquer lista de {value,label}, reusado nos 4 filtros
+function recebRenderLookup(resultadosId, chipsId, opcoes, selecionados){
+  const chipsEl = document.getElementById(chipsId);
+  const escolhidos = opcoes.filter(o=>selecionados.has(o.value));
+  chipsEl.innerHTML = escolhidos.length
+    ? escolhidos.map(o=>`<div class="chip on" data-v="${escaparHtml(o.value)}">${escaparHtml(o.label)} ✕</div>`).join('')
+    : `<span style="color:var(--muted);font-size:12px;">Todos (nenhum filtro aplicado)</span>`;
+  const el = document.getElementById(resultadosId);
+  el.innerHTML = opcoes.length === 0 ? `<div class="empty" style="padding:6px 0;font-size:12px;">Nenhuma opção disponível.</div>` : opcoes.map(o=>
+    `<label class="rm-campo-row" data-busca="${escaparHtml(String(o.label).toLowerCase())}" style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12.5px;cursor:pointer;"><input type="checkbox" data-v="${escaparHtml(o.value)}" ${selecionados.has(o.value)?'checked':''}> ${escaparHtml(o.label)}</label>`
+  ).join('');
 }
+function recebFiltrarLookupPorBusca(containerId, termo){
+  const t = String(termo||'').trim().toLowerCase();
+  document.querySelectorAll(`#${containerId} .rm-campo-row`).forEach(linha=>{
+    linha.hidden = !!t && !(linha.dataset.busca||'').includes(t);
+  });
+}
+const RECEB_LOOKUPS = [
+  { chave:'competencia', resultados:'recebLookupCompetencia', chips:'recebChipsCompetencia', busca:'receb_busca_competencia' },
+  { chave:'cliente', resultados:'recebLookupCliente', chips:'recebChipsCliente', busca:'receb_busca_cliente_filtro' },
+  { chave:'municipio', resultados:'recebLookupMunicipio', chips:'recebChipsMunicipio', busca:'receb_busca_municipio' },
+  { chave:'contrato', resultados:'recebLookupContrato', chips:'recebChipsContrato', busca:'receb_busca_contrato' },
+];
 function recebRenderFiltros(){
-  const meses = [...new Set(recebLinhas.map(o=>o.m).filter(Boolean))].sort();
-  recebOpts(document.getElementById('receb_de'), meses, 'início', recebMesLbl);
-  recebOpts(document.getElementById('receb_ate'), meses, 'hoje', recebMesLbl);
+  const competencias = [...new Set(recebLinhas.map(o=>o.m).filter(Boolean))].sort().map(m=>({ value:m, label:recebMesLbl(m) }));
   const porTotal = (chave)=>{ const m={}; recebLinhas.forEach(o=>{ m[o[chave]] = (m[o[chave]]||0) + o.t; }); return Object.keys(m).sort((a,b)=>m[b]-m[a]); };
-  recebOpts(document.getElementById('receb_filtro_cliente'), porTotal('g'), 'Todos');
-  recebOpts(document.getElementById('receb_filtro_municipio'), [...new Set(recebLinhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')), 'Todos');
-  recebOpts(document.getElementById('receb_filtro_contrato'), porTotal('k'), 'Todos', k=>{ const c=recebCtrLbl(k); return c.n+' '+c.d; });
-  document.getElementById('receb_de').value = recebFiltroDe;
-  document.getElementById('receb_ate').value = recebFiltroAte;
-  document.getElementById('receb_filtro_cliente').value = recebFiltroCliente;
-  document.getElementById('receb_filtro_municipio').value = recebFiltroMunicipio;
-  document.getElementById('receb_filtro_contrato').value = recebFiltroContrato;
+  const clientesOpts = porTotal('g').map(v=>({ value:v, label:v }));
+  const municipiosOpts = [...new Set(recebLinhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')).map(v=>({ value:v, label:v }));
+  const contratosOpts = porTotal('k').map(k=>{ const c=recebCtrLbl(k); return { value:k, label:c.n+' '+c.d }; });
+  const opcoesPorFiltro = { competencia:competencias, cliente:clientesOpts, municipio:municipiosOpts, contrato:contratosOpts };
+  RECEB_LOOKUPS.forEach(cfg=>{
+    recebRenderLookup(cfg.resultados, cfg.chips, opcoesPorFiltro[cfg.chave], recebFiltros[cfg.chave]);
+    const buscaEl = document.getElementById(cfg.busca);
+    if(buscaEl && buscaEl.value) recebFiltrarLookupPorBusca(cfg.resultados, buscaEl.value);
+  });
 }
-function recebSetFiltro(chave, valor){
-  const mapa = { cliente:'recebFiltroCliente', municipio:'recebFiltroMunicipio', contrato:'recebFiltroContrato' };
-  if(chave==='cliente') recebFiltroCliente = (recebFiltroCliente===valor ? '' : valor);
-  if(chave==='municipio') recebFiltroMunicipio = (recebFiltroMunicipio===valor ? '' : valor);
-  if(chave==='contrato') recebFiltroContrato = (recebFiltroContrato===valor ? '' : valor);
+function recebToggleFiltro(chave, valor){
+  const set = recebFiltros[chave];
+  if(!set) return;
+  if(set.has(valor)) set.delete(valor); else set.add(valor);
   recebRender();
 }
 
@@ -12799,9 +12841,9 @@ function recebRenderMes(linhas){
     if(o.situacao!=='Cancelada' && o.m) faturadoPorMes[o.m] = (faturadoPorMes[o.m]||0) + o.t;
     if(o.r>0 && o.d!=null){ const m = recebYm(o.d); recebidoPorMes[m] = (recebidoPorMes[m]||0) + o.r; }
   });
-  let meses = [...new Set([...Object.keys(faturadoPorMes), ...Object.keys(recebidoPorMes)])].sort();
-  if(recebFiltroDe) meses = meses.filter(m=>m>=recebFiltroDe);
-  if(recebFiltroAte) meses = meses.filter(m=>m<=recebFiltroAte);
+  // "linhas" já veio filtrado (recebFiltrados) — não precisa clampar de
+  // novo por competência aqui, os meses que sobram já refletem o filtro
+  const meses = [...new Set([...Object.keys(faturadoPorMes), ...Object.keys(recebidoPorMes)])].sort();
   dashLineChart(document.getElementById('recebGraficoMes'), {
     labels: meses.map(recebMesLbl),
     series: [
@@ -12828,7 +12870,7 @@ function recebLigarCliqueBarras(container, data, chaveFiltro){
     const bar = rects[i*2+1];
     if(!bar) return;
     bar.style.cursor = 'pointer';
-    bar.addEventListener('click', ()=>recebSetFiltro(chaveFiltro, d.label));
+    bar.addEventListener('click', ()=>recebToggleFiltro(chaveFiltro, d.label));
   });
 }
 function recebRenderBarras(linhas){
@@ -14208,18 +14250,20 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     goRgrmSub(tab.dataset.rgrmsub);
   });
   document.getElementById('btnAddRmRelatorio').addEventListener('click', async ()=>{
+    const clienteId = document.getElementById('rgrm_cliente').value;
     const nome = document.getElementById('rgrm_nome').value.trim();
     const codigoSentenca = document.getElementById('rgrm_sentenca').value.trim();
     const coligada = document.getElementById('rgrm_coligada').value.trim() || '1';
     const sistema = document.getElementById('rgrm_sistema').value.trim() || 'G';
     const parametros = document.getElementById('rgrm_parametros').value.trim();
+    if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome do relatório'); return; }
     if(!codigoSentenca){ toast('Informe o código da sentença'); return; }
     const editando = !!editandoRmRelatorioId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmRelatorioGerencial', { contaId, id: editandoRmRelatorioId, nome: nome.toUpperCase(), codigoSentenca, coligada, sistema, parametros })
-      : await api('addRmRelatorioGerencial', { contaId, nome: nome.toUpperCase(), codigoSentenca, coligada, sistema, parametros });
+      ? await api('atualizarRmRelatorioGerencial', { contaId, id: editandoRmRelatorioId, clienteId, nome: nome.toUpperCase(), codigoSentenca, coligada, sistema, parametros })
+      : await api('addRmRelatorioGerencial', { contaId, clienteId, nome: nome.toUpperCase(), codigoSentenca, coligada, sistema, parametros });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmRelatorio();
     await carregarTudo();
@@ -14228,18 +14272,19 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnCancelarEdicaoRmRelatorio').addEventListener('click', cancelarEdicaoRmRelatorio);
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
-  ['receb_de','receb_ate','receb_filtro_cliente','receb_filtro_municipio','receb_filtro_contrato'].forEach(id=>{
-    document.getElementById(id).addEventListener('change', e=>{
-      if(id==='receb_de') recebFiltroDe = e.target.value;
-      if(id==='receb_ate') recebFiltroAte = e.target.value;
-      if(id==='receb_filtro_cliente') recebFiltroCliente = e.target.value;
-      if(id==='receb_filtro_municipio') recebFiltroMunicipio = e.target.value;
-      if(id==='receb_filtro_contrato') recebFiltroContrato = e.target.value;
-      recebRender();
+  RECEB_LOOKUPS.forEach(cfg=>{
+    document.getElementById(cfg.busca).addEventListener('input', e=>recebFiltrarLookupPorBusca(cfg.resultados, e.target.value));
+    document.getElementById(cfg.resultados).addEventListener('change', e=>{
+      const cb = e.target.closest('input[type=checkbox]'); if(!cb) return;
+      recebToggleFiltro(cfg.chave, cb.dataset.v);
+    });
+    document.getElementById(cfg.chips).addEventListener('click', e=>{
+      const chip = e.target.closest('.chip'); if(!chip) return;
+      recebToggleFiltro(cfg.chave, chip.dataset.v);
     });
   });
   document.getElementById('btnRecebLimparFiltros').addEventListener('click', ()=>{
-    recebFiltroDe = ''; recebFiltroAte = ''; recebFiltroCliente = ''; recebFiltroMunicipio = ''; recebFiltroContrato = '';
+    recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
     recebRender();
   });
   document.getElementById('recebSegAbertas').addEventListener('click', e=>{
@@ -14254,7 +14299,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('recebTabelaContratos').addEventListener('click', e=>{
     const tr = e.target.closest('tr[data-ctr]'); if(!tr) return;
-    recebSetFiltro('contrato', tr.dataset.ctr);
+    recebToggleFiltro('contrato', tr.dataset.ctr);
   });
   document.getElementById('btnRecebCopiarAbertas').addEventListener('click', async ()=>{
     const hoje = recebHoje();

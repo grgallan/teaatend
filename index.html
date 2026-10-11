@@ -2604,7 +2604,8 @@
     <div class="rgrm-sub-view" id="rgrm-sub-cadastro">
       <div class="card">
         <h2 id="rgrm_tituloForm">Novo relatório gerencial</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Cada linha é uma consulta SQL do RM (RealizaConsulta) disponível pro sistema — os mesmos dados que antes só existiam na tela de configuração do painel separado.</p>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Cada linha é uma consulta SQL do RM (RealizaConsulta) disponível pro sistema — os mesmos dados que antes só existiam na tela de configuração do painel separado. A Sentença/Coligada/Sistema são da conexão RM de UM cliente específico (cada cliente tem seu próprio servidor RM), por isso escolha o cliente antes de salvar.</p>
+        <div class="field"><label>Cliente</label><select id="rgrm_cliente"></select></div>
         <div class="field"><label>Nome do relatório</label><input type="text" id="rgrm_nome" placeholder="Ex: PAINEL DE RECEBIVEIS"></div>
         <div class="row">
           <div class="field"><label>Código da Sentença</label><input type="text" id="rgrm_sentenca" placeholder="Ex: PAINEL.RECEB"></div>
@@ -2634,15 +2635,31 @@
 
       <div class="card" id="recebCardFiltros" style="display:none;">
         <h2>Filtros</h2>
-        <div class="row">
-          <div class="field"><label>Competência de</label><select id="receb_de"></select></div>
-          <div class="field"><label>até</label><select id="receb_ate"></select></div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Escolha quantos valores quiser em cada filtro — sem nenhum marcado, entram todos.</p>
+        <div class="field">
+          <label>Competência</label>
+          <input type="text" id="receb_busca_competencia" placeholder="Buscar competência...">
+          <div class="rm-chips-selecionados" id="recebChipsCompetencia"></div>
+          <div class="rm-lookup-resultados" id="recebLookupCompetencia"></div>
         </div>
-        <div class="row">
-          <div class="field"><label>Cliente (grupo)</label><select id="receb_filtro_cliente"></select></div>
-          <div class="field"><label>Município</label><select id="receb_filtro_municipio"></select></div>
+        <div class="field">
+          <label>Cliente (grupo)</label>
+          <input type="text" id="receb_busca_cliente_filtro" placeholder="Buscar cliente...">
+          <div class="rm-chips-selecionados" id="recebChipsCliente"></div>
+          <div class="rm-lookup-resultados" id="recebLookupCliente"></div>
         </div>
-        <div class="field"><label>Contrato</label><select id="receb_filtro_contrato"></select></div>
+        <div class="field">
+          <label>Município</label>
+          <input type="text" id="receb_busca_municipio" placeholder="Buscar município...">
+          <div class="rm-chips-selecionados" id="recebChipsMunicipio"></div>
+          <div class="rm-lookup-resultados" id="recebLookupMunicipio"></div>
+        </div>
+        <div class="field">
+          <label>Contrato</label>
+          <input type="text" id="receb_busca_contrato" placeholder="Buscar contrato...">
+          <div class="rm-chips-selecionados" id="recebChipsContrato"></div>
+          <div class="rm-lookup-resultados" id="recebLookupContrato"></div>
+        </div>
         <button class="ghost" id="btnRecebLimparFiltros" type="button" style="width:auto;padding:8px 14px;">Limpar filtros</button>
       </div>
 
