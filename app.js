@@ -12609,6 +12609,9 @@ let recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new 
 // motor de widgets não impede mais de um em tese)
 let recebSegPorWidget = {};
 let recebUltimaListaAbertas = {};
+// colunas marcadas no formulário "Adicionar widget" quando tipo==='tabela'
+// (trabalha junto com o seletor de fonte — notas ou agrupado)
+let recebFormColunasAtual = [];
 // "grade configurável" (widgets): recebPainelWidgets é o array em edição;
 // recebPainelWidgetsSalvos guarda o último estado salvo, pra "Cancelar"
 // voltar exatamente pra ele. Um widget é {id,tipo,titulo,medida,medida2,
@@ -12963,15 +12966,24 @@ function recebRenderWidgetKpi(containerId, widget, linhas){
 function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
   const cont = document.getElementById(containerId); if(!cont) return;
   if(tipo==='linha'){
+    const dimensao = widget.dimensao || 'mes';
     const medidas = widget.medida2 ? [widget.medida, widget.medida2] : [widget.medida];
     const cores = ['--blue','--ok','--bad','--warn'];
-    const porMedida = medidas.map(m=>recebAgruparPorDimensao(linhas, 'mes', m));
-    const chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))].sort();
+    const porMedida = medidas.map(m=>recebAgruparPorDimensao(linhas, dimensao, m));
+    const chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))];
+    const dim = RECEB_DIMENSOES[dimensao];
+    chaves.sort(dim && dim.ordenar==='chave' ? (a,b)=>String(a).localeCompare(String(b)) : (a,b)=>{
+      const soma = c => porMedida.reduce((s,arr)=>s+(arr.find(g=>g.chave===c)?.valor||0),0);
+      return soma(b)-soma(a);
+    });
+    const fmtLabel = dimensao==='faixaVencimento' ? (v=>v) : (dim ? dim.fmtLabel : (v=>v));
     const series = medidas.map((m,i)=>{
       const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
       return { label:(RECEB_MEDIDAS[m]||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
     });
-    dashLineChart(cont, { labels: chaves.map(recebMesLbl), series });
+    // dashLineChart não desenha <rect> por ponto (só <path>/<circle>) — por
+    // isso, diferente da barra/ranking, a linha não tem clique-pra-filtrar
+    dashLineChart(cont, { labels: chaves.map(fmtLabel), series });
     return;
   }
   let grupos = recebAgruparPorDimensao(linhas, widget.dimensao, widget.medida);
@@ -13030,6 +13042,85 @@ function recebRenderWidgetContratos(widget, linhas){
   if(tab) tab.innerHTML = `<thead><tr><th>Contrato</th><th>Cliente</th><th>Notas</th><th>Faturado</th><th>Recebido</th><th>% recebido</th><th>Em aberto</th><th>Vencido</th><th>Canceladas</th></tr></thead>
     <tbody>${linhasHtml || `<tr><td colspan="9" class="empty">${recebLinhas.length ? 'Nenhum contrato com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
 }
+// catálogo de colunas da "Tabela (colunas à sua escolha)" quando a fonte é
+// "notas" (uma linha por nota) — quando a fonte é "agrupado", as colunas
+// disponíveis são as próprias RECEB_MEDIDAS (reaproveitadas)
+const RECEB_COLUNAS_NOTAS = {
+  situacao:'Situação', vencimento:'Vencimento', dias:'Dias', emissao:'Emissão', nf:'NF',
+  cliente:'Cliente', municipio:'Município', contrato:'Contrato', competencia:'Competência',
+  totalNf:'Total NF', recebido:'Recebido', dataRecebido:'Data Recebido', saldo:'Saldo',
+  medido:'Valor Medido', inss:'INSS', iss:'ISS', outrasRetencoes:'Outras Retenções',
+};
+const RECEB_COLUNAS_NOTAS_PADRAO = ['situacao','vencimento','nf','cliente','municipio','contrato','totalNf','recebido','saldo'];
+function recebValorColunaNota(o, hoje, chave){
+  switch(chave){
+    case 'situacao': return o.situacao;
+    case 'vencimento': return recebFmtDia(o.v);
+    case 'dias': { if(o.v==null) return ''; const d=o.v-hoje; return d<0?Math.abs(d)+' atraso':d===0?'hoje':'em '+d; }
+    case 'emissao': return recebFmtDia(o.e);
+    case 'nf': return o.nf;
+    case 'cliente': return o.g;
+    case 'municipio': return o.u;
+    case 'contrato': { const c=recebCtrLbl(o.k); return `${c.n} ${c.d}`.trim(); }
+    case 'competencia': return o.m ? recebMesLbl(o.m) : '';
+    case 'totalNf': return fmtMoeda(o.t);
+    case 'recebido': return o.r ? fmtMoeda(o.r) : '';
+    case 'dataRecebido': return recebFmtDia(o.d);
+    case 'saldo': return fmtMoeda(o.saldo);
+    case 'medido': return fmtMoeda(o.md);
+    case 'inss': return fmtMoeda(o.inss);
+    case 'iss': return fmtMoeda(o.iss);
+    case 'outrasRetencoes': return fmtMoeda(o.ot);
+    default: return '';
+  }
+}
+// agrupa uma vez só e calcula VÁRIAS medidas por grupo — usado pela tabela
+// personalizada no modo "agrupado" (uma coluna por medida escolhida)
+function recebAgruparMultiplasMedidas(linhas, dimensaoChave, medidas){
+  let baseGrupos;
+  if(dimensaoChave === 'faixaVencimento'){
+    const hoje = recebHoje();
+    baseGrupos = RECEB_FAIXAS_VENCIMENTO.map(f=>({ chave:f.nome, rotulo:f.nome, itens: linhas.filter(o=>f.teste(o,hoje)) }));
+  }else{
+    const dim = RECEB_DIMENSOES[dimensaoChave];
+    if(!dim) return [];
+    const grupos = {};
+    linhas.forEach(o=>{ const k = dim.chave(o); (grupos[k] = grupos[k] || []).push(o); });
+    baseGrupos = Object.entries(grupos).map(([k,itens])=>({ chave:k, rotulo:dim.fmtLabel(k), itens }));
+  }
+  const resultado = baseGrupos.map(g=>({ chave:g.chave, rotulo:g.rotulo, valores: Object.fromEntries(medidas.map(m=>[m, recebCalcularMedida(g.itens, m)])) }));
+  const dim = RECEB_DIMENSOES[dimensaoChave];
+  if(dim && dim.ordenar==='chave') resultado.sort((a,b)=>String(a.chave).localeCompare(String(b.chave)));
+  else if(medidas[0]) resultado.sort((a,b)=>(b.valores[medidas[0]]||0)-(a.valores[medidas[0]]||0));
+  return resultado;
+}
+function recebRenderWidgetTabelaPersonalizada(widget, linhas){
+  const tab = document.getElementById(`receb-${widget.id}-tabela`); if(!tab) return;
+  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : RECEB_COLUNAS_NOTAS_PADRAO;
+  if(widget.fonte === 'agrupado'){
+    const grupos = recebAgruparMultiplasMedidas(linhas, widget.dimensao, colunas);
+    const cab = [RECEB_DIMENSOES[widget.dimensao]?.label || 'Grupo', ...colunas.map(c=>(RECEB_MEDIDAS[c]||{}).label||c)];
+    const corpo = grupos.map(g=>{
+      const celulas = [g.rotulo, ...colunas.map(c=>recebFormatarMedida(g.valores[c], c))];
+      return `<tr>${celulas.map(v=>`<td>${escaparHtml(String(v))}</td>`).join('')}</tr>`;
+    }).join('');
+    tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+      <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${recebLinhas.length ? 'Nenhum grupo com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+    return;
+  }
+  // fonte 'notas' — uma linha por nota, com busca própria do widget
+  const hoje = recebHoje();
+  const buscaEl = document.querySelector(`[data-wbusca][data-wid="${widget.id}"]`);
+  const busca = (buscaEl?.value || '').trim().toLowerCase();
+  let itens = widget.apenasAbertas ? linhas.filter(o=>o.saldo>0) : linhas.slice();
+  if(busca) itens = itens.filter(o=>[o.nf,o.c,o.k,o.u,o.g].join(' ').toLowerCase().includes(busca));
+  itens.sort((a,b)=>(a.v??9e9)-(b.v??9e9));
+  recebUltimaListaAbertas[widget.id] = itens;
+  const cab = colunas.map(c=>RECEB_COLUNAS_NOTAS[c]||c);
+  const corpo = itens.map(o=>`<tr>${colunas.map(c=>`<td>${escaparHtml(String(recebValorColunaNota(o,hoje,c)))}</td>`).join('')}</tr>`).join('');
+  tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${recebLinhas.length ? 'Nenhuma nota com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+}
 async function recebCopiarAbertas(widgetId){
   const hoje = recebHoje();
   const lista = recebUltimaListaAbertas[widgetId] || [];
@@ -13044,7 +13135,24 @@ function recebWidgetTitulo(w){
   if(w.titulo) return w.titulo;
   if(w.tipo==='tabela-abertas') return 'Notas em aberto';
   if(w.tipo==='tabela-contratos') return 'Contratos';
+  if(w.tipo==='tabela') return 'Tabela';
   return (RECEB_MEDIDAS[w.medida]||{}).label || w.medida || '(sem título)';
+}
+// opções de coluna do formulário "tabela (colunas à sua escolha)" — notas
+// usa o catálogo por nota, agrupado reaproveita as próprias RECEB_MEDIDAS
+function recebOpcoesColunasPorFonte(fonte){
+  return fonte === 'agrupado' ? RECEB_MEDIDAS : RECEB_COLUNAS_NOTAS;
+}
+function recebRenderColunasPicker(fonte){
+  const opcoes = recebOpcoesColunasPorFonte(fonte);
+  const marcadas = new Set(recebFormColunasAtual);
+  document.getElementById('recebNovoWidgetLabelColunas').textContent = fonte==='agrupado' ? 'Medidas (colunas)' : 'Colunas';
+  document.getElementById('recebNovoWidgetColunasLista').innerHTML = Object.entries(opcoes).map(([k,v])=>{
+    const label = typeof v === 'string' ? v : v.label;
+    return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
+      <input type="checkbox" data-wcoluna value="${k}" ${marcadas.has(k)?'checked':''} style="width:auto;"> ${escaparHtml(label)}
+    </label>`;
+  }).join('');
 }
 function recebHtmlToolbar(w, i, total){
   if(!recebModoEdicao) return '';
@@ -13080,6 +13188,14 @@ function recebHtmlWidget(w, i, total){
       <table class="valores-table" id="receb-${w.id}-tabela"></table>
     </div>`;
   }
+  if(w.tipo === 'tabela'){
+    const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar nota, cliente, contrato ou município" style="margin-bottom:10px;">` : '';
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}" style="overflow-x:auto;">${toolbar}
+      <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
+      ${buscaHtml}
+      <table class="valores-table" id="receb-${w.id}-tabela"></table>
+    </div>`;
+  }
   if(w.tipo === 'kpi'){
     return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="receb-${w.id}-conteudo"></div></div>`;
   }
@@ -13111,6 +13227,7 @@ function recebRenderConteudo(linhas){
     if(w.tipo==='kpi') recebRenderWidgetKpi(`receb-${w.id}-conteudo`, w, linhas);
     else if(w.tipo==='tabela-abertas') recebRenderWidgetAbertas(w, linhas);
     else if(w.tipo==='tabela-contratos') recebRenderWidgetContratos(w, linhas);
+    else if(w.tipo==='tabela') recebRenderWidgetTabelaPersonalizada(w, linhas);
     else recebRenderWidgetGrafico(`receb-${w.id}-conteudo`, w, linhas, w.tipo);
   });
 }
@@ -13158,19 +13275,30 @@ async function recebExportarExcel(){
 function recebGerarIdWidget(){ return 'w'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function recebAtualizarCamposNovoWidget(){
   const tipo = document.getElementById('recebNovoWidgetTipo').value;
-  const ehTabela = tipo==='tabela-abertas' || tipo==='tabela-contratos';
+  const ehTabelaPronta = tipo==='tabela-abertas' || tipo==='tabela-contratos';
+  const ehTabelaPersonalizada = tipo==='tabela';
   const ehKpi = tipo==='kpi';
   const ehLinha = tipo==='linha';
-  document.getElementById('recebNovoWidgetLinhaMedida').style.display = ehTabela ? 'none' : '';
-  document.getElementById('recebNovoWidgetCampoDimensao').style.display = (ehTabela||ehKpi||ehLinha) ? 'none' : '';
+  const fonte = document.getElementById('recebNovoWidgetFonte').value || 'notas';
+  // na tabela personalizada não existe campo "Medida" (quem escolhe as
+  // medidas é o picker de colunas) e "Agrupar por" só se a fonte é "agrupado"
+  const precisaMedida = !ehTabelaPronta && !ehTabelaPersonalizada;
+  const precisaDimensao = !ehTabelaPronta && !ehKpi && (!ehTabelaPersonalizada || fonte==='agrupado');
+  document.getElementById('recebNovoWidgetLinhaMedida').style.display = (precisaMedida || precisaDimensao) ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoDimensao').style.display = precisaDimensao ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra') ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoMedidas2').style.display = ehLinha ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoApenasAbertas').style.display = (ehTabelaPersonalizada && fonte==='notas') ? 'flex' : 'none';
+  document.getElementById('recebNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
   const medidaSel = document.getElementById('recebNovoWidgetMedida');
   if(!medidaSel.options.length) medidaSel.innerHTML = Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
   const medida2Sel = document.getElementById('recebNovoWidgetMedida2');
   if(!medida2Sel.options.length) medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
   const dimSel = document.getElementById('recebNovoWidgetDimensao');
   if(!dimSel.options.length) dimSel.innerHTML = Object.entries(RECEB_DIMENSOES_TODAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v)}</option>`).join('');
+  if(ehTabelaPersonalizada) recebRenderColunasPicker(fonte);
 }
 function recebResetFormNovoWidget(){
   recebEditandoWidgetId = null;
@@ -13178,6 +13306,9 @@ function recebResetFormNovoWidget(){
   document.getElementById('recebNovoWidgetTipo').value = 'kpi';
   document.getElementById('recebNovoWidgetTitulo').value = '';
   document.getElementById('recebNovoWidgetTop').value = '';
+  document.getElementById('recebNovoWidgetFonte').value = 'notas';
+  document.getElementById('recebNovoWidgetApenasAbertas').checked = false;
+  recebFormColunasAtual = [];
   recebAtualizarCamposNovoWidget();
   document.getElementById('recebNovoWidgetMedida').value = 'faturado';
   document.getElementById('recebNovoWidgetMedida2').value = '';
@@ -13203,6 +13334,9 @@ function recebWidgetEditar(id){
   recebEditandoWidgetId = id;
   document.getElementById('recebNovoWidgetTipo').value = w.tipo;
   document.getElementById('recebNovoWidgetTipo').disabled = true; // trocar o tipo de um widget existente é mais simples remover e criar outro
+  document.getElementById('recebNovoWidgetFonte').value = w.fonte || 'notas';
+  document.getElementById('recebNovoWidgetApenasAbertas').checked = !!w.apenasAbertas;
+  recebFormColunasAtual = w.colunas ? w.colunas.slice() : [];
   recebAtualizarCamposNovoWidget();
   document.getElementById('recebNovoWidgetTitulo').value = w.titulo || '';
   document.getElementById('recebNovoWidgetMedida').value = w.medida || 'faturado';
@@ -14621,16 +14755,29 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('recebGradeWidgets').addEventListener('input', e=>{
     const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
     const w = recebPainelWidgets.find(x=>x.id===busca.dataset.wid);
-    if(w) recebRenderWidgetAbertas(w, recebUltimoLinhasFiltradas);
+    if(!w) return;
+    if(w.tipo==='tabela') recebRenderWidgetTabelaPersonalizada(w, recebUltimoLinhasFiltradas);
+    else recebRenderWidgetAbertas(w, recebUltimoLinhasFiltradas);
   });
   document.getElementById('btnRecebEditarPainel').addEventListener('click', recebEntrarModoEdicao);
   document.getElementById('btnRecebSalvarPainel').addEventListener('click', recebSalvarPainel);
   document.getElementById('btnRecebCancelarEdicaoPainel').addEventListener('click', recebCancelarEdicaoPainel);
   document.getElementById('recebNovoWidgetTipo').addEventListener('change', recebAtualizarCamposNovoWidget);
+  document.getElementById('recebNovoWidgetFonte').addEventListener('change', ()=>{
+    recebFormColunasAtual = [];
+    recebAtualizarCamposNovoWidget();
+  });
+  document.getElementById('recebNovoWidgetColunasLista').addEventListener('change', e=>{
+    const cb = e.target.closest('[data-wcoluna]'); if(!cb) return;
+    const k = cb.value;
+    if(cb.checked){ if(!recebFormColunasAtual.includes(k)) recebFormColunasAtual.push(k); }
+    else recebFormColunasAtual = recebFormColunasAtual.filter(c=>c!==k);
+  });
   document.getElementById('btnRecebAdicionarWidget').addEventListener('click', ()=>{
     const tipo = document.getElementById('recebNovoWidgetTipo').value;
-    const ehTabela = tipo==='tabela-abertas' || tipo==='tabela-contratos';
-    if(ehTabela && !recebEditandoWidgetId && recebPainelWidgets.some(w=>w.tipo===tipo)){
+    const ehTabelaPronta = tipo==='tabela-abertas' || tipo==='tabela-contratos';
+    const ehTabelaPersonalizada = tipo==='tabela';
+    if(ehTabelaPronta && !recebEditandoWidgetId && recebPainelWidgets.some(w=>w.tipo===tipo)){
       toast('Esse painel já tem uma tabela desse tipo.'); return;
     }
     const titulo = document.getElementById('recebNovoWidgetTitulo').value.trim();
@@ -14638,11 +14785,19 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dimensao = document.getElementById('recebNovoWidgetDimensao').value;
     const top = document.getElementById('recebNovoWidgetTop').value;
     const medida2 = document.getElementById('recebNovoWidgetMedida2').value;
-    if(!ehTabela && tipo!=='kpi' && tipo!=='linha' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    const fonte = document.getElementById('recebNovoWidgetFonte').value || 'notas';
+    if(ehTabelaPersonalizada && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    if(ehTabelaPersonalizada && recebFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
+    if(!ehTabelaPronta && !ehTabelaPersonalizada && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     const widget = { id: recebEditandoWidgetId || recebGerarIdWidget(), tipo, titulo };
-    if(!ehTabela){
+    if(ehTabelaPersonalizada){
+      widget.fonte = fonte;
+      widget.colunas = recebFormColunasAtual.slice();
+      if(fonte==='agrupado') widget.dimensao = dimensao;
+      else widget.apenasAbertas = document.getElementById('recebNovoWidgetApenasAbertas').checked;
+    }else if(!ehTabelaPronta){
       widget.medida = medida;
-      if(tipo==='linha'){ widget.dimensao = 'mes'; if(medida2) widget.medida2 = medida2; }
+      if(tipo==='linha'){ widget.dimensao = dimensao; if(medida2) widget.medida2 = medida2; }
       else { widget.dimensao = dimensao; if(top) widget.top = Number(top); }
     }
     if(recebEditandoWidgetId){

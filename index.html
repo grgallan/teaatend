@@ -2687,10 +2687,11 @@
               <option value="kpi">Indicador (número único)</option>
               <option value="barra">Gráfico de barras</option>
               <option value="barra-h">Ranking (barras horizontais)</option>
-              <option value="linha">Gráfico de linha (por competência)</option>
+              <option value="linha">Gráfico de linha</option>
               <option value="donut">Gráfico de pizza (donut)</option>
-              <option value="tabela-abertas">Tabela: Notas em aberto</option>
-              <option value="tabela-contratos">Tabela: Contratos</option>
+              <option value="tabela">Tabela (colunas à sua escolha)</option>
+              <option value="tabela-abertas">Tabela: Notas em aberto (pronta)</option>
+              <option value="tabela-contratos">Tabela: Contratos (pronta)</option>
             </select>
           </div>
           <div class="field"><label>Título</label><input type="text" id="recebNovoWidgetTitulo" placeholder="Ex: Faturado por cliente"></div>
@@ -2701,6 +2702,20 @@
         </div>
         <div class="field" id="recebNovoWidgetCampoTop" style="display:none;"><label>Mostrar só os N maiores (opcional)</label><input type="number" id="recebNovoWidgetTop" min="1" placeholder="Ex: 12"></div>
         <div class="field" id="recebNovoWidgetCampoMedidas2" style="display:none;"><label>Segunda medida (opcional, pra comparar duas linhas)</label><select id="recebNovoWidgetMedida2"></select></div>
+        <div class="field" id="recebNovoWidgetCampoFonte" style="display:none;">
+          <label>De onde vêm as linhas da tabela</label>
+          <select id="recebNovoWidgetFonte">
+            <option value="notas">Notas (uma linha por nota)</option>
+            <option value="agrupado">Agrupado por uma dimensão (uma linha por valor)</option>
+          </select>
+        </div>
+        <label id="recebNovoWidgetCampoApenasAbertas" style="display:none;align-items:center;gap:8px;font-size:13px;margin:4px 0 10px;cursor:pointer;">
+          <input type="checkbox" id="recebNovoWidgetApenasAbertas" style="width:auto;"> Mostrar só notas em aberto (saldo &gt; 0)
+        </label>
+        <div class="field" id="recebNovoWidgetCampoColunas" style="display:none;">
+          <label id="recebNovoWidgetLabelColunas">Colunas</label>
+          <div id="recebNovoWidgetColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
+        </div>
         <button class="primary" id="btnRecebAdicionarWidget" type="button">Adicionar ao painel</button>
       </div>
 
