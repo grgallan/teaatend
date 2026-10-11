@@ -12680,6 +12680,7 @@ function recebNormalizar(linhasRm){
     venc:ix('VENCIMENTO'), mes:ix('MES','COMPETENCIA'), cli:ix('CLIENTE'), emi:ix('EMISSAO'), nf:ix('NOTA FISCAL','NF'),
     ctr:ix('CONTRATO'), mun:ix('PREFEITURA','MUNICIPIO'), rec:ix('VALOR RECEBIDO','RECEBIDO'), dtr:ix('DATA RECEBIDO'), pago:ix('PAGO (S)','PAGO'),
     st:ix('STATUS'), med:ix('VALOR MEDIDO'), inss:ix('INSS'), iss:ix('ISS'), irrf:ix('IRRF'), out:ix('OUTRAS RETENCOES'), tot:ix('TOTAL NF'), parc:ix('VALOR PARCELA'), mov:ix('IDMOV'), lan:ix('IDLAN'),
+    nomeAbrev:ix('NOME ABREV'),
   };
   const g = (r,k) => CH[k]==null ? null : r[CH[k]];
   const brutas = [], movs = [];
@@ -12695,6 +12696,7 @@ function recebNormalizar(linhasRm){
       r: recebCellNum(g(r,'rec')), d: recebCellDia(g(r,'dtr')), p: pago, s: String(g(r,'st')??'').trim(),
       md: recebCellNum(g(r,'med')), inss: recebCellNum(g(r,'inss')), iss: recebCellNum(g(r,'iss')), ot: recebCellNum(g(r,'out'))+recebCellNum(g(r,'irrf')),
       t: recebCellNum(g(r,'tot')), pc: recebCellNum(g(r,'parc')), id: recebIdLinha(g(r,'mov'), g(r,'lan'), g(r,'nf')),
+      na: String(g(r,'nomeAbrev')??'').trim(),
     });
     movs.push(String(g(r,'mov')??'')||null);
   });
@@ -12710,7 +12712,9 @@ function recebNormalizar(linhasRm){
       ['md','inss','iss','ot','t'].forEach(campo=>{ brutas[i][campo] = (brutas[i][campo]||0)*w; });
     });
   });
-  brutas.forEach(o=>{ o.g = recebGrupo(o.c); });
+  // usa o NOME_ABREV vindo direto da consulta do RM quando a sentença já
+  // traz essa coluna; sem ela, cai no agrupamento heurístico de sempre
+  brutas.forEach(o=>{ o.g = o.na || recebGrupo(o.c); });
   return brutas;
 }
 
