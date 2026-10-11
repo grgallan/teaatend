@@ -12600,10 +12600,22 @@ let recebClienteId = '';
 let recebLinhas = []; // já normalizado (ver recebNormalizar)
 let recebInfo = null; // { quando, nomeRelatorio }
 let recebCarregando = false;
-// os 4 filtros são multi-seleção (um "lookup": busca + chips dos
-// escolhidos + lista com checkbox, mesmo padrão já usado no Gerador SQL
-// RM) — Set vazio = "todos", igual os filtros do Construtor de Relatório
-let recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
+// filtros configuráveis — recebPainelFiltros é a lista (em edição) de
+// campos escolhidos pelo usuário, na ordem em que aparecem; cada campo é
+// "mes"/"cliente"/"municipio"/"contrato"/"situacao" (embutidos) ou
+// "rm:NOME_DA_COLUNA" pra filtrar por qualquer coluna crua que a consulta
+// do RM trouxer (como as colunas variam de cliente pra cliente, a lista
+// de campos disponíveis é descoberta a partir dos dados já carregados —
+// ver recebCamposFiltroDisponiveis). recebPainelFiltrosSalvos guarda o
+// último estado salvo, pra "Cancelar" voltar pra ele — mesmo esquema do
+// recebPainelWidgets/recebPainelWidgetsSalvos logo abaixo.
+let recebPainelFiltros = [];
+let recebPainelFiltrosSalvos = [];
+// cada filtro é multi-seleção (um "lookup": busca + chips dos escolhidos +
+// lista com checkbox, mesmo padrão já usado no Gerador SQL RM) — Set
+// vazio = "todos", igual os filtros do Construtor de Relatório. Chaveado
+// pelo próprio nome do campo (recebPainelFiltros).
+let recebFiltros = {};
 // filtro de situação e última lista copiável de cada widget "tabela de
 // notas em aberto" — por id do widget (só costuma existir um, mas o
 // motor de widgets não impede mais de um em tese)
@@ -12719,12 +12731,53 @@ function recebNormalizar(linhasRm){
   return brutas;
 }
 
+// campos embutidos que todo mundo tem (processados/formatados); "rm:X" é
+// tratado à parte, direto da linha crua da consulta (ver recebNormalizar)
+const RECEB_CAMPOS_FILTRO_BUILTIN = { mes:'Competência', cliente:'Cliente', municipio:'Município', contrato:'Contrato', situacao:'Situação' };
+function recebLabelCampoFiltro(campo){
+  if(RECEB_CAMPOS_FILTRO_BUILTIN[campo]) return RECEB_CAMPOS_FILTRO_BUILTIN[campo];
+  if(campo.startsWith('rm:')) return campo.slice(3);
+  return campo;
+}
+// valor de UM campo filtrável pra uma linha — usado tanto pra montar as
+// opções do dropdown quanto pra aplicar o filtro, sempre com a mesma regra
+function recebValorFiltro(o, campo){
+  switch(campo){
+    case 'mes': return o.m;
+    case 'cliente': return o.g;
+    case 'municipio': return o.u;
+    case 'contrato': return o.k;
+    case 'situacao': return o.situacao;
+    default:
+      if(campo.startsWith('rm:')){ const v = o._rm ? o._rm[campo.slice(3)] : undefined; return v==null ? '' : String(v); }
+      return '';
+  }
+}
+// todas as colunas que vieram na consulta atual (descobertas nos dados já
+// carregados, já que variam de sentença pra sentença) — pra oferecer como
+// opção de filtro além dos campos embutidos
+function recebColunasRmDisponiveis(){
+  const vistas = new Set(), colunas = [];
+  recebLinhas.forEach(o=>{ Object.keys(o._rm||{}).forEach(k=>{ if(!vistas.has(k)){ vistas.add(k); colunas.push(k); } }); });
+  return colunas;
+}
+// catálogo pro seletor "Adicionar filtro": embutidos + colunas cruas da
+// consulta, menos os campos que já estão configurados como filtro
+function recebCamposFiltroDisponiveis(){
+  const jaConfigurados = new Set(recebPainelFiltros);
+  const opcoes = Object.keys(RECEB_CAMPOS_FILTRO_BUILTIN).filter(c=>!jaConfigurados.has(c)).map(c=>({ campo:c, label:RECEB_CAMPOS_FILTRO_BUILTIN[c] }));
+  recebColunasRmDisponiveis().forEach(col=>{
+    const campo = 'rm:'+col;
+    if(!jaConfigurados.has(campo)) opcoes.push({ campo, label: col });
+  });
+  return opcoes;
+}
 function recebFiltrados(){
   return recebLinhas.filter(o=>
-    (recebFiltros.competencia.size===0 || recebFiltros.competencia.has(o.m)) &&
-    (recebFiltros.cliente.size===0 || recebFiltros.cliente.has(o.g)) &&
-    (recebFiltros.municipio.size===0 || recebFiltros.municipio.has(o.u)) &&
-    (recebFiltros.contrato.size===0 || recebFiltros.contrato.has(o.k))
+    recebPainelFiltros.every(campo=>{
+      const set = recebFiltros[campo];
+      return !set || set.size===0 || set.has(recebValorFiltro(o, campo));
+    })
   );
 }
 
@@ -12739,6 +12792,11 @@ function recebCarregarLayoutPainel(){
   const layout = rmPainelLayouts.find(p=>p.slug==='painel-recebiveis');
   recebPainelWidgets = layout ? JSON.parse(JSON.stringify(layout.widgets||[])) : [];
   recebPainelWidgetsSalvos = JSON.parse(JSON.stringify(recebPainelWidgets));
+  // sem "filtros" salvo (painel antigo, de antes dessa configuração
+  // existir) cai nos mesmos 4 filtros de sempre — ninguém perde nada
+  recebPainelFiltros = layout && Array.isArray(layout.filtros) ? layout.filtros.slice() : ['mes','cliente','municipio','contrato'];
+  recebPainelFiltrosSalvos = recebPainelFiltros.slice();
+  recebFiltros = Object.fromEntries(recebPainelFiltros.map(c=>[c, new Set()]));
   recebLayoutCarregado = true;
 }
 function recebAbrir(){
@@ -12777,7 +12835,7 @@ async function recebAtualizarDoRm(){
     if(!r.ok){ document.getElementById('recebStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
     recebLinhas = recebNormalizar(r.linhas || []);
     recebInfo = { quando: new Date().toISOString(), nomeRelatorio: r.nomeRelatorio || 'Painel de Recebíveis' };
-    recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
+    recebFiltros = Object.fromEntries(recebPainelFiltros.map(c=>[c, new Set()]));
     toast(`Painel atualizado com ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'} do RM.`);
     recebRender();
   } finally {
@@ -12792,34 +12850,43 @@ async function recebAtualizarDoRm(){
 // Atendimentos/Financeiro/Tarefas: um dropdown com "Selecionar todos" +
 // uma linha por valor (✓ = marcado), num portal único posicionado embaixo
 // do ▾ clicado — Set vazio = "todos" (nenhum filtro aplicado)
-let recebFiltroColunaAberta = null; // qual dos 4 filtros está com o dropdown aberto agora
-function recebOpcoesPorFiltro(){
-  const competencias = [...new Set(recebLinhas.map(o=>o.m).filter(Boolean))].sort().map(m=>({ value:m, label:recebMesLbl(m) }));
-  const porTotal = (chave)=>{ const m={}; recebLinhas.forEach(o=>{ m[o[chave]] = (m[o[chave]]||0) + o.t; }); return Object.keys(m).sort((a,b)=>m[b]-m[a]); };
-  const clientesOpts = porTotal('g').map(v=>({ value:v, label:v }));
-  const municipiosOpts = [...new Set(recebLinhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')).map(v=>({ value:v, label:v }));
-  const contratosOpts = porTotal('k').map(k=>{ const c=recebCtrLbl(k); return { value:k, label:c.n+' '+c.d }; });
-  return { competencia:competencias, cliente:clientesOpts, municipio:municipiosOpts, contrato:contratosOpts };
+let recebFiltroColunaAberta = null; // qual campo está com o dropdown aberto agora
+// opções de UM campo filtrável — embutido (processado) ou "rm:X" (direto
+// da coluna crua da consulta, sem nenhum tratamento)
+function recebOpcoesPorCampo(campo){
+  if(campo==='mes') return [...new Set(recebLinhas.map(o=>o.m).filter(Boolean))].sort().map(m=>({ value:m, label:recebMesLbl(m) }));
+  if(campo==='situacao') return [...new Set(recebLinhas.map(o=>o.situacao).filter(Boolean))].map(v=>({ value:v, label:RECEB_PILL_TXT[v]||v }));
+  if(campo==='cliente' || campo==='contrato'){
+    const m = {}; recebLinhas.forEach(o=>{ const k = campo==='cliente' ? o.g : o.k; m[k] = (m[k]||0) + o.t; });
+    return Object.keys(m).sort((a,b)=>m[b]-m[a]).map(v=>campo==='contrato' ? { value:v, label:(c=>c.n+' '+c.d)(recebCtrLbl(v)) } : { value:v, label:v });
+  }
+  if(campo==='municipio') return [...new Set(recebLinhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')).map(v=>({ value:v, label:v }));
+  if(campo.startsWith('rm:')){
+    const vistos = new Set();
+    recebLinhas.forEach(o=>{ const v = recebValorFiltro(o, campo); if(v!=='') vistos.add(v); });
+    return [...vistos].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true})).map(v=>({ value:v, label:v }));
+  }
+  return [];
 }
 function recebFecharFiltroColuna(){
   recebFiltroColunaAberta = null;
   const portal = document.getElementById('recebFiltroColunaPortal');
   if(portal){ portal.classList.remove('show'); portal.innerHTML = ''; }
 }
-function recebToggleFiltroColuna(chave, spanEl){
-  const jaAbertoParaEsse = recebFiltroColunaAberta === chave;
+function recebToggleFiltroColuna(campo, spanEl){
+  const jaAbertoParaEsse = recebFiltroColunaAberta === campo;
   recebFecharFiltroColuna();
   if(jaAbertoParaEsse) return;
-  recebFiltroColunaAberta = chave;
+  recebFiltroColunaAberta = campo;
   const portal = document.getElementById('recebFiltroColunaPortal');
   if(!portal || !spanEl) return;
-  const set = recebFiltros[chave];
-  const opcoes = recebOpcoesPorFiltro()[chave] || [];
+  const set = recebFiltros[campo] || new Set();
+  const opcoes = recebOpcoesPorCampo(campo);
   const itensDropdown = opcoes.length
-    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${chave}" data-valor="${escaparHtml(o.value)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
+    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="${escaparHtml(o.value)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
     : `<div class="lista-filtro-coluna-item" style="color:var(--muted);cursor:default;">Nenhuma opção disponível</div>`;
   portal.innerHTML = `
-    <div class="lista-filtro-coluna-item" data-chave="${chave}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
+    <div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
     ${itensDropdown}
   `;
   const r = spanEl.getBoundingClientRect();
@@ -12827,20 +12894,59 @@ function recebToggleFiltroColuna(chave, spanEl){
   portal.style.top = `${r.bottom + 4}px`;
   portal.classList.add('show');
 }
+// monta as LINHAS de filtro (uma por campo configurado) — refeito a cada
+// render porque em modo edição cada linha ganha um botão de remover
+function recebRenderGradeFiltros(){
+  const cont = document.getElementById('recebGradeFiltros');
+  if(!cont) return;
+  cont.innerHTML = recebPainelFiltros.length ? recebPainelFiltros.map(campo=>{
+    const label = recebLabelCampoFiltro(campo);
+    const botaoRemover = recebModoEdicao ? `<button type="button" data-removerfiltro="${escaparHtml(campo)}" title="Remover filtro" style="position:absolute;top:0;right:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:2px;">✕</button>` : '';
+    return `<div class="field" style="flex:1;min-width:150px;position:relative;">
+      ${botaoRemover}
+      <label>${escaparHtml(label)} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
+      <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">Todos</div>
+    </div>`;
+  }).join('') : `<div class="empty" style="padding:4px 0;">Nenhum filtro configurado${recebModoEdicao ? ' — escolha um campo abaixo e clique em "+ Adicionar".' : '.'}</div>`;
+}
 function recebRenderFiltros(){
   if(recebFiltroColunaAberta) recebFecharFiltroColuna();
-  ['competencia','cliente','municipio','contrato'].forEach(chave=>{
-    const n = recebFiltros[chave].size;
-    const resumo = document.getElementById(`recebResumo-${chave}`);
-    if(resumo) resumo.textContent = n === 0 ? 'Todos' : `${n} selecionado${n===1?'':'s'}`;
-    const trigger = document.querySelector(`[data-rfiltro="${chave}"]`);
-    if(trigger) trigger.style.color = n > 0 ? 'var(--accent)' : '';
+  recebRenderGradeFiltros();
+  document.querySelectorAll('#recebGradeFiltros [data-resumo-filtro]').forEach(el=>{
+    const n = (recebFiltros[el.dataset.resumoFiltro] || new Set()).size;
+    el.textContent = n === 0 ? 'Todos' : `${n} selecionado${n===1?'':'s'}`;
+  });
+  document.querySelectorAll('#recebGradeFiltros [data-rfiltro]').forEach(el=>{
+    const n = (recebFiltros[el.dataset.rfiltro] || new Set()).size;
+    el.style.color = n > 0 ? 'var(--accent)' : '';
   });
 }
-function recebToggleFiltro(chave, valor){
-  const set = recebFiltros[chave];
+function recebToggleFiltro(campo, valor){
+  const set = recebFiltros[campo];
   if(!set) return;
   if(set.has(valor)) set.delete(valor); else set.add(valor);
+  recebRender();
+}
+// catálogo de campos filtráveis ainda não usados — preenche o seletor
+// "Adicionar filtro" (só existe em modo edição)
+function recebPopularSelectNovoFiltro(){
+  const sel = document.getElementById('recebNovoFiltroCampo');
+  if(!sel) return;
+  const opcoes = recebCamposFiltroDisponiveis();
+  sel.innerHTML = opcoes.length
+    ? opcoes.map(o=>`<option value="${escaparHtml(o.campo)}">${escaparHtml(o.label)}</option>`).join('')
+    : `<option value="">Nenhum campo disponível</option>`;
+}
+function recebAdicionarFiltro(campo){
+  if(!campo || recebPainelFiltros.includes(campo)) return;
+  recebPainelFiltros.push(campo);
+  if(!recebFiltros[campo]) recebFiltros[campo] = new Set();
+  recebPopularSelectNovoFiltro();
+  recebRender();
+}
+function recebRemoverFiltro(campo){
+  recebPainelFiltros = recebPainelFiltros.filter(c=>c!==campo);
+  recebPopularSelectNovoFiltro();
   recebRender();
 }
 
@@ -13367,6 +13473,8 @@ function recebEntrarModoEdicao(){
   document.getElementById('btnRecebSalvarPainel').style.display = '';
   document.getElementById('btnRecebCancelarEdicaoPainel').style.display = '';
   document.getElementById('recebCardAddWidget').style.display = '';
+  document.getElementById('recebLinhaAddFiltro').style.display = 'flex';
+  recebPopularSelectNovoFiltro();
   recebResetFormNovoWidget();
   recebRender();
 }
@@ -13376,19 +13484,24 @@ function recebSairModoEdicao(){
   document.getElementById('btnRecebSalvarPainel').style.display = 'none';
   document.getElementById('btnRecebCancelarEdicaoPainel').style.display = 'none';
   document.getElementById('recebCardAddWidget').style.display = 'none';
+  document.getElementById('recebLinhaAddFiltro').style.display = 'none';
   recebResetFormNovoWidget();
 }
 function recebCancelarEdicaoPainel(){
   recebPainelWidgets = JSON.parse(JSON.stringify(recebPainelWidgetsSalvos));
+  recebPainelFiltros = recebPainelFiltrosSalvos.slice();
+  recebFiltros = Object.fromEntries(recebPainelFiltros.map(c=>[c, recebFiltros[c] || new Set()]));
   recebSairModoEdicao();
   recebRender();
 }
 async function recebSalvarPainel(){
-  const r = await api('salvarRmPainelLayout', { contaId: contaAtual().id, slug:'painel-recebiveis', widgets: recebPainelWidgets });
+  const r = await api('salvarRmPainelLayout', { contaId: contaAtual().id, slug:'painel-recebiveis', widgets: recebPainelWidgets, filtros: recebPainelFiltros });
   if(!r.ok){ toast(r.erro || 'Não foi possível salvar o layout.'); return; }
   recebPainelWidgetsSalvos = JSON.parse(JSON.stringify(recebPainelWidgets));
+  recebPainelFiltrosSalvos = recebPainelFiltros.slice();
   const idx = rmPainelLayouts.findIndex(p=>p.slug==='painel-recebiveis');
-  if(idx>=0) rmPainelLayouts[idx].widgets = recebPainelWidgetsSalvos; else rmPainelLayouts.push({ slug:'painel-recebiveis', widgets:recebPainelWidgetsSalvos });
+  if(idx>=0){ rmPainelLayouts[idx].widgets = recebPainelWidgetsSalvos; rmPainelLayouts[idx].filtros = recebPainelFiltrosSalvos; }
+  else rmPainelLayouts.push({ slug:'painel-recebiveis', widgets:recebPainelWidgetsSalvos, filtros:recebPainelFiltrosSalvos });
   recebSairModoEdicao();
   recebRender();
   toast('Layout do painel salvo.');
@@ -14724,8 +14837,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
   document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
   document.getElementById('recebCardFiltros').addEventListener('click', e=>{
+    const remover = e.target.closest('[data-removerfiltro]');
+    if(remover){ recebRemoverFiltro(remover.dataset.removerfiltro); return; }
     const trigger = e.target.closest('[data-rfiltro]'); if(!trigger) return;
     recebToggleFiltroColuna(trigger.dataset.rfiltro, trigger);
+  });
+  document.getElementById('btnRecebAdicionarFiltro').addEventListener('click', ()=>{
+    recebAdicionarFiltro(document.getElementById('recebNovoFiltroCampo').value);
   });
   document.getElementById('recebFiltroColunaPortal').addEventListener('click', e=>{
     const item = e.target.closest('.lista-filtro-coluna-item'); if(!item || !item.dataset.chave) return;
@@ -14738,7 +14856,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('[data-rfiltro]') && !e.target.closest('#recebFiltroColunaPortal')) recebFecharFiltroColuna(); });
   document.getElementById('btnRecebLimparFiltros').addEventListener('click', ()=>{
-    recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
+    recebFiltros = Object.fromEntries(recebPainelFiltros.map(c=>[c, new Set()]));
     recebRender();
   });
   // grade de widgets: tudo que é dinâmico (toolbar, segmento/busca da
