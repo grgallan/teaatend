@@ -283,7 +283,7 @@ function clienteParaApi(c: any) {
   };
 }
 function rmRelatorioGerencialParaApi(r: any) {
-  return { id: r.id, slug: r.slug || '', nome: r.nome, codigoSentenca: r.codigo_sentenca, coligada: r.coligada || '1', sistema: r.sistema || 'G', parametros: r.parametros || '', empresaId: r.empresa_id || '' };
+  return { id: r.id, slug: r.slug || '', nome: r.nome, codigoSentenca: r.codigo_sentenca, coligada: r.coligada || '1', sistema: r.sistema || 'G', parametros: r.parametros || '', empresaId: r.empresa_id || '', clienteId: r.cliente_id || '' };
 }
 function categoriaFinanceiraParaApi(c: any) {
   return { id: c.id, nome: c.nome, tipo: c.tipo || 'DESPESA', empresaId: c.empresa_id || '' };
@@ -3887,17 +3887,25 @@ async function acaoAtualizarCliente(req: any) {
 }
 /* ---------- Relatórios Gerenciais TOTVS RM: cadastro das consultas
    (Código da Sentença/Coligada/Sistema/Parâmetros) + execução via RM ---------- */
+// por enquanto só existe UM tipo de relatório gerencial com tela própria
+// (o Painel de Recebíveis) — toda linha nova já nasce com esse slug fixo;
+// quando existir um segundo tipo, troca por um seletor na tela
+const RM_RELATORIO_SLUG_PADRAO = 'painel-recebiveis';
 async function acaoAddRmRelatorioGerencial(req: any) {
   if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar relatórios gerenciais.' };
+  if (!req.clienteId) return { ok: false, erro: 'Escolha o cliente — a sentença/coligada/sistema são da conexão RM de cada cliente.' };
   if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome do relatório.' };
   if (!req.codigoSentenca || !String(req.codigoSentenca).trim()) return { ok: false, erro: 'Informe o código da sentença.' };
   const registro = {
-    id: gerarId(), slug: null, nome: req.nome, codigo_sentenca: req.codigoSentenca,
+    id: gerarId(), slug: RM_RELATORIO_SLUG_PADRAO, nome: req.nome, codigo_sentenca: req.codigoSentenca,
     coligada: req.coligada || '1', sistema: (req.sistema || 'G').toUpperCase(), parametros: req.parametros || '',
-    empresa_id: req.empresaId || null,
+    empresa_id: req.empresaId || null, cliente_id: req.clienteId,
   };
   const { error } = await db.from('rm_relatorios_gerenciais').insert(registro);
-  if (error) return { ok: false, erro: error.message };
+  if (error) {
+    if (String(error.message || '').includes('idx_rm_relatorios_cliente_slug')) return { ok: false, erro: 'Esse cliente já tem um Painel de Recebíveis cadastrado — edite o relatório existente em vez de criar outro.' };
+    return { ok: false, erro: error.message };
+  }
   return { ok: true, registro: rmRelatorioGerencialParaApi(registro) };
 }
 async function acaoAtualizarRmRelatorioGerencial(req: any) {
@@ -3909,16 +3917,16 @@ async function acaoAtualizarRmRelatorioGerencial(req: any) {
   if (req.coligada !== undefined) atualizado.coligada = req.coligada;
   if (req.sistema !== undefined) atualizado.sistema = String(req.sistema).toUpperCase();
   if (req.parametros !== undefined) atualizado.parametros = req.parametros;
+  if (req.clienteId) atualizado.cliente_id = req.clienteId;
   const { error } = await db.from('rm_relatorios_gerenciais').update(atualizado).eq('id', req.id);
-  if (error) return { ok: false, erro: error.message };
+  if (error) {
+    if (String(error.message || '').includes('idx_rm_relatorios_cliente_slug')) return { ok: false, erro: 'Esse cliente já tem um Painel de Recebíveis cadastrado — edite o relatório existente em vez de criar outro.' };
+    return { ok: false, erro: error.message };
+  }
   return { ok: true };
 }
 async function acaoRemoverRmRelatorioGerencial(req: any) {
   if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover relatórios gerenciais.' };
-  // o relatório "de fábrica" do Painel de Recebíveis (slug fixo) não pode
-  // ser removido por aqui — a tela dele depende de sempre existir
-  const { data: alvo } = await db.from('rm_relatorios_gerenciais').select('slug').eq('id', req.id).maybeSingle();
-  if (alvo && alvo.slug) return { ok: false, erro: 'Esse relatório é usado por uma tela do sistema e não pode ser removido.' };
   await db.from('rm_relatorios_gerenciais').delete().eq('id', req.id);
   return { ok: true };
 }
@@ -3938,10 +3946,12 @@ async function acaoExecutarRmRelatorioGerencial(req: any) {
     db.from('clientes').select('nome,rm_url,rm_usuario,rm_senha_cifrada').eq('id', req.clienteId).maybeSingle(),
     req.relatorioId
       ? db.from('rm_relatorios_gerenciais').select('*').eq('id', req.relatorioId).maybeSingle()
-      : db.from('rm_relatorios_gerenciais').select('*').eq('slug', req.slug || '').maybeSingle(),
+      // cada cliente tem sua própria linha (mesmo slug, cliente_id
+      // diferente) — por isso a busca sempre filtra pelos dois
+      : db.from('rm_relatorios_gerenciais').select('*').eq('slug', req.slug || '').eq('cliente_id', req.clienteId).maybeSingle(),
   ]);
   if (!cliente) return { ok: false, erro: 'Cliente não encontrado.' };
-  if (!relatorio) return { ok: false, erro: 'Relatório não encontrado.' };
+  if (!relatorio) return { ok: false, erro: 'Esse cliente ainda não tem um relatório cadastrado em Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios.' };
   if (!cliente.rm_url || !cliente.rm_usuario || !cliente.rm_senha_cifrada) {
     return { ok: false, erro: `O cliente ${cliente.nome} ainda não tem a conexão com o TOTVS RM configurada (Cadastros → Clientes).` };
   }
