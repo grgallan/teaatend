@@ -1338,3 +1338,33 @@ insert into rm_relatorios_gerenciais (id, slug, nome, codigo_sentenca, coligada,
 alter table rm_relatorios_gerenciais add column if not exists cliente_id text references clientes(id);
 alter table rm_relatorios_gerenciais drop constraint if exists rm_relatorios_gerenciais_slug_key;
 create unique index if not exists idx_rm_relatorios_cliente_slug on rm_relatorios_gerenciais (cliente_id, slug);
+
+-- layout configurável ("grade de widgets") de um painel — uma linha por
+-- slug (o mesmo slug do relatório, ex 'painel-recebiveis'), compartilhada
+-- por todo mundo que usa aquele painel (independe de qual cliente está
+-- selecionado). "widgets" é um array JSON: [{id,tipo,titulo,medida,
+-- medida2,dimensao,top}, ...] — ver ESTRUTURA DE WIDGETS no app.js
+create table if not exists rm_painel_layouts (
+  slug text primary key,
+  widgets jsonb not null default '[]',
+  atualizado_em timestamptz default now()
+);
+alter table rm_painel_layouts enable row level security;
+insert into rm_painel_layouts (slug, widgets) values ('painel-recebiveis', '[
+  {"id":"k1","tipo":"kpi","titulo":"Faturado (Total NF)","medida":"faturado"},
+  {"id":"k2","tipo":"kpi","titulo":"Recebido","medida":"recebido"},
+  {"id":"k3","tipo":"kpi","titulo":"Em aberto","medida":"emAberto"},
+  {"id":"k4","tipo":"kpi","titulo":"Prazo médio de recebimento","medida":"prazoMedio"},
+  {"id":"k5","tipo":"kpi","titulo":"Recebido no prazo","medida":"pontualidade"},
+  {"id":"k6","tipo":"kpi","titulo":"Retenções na fonte","medida":"retencoes"},
+  {"id":"k7","tipo":"kpi","titulo":"Notas canceladas","medida":"qtdCanceladas"},
+  {"id":"r1","tipo":"kpi","titulo":"Vencido","medida":"vencido"},
+  {"id":"r2","tipo":"kpi","titulo":"Vence em 7 dias","medida":"proximos7"},
+  {"id":"r3","tipo":"kpi","titulo":"A vencer depois","medida":"aVencer"},
+  {"id":"r4","tipo":"barra","titulo":"Régua de cobrança","medida":"emAberto","dimensao":"faixaVencimento"},
+  {"id":"m1","tipo":"linha","titulo":"Faturado e recebido por mês","medida":"faturado","medida2":"recebido","dimensao":"mes"},
+  {"id":"c1","tipo":"barra-h","titulo":"Clientes","medida":"faturado","dimensao":"cliente"},
+  {"id":"c2","tipo":"barra-h","titulo":"Municípios","medida":"faturado","dimensao":"municipio","top":12},
+  {"id":"t1","tipo":"tabela-abertas","titulo":"Notas em aberto"},
+  {"id":"t2","tipo":"tabela-contratos","titulo":"Contratos"}
+]'::jsonb) on conflict (slug) do nothing;

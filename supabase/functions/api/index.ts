@@ -381,6 +381,7 @@ async function rotear(req: any): Promise<any> {
     case 'atualizarRmRelatorioGerencial': return acaoAtualizarRmRelatorioGerencial(req);
     case 'removerRmRelatorioGerencial': return acaoRemoverRmRelatorioGerencial(req);
     case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
+    case 'salvarRmPainelLayout': return acaoSalvarRmPainelLayout(req);
     case 'addCategoriaFinanceira': return acaoAddCategoriaFinanceira(req);
     case 'atualizarCategoriaFinanceira': return acaoAtualizarCategoriaFinanceira(req);
     case 'removerCategoriaFinanceira': return acaoRemoverCategoriaFinanceira(req);
@@ -535,7 +536,7 @@ async function acaoDados(req: any) {
   if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
   let rmRelatoriosQuery = db.from('rm_relatorios_gerenciais').select('*').order('nome');
   if (empresaId) rmRelatoriosQuery = rmRelatoriosQuery.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }] = await Promise.all([
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -550,6 +551,7 @@ async function acaoDados(req: any) {
     db.from('conta_empresas').select('*'),
     categoriasFinanceirasQuery,
     rmRelatoriosQuery,
+    db.from('rm_painel_layouts').select('*'),
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
@@ -707,6 +709,7 @@ async function acaoDados(req: any) {
     configTomticket,
     categoriasFinanceiras: (categoriasFinanceirasRaw || []).map(categoriaFinanceiraParaApi),
     rmRelatoriosGerenciais: (rmRelatoriosRaw || []).map(rmRelatorioGerencialParaApi),
+    rmPainelLayouts: (rmPainelLayoutsRaw || []).map((p: any) => ({ slug: p.slug, widgets: p.widgets || [] })),
   };
 }
 
@@ -3983,6 +3986,16 @@ async function acaoExecutarRmRelatorioGerencial(req: any) {
   } finally {
     clearTimeout(timeout);
   }
+}
+// grava a grade de widgets configurável de um painel (ex: 'painel-recebiveis')
+// — compartilhada por todo mundo que usa aquele painel, não por cliente
+async function acaoSalvarRmPainelLayout(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.painelrecebiveis', 'editar'))) return { ok: false, erro: 'Você não tem permissão para configurar esse painel.' };
+  if (!req.slug) return { ok: false, erro: 'Painel não informado.' };
+  if (!Array.isArray(req.widgets)) return { ok: false, erro: 'Lista de widgets inválida.' };
+  const { error } = await db.from('rm_painel_layouts').upsert({ slug: req.slug, widgets: req.widgets, atualizado_em: new Date().toISOString() });
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
 }
 
 async function acaoRemoverTipo(req: any) {

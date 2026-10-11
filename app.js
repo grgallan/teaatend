@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [];
 let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
@@ -793,6 +793,7 @@ async function carregarTudo(){
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; segmentos = r.segmentos||[]; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
   categoriasFinanceiras = r.categoriasFinanceiras||[];
   rmRelatoriosGerenciais = r.rmRelatoriosGerenciais||[];
+  rmPainelLayouts = r.rmPainelLayouts||[];
   atualizarBadgeAtendimentos();
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
@@ -12603,8 +12604,21 @@ let recebCarregando = false;
 // escolhidos + lista com checkbox, mesmo padrão já usado no Gerador SQL
 // RM) — Set vazio = "todos", igual os filtros do Construtor de Relatório
 let recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
-let recebSegAbertas = 'todas';
-let recebUltimaListaAbertas = [];
+// filtro de situação e última lista copiável de cada widget "tabela de
+// notas em aberto" — por id do widget (só costuma existir um, mas o
+// motor de widgets não impede mais de um em tese)
+let recebSegPorWidget = {};
+let recebUltimaListaAbertas = {};
+// "grade configurável" (widgets): recebPainelWidgets é o array em edição;
+// recebPainelWidgetsSalvos guarda o último estado salvo, pra "Cancelar"
+// voltar exatamente pra ele. Um widget é {id,tipo,titulo,medida,medida2,
+// dimensao,top} — ver RECEB_MEDIDAS/RECEB_DIMENSOES mais abaixo.
+let recebPainelWidgets = [];
+let recebPainelWidgetsSalvos = [];
+let recebLayoutCarregado = false;
+let recebModoEdicao = false;
+let recebEditandoWidgetId = null;
+let recebUltimoLinhasFiltradas = []; // cache pro re-render leve de busca/segmento de uma tabela, sem remontar a grade toda
 
 function recebHoje(){ const d=new Date(); return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/RECEB_DAY); }
 function recebFmtDia(n){ if(n==null) return ''; const d=new Date(n*RECEB_DAY); return String(d.getUTCDate()).padStart(2,'0')+'/'+String(d.getUTCMonth()+1).padStart(2,'0')+'/'+d.getUTCFullYear(); }
@@ -12707,7 +12721,14 @@ function recebClientesDisponiveis(){
   const idsComRelatorio = new Set(rmRelatoriosGerenciais.filter(r=>r.slug==='painel-recebiveis' && r.clienteId).map(r=>r.clienteId));
   return clientes.filter(c=>idsComRelatorio.has(String(c.id)));
 }
+function recebCarregarLayoutPainel(){
+  const layout = rmPainelLayouts.find(p=>p.slug==='painel-recebiveis');
+  recebPainelWidgets = layout ? JSON.parse(JSON.stringify(layout.widgets||[])) : [];
+  recebPainelWidgetsSalvos = JSON.parse(JSON.stringify(recebPainelWidgets));
+  recebLayoutCarregado = true;
+}
 function recebAbrir(){
+  if(!recebLayoutCarregado) recebCarregarLayoutPainel();
   const disponiveis = recebClientesDisponiveis();
   const sel = document.getElementById('receb_cliente');
   sel.innerHTML = disponiveis.length === 0
@@ -12786,111 +12807,172 @@ function recebToggleFiltro(chave, valor){
   recebRender();
 }
 
-function recebRenderKpis(linhas){
-  const validas = linhas.filter(o=>o.situacao!=='Cancelada'), canceladas = linhas.filter(o=>o.situacao==='Cancelada');
-  const faturado = validas.reduce((s,o)=>s+o.t,0);
-  const medido = validas.reduce((s,o)=>s+o.md,0);
-  const recebido = linhas.reduce((s,o)=>s+(o.r||0),0);
-  const emAberto = validas.reduce((s,o)=>s+o.saldo,0);
-  const recebidas = validas.filter(o=>o.situacao==='Recebida' && o.d!=null && o.e!=null);
-  const pesoPrazo = recebidas.reduce((s,o)=>s+o.r,0);
-  const prazoMedio = pesoPrazo ? recebidas.reduce((s,o)=>s+(o.d-o.e)*o.r,0)/pesoPrazo : 0;
-  const comVenc = recebidas.filter(o=>o.v!=null);
-  const pontualidade = comVenc.length ? comVenc.filter(o=>o.d<=o.v).length/comVenc.length : 0;
-  const retencoes = validas.reduce((s,o)=>s+o.inss+o.iss+o.ot,0);
-  const totalCanceladas = canceladas.reduce((s,o)=>s+o.t,0);
-  const pct = x => (x*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
-  const kpis = [
-    ['Faturado (Total NF)', fmtMoeda(faturado), `${validas.length} notas válidas`],
-    ['Recebido', fmtMoeda(recebido), faturado ? pct(recebido/faturado)+' do faturado' : ''],
-    ['Em aberto', fmtMoeda(emAberto), `${validas.filter(o=>o.saldo>0).length} notas`],
-    ['Prazo médio de recebimento', Math.round(prazoMedio)+' dias', 'da emissão ao crédito, ponderado por valor'],
-    ['Recebido no prazo', pct(pontualidade), 'notas pagas até o vencimento'],
-    ['Retenções na fonte', fmtMoeda(retencoes), medido ? `INSS, ISS e outras: ${pct(retencoes/medido)} do medido` : ''],
-    ['Notas canceladas', String(canceladas.length), fmtMoeda(totalCanceladas)+' em notas canceladas'],
-  ];
-  document.getElementById('recebKpis').innerHTML = kpis.map(k=>`<div class="box"><div class="k">${escaparHtml(k[0])}</div><div class="v">${escaparHtml(k[1])}</div><div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(k[2])}</div></div>`).join('');
+/* ---------- motor de widgets (medida + dimensão) ----------
+   Um widget é {id,tipo,titulo,medida,medida2,dimensao,top}. "medida" é
+   o que se mede (faturado, recebido...), "dimensao" é o agrupamento
+   (por mês, por cliente...) — qualquer combinação medida×dimensão vira
+   um gráfico, sem precisar de código novo pra cada combinação. */
+const RECEB_MEDIDAS = {
+  faturado: { label:'Faturado (Total NF)', fmt:'money' },
+  recebido: { label:'Recebido', fmt:'money' },
+  emAberto: { label:'Em aberto', fmt:'money' },
+  retencoes: { label:'Retenções na fonte', fmt:'money' },
+  qtdNotas: { label:'Qtd. de notas', fmt:'int' },
+  qtdCanceladas: { label:'Notas canceladas', fmt:'int' },
+  canceladas: { label:'Valor cancelado', fmt:'money' },
+  vencido: { label:'Vencido', fmt:'money' },
+  proximos7: { label:'Vence em 7 dias', fmt:'money' },
+  aVencer: { label:'A vencer depois', fmt:'money' },
+  prazoMedio: { label:'Prazo médio de recebimento', fmt:'dias' },
+  pontualidade: { label:'Recebido no prazo', fmt:'pct' },
+};
+function recebCalcularMedida(linhas, medida){
+  const validas = linhas.filter(o=>o.situacao!=='Cancelada');
+  const canceladas = linhas.filter(o=>o.situacao==='Cancelada');
+  switch(medida){
+    case 'faturado': return validas.reduce((s,o)=>s+o.t,0);
+    case 'recebido': return linhas.reduce((s,o)=>s+(o.r||0),0);
+    case 'emAberto': return validas.reduce((s,o)=>s+o.saldo,0);
+    case 'retencoes': return validas.reduce((s,o)=>s+o.inss+o.iss+o.ot,0);
+    case 'qtdNotas': return validas.length;
+    case 'qtdCanceladas': return canceladas.length;
+    case 'canceladas': return canceladas.reduce((s,o)=>s+o.t,0);
+    case 'vencido': return linhas.filter(o=>o.situacao==='Atrasada').reduce((s,o)=>s+o.saldo,0);
+    case 'proximos7': return linhas.filter(o=>o.situacao==='Próximos dias').reduce((s,o)=>s+o.saldo,0);
+    case 'aVencer': return linhas.filter(o=>o.situacao==='A vencer').reduce((s,o)=>s+o.saldo,0);
+    case 'prazoMedio': {
+      const r = validas.filter(o=>o.situacao==='Recebida' && o.d!=null && o.e!=null);
+      const w = r.reduce((s,o)=>s+o.r,0);
+      return w ? r.reduce((s,o)=>s+(o.d-o.e)*o.r,0)/w : 0;
+    }
+    case 'pontualidade': {
+      const r = validas.filter(o=>o.situacao==='Recebida' && o.d!=null && o.e!=null && o.v!=null);
+      return r.length ? r.filter(o=>o.d<=o.v).length/r.length : 0;
+    }
+    default: return 0;
+  }
 }
-function recebRenderRegua(linhas, hoje){
-  const abertas = linhas.filter(o=>o.saldo>0);
-  const soma = f => abertas.filter(f).reduce((s,o)=>s+o.saldo,0);
-  const cnt = f => abertas.filter(f).length;
-  const isVencida = o=>o.situacao==='Atrasada', isProx = o=>o.situacao==='Próximos dias', isFutura = o=>o.situacao==='A vencer';
-  document.getElementById('recebReguaNumeros').innerHTML = `
-    <div class="box"><div class="k">Vencido</div><div class="v" style="color:var(--bad);">${fmtMoeda(soma(isVencida))}</div><div class="x" style="font-size:11px;color:var(--muted);">${cnt(isVencida)} nota${cnt(isVencida)===1?'':'s'}</div></div>
-    <div class="box"><div class="k">Vence nos próximos 7 dias</div><div class="v">${fmtMoeda(soma(isProx))}</div><div class="x" style="font-size:11px;color:var(--muted);">${cnt(isProx)} nota${cnt(isProx)===1?'':'s'}</div></div>
-    <div class="box"><div class="k">A vencer depois</div><div class="v">${fmtMoeda(soma(isFutura))}</div><div class="x" style="font-size:11px;color:var(--muted);">${cnt(isFutura)} nota${cnt(isFutura)===1?'':'s'}</div></div>`;
-  // buckets por faixa de vencimento (em vez da régua diária do painel
-  // original — mais legível reaproveitando o gráfico de barras do
-  // Dashboard, que não tem resolução pra 120+ barras de um dia cada)
-  const faixas = [
-    { label:'Vencido há mais de 30d', tok:'--bad', teste:o=>o.v!=null && (hoje-o.v)>30 },
-    { label:'Vencido 15–30d', tok:'--bad', teste:o=>o.v!=null && (hoje-o.v)>=15 && (hoje-o.v)<=30 },
-    { label:'Vencido até 14d', tok:'--bad', teste:o=>o.v!=null && (hoje-o.v)>=1 && (hoje-o.v)<15 },
-    { label:'Vence em até 7d', tok:'--warn', teste:o=>o.v!=null && (o.v-hoje)>=0 && (o.v-hoje)<=7 },
-    { label:'Vence em 8–30d', tok:'--blue', teste:o=>o.v!=null && (o.v-hoje)>7 && (o.v-hoje)<=30 },
-    { label:'Vence depois de 30d', tok:'--muted', teste:o=>o.v!=null && (o.v-hoje)>30 },
-    { label:'Sem vencimento', tok:'--muted', teste:o=>o.v==null },
-  ];
-  const data = faixas.map(f=>({ label:f.label, value:soma(f.teste), tok:f.tok }));
-  dashBarChart(document.getElementById('recebGraficoRegua'), { data, height:190, rotateLabels:true, unit:'R$' });
+function recebFormatarMedida(valor, medida){
+  const fmt = (RECEB_MEDIDAS[medida]||{}).fmt;
+  if(fmt==='money') return fmtMoeda(valor);
+  if(fmt==='pct') return (valor*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+  if(fmt==='dias') return Math.round(valor)+' dias';
+  return String(Math.round(valor));
 }
-function recebRenderMes(linhas){
-  const faturadoPorMes = {}, recebidoPorMes = {};
-  linhas.forEach(o=>{
-    if(o.situacao!=='Cancelada' && o.m) faturadoPorMes[o.m] = (faturadoPorMes[o.m]||0) + o.t;
-    if(o.r>0 && o.d!=null){ const m = recebYm(o.d); recebidoPorMes[m] = (recebidoPorMes[m]||0) + o.r; }
-  });
-  // "linhas" já veio filtrado (recebFiltrados) — não precisa clampar de
-  // novo por competência aqui, os meses que sobram já refletem o filtro
-  const meses = [...new Set([...Object.keys(faturadoPorMes), ...Object.keys(recebidoPorMes)])].sort();
-  dashLineChart(document.getElementById('recebGraficoMes'), {
-    labels: meses.map(recebMesLbl),
-    series: [
-      { label:'Faturado', tok:'--blue', data: meses.map(m=>faturadoPorMes[m]||0) },
-      { label:'Recebido', tok:'--ok', data: meses.map(m=>recebidoPorMes[m]||0) },
-    ],
-  });
-  document.getElementById('recebLegendaMes').innerHTML = dashLegendHtml([{label:'Faturado',cor:'var(--blue)'},{label:'Recebido',cor:'var(--ok)'}]);
+// subtítulo pequeno sob o valor do KPI — só os casos que valem a pena
+function recebSubtituloMedida(linhas, medida){
+  const validas = linhas.filter(o=>o.situacao!=='Cancelada');
+  const pct = x => x.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+  switch(medida){
+    case 'faturado': return `${validas.length} notas válidas`;
+    case 'recebido': { const fat=recebCalcularMedida(linhas,'faturado'); return fat ? pct(recebCalcularMedida(linhas,'recebido')/fat*100)+' do faturado' : ''; }
+    case 'emAberto': return `${validas.filter(o=>o.saldo>0).length} notas`;
+    case 'prazoMedio': return 'da emissão ao crédito, ponderado por valor';
+    case 'pontualidade': return 'notas pagas até o vencimento';
+    case 'retencoes': { const medido=validas.reduce((s,o)=>s+o.md,0); const ret=recebCalcularMedida(linhas,'retencoes'); return medido ? `INSS, ISS e outras: ${pct(ret/medido*100)} do medido` : ''; }
+    case 'qtdCanceladas': return fmtMoeda(recebCalcularMedida(linhas,'canceladas'))+' em notas canceladas';
+    case 'vencido': { const n=linhas.filter(o=>o.situacao==='Atrasada').length; return `${n} nota${n===1?'':'s'}`; }
+    case 'proximos7': { const n=linhas.filter(o=>o.situacao==='Próximos dias').length; return `${n} nota${n===1?'':'s'}`; }
+    case 'aVencer': { const n=linhas.filter(o=>o.situacao==='A vencer').length; return `${n} nota${n===1?'':'s'}`; }
+    default: return '';
+  }
 }
-function recebAgrupar(linhas, chave){
-  const m = {};
-  linhas.filter(o=>o.situacao!=='Cancelada').forEach(o=>{
-    const g = m[o[chave]] || (m[o[chave]] = { label:o[chave], value:0 });
-    g.value += o.t;
-  });
-  return Object.values(m).sort((a,b)=>b.value-a.value);
+// dimensões "normais" (agrupam por um campo da própria linha); a
+// "faixaVencimento" é tratada à parte logo abaixo, porque sua faixa
+// depende da data de hoje, não de um campo fixo
+const RECEB_DIMENSOES = {
+  mes: { label:'Competência', chave:o=>o.m, fmtLabel:recebMesLbl, ordenar:'chave' },
+  cliente: { label:'Cliente', chave:o=>o.g, fmtLabel:v=>v, ordenar:'valor' },
+  municipio: { label:'Município', chave:o=>o.u, fmtLabel:v=>v, ordenar:'valor' },
+  contrato: { label:'Contrato', chave:o=>o.k, fmtLabel:k=>{ const c=recebCtrLbl(k); return c.n+' '+c.d; }, ordenar:'valor' },
+  situacao: { label:'Situação', chave:o=>o.situacao, fmtLabel:v=>v, ordenar:'valor' },
+};
+const RECEB_DIMENSOES_TODAS = { ...Object.fromEntries(Object.entries(RECEB_DIMENSOES).map(([k,v])=>[k,v.label])), faixaVencimento:'Faixa de vencimento' };
+// só estas dimensões batem com os 4 filtros do painel — clicar numa
+// barra/fatia delas filtra o painel; situação/faixa não são filtráveis
+const RECEB_DIMENSOES_FILTRAVEIS = new Set(['mes','cliente','municipio','contrato']);
+const RECEB_FAIXAS_VENCIMENTO = [
+  { nome:'Vencido há mais de 30d', teste:(o,hoje)=>o.v!=null && (hoje-o.v)>30 },
+  { nome:'Vencido 15–30d', teste:(o,hoje)=>o.v!=null && (hoje-o.v)>=15 && (hoje-o.v)<=30 },
+  { nome:'Vencido até 14d', teste:(o,hoje)=>o.v!=null && (hoje-o.v)>=1 && (hoje-o.v)<15 },
+  { nome:'Vence em até 7d', teste:(o,hoje)=>o.v!=null && (o.v-hoje)>=0 && (o.v-hoje)<=7 },
+  { nome:'Vence em 8–30d', teste:(o,hoje)=>o.v!=null && (o.v-hoje)>7 && (o.v-hoje)<=30 },
+  { nome:'Vence depois de 30d', teste:(o,hoje)=>o.v!=null && (o.v-hoje)>30 },
+  { nome:'Sem vencimento', teste:(o,hoje)=>o.v==null },
+];
+function recebAgruparPorDimensao(linhas, dimensaoChave, medida){
+  if(dimensaoChave === 'faixaVencimento'){
+    const hoje = recebHoje();
+    return RECEB_FAIXAS_VENCIMENTO.map(f=>({ chave:f.nome, rotulo:f.nome, valor: recebCalcularMedida(linhas.filter(o=>f.teste(o,hoje)), medida) }));
+  }
+  const dim = RECEB_DIMENSOES[dimensaoChave];
+  if(!dim) return [];
+  const grupos = {};
+  linhas.forEach(o=>{ const k = dim.chave(o); (grupos[k] = grupos[k] || []).push(o); });
+  const arr = Object.entries(grupos).map(([k,itens])=>({ chave:k, rotulo:dim.fmtLabel(k), valor: recebCalcularMedida(itens, medida) }));
+  arr.sort(dim.ordenar==='chave' ? (a,b)=>String(a.chave).localeCompare(String(b.chave)) : (a,b)=>b.valor-a.valor);
+  return arr;
 }
-// clique na barra filtra o painel por aquele valor — cada linha horizontal
-// do dashBarChart desenha 2 <rect> (trilho + barra), por isso pega o de
-// índice ímpar (a barra colorida de verdade) pra receber o clique
-function recebLigarCliqueBarras(container, data, chaveFiltro){
+// clique na barra filtra o painel por aquele valor — no modo horizontal
+// o dashBarChart desenha 2 <rect> por linha (trilho + barra, por isso
+// índice ímpar); no vertical é 1 <rect> por barra (índice direto)
+function recebLigarCliqueBarras(container, grupos, chaveFiltro, horizontal){
   const rects = container.querySelectorAll('rect');
-  data.forEach((d,i)=>{
-    const bar = rects[i*2+1];
+  grupos.forEach((g,i)=>{
+    const bar = horizontal ? rects[i*2+1] : rects[i];
     if(!bar) return;
     bar.style.cursor = 'pointer';
-    bar.addEventListener('click', ()=>recebToggleFiltro(chaveFiltro, d.label));
+    bar.addEventListener('click', ()=>recebToggleFiltro(chaveFiltro, g.chave));
   });
-}
-function recebRenderBarras(linhas){
-  const porCliente = recebAgrupar(linhas, 'g').map(d=>({ ...d, tok:'--blue' }));
-  const porMunicipio = recebAgrupar(linhas, 'u').slice(0,12).map(d=>({ ...d, tok:'--blue' }));
-  const contCliente = document.getElementById('recebBarrasClientes');
-  const contMunicipio = document.getElementById('recebBarrasMunicipios');
-  dashBarChart(contCliente, { data:porCliente, horizontal:true, unit:'R$' });
-  dashBarChart(contMunicipio, { data:porMunicipio, horizontal:true, unit:'R$' });
-  recebLigarCliqueBarras(contCliente, porCliente, 'cliente');
-  recebLigarCliqueBarras(contMunicipio, porMunicipio, 'municipio');
 }
 const RECEB_PILL_COR = { 'Atrasada':'var(--bad)', 'Próximos dias':'var(--warn)', 'A vencer':'var(--muted)' };
 const RECEB_PILL_TXT = { 'Atrasada':'Vencida', 'Próximos dias':'Próx. 7 dias', 'A vencer':'A vencer' };
-function recebRenderAbertas(linhas, hoje){
-  const busca = (document.getElementById('receb_busca').value||'').trim().toLowerCase();
-  const abertas = linhas.filter(o=>o.saldo>0 && (recebSegAbertas==='todas' || o.situacao===recebSegAbertas)
+
+/* ---------- render de cada tipo de widget ---------- */
+function recebRenderWidgetKpi(containerId, widget, linhas){
+  const el = document.getElementById(containerId); if(!el) return;
+  const valor = recebCalcularMedida(linhas, widget.medida);
+  const info = RECEB_MEDIDAS[widget.medida] || {};
+  const sub = recebSubtituloMedida(linhas, widget.medida);
+  const corDestaque = widget.medida==='vencido' ? ' style="color:var(--bad);"' : '';
+  el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || info.label || widget.medida)}</div><div class="v"${corDestaque}>${recebFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}</div>`;
+}
+function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
+  const cont = document.getElementById(containerId); if(!cont) return;
+  if(tipo==='linha'){
+    const medidas = widget.medida2 ? [widget.medida, widget.medida2] : [widget.medida];
+    const cores = ['--blue','--ok','--bad','--warn'];
+    const porMedida = medidas.map(m=>recebAgruparPorDimensao(linhas, 'mes', m));
+    const chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))].sort();
+    const series = medidas.map((m,i)=>{
+      const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
+      return { label:(RECEB_MEDIDAS[m]||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
+    });
+    dashLineChart(cont, { labels: chaves.map(recebMesLbl), series });
+    return;
+  }
+  let grupos = recebAgruparPorDimensao(linhas, widget.dimensao, widget.medida);
+  if(widget.top) grupos = grupos.slice(0, Number(widget.top));
+  if(tipo==='donut'){
+    const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
+    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })));
+    return;
+  }
+  const unit = (RECEB_MEDIDAS[widget.medida]||{}).fmt === 'pct' ? '' : 'R$';
+  const data = grupos.map(g=>({ label:g.rotulo, value:g.valor, tok:'--blue' }));
+  const horizontal = tipo==='barra-h';
+  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit });
+  if(RECEB_DIMENSOES_FILTRAVEIS.has(widget.dimensao)) recebLigarCliqueBarras(cont, grupos, widget.dimensao, horizontal);
+}
+function recebRenderWidgetAbertas(widget, linhas){
+  const hoje = recebHoje();
+  const buscaEl = document.querySelector(`[data-wbusca][data-wid="${widget.id}"]`);
+  const busca = (buscaEl?.value || '').trim().toLowerCase();
+  const seg = recebSegPorWidget[widget.id] || 'todas';
+  const abertas = linhas.filter(o=>o.saldo>0 && (seg==='todas' || o.situacao===seg)
     && (!busca || [o.nf,o.c,o.k,o.u,o.g].join(' ').toLowerCase().includes(busca)))
     .sort((a,b)=>(a.v??9e9)-(b.v??9e9));
-  recebUltimaListaAbertas = abertas;
+  recebUltimaListaAbertas[widget.id] = abertas;
   const total = abertas.reduce((s,o)=>s+o.saldo,0);
   const linhasHtml = abertas.map(o=>{
     const dias = o.v==null ? '' : o.v-hoje;
@@ -12901,11 +12983,12 @@ function recebRenderAbertas(linhas, hoje){
       <td>${escaparHtml(o.nf)}</td><td>${escaparHtml(o.g)}</td><td>${escaparHtml(o.u)}</td><td title="${escaparHtml(o.k)}">${escaparHtml(c.n)}</td>
       <td>${fmtMoeda(o.t)}</td><td>${o.r?fmtMoeda(o.r):''}</td><td><b>${fmtMoeda(o.saldo)}</b></td></tr>`;
   }).join('');
-  document.getElementById('recebTabelaAbertas').innerHTML = `<thead><tr><th>Situação</th><th>Vencimento</th><th>Dias</th><th>NF</th><th>Cliente</th><th>Município</th><th>Contrato</th><th>Total NF</th><th>Recebido</th><th>Saldo</th></tr></thead>
+  const tab = document.getElementById(`receb-${widget.id}-tabela`);
+  if(tab) tab.innerHTML = `<thead><tr><th>Situação</th><th>Vencimento</th><th>Dias</th><th>NF</th><th>Cliente</th><th>Município</th><th>Contrato</th><th>Total NF</th><th>Recebido</th><th>Saldo</th></tr></thead>
     <tbody>${linhasHtml || `<tr><td colspan="10" class="empty">${recebLinhas.length ? 'Nenhuma nota em aberto com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
     <tfoot><tr><td colspan="9"><b>${abertas.length} notas</b></td><td><b>${fmtMoeda(total)}</b></td></tr></tfoot>`;
 }
-function recebRenderContratos(linhas){
+function recebRenderWidgetContratos(widget, linhas){
   const m = {};
   linhas.forEach(o=>{
     const g = m[o.k] || (m[o.k] = { k:o.k, g:o.g, n:0, t:0, r:0, a:0, v:0, c:0 });
@@ -12920,28 +13003,199 @@ function recebRenderContratos(linhas){
       <td>${escaparHtml(g.g)}</td><td>${g.n}</td><td>${fmtMoeda(g.t)}</td><td>${fmtMoeda(g.r)}</td><td>${pct}%</td>
       <td>${g.a?fmtMoeda(g.a):''}</td><td style="color:var(--bad);">${g.v?fmtMoeda(g.v):''}</td><td>${g.c||''}</td></tr>`;
   }).join('');
-  document.getElementById('recebTabelaContratos').innerHTML = `<thead><tr><th>Contrato</th><th>Cliente</th><th>Notas</th><th>Faturado</th><th>Recebido</th><th>% recebido</th><th>Em aberto</th><th>Vencido</th><th>Canceladas</th></tr></thead>
+  const tab = document.getElementById(`receb-${widget.id}-tabela`);
+  if(tab) tab.innerHTML = `<thead><tr><th>Contrato</th><th>Cliente</th><th>Notas</th><th>Faturado</th><th>Recebido</th><th>% recebido</th><th>Em aberto</th><th>Vencido</th><th>Canceladas</th></tr></thead>
     <tbody>${linhasHtml || `<tr><td colspan="9" class="empty">${recebLinhas.length ? 'Nenhum contrato com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+}
+async function recebCopiarAbertas(widgetId){
+  const hoje = recebHoje();
+  const lista = recebUltimaListaAbertas[widgetId] || [];
+  const linhasTxt = [['Situação','Vencimento','Dias','NF','Cliente','Município','Contrato','Total NF','Recebido','Saldo'].join('\t'),
+    ...lista.map(o=>[RECEB_PILL_TXT[o.situacao]||o.situacao, recebFmtDia(o.v), o.v==null?'':o.v-hoje, o.nf, o.g, o.u, o.k, o.t.toFixed(2).replace('.',','), (o.r||0).toFixed(2).replace('.',','), o.saldo.toFixed(2).replace('.',',')].join('\t'))];
+  try{ await navigator.clipboard.writeText(linhasTxt.join('\n')); toast(`${lista.length} notas copiadas. Cole direto no Excel.`); }
+  catch(e){ toast('O navegador bloqueou a cópia. Selecione a tabela e copie manualmente.'); }
+}
+
+/* ---------- grade configurável (montagem do esqueleto + edição) ---------- */
+function recebWidgetTitulo(w){
+  if(w.titulo) return w.titulo;
+  if(w.tipo==='tabela-abertas') return 'Notas em aberto';
+  if(w.tipo==='tabela-contratos') return 'Contratos';
+  return (RECEB_MEDIDAS[w.medida]||{}).label || w.medida || '(sem título)';
+}
+function recebHtmlToolbar(w, i, total){
+  if(!recebModoEdicao) return '';
+  return `<div class="recebwidget-toolbar">
+    <button type="button" data-wtoolbar="up" data-wid="${w.id}" ${i===0?'disabled':''} title="Mover pra cima">↑</button>
+    <button type="button" data-wtoolbar="down" data-wid="${w.id}" ${i===total-1?'disabled':''} title="Mover pra baixo">↓</button>
+    <button type="button" data-wtoolbar="editar" data-wid="${w.id}" title="Editar">✎</button>
+    <button type="button" data-wtoolbar="remover" data-wid="${w.id}" title="Remover">✕</button>
+  </div>`;
+}
+function recebHtmlWidget(w, i, total){
+  const toolbar = recebHtmlToolbar(w, i, total);
+  const classeEdit = recebModoEdicao ? ' editando' : '';
+  if(w.tipo === 'tabela-abertas'){
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+      <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
+      <div class="dash-sub">tudo o que ainda não foi recebido, do vencimento mais antigo pro mais novo</div>
+      <div class="filters">
+        <div class="chip ${(recebSegPorWidget[w.id]||'todas')==='todas'?'on':''}" data-wseg="todas" data-wid="${w.id}">Todas</div>
+        <div class="chip ${recebSegPorWidget[w.id]==='Atrasada'?'on':''}" data-wseg="Atrasada" data-wid="${w.id}">Vencidas</div>
+        <div class="chip ${recebSegPorWidget[w.id]==='Próximos dias'?'on':''}" data-wseg="Próximos dias" data-wid="${w.id}">Próximos 7 dias</div>
+        <div class="chip ${recebSegPorWidget[w.id]==='A vencer'?'on':''}" data-wseg="A vencer" data-wid="${w.id}">A vencer</div>
+      </div>
+      <input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar nota, cliente, contrato ou município" style="margin-bottom:10px;">
+      <div style="overflow-x:auto;"><table class="valores-table" id="receb-${w.id}-tabela"></table></div>
+      <button class="ghost" data-wcopy data-wid="${w.id}" type="button" style="width:auto;margin-top:10px;padding:8px 14px;">Copiar lista</button>
+    </div>`;
+  }
+  if(w.tipo === 'tabela-contratos'){
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}" style="overflow-x:auto;">${toolbar}
+      <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
+      <div class="dash-sub">ordenados pelo maior faturado no período</div>
+      <table class="valores-table" id="receb-${w.id}-tabela"></table>
+    </div>`;
+  }
+  if(w.tipo === 'kpi'){
+    return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="receb-${w.id}-conteudo"></div></div>`;
+  }
+  return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${w.tipo==='linha'?' style="overflow-x:auto;"':''}>${toolbar}
+    <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
+    <div id="receb-${w.id}-conteudo" style="margin-top:8px;"></div>
+  </div>`;
+}
+function recebRenderEsqueleto(){
+  const grade = document.getElementById('recebGradeWidgets');
+  const ws = recebPainelWidgets;
+  let html = '', i = 0;
+  while(i < ws.length){
+    if(ws[i].tipo === 'kpi'){
+      let j = i, grupoHtml = '';
+      while(j < ws.length && ws[j].tipo === 'kpi'){ grupoHtml += recebHtmlWidget(ws[j], j, ws.length); j++; }
+      html += `<div class="summary">${grupoHtml}</div>`;
+      i = j;
+    }else{
+      html += recebHtmlWidget(ws[i], i, ws.length);
+      i++;
+    }
+  }
+  grade.innerHTML = html || `<div class="empty">Nenhum widget no painel ainda. Clique em "⚙ Configurar painel" pra adicionar.</div>`;
+}
+function recebRenderConteudo(linhas){
+  recebUltimoLinhasFiltradas = linhas;
+  recebPainelWidgets.forEach(w=>{
+    if(w.tipo==='kpi') recebRenderWidgetKpi(`receb-${w.id}-conteudo`, w, linhas);
+    else if(w.tipo==='tabela-abertas') recebRenderWidgetAbertas(w, linhas);
+    else if(w.tipo==='tabela-contratos') recebRenderWidgetContratos(w, linhas);
+    else recebRenderWidgetGrafico(`receb-${w.id}-conteudo`, w, linhas, w.tipo);
+  });
 }
 function recebRender(){
   const temDados = recebLinhas.length > 0;
-  ['recebCardFiltros','recebKpis','recebCardRegua','recebCardMes','recebCardClientes','recebCardMunicipios','recebCardAbertas','recebCardContratos'].forEach(id=>{
-    document.getElementById(id).style.display = temDados ? '' : 'none';
-  });
+  document.getElementById('recebCardGradeTopo').style.display = temDados ? '' : 'none';
+  document.getElementById('recebCardFiltros').style.display = temDados ? '' : 'none';
   document.getElementById('recebBaseInfo').textContent = temDados
     ? `${recebInfo.nomeRelatorio} · ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'}. Atualizado em ${new Date(recebInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`
     : 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
-  if(!temDados) return;
+  if(!temDados){ document.getElementById('recebGradeWidgets').innerHTML = ''; return; }
+  recebRenderFiltros();
+  recebRenderEsqueleto();
   const hoje = recebHoje();
   const linhas = recebFiltrados().map(o=>({ ...o, situacao: recebSit(o, hoje) }));
   linhas.forEach(o=>{ o.saldo = (o.situacao==='Recebida'||o.situacao==='Cancelada') ? 0 : recebSaldo(o); });
-  recebRenderFiltros();
-  recebRenderKpis(linhas);
-  recebRenderRegua(linhas, hoje);
-  recebRenderMes(linhas);
-  recebRenderBarras(linhas);
-  recebRenderAbertas(linhas, hoje);
-  recebRenderContratos(linhas);
+  recebRenderConteudo(linhas);
+}
+
+/* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
+function recebGerarIdWidget(){ return 'w'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function recebAtualizarCamposNovoWidget(){
+  const tipo = document.getElementById('recebNovoWidgetTipo').value;
+  const ehTabela = tipo==='tabela-abertas' || tipo==='tabela-contratos';
+  const ehKpi = tipo==='kpi';
+  const ehLinha = tipo==='linha';
+  document.getElementById('recebNovoWidgetLinhaMedida').style.display = ehTabela ? 'none' : '';
+  document.getElementById('recebNovoWidgetCampoDimensao').style.display = (ehTabela||ehKpi||ehLinha) ? 'none' : '';
+  document.getElementById('recebNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra') ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoMedidas2').style.display = ehLinha ? '' : 'none';
+  const medidaSel = document.getElementById('recebNovoWidgetMedida');
+  if(!medidaSel.options.length) medidaSel.innerHTML = Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
+  const medida2Sel = document.getElementById('recebNovoWidgetMedida2');
+  if(!medida2Sel.options.length) medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
+  const dimSel = document.getElementById('recebNovoWidgetDimensao');
+  if(!dimSel.options.length) dimSel.innerHTML = Object.entries(RECEB_DIMENSOES_TODAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v)}</option>`).join('');
+}
+function recebResetFormNovoWidget(){
+  recebEditandoWidgetId = null;
+  document.getElementById('recebNovoWidgetTipo').disabled = false;
+  document.getElementById('recebNovoWidgetTipo').value = 'kpi';
+  document.getElementById('recebNovoWidgetTitulo').value = '';
+  document.getElementById('recebNovoWidgetTop').value = '';
+  recebAtualizarCamposNovoWidget();
+  document.getElementById('recebNovoWidgetMedida').value = 'faturado';
+  document.getElementById('recebNovoWidgetMedida2').value = '';
+  document.getElementById('recebNovoWidgetDimensao').value = 'mes';
+  document.getElementById('btnRecebAdicionarWidget').textContent = 'Adicionar ao painel';
+}
+function recebWidgetMover(id, dir){
+  const i = recebPainelWidgets.findIndex(w=>w.id===id);
+  if(i<0) return;
+  const j = dir==='up' ? i-1 : i+1;
+  if(j<0 || j>=recebPainelWidgets.length) return;
+  [recebPainelWidgets[i], recebPainelWidgets[j]] = [recebPainelWidgets[j], recebPainelWidgets[i]];
+  recebRender();
+}
+function recebWidgetRemover(id){
+  recebPainelWidgets = recebPainelWidgets.filter(w=>w.id!==id);
+  if(recebEditandoWidgetId===id) recebResetFormNovoWidget();
+  recebRender();
+}
+function recebWidgetEditar(id){
+  const w = recebPainelWidgets.find(x=>x.id===id);
+  if(!w) return;
+  recebEditandoWidgetId = id;
+  document.getElementById('recebNovoWidgetTipo').value = w.tipo;
+  document.getElementById('recebNovoWidgetTipo').disabled = true; // trocar o tipo de um widget existente é mais simples remover e criar outro
+  recebAtualizarCamposNovoWidget();
+  document.getElementById('recebNovoWidgetTitulo').value = w.titulo || '';
+  document.getElementById('recebNovoWidgetMedida').value = w.medida || 'faturado';
+  document.getElementById('recebNovoWidgetDimensao').value = w.dimensao || 'mes';
+  document.getElementById('recebNovoWidgetTop').value = w.top || '';
+  document.getElementById('recebNovoWidgetMedida2').value = w.medida2 || '';
+  document.getElementById('btnRecebAdicionarWidget').textContent = 'Salvar alterações no widget';
+  document.getElementById('recebCardAddWidget').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function recebEntrarModoEdicao(){
+  recebModoEdicao = true;
+  document.getElementById('btnRecebEditarPainel').style.display = 'none';
+  document.getElementById('btnRecebSalvarPainel').style.display = '';
+  document.getElementById('btnRecebCancelarEdicaoPainel').style.display = '';
+  document.getElementById('recebCardAddWidget').style.display = '';
+  recebResetFormNovoWidget();
+  recebRender();
+}
+function recebSairModoEdicao(){
+  recebModoEdicao = false;
+  document.getElementById('btnRecebEditarPainel').style.display = '';
+  document.getElementById('btnRecebSalvarPainel').style.display = 'none';
+  document.getElementById('btnRecebCancelarEdicaoPainel').style.display = 'none';
+  document.getElementById('recebCardAddWidget').style.display = 'none';
+  recebResetFormNovoWidget();
+}
+function recebCancelarEdicaoPainel(){
+  recebPainelWidgets = JSON.parse(JSON.stringify(recebPainelWidgetsSalvos));
+  recebSairModoEdicao();
+  recebRender();
+}
+async function recebSalvarPainel(){
+  const r = await api('salvarRmPainelLayout', { contaId: contaAtual().id, slug:'painel-recebiveis', widgets: recebPainelWidgets });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar o layout.'); return; }
+  recebPainelWidgetsSalvos = JSON.parse(JSON.stringify(recebPainelWidgets));
+  const idx = rmPainelLayouts.findIndex(p=>p.slug==='painel-recebiveis');
+  if(idx>=0) rmPainelLayouts[idx].widgets = recebPainelWidgetsSalvos; else rmPainelLayouts.push({ slug:'painel-recebiveis', widgets:recebPainelWidgetsSalvos });
+  recebSairModoEdicao();
+  recebRender();
+  toast('Layout do painel salvo.');
 }
 
 function renderValoresForm(){
@@ -14287,26 +14541,67 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
     recebRender();
   });
-  document.getElementById('recebSegAbertas').addEventListener('click', e=>{
-    const chip = e.target.closest('.chip'); if(!chip) return;
-    recebSegAbertas = chip.dataset.seg;
-    document.querySelectorAll('#recebSegAbertas .chip').forEach(c=>c.classList.toggle('on', c===chip));
-    recebRenderAbertas(recebFiltrados().map(o=>{ const hoje=recebHoje(); const situacao=recebSit(o,hoje); return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada')?0:recebSaldo(o) }; }), recebHoje());
+  // grade de widgets: tudo que é dinâmico (toolbar, segmento/busca da
+  // tabela de abertas, copiar, clique em linha de contrato) é delegado no
+  // container — os ids dos widgets só existem depois de recebRenderEsqueleto()
+  document.getElementById('recebGradeWidgets').addEventListener('click', e=>{
+    const toolbarBtn = e.target.closest('[data-wtoolbar]');
+    if(toolbarBtn){
+      const id = toolbarBtn.dataset.wid, acao = toolbarBtn.dataset.wtoolbar;
+      if(acao==='up' || acao==='down') recebWidgetMover(id, acao);
+      else if(acao==='editar') recebWidgetEditar(id);
+      else if(acao==='remover') pedirConfirmacao('Remover widget?','Isso só tira do painel — não mexe em nenhum dado.', ()=>recebWidgetRemover(id));
+      return;
+    }
+    const seg = e.target.closest('[data-wseg]');
+    if(seg){
+      const wid = seg.dataset.wid;
+      recebSegPorWidget[wid] = seg.dataset.wseg;
+      document.querySelectorAll(`[data-wseg][data-wid="${wid}"]`).forEach(c=>c.classList.toggle('on', c===seg));
+      const w = recebPainelWidgets.find(x=>x.id===wid);
+      if(w) recebRenderWidgetAbertas(w, recebUltimoLinhasFiltradas);
+      return;
+    }
+    const copyBtn = e.target.closest('[data-wcopy]');
+    if(copyBtn){ recebCopiarAbertas(copyBtn.dataset.wid); return; }
+    const trCtr = e.target.closest('tr[data-ctr]');
+    if(trCtr){ recebToggleFiltro('contrato', trCtr.dataset.ctr); return; }
   });
-  document.getElementById('receb_busca').addEventListener('input', ()=>{
-    const hoje = recebHoje();
-    recebRenderAbertas(recebFiltrados().map(o=>{ const situacao=recebSit(o,hoje); return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada')?0:recebSaldo(o) }; }), hoje);
+  document.getElementById('recebGradeWidgets').addEventListener('input', e=>{
+    const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
+    const w = recebPainelWidgets.find(x=>x.id===busca.dataset.wid);
+    if(w) recebRenderWidgetAbertas(w, recebUltimoLinhasFiltradas);
   });
-  document.getElementById('recebTabelaContratos').addEventListener('click', e=>{
-    const tr = e.target.closest('tr[data-ctr]'); if(!tr) return;
-    recebToggleFiltro('contrato', tr.dataset.ctr);
-  });
-  document.getElementById('btnRecebCopiarAbertas').addEventListener('click', async ()=>{
-    const hoje = recebHoje();
-    const linhas = [['Situação','Vencimento','Dias','NF','Cliente','Município','Contrato','Total NF','Recebido','Saldo'].join('\t'),
-      ...recebUltimaListaAbertas.map(o=>[RECEB_PILL_TXT[o.situacao]||o.situacao, recebFmtDia(o.v), o.v==null?'':o.v-hoje, o.nf, o.g, o.u, o.k, o.t.toFixed(2).replace('.',','), (o.r||0).toFixed(2).replace('.',','), o.saldo.toFixed(2).replace('.',',')].join('\t'))];
-    try{ await navigator.clipboard.writeText(linhas.join('\n')); toast(`${recebUltimaListaAbertas.length} notas copiadas. Cole direto no Excel.`); }
-    catch(e){ toast('O navegador bloqueou a cópia. Selecione a tabela e copie manualmente.'); }
+  document.getElementById('btnRecebEditarPainel').addEventListener('click', recebEntrarModoEdicao);
+  document.getElementById('btnRecebSalvarPainel').addEventListener('click', recebSalvarPainel);
+  document.getElementById('btnRecebCancelarEdicaoPainel').addEventListener('click', recebCancelarEdicaoPainel);
+  document.getElementById('recebNovoWidgetTipo').addEventListener('change', recebAtualizarCamposNovoWidget);
+  document.getElementById('btnRecebAdicionarWidget').addEventListener('click', ()=>{
+    const tipo = document.getElementById('recebNovoWidgetTipo').value;
+    const ehTabela = tipo==='tabela-abertas' || tipo==='tabela-contratos';
+    if(ehTabela && !recebEditandoWidgetId && recebPainelWidgets.some(w=>w.tipo===tipo)){
+      toast('Esse painel já tem uma tabela desse tipo.'); return;
+    }
+    const titulo = document.getElementById('recebNovoWidgetTitulo').value.trim();
+    const medida = document.getElementById('recebNovoWidgetMedida').value;
+    const dimensao = document.getElementById('recebNovoWidgetDimensao').value;
+    const top = document.getElementById('recebNovoWidgetTop').value;
+    const medida2 = document.getElementById('recebNovoWidgetMedida2').value;
+    if(!ehTabela && tipo!=='kpi' && tipo!=='linha' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    const widget = { id: recebEditandoWidgetId || recebGerarIdWidget(), tipo, titulo };
+    if(!ehTabela){
+      widget.medida = medida;
+      if(tipo==='linha'){ widget.dimensao = 'mes'; if(medida2) widget.medida2 = medida2; }
+      else { widget.dimensao = dimensao; if(top) widget.top = Number(top); }
+    }
+    if(recebEditandoWidgetId){
+      const i = recebPainelWidgets.findIndex(w=>w.id===recebEditandoWidgetId);
+      if(i>=0) recebPainelWidgets[i] = widget;
+    }else{
+      recebPainelWidgets.push(widget);
+    }
+    recebResetFormNovoWidget();
+    recebRender();
   });
   document.getElementById('verNota_fechar').addEventListener('click', ()=>{
     document.getElementById('verNotaModal').classList.remove('show');
