@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [];
 let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
@@ -145,6 +145,10 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'tomticket', label:'TomTicket' },
     { chave:'sqlrm', label:'Gerador SQL RM' },
     { chave:'painelrecebiveis', label:'Painel de Recebíveis (RM)' },
+  ]},
+  { chave:'relatoriosgerenciaisrm', label:'Relatórios Gerenciais TOTVS RM', subContainer:'#rgrmSubtabs', subDataAttr:'rgrmsub', submenus:[
+    { chave:'cadastro', label:'Cadastro de Relatórios' },
+    { chave:'painelrecebiveis', label:'Painel de Recebíveis' },
   ]},
 ];
 
@@ -788,6 +792,7 @@ async function carregarTudo(){
   if(!r.ok) return false;
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; segmentos = r.segmentos||[]; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
   categoriasFinanceiras = r.categoriasFinanceiras||[];
+  rmRelatoriosGerenciais = r.rmRelatoriosGerenciais||[];
   atualizarBadgeAtendimentos();
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
@@ -1169,6 +1174,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('videos', menuVisivel(conta, 'videos', true));
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
   aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
+  aplicarVisibilidadeMenu('relatoriosgerenciaisrm', menuVisivel(conta, 'relatoriosgerenciaisrm', isAdmin));
   // mesma ideia, mas pras abas internas de cada menu (Dashboard, Financeiro,
   // Agenda, Vídeos, Cadastros, Utilitários) — cada uma com sua própria
   // permissão "menu.submenu" configurável no Perfil de Acesso
@@ -7969,6 +7975,7 @@ function renderListClientes(){
       ${c.cnpj ? `<span>CNPJ: ${escaparHtml(c.cnpj)}</span>` : `<span style="color:var(--bad);">Sem CNPJ cadastrado</span>`}
       ${nomeEmpresa ? `<span>Empresa: ${escaparHtml(nomeEmpresa)}</span>` : ''}
       ${c.metaMensal ? `<span>Meta mensal: ${fmtMoeda(c.metaMensal)}</span>` : ''}
+      ${c.rmUrl ? `<span>RM: ${c.temSenhaRm ? 'conectado' : 'falta a senha'}</span>` : ''}
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarCliente('${c.id}')">Editar</button>
@@ -7986,6 +7993,10 @@ function editarCliente(id){
   document.getElementById('cl_nome_fantasia').value = c.nomeFantasia || '';
   document.getElementById('cl_meta_mensal').value = c.metaMensal ? c.metaMensal : '';
   if(empresas.length > 0) document.getElementById('cl_empresa').value = c.empresaId || (empresaAtual ? empresaAtual.id : '');
+  document.getElementById('cl_rm_url').value = c.rmUrl || '';
+  document.getElementById('cl_rm_usuario').value = c.rmUsuario || '';
+  document.getElementById('cl_rm_senha').value = '';
+  document.getElementById('cl_rm_senha_aviso').textContent = c.temSenhaRm ? 'Já tem uma senha salva — deixe em branco pra manter a atual.' : '';
   document.getElementById('btnAddCliente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoCliente').style.display = '';
   document.getElementById('cl_nome').scrollIntoView({ behavior:'smooth', block:'center' });
@@ -7998,6 +8009,10 @@ function cancelarEdicaoCliente(){
   document.getElementById('cl_nome_fantasia').value = '';
   document.getElementById('cl_meta_mensal').value = '';
   if(empresas.length > 0) document.getElementById('cl_empresa').value = empresaAtual ? empresaAtual.id : '';
+  document.getElementById('cl_rm_url').value = '';
+  document.getElementById('cl_rm_usuario').value = '';
+  document.getElementById('cl_rm_senha').value = '';
+  document.getElementById('cl_rm_senha_aviso').textContent = '';
   document.getElementById('btnAddCliente').textContent = 'Adicionar cliente';
   document.getElementById('btnCancelarEdicaoCliente').style.display = 'none';
 }
@@ -12496,6 +12511,397 @@ const COLUNAS_RELATORIO = [
 ];
 function colunaInfo(key){ return COLUNAS_RELATORIO.find(c=>c.key===key); }
 
+/* =========================================================
+   Relatórios Gerenciais TOTVS RM — fase 1 da migração do Painel de
+   Recebíveis standalone (painel-recebiveis-rm.html, ainda no ar) pra
+   dentro do sistema. Duas abas: o CADASTRO das consultas (Código da
+   Sentença/Coligada/Sistema/Parâmetros) e a tela do Painel de
+   Recebíveis em si, que sempre consome o relatório de slug
+   'painel-recebiveis' — a chamada pro RM agora é feita pelo backend
+   (acaoExecutarRmRelatorioGerencial), usando a conexão (URL/usuário/
+   senha cifrada) cadastrada no próprio cliente.
+   ========================================================= */
+let rgrmAba = 'cadastro';
+let editandoRmRelatorioId = null;
+function goRgrmSub(sub){
+  rgrmAba = sub;
+  document.querySelectorAll('#rgrmSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.rgrmsub===sub));
+  document.querySelectorAll('.rgrm-sub-view').forEach(v=>{ v.style.display = (v.id === 'rgrm-sub-'+sub) ? '' : 'none'; });
+  if(sub === 'cadastro') renderListRmRelatorios();
+  if(sub === 'painelrecebiveis') recebAbrir();
+}
+
+/* ---------- Cadastro de Relatórios (CRUD simples, mesmo padrão de Categorias Financeiras) ---------- */
+function renderListRmRelatorios(){
+  const el = document.getElementById('listRmRelatorios');
+  if(!el) return;
+  if(rmRelatoriosGerenciais.length===0){ el.innerHTML = `<div class="empty">Nenhum relatório gerencial cadastrado.</div>`; return; }
+  el.innerHTML = rmRelatoriosGerenciais.map(r=>`
+    <div class="cad-item"><div class="info"><b>${escaparHtml(r.nome)}</b>
+      <span>Sentença: ${escaparHtml(r.codigoSentenca)}</span>
+      <span>Coligada: ${escaparHtml(r.coligada)} · Sistema: ${escaparHtml(r.sistema)}</span>
+      ${r.parametros ? `<span>Parâmetros: ${escaparHtml(r.parametros)}</span>` : ''}
+      ${r.slug ? `<span style="color:var(--muted);">Usado pela tela "Painel de Recebíveis" — não pode ser removido</span>` : ''}
+    </div>
+    <div class="acts">
+      <button class="ghost" onclick="editarRmRelatorio('${r.id}')">Editar</button>
+      ${r.slug ? '' : `<button class="danger" onclick="pedirConfirmacao('Remover relatório?','Isso remove só o cadastro da consulta — não mexe em nada dentro do RM.', ()=>removerRmRelatorio('${r.id}'))">Remover</button>`}
+    </div></div>`).join('');
+}
+function editarRmRelatorio(id){
+  const r = rmRelatoriosGerenciais.find(x=>String(x.id)===String(id));
+  if(!r) return;
+  editandoRmRelatorioId = id;
+  document.getElementById('rgrm_nome').value = r.nome;
+  document.getElementById('rgrm_sentenca').value = r.codigoSentenca;
+  document.getElementById('rgrm_coligada').value = r.coligada;
+  document.getElementById('rgrm_sistema').value = r.sistema;
+  document.getElementById('rgrm_parametros').value = r.parametros || '';
+  document.getElementById('rgrm_tituloForm').textContent = 'Editar relatório gerencial';
+  document.getElementById('btnAddRmRelatorio').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoRmRelatorio').style.display = '';
+  document.getElementById('rgrm_nome').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function cancelarEdicaoRmRelatorio(){
+  editandoRmRelatorioId = null;
+  document.getElementById('rgrm_nome').value = '';
+  document.getElementById('rgrm_sentenca').value = '';
+  document.getElementById('rgrm_coligada').value = '1';
+  document.getElementById('rgrm_sistema').value = 'G';
+  document.getElementById('rgrm_parametros').value = '';
+  document.getElementById('rgrm_tituloForm').textContent = 'Novo relatório gerencial';
+  document.getElementById('btnAddRmRelatorio').textContent = 'Adicionar relatório';
+  document.getElementById('btnCancelarEdicaoRmRelatorio').style.display = 'none';
+}
+async function removerRmRelatorio(id){
+  const r = await api('removerRmRelatorioGerencial', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarTudo();
+  renderListRmRelatorios();
+  toast('Relatório removido');
+}
+
+/* ---------- Painel de Recebíveis (interno) ---------- */
+const RECEB_DAY = 86400000;
+let recebClienteId = '';
+let recebLinhas = []; // já normalizado (ver recebNormalizar)
+let recebInfo = null; // { quando, nomeRelatorio }
+let recebCarregando = false;
+let recebFiltroDe = '', recebFiltroAte = '', recebFiltroCliente = '', recebFiltroMunicipio = '', recebFiltroContrato = '';
+let recebSegAbertas = 'todas';
+let recebUltimaListaAbertas = [];
+
+function recebHoje(){ const d=new Date(); return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/RECEB_DAY); }
+function recebFmtDia(n){ if(n==null) return ''; const d=new Date(n*RECEB_DAY); return String(d.getUTCDate()).padStart(2,'0')+'/'+String(d.getUTCMonth()+1).padStart(2,'0')+'/'+d.getUTCFullYear(); }
+function recebYm(n){ if(n==null) return ''; const d=new Date(n*RECEB_DAY); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0'); }
+const RECEB_MESES=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+function recebMesLbl(m){ const [y,mm]=m.split('-'); return RECEB_MESES[(+mm)-1]+'/'+y.slice(2); }
+function recebTitleCase(s){ return s.toLowerCase().replace(/(^|\s|-|\/)(\S)/g,(a,b,c)=>b+c.toUpperCase()).replace(/\b(De|Do|Da|Dos|Das|E)\b/g,w=>w.toLowerCase()); }
+// agrupa os nomes de cliente que vêm crus do RM em rótulos mais legíveis —
+// mesma lógica (e mesmos casos especiais) do painel standalone
+function recebGrupo(c){
+  const u=c.toUpperCase();
+  if(u.includes('CAGECE')||u.includes('AGUA E ESGOTO')) return 'CAGECE';
+  if(u.includes('OBRAS PUBLICAS')||/\bSOP\b/.test(u)) return 'SOP';
+  const m=u.match(/PREFEITURA MUNICIPAL D[EOA]S?\s+(.*)/); if(m) return 'Prefeitura de '+recebTitleCase(m[1].replace(/\s+CE$/,'').trim());
+  if(u.includes('UFCA')) return 'UFCA';
+  return recebTitleCase(c);
+}
+function recebCtrLbl(k){ const p=String(k).split(' - ').map(s=>s.trim()).filter(Boolean); return p.length>=3?{n:p[1],d:recebTitleCase(p.slice(2).join(' - '))}:{n:p[0]||k,d:p.slice(1).join(' - ')}; }
+function recebSit(o, hoje){
+  const s=(o.s||'').toLowerCase();
+  if(s.startsWith('cancel')) return 'Cancelada';
+  if(o.p||s.startsWith('recebid')) return 'Recebida';
+  if(o.v==null) return 'A vencer';
+  const dd=o.v-hoje;
+  if(dd<0) return 'Atrasada';
+  if(dd<=7) return 'Próximos dias';
+  return 'A vencer';
+}
+const recebSaldo = o => Math.max(0, (o.t||0)-(o.r||0));
+
+/* linhas cruas do RM chegam como array de objetos com chaves arbitrárias
+   (os nomes das colunas da sentença SQL) — acha cada coluna lógica pelo
+   nome normalizado, igual o painel standalone fazia lendo a planilha */
+const recebNormH = h => String(h??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/_/g,' ').replace(/\s+/g,' ').trim();
+function recebCellDia(v){
+  if(v==null||v==='') return null;
+  if(typeof v==='number'){ if(v<1) return null; return Math.floor(v)-25569; }
+  const m=String(v).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(m) return Math.floor(Date.UTC(+m[3],+m[2]-1,+m[1])/RECEB_DAY);
+  const i=String(v).match(/(\d{4})-(\d{2})-(\d{2})/); if(i) return Math.floor(Date.UTC(+i[1],+i[2]-1,+i[3])/RECEB_DAY);
+  return null;
+}
+function recebCellNum(v){ if(typeof v==='number') return v; if(v==null||v==='') return 0; const n=parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.')); return isNaN(n)?0:n; }
+function recebIdLinha(mov, lan, nf){ const m=String(mov??'').trim(), l=String(lan??'').trim(); if(m&&m!=='0') return l&&l!=='0'?m+'-'+l:m; return 'NF'+String(nf??''); }
+function recebNormalizar(linhasRm){
+  if(!linhasRm || !linhasRm.length) return [];
+  const chaves = Object.keys(linhasRm[0]);
+  const H = chaves.map(recebNormH);
+  const ix = (...ks)=>{ for(const k of ks){ const i=H.indexOf(k); if(i>=0) return chaves[i]; } return null; };
+  const CH = {
+    venc:ix('VENCIMENTO'), mes:ix('MES','COMPETENCIA'), cli:ix('CLIENTE'), emi:ix('EMISSAO'), nf:ix('NOTA FISCAL','NF'),
+    ctr:ix('CONTRATO'), mun:ix('PREFEITURA','MUNICIPIO'), rec:ix('VALOR RECEBIDO'), dtr:ix('DATA RECEBIDO'), pago:ix('PAGO (S)','PAGO'),
+    st:ix('STATUS'), med:ix('VALOR MEDIDO'), inss:ix('INSS'), iss:ix('ISS'), irrf:ix('IRRF'), out:ix('OUTRAS RETENCOES'), tot:ix('TOTAL NF'), parc:ix('VALOR PARCELA'), mov:ix('IDMOV'), lan:ix('IDLAN'),
+  };
+  const g = (r,k) => CH[k]==null ? null : r[CH[k]];
+  const brutas = [], movs = [];
+  linhasRm.forEach(r=>{
+    let mes = g(r,'mes'); if(typeof mes==='number') mes = recebYm(recebCellDia(mes)); mes = mes ? String(mes).trim() : '';
+    if(/^\d{2}\/\d{4}$/.test(mes)) mes = mes.slice(3)+'-'+mes.slice(0,2);
+    if(/^\d{4}-\d{2}-\d{2}/.test(mes)) mes = mes.slice(0,7);
+    const pv = String(g(r,'pago')??'').trim().toUpperCase(); const pago = pv==='S'||pv==='1'||pv==='SIM'||pv==='TRUE';
+    const emi = recebCellDia(g(r,'emi'));
+    brutas.push({
+      v: recebCellDia(g(r,'venc')), m: mes || (emi!=null ? recebYm(emi) : ''), c: String(g(r,'cli')??'').trim(),
+      e: emi, nf: String(g(r,'nf')??''), k: String(g(r,'ctr')??'').trim(), u: String(g(r,'mun')??'').trim()||'—',
+      r: recebCellNum(g(r,'rec')), d: recebCellDia(g(r,'dtr')), p: pago, s: String(g(r,'st')??'').trim(),
+      md: recebCellNum(g(r,'med')), inss: recebCellNum(g(r,'inss')), iss: recebCellNum(g(r,'iss')), ot: recebCellNum(g(r,'out'))+recebCellNum(g(r,'irrf')),
+      t: recebCellNum(g(r,'tot')), pc: recebCellNum(g(r,'parc')), id: recebIdLinha(g(r,'mov'), g(r,'lan'), g(r,'nf')),
+    });
+    movs.push(String(g(r,'mov')??'')||null);
+  });
+  // NF com várias parcelas vem repetida — rateia os valores do movimento
+  // pela parcela (não soma em dobro), igual o painel standalone
+  const grupos = {};
+  brutas.forEach((o,i)=>{ const mv=movs[i]; if(mv && mv!=='0'){ (grupos[mv]=grupos[mv]||[]).push(i); } });
+  Object.values(grupos).forEach(ixs=>{
+    if(ixs.length<2) return;
+    const somaParcela = ixs.reduce((s,i)=>s+(brutas[i].pc||0), 0);
+    ixs.forEach(i=>{
+      const w = somaParcela>0 ? (brutas[i].pc||0)/somaParcela : 1/ixs.length;
+      ['md','inss','iss','ot','t'].forEach(campo=>{ brutas[i][campo] = (brutas[i][campo]||0)*w; });
+    });
+  });
+  brutas.forEach(o=>{ o.g = recebGrupo(o.c); });
+  return brutas;
+}
+
+function recebFiltrados(){
+  return recebLinhas.filter(o=>
+    (!recebFiltroDe || o.m >= recebFiltroDe) &&
+    (!recebFiltroAte || o.m <= recebFiltroAte) &&
+    (!recebFiltroCliente || o.g === recebFiltroCliente) &&
+    (!recebFiltroMunicipio || o.u === recebFiltroMunicipio) &&
+    (!recebFiltroContrato || o.k === recebFiltroContrato)
+  );
+}
+
+function recebAbrir(){
+  const clientesComRm = clientes.filter(c=>c.rmUrl);
+  const sel = document.getElementById('receb_cliente');
+  sel.innerHTML = clientesComRm.length === 0
+    ? `<option value="">Nenhum cliente com conexão RM cadastrada</option>`
+    : clientesComRm.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}</option>`).join('');
+  if(recebClienteId && clientesComRm.some(c=>String(c.id)===String(recebClienteId))) sel.value = recebClienteId;
+  else recebClienteId = sel.value || '';
+  recebRender();
+}
+async function recebAtualizarDoRm(){
+  if(recebCarregando) return;
+  recebClienteId = document.getElementById('receb_cliente').value;
+  if(!recebClienteId){ toast('Escolha um cliente com conexão RM cadastrada.'); return; }
+  recebCarregando = true;
+  const btn = document.getElementById('btnRecebAtualizar');
+  btn.disabled = true; btn.textContent = 'Consultando o RM…';
+  document.getElementById('recebStatus').textContent = '';
+  try{
+    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, slug: 'painel-recebiveis' });
+    if(!r.ok){ document.getElementById('recebStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
+    recebLinhas = recebNormalizar(r.linhas || []);
+    recebInfo = { quando: new Date().toISOString(), nomeRelatorio: r.nomeRelatorio || 'Painel de Recebíveis' };
+    recebFiltroDe = ''; recebFiltroAte = ''; recebFiltroCliente = ''; recebFiltroMunicipio = ''; recebFiltroContrato = '';
+    toast(`Painel atualizado com ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'} do RM.`);
+    recebRender();
+  } finally {
+    recebCarregando = false;
+    btn.disabled = false; btn.textContent = 'Atualizar do RM';
+  }
+}
+function recebOpts(sel, vals, todos, fmt){
+  const atual = sel.value;
+  sel.innerHTML = `<option value="">${todos}</option>` + vals.map(v=>`<option value="${escaparHtml(v)}">${escaparHtml(fmt?fmt(v):v)}</option>`).join('');
+  if(vals.includes(atual) || atual==='') sel.value = atual;
+}
+function recebRenderFiltros(){
+  const meses = [...new Set(recebLinhas.map(o=>o.m).filter(Boolean))].sort();
+  recebOpts(document.getElementById('receb_de'), meses, 'início', recebMesLbl);
+  recebOpts(document.getElementById('receb_ate'), meses, 'hoje', recebMesLbl);
+  const porTotal = (chave)=>{ const m={}; recebLinhas.forEach(o=>{ m[o[chave]] = (m[o[chave]]||0) + o.t; }); return Object.keys(m).sort((a,b)=>m[b]-m[a]); };
+  recebOpts(document.getElementById('receb_filtro_cliente'), porTotal('g'), 'Todos');
+  recebOpts(document.getElementById('receb_filtro_municipio'), [...new Set(recebLinhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')), 'Todos');
+  recebOpts(document.getElementById('receb_filtro_contrato'), porTotal('k'), 'Todos', k=>{ const c=recebCtrLbl(k); return c.n+' '+c.d; });
+  document.getElementById('receb_de').value = recebFiltroDe;
+  document.getElementById('receb_ate').value = recebFiltroAte;
+  document.getElementById('receb_filtro_cliente').value = recebFiltroCliente;
+  document.getElementById('receb_filtro_municipio').value = recebFiltroMunicipio;
+  document.getElementById('receb_filtro_contrato').value = recebFiltroContrato;
+}
+function recebSetFiltro(chave, valor){
+  const mapa = { cliente:'recebFiltroCliente', municipio:'recebFiltroMunicipio', contrato:'recebFiltroContrato' };
+  if(chave==='cliente') recebFiltroCliente = (recebFiltroCliente===valor ? '' : valor);
+  if(chave==='municipio') recebFiltroMunicipio = (recebFiltroMunicipio===valor ? '' : valor);
+  if(chave==='contrato') recebFiltroContrato = (recebFiltroContrato===valor ? '' : valor);
+  recebRender();
+}
+
+function recebRenderKpis(linhas){
+  const validas = linhas.filter(o=>o.situacao!=='Cancelada'), canceladas = linhas.filter(o=>o.situacao==='Cancelada');
+  const faturado = validas.reduce((s,o)=>s+o.t,0);
+  const medido = validas.reduce((s,o)=>s+o.md,0);
+  const recebido = linhas.reduce((s,o)=>s+(o.r||0),0);
+  const emAberto = validas.reduce((s,o)=>s+o.saldo,0);
+  const recebidas = validas.filter(o=>o.situacao==='Recebida' && o.d!=null && o.e!=null);
+  const pesoPrazo = recebidas.reduce((s,o)=>s+o.r,0);
+  const prazoMedio = pesoPrazo ? recebidas.reduce((s,o)=>s+(o.d-o.e)*o.r,0)/pesoPrazo : 0;
+  const comVenc = recebidas.filter(o=>o.v!=null);
+  const pontualidade = comVenc.length ? comVenc.filter(o=>o.d<=o.v).length/comVenc.length : 0;
+  const retencoes = validas.reduce((s,o)=>s+o.inss+o.iss+o.ot,0);
+  const totalCanceladas = canceladas.reduce((s,o)=>s+o.t,0);
+  const pct = x => (x*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+  const kpis = [
+    ['Faturado (Total NF)', fmtMoeda(faturado), `${validas.length} notas válidas`],
+    ['Recebido', fmtMoeda(recebido), faturado ? pct(recebido/faturado)+' do faturado' : ''],
+    ['Em aberto', fmtMoeda(emAberto), `${validas.filter(o=>o.saldo>0).length} notas`],
+    ['Prazo médio de recebimento', Math.round(prazoMedio)+' dias', 'da emissão ao crédito, ponderado por valor'],
+    ['Recebido no prazo', pct(pontualidade), 'notas pagas até o vencimento'],
+    ['Retenções na fonte', fmtMoeda(retencoes), medido ? `INSS, ISS e outras: ${pct(retencoes/medido)} do medido` : ''],
+    ['Notas canceladas', String(canceladas.length), fmtMoeda(totalCanceladas)+' em notas canceladas'],
+  ];
+  document.getElementById('recebKpis').innerHTML = kpis.map(k=>`<div class="box"><div class="k">${escaparHtml(k[0])}</div><div class="v">${escaparHtml(k[1])}</div><div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(k[2])}</div></div>`).join('');
+}
+function recebRenderRegua(linhas, hoje){
+  const abertas = linhas.filter(o=>o.saldo>0);
+  const soma = f => abertas.filter(f).reduce((s,o)=>s+o.saldo,0);
+  const cnt = f => abertas.filter(f).length;
+  const isVencida = o=>o.situacao==='Atrasada', isProx = o=>o.situacao==='Próximos dias', isFutura = o=>o.situacao==='A vencer';
+  document.getElementById('recebReguaNumeros').innerHTML = `
+    <div class="box"><div class="k">Vencido</div><div class="v" style="color:var(--bad);">${fmtMoeda(soma(isVencida))}</div><div class="x" style="font-size:11px;color:var(--muted);">${cnt(isVencida)} nota${cnt(isVencida)===1?'':'s'}</div></div>
+    <div class="box"><div class="k">Vence nos próximos 7 dias</div><div class="v">${fmtMoeda(soma(isProx))}</div><div class="x" style="font-size:11px;color:var(--muted);">${cnt(isProx)} nota${cnt(isProx)===1?'':'s'}</div></div>
+    <div class="box"><div class="k">A vencer depois</div><div class="v">${fmtMoeda(soma(isFutura))}</div><div class="x" style="font-size:11px;color:var(--muted);">${cnt(isFutura)} nota${cnt(isFutura)===1?'':'s'}</div></div>`;
+  // buckets por faixa de vencimento (em vez da régua diária do painel
+  // original — mais legível reaproveitando o gráfico de barras do
+  // Dashboard, que não tem resolução pra 120+ barras de um dia cada)
+  const faixas = [
+    { label:'Vencido há mais de 30d', tok:'--bad', teste:o=>o.v!=null && (hoje-o.v)>30 },
+    { label:'Vencido 15–30d', tok:'--bad', teste:o=>o.v!=null && (hoje-o.v)>=15 && (hoje-o.v)<=30 },
+    { label:'Vencido até 14d', tok:'--bad', teste:o=>o.v!=null && (hoje-o.v)>=1 && (hoje-o.v)<15 },
+    { label:'Vence em até 7d', tok:'--warn', teste:o=>o.v!=null && (o.v-hoje)>=0 && (o.v-hoje)<=7 },
+    { label:'Vence em 8–30d', tok:'--blue', teste:o=>o.v!=null && (o.v-hoje)>7 && (o.v-hoje)<=30 },
+    { label:'Vence depois de 30d', tok:'--muted', teste:o=>o.v!=null && (o.v-hoje)>30 },
+    { label:'Sem vencimento', tok:'--muted', teste:o=>o.v==null },
+  ];
+  const data = faixas.map(f=>({ label:f.label, value:soma(f.teste), tok:f.tok }));
+  dashBarChart(document.getElementById('recebGraficoRegua'), { data, height:190, rotateLabels:true, unit:'R$' });
+}
+function recebRenderMes(linhas){
+  const faturadoPorMes = {}, recebidoPorMes = {};
+  linhas.forEach(o=>{
+    if(o.situacao!=='Cancelada' && o.m) faturadoPorMes[o.m] = (faturadoPorMes[o.m]||0) + o.t;
+    if(o.r>0 && o.d!=null){ const m = recebYm(o.d); recebidoPorMes[m] = (recebidoPorMes[m]||0) + o.r; }
+  });
+  let meses = [...new Set([...Object.keys(faturadoPorMes), ...Object.keys(recebidoPorMes)])].sort();
+  if(recebFiltroDe) meses = meses.filter(m=>m>=recebFiltroDe);
+  if(recebFiltroAte) meses = meses.filter(m=>m<=recebFiltroAte);
+  dashLineChart(document.getElementById('recebGraficoMes'), {
+    labels: meses.map(recebMesLbl),
+    series: [
+      { label:'Faturado', tok:'--blue', data: meses.map(m=>faturadoPorMes[m]||0) },
+      { label:'Recebido', tok:'--ok', data: meses.map(m=>recebidoPorMes[m]||0) },
+    ],
+  });
+  document.getElementById('recebLegendaMes').innerHTML = dashLegendHtml([{label:'Faturado',cor:'var(--blue)'},{label:'Recebido',cor:'var(--ok)'}]);
+}
+function recebAgrupar(linhas, chave){
+  const m = {};
+  linhas.filter(o=>o.situacao!=='Cancelada').forEach(o=>{
+    const g = m[o[chave]] || (m[o[chave]] = { label:o[chave], value:0 });
+    g.value += o.t;
+  });
+  return Object.values(m).sort((a,b)=>b.value-a.value);
+}
+// clique na barra filtra o painel por aquele valor — cada linha horizontal
+// do dashBarChart desenha 2 <rect> (trilho + barra), por isso pega o de
+// índice ímpar (a barra colorida de verdade) pra receber o clique
+function recebLigarCliqueBarras(container, data, chaveFiltro){
+  const rects = container.querySelectorAll('rect');
+  data.forEach((d,i)=>{
+    const bar = rects[i*2+1];
+    if(!bar) return;
+    bar.style.cursor = 'pointer';
+    bar.addEventListener('click', ()=>recebSetFiltro(chaveFiltro, d.label));
+  });
+}
+function recebRenderBarras(linhas){
+  const porCliente = recebAgrupar(linhas, 'g').map(d=>({ ...d, tok:'--blue' }));
+  const porMunicipio = recebAgrupar(linhas, 'u').slice(0,12).map(d=>({ ...d, tok:'--blue' }));
+  const contCliente = document.getElementById('recebBarrasClientes');
+  const contMunicipio = document.getElementById('recebBarrasMunicipios');
+  dashBarChart(contCliente, { data:porCliente, horizontal:true, unit:'R$' });
+  dashBarChart(contMunicipio, { data:porMunicipio, horizontal:true, unit:'R$' });
+  recebLigarCliqueBarras(contCliente, porCliente, 'cliente');
+  recebLigarCliqueBarras(contMunicipio, porMunicipio, 'municipio');
+}
+const RECEB_PILL_COR = { 'Atrasada':'var(--bad)', 'Próximos dias':'var(--warn)', 'A vencer':'var(--muted)' };
+const RECEB_PILL_TXT = { 'Atrasada':'Vencida', 'Próximos dias':'Próx. 7 dias', 'A vencer':'A vencer' };
+function recebRenderAbertas(linhas, hoje){
+  const busca = (document.getElementById('receb_busca').value||'').trim().toLowerCase();
+  const abertas = linhas.filter(o=>o.saldo>0 && (recebSegAbertas==='todas' || o.situacao===recebSegAbertas)
+    && (!busca || [o.nf,o.c,o.k,o.u,o.g].join(' ').toLowerCase().includes(busca)))
+    .sort((a,b)=>(a.v??9e9)-(b.v??9e9));
+  recebUltimaListaAbertas = abertas;
+  const total = abertas.reduce((s,o)=>s+o.saldo,0);
+  const linhasHtml = abertas.map(o=>{
+    const dias = o.v==null ? '' : o.v-hoje;
+    const c = recebCtrLbl(o.k);
+    const diasTxt = dias==='' ? '' : (dias<0 ? Math.abs(dias)+' atraso' : dias===0 ? 'hoje' : 'em '+dias);
+    return `<tr><td><span class="pill" style="background:${RECEB_PILL_COR[o.situacao]||'var(--muted)'};color:#fff;">${RECEB_PILL_TXT[o.situacao]||o.situacao}</span></td>
+      <td>${recebFmtDia(o.v)}</td><td style="color:${dias<0?'var(--bad)':'inherit'};">${escaparHtml(diasTxt)}</td>
+      <td>${escaparHtml(o.nf)}</td><td>${escaparHtml(o.g)}</td><td>${escaparHtml(o.u)}</td><td title="${escaparHtml(o.k)}">${escaparHtml(c.n)}</td>
+      <td>${fmtMoeda(o.t)}</td><td>${o.r?fmtMoeda(o.r):''}</td><td><b>${fmtMoeda(o.saldo)}</b></td></tr>`;
+  }).join('');
+  document.getElementById('recebTabelaAbertas').innerHTML = `<thead><tr><th>Situação</th><th>Vencimento</th><th>Dias</th><th>NF</th><th>Cliente</th><th>Município</th><th>Contrato</th><th>Total NF</th><th>Recebido</th><th>Saldo</th></tr></thead>
+    <tbody>${linhasHtml || `<tr><td colspan="10" class="empty">${recebLinhas.length ? 'Nenhuma nota em aberto com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
+    <tfoot><tr><td colspan="9"><b>${abertas.length} notas</b></td><td><b>${fmtMoeda(total)}</b></td></tr></tfoot>`;
+}
+function recebRenderContratos(linhas){
+  const m = {};
+  linhas.forEach(o=>{
+    const g = m[o.k] || (m[o.k] = { k:o.k, g:o.g, n:0, t:0, r:0, a:0, v:0, c:0 });
+    if(o.situacao==='Cancelada'){ g.c++; return; }
+    g.n++; g.t+=o.t; g.r+=o.r||0; g.a+=o.saldo; if(o.situacao==='Atrasada') g.v+=o.saldo;
+  });
+  const arr = Object.values(m).filter(g=>g.n||g.c).sort((a,b)=>b.t-a.t);
+  const linhasHtml = arr.map(g=>{
+    const c = recebCtrLbl(g.k);
+    const pct = g.t ? Math.round(Math.min(1,g.r/g.t)*100) : 0;
+    return `<tr data-ctr="${escaparHtml(g.k)}" style="cursor:pointer;" title="Clique pra filtrar por esse contrato"><td><b>${escaparHtml(c.n)}</b><br><span style="color:var(--muted);font-size:11px;">${escaparHtml(c.d)}</span></td>
+      <td>${escaparHtml(g.g)}</td><td>${g.n}</td><td>${fmtMoeda(g.t)}</td><td>${fmtMoeda(g.r)}</td><td>${pct}%</td>
+      <td>${g.a?fmtMoeda(g.a):''}</td><td style="color:var(--bad);">${g.v?fmtMoeda(g.v):''}</td><td>${g.c||''}</td></tr>`;
+  }).join('');
+  document.getElementById('recebTabelaContratos').innerHTML = `<thead><tr><th>Contrato</th><th>Cliente</th><th>Notas</th><th>Faturado</th><th>Recebido</th><th>% recebido</th><th>Em aberto</th><th>Vencido</th><th>Canceladas</th></tr></thead>
+    <tbody>${linhasHtml || `<tr><td colspan="9" class="empty">${recebLinhas.length ? 'Nenhum contrato com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+}
+function recebRender(){
+  const temDados = recebLinhas.length > 0;
+  ['recebCardFiltros','recebKpis','recebCardRegua','recebCardMes','recebCardClientes','recebCardMunicipios','recebCardAbertas','recebCardContratos'].forEach(id=>{
+    document.getElementById(id).style.display = temDados ? '' : 'none';
+  });
+  document.getElementById('recebBaseInfo').textContent = temDados
+    ? `${recebInfo.nomeRelatorio} · ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'}. Atualizado em ${new Date(recebInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`
+    : 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
+  if(!temDados) return;
+  const hoje = recebHoje();
+  const linhas = recebFiltrados().map(o=>({ ...o, situacao: recebSit(o, hoje) }));
+  linhas.forEach(o=>{ o.saldo = (o.situacao==='Recebida'||o.situacao==='Cancelada') ? 0 : recebSaldo(o); });
+  recebRenderFiltros();
+  recebRenderKpis(linhas);
+  recebRenderRegua(linhas, hoje);
+  recebRenderMes(linhas);
+  recebRenderBarras(linhas);
+  recebRenderAbertas(linhas, hoje);
+  recebRenderContratos(linhas);
+}
+
 function renderValoresForm(){
   document.getElementById('vl_atendente').innerHTML = contas.filter(c=>c.perfil==='ATENDENTE').map(a=>`<option value="${a.id}">${a.nome}</option>`).join('');
   document.getElementById('vl_cliente').innerHTML = clientesParaSelecao().map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
@@ -13366,6 +13772,7 @@ function goView(name){
     carregarRelatoriosPublicados();
   }
   if(name==='cubo'){ renderTodosSeletoresCubo(); renderCuboPerfilSelect(); renderCubo(); }
+  if(name==='relatoriosgerenciaisrm'){ goRgrmSub(primeiraSubAbaVisivel('relatoriosgerenciaisrm', rgrmAba)); }
   if(name==='financeiro'){
     goFinSub(primeiraSubAbaVisivel('financeiro', finAba));
     selecionarTipoLancamento('RECEITA');
@@ -13795,6 +14202,66 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('vidSubtabs').addEventListener('click', e=>{
     const tab = e.target.closest('.subtab'); if(!tab) return;
     goVidSub(tab.dataset.vidsub);
+  });
+  document.getElementById('rgrmSubtabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    goRgrmSub(tab.dataset.rgrmsub);
+  });
+  document.getElementById('btnAddRmRelatorio').addEventListener('click', async ()=>{
+    const nome = document.getElementById('rgrm_nome').value.trim();
+    const codigoSentenca = document.getElementById('rgrm_sentenca').value.trim();
+    const coligada = document.getElementById('rgrm_coligada').value.trim() || '1';
+    const sistema = document.getElementById('rgrm_sistema').value.trim() || 'G';
+    const parametros = document.getElementById('rgrm_parametros').value.trim();
+    if(!nome){ toast('Informe o nome do relatório'); return; }
+    if(!codigoSentenca){ toast('Informe o código da sentença'); return; }
+    const editando = !!editandoRmRelatorioId;
+    const contaId = contaAtual().id;
+    const r = editando
+      ? await api('atualizarRmRelatorioGerencial', { contaId, id: editandoRmRelatorioId, nome: nome.toUpperCase(), codigoSentenca, coligada, sistema, parametros })
+      : await api('addRmRelatorioGerencial', { contaId, nome: nome.toUpperCase(), codigoSentenca, coligada, sistema, parametros });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    cancelarEdicaoRmRelatorio();
+    await carregarTudo();
+    renderListRmRelatorios();
+    toast(editando ? 'Relatório atualizado' : 'Relatório adicionado');
+  });
+  document.getElementById('btnCancelarEdicaoRmRelatorio').addEventListener('click', cancelarEdicaoRmRelatorio);
+  document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
+  ['receb_de','receb_ate','receb_filtro_cliente','receb_filtro_municipio','receb_filtro_contrato'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', e=>{
+      if(id==='receb_de') recebFiltroDe = e.target.value;
+      if(id==='receb_ate') recebFiltroAte = e.target.value;
+      if(id==='receb_filtro_cliente') recebFiltroCliente = e.target.value;
+      if(id==='receb_filtro_municipio') recebFiltroMunicipio = e.target.value;
+      if(id==='receb_filtro_contrato') recebFiltroContrato = e.target.value;
+      recebRender();
+    });
+  });
+  document.getElementById('btnRecebLimparFiltros').addEventListener('click', ()=>{
+    recebFiltroDe = ''; recebFiltroAte = ''; recebFiltroCliente = ''; recebFiltroMunicipio = ''; recebFiltroContrato = '';
+    recebRender();
+  });
+  document.getElementById('recebSegAbertas').addEventListener('click', e=>{
+    const chip = e.target.closest('.chip'); if(!chip) return;
+    recebSegAbertas = chip.dataset.seg;
+    document.querySelectorAll('#recebSegAbertas .chip').forEach(c=>c.classList.toggle('on', c===chip));
+    recebRenderAbertas(recebFiltrados().map(o=>{ const hoje=recebHoje(); const situacao=recebSit(o,hoje); return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada')?0:recebSaldo(o) }; }), recebHoje());
+  });
+  document.getElementById('receb_busca').addEventListener('input', ()=>{
+    const hoje = recebHoje();
+    recebRenderAbertas(recebFiltrados().map(o=>{ const situacao=recebSit(o,hoje); return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada')?0:recebSaldo(o) }; }), hoje);
+  });
+  document.getElementById('recebTabelaContratos').addEventListener('click', e=>{
+    const tr = e.target.closest('tr[data-ctr]'); if(!tr) return;
+    recebSetFiltro('contrato', tr.dataset.ctr);
+  });
+  document.getElementById('btnRecebCopiarAbertas').addEventListener('click', async ()=>{
+    const hoje = recebHoje();
+    const linhas = [['Situação','Vencimento','Dias','NF','Cliente','Município','Contrato','Total NF','Recebido','Saldo'].join('\t'),
+      ...recebUltimaListaAbertas.map(o=>[RECEB_PILL_TXT[o.situacao]||o.situacao, recebFmtDia(o.v), o.v==null?'':o.v-hoje, o.nf, o.g, o.u, o.k, o.t.toFixed(2).replace('.',','), (o.r||0).toFixed(2).replace('.',','), o.saldo.toFixed(2).replace('.',',')].join('\t'))];
+    try{ await navigator.clipboard.writeText(linhas.join('\n')); toast(`${recebUltimaListaAbertas.length} notas copiadas. Cole direto no Excel.`); }
+    catch(e){ toast('O navegador bloqueou a cópia. Selecione a tabela e copie manualmente.'); }
   });
   document.getElementById('verNota_fechar').addEventListener('click', ()=>{
     document.getElementById('verNotaModal').classList.remove('show');
@@ -14465,12 +14932,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const nomeFantasia = document.getElementById('cl_nome_fantasia').value.trim();
     const metaMensal = Number(document.getElementById('cl_meta_mensal').value) || 0;
     const empresaId = empresas.length > 0 ? document.getElementById('cl_empresa').value : (empresaAtual ? empresaAtual.id : '');
+    const rmUrl = document.getElementById('cl_rm_url').value.trim();
+    const rmUsuario = document.getElementById('cl_rm_usuario').value.trim();
+    const rmSenha = document.getElementById('cl_rm_senha').value;
     if(!nome){ toast('Informe o nome do cliente'); return; }
     const editando = !!editandoClienteId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId })
-      : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId });
+      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha })
+      : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();

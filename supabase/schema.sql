@@ -1293,3 +1293,37 @@ create table if not exists tomticket_config (
 );
 alter table tomticket_config enable row level security;
 insert into tomticket_config (id) values ('default') on conflict (id) do nothing;
+
+-- ---------- Integração TOTVS RM: conexão por cliente + cadastro de
+-- Relatórios Gerenciais (fase 1 da migração do Painel de Recebíveis, que
+-- antes era só o arquivo separado painel-recebiveis-rm.html) ----------
+-- endereço do serviço REST e usuário do RM ficam em texto normal; a senha
+-- vai CIFRADA (AES-GCM) — a chave de cifragem mora só nas Secrets da
+-- function (RM_SENHA_CIFRA_CHAVE), nunca no banco, então um dump do banco
+-- sozinho não expõe a senha de ninguém
+alter table clientes add column if not exists rm_url text;
+alter table clientes add column if not exists rm_usuario text;
+alter table clientes add column if not exists rm_senha_cifrada text;
+
+-- cada linha é uma consulta SQL do RM (RealizaConsulta) disponível pro
+-- sistema — Código da Sentença/Coligada/Sistema/Parâmetros, os mesmos
+-- campos que antes só existiam na tela de configuração do painel
+-- standalone. "slug" é um identificador estável (não muda editando o
+-- nome) que o código de uma tela usa pra sempre achar o MESMO relatório —
+-- a tela do Painel de Recebíveis sempre busca o relatório de slug
+-- 'painel-recebiveis', não importa como o usuário renomeie ele
+create table if not exists rm_relatorios_gerenciais (
+  id text primary key,
+  slug text unique,
+  nome text not null,
+  codigo_sentenca text not null,
+  coligada text not null default '1',
+  sistema text not null default 'G',
+  parametros text default '',
+  empresa_id text references empresas(id),
+  criado_em timestamptz default now()
+);
+alter table rm_relatorios_gerenciais enable row level security;
+insert into rm_relatorios_gerenciais (id, slug, nome, codigo_sentenca, coligada, sistema, parametros)
+  values ('rm-rel-painel-recebiveis', 'painel-recebiveis', 'PAINEL DE RECEBIVEIS', 'PAINEL.RECEB', '1', 'G', '')
+  on conflict (id) do nothing;
