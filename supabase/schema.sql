@@ -1368,3 +1368,10 @@ insert into rm_painel_layouts (slug, widgets) values ('painel-recebiveis', '[
   {"id":"t1","tipo":"tabela-abertas","titulo":"Notas em aberto"},
   {"id":"t2","tipo":"tabela-contratos","titulo":"Contratos"}
 ]'::jsonb) on conflict (slug) do nothing;
+
+-- filtros configuráveis do painel — array de nomes de campo (ex "mes",
+-- "cliente", "municipio", "contrato", "situacao" ou "rm:ALGUMA_COLUNA" pra
+-- filtrar por qualquer coluna crua que a consulta do RM trouxer), na ordem
+-- em que aparecem na tela; vazio/ausente = usa os 4 de sempre (ver
+-- recebCarregarLayoutPainel no app.js)
+alter table rm_painel_layouts add column if not exists filtros jsonb not null default '[]';

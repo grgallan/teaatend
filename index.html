@@ -2642,24 +2642,11 @@
 
       <div class="card" id="recebCardFiltros" style="display:none;">
         <h2>Filtros</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Clique no ▾ de cada filtro — "Selecionar todos" ou vá marcando quais quer, igual nas colunas de Atendimentos.</p>
-        <div class="row" style="flex-wrap:wrap;gap:14px;">
-          <div class="field" style="flex:1;min-width:150px;">
-            <label>Competência <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="competencia" style="cursor:pointer;" title="Filtrar Competência">▾</span></span></label>
-            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-competencia">Todos</div>
-          </div>
-          <div class="field" style="flex:1;min-width:150px;">
-            <label>Cliente (grupo) <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="cliente" style="cursor:pointer;" title="Filtrar Cliente">▾</span></span></label>
-            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-cliente">Todos</div>
-          </div>
-          <div class="field" style="flex:1;min-width:150px;">
-            <label>Município <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="municipio" style="cursor:pointer;" title="Filtrar Município">▾</span></span></label>
-            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-municipio">Todos</div>
-          </div>
-          <div class="field" style="flex:1;min-width:150px;">
-            <label>Contrato <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="contrato" style="cursor:pointer;" title="Filtrar Contrato">▾</span></span></label>
-            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-contrato">Todos</div>
-          </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Clique no ▾ de cada filtro — "Selecionar todos" ou vá marcando quais quer, igual nas colunas de Atendimentos. Use "⚙ Configurar painel" pra escolher quais filtros aparecem aqui, com base em qualquer coluna que a consulta trouxer.</p>
+        <div class="row" style="flex-wrap:wrap;gap:14px;" id="recebGradeFiltros"></div>
+        <div class="row" id="recebLinhaAddFiltro" style="display:none;margin-top:12px;align-items:flex-end;gap:10px;flex-wrap:wrap;">
+          <div class="field" style="flex:1;min-width:200px;"><label>Adicionar filtro</label><select id="recebNovoFiltroCampo"></select></div>
+          <button class="ghost" id="btnRecebAdicionarFiltro" type="button" style="width:auto;padding:8px 14px;">+ Adicionar</button>
         </div>
         <button class="ghost" id="btnRecebLimparFiltros" type="button" style="width:auto;padding:8px 14px;margin-top:10px;">Limpar filtros</button>
       </div>
