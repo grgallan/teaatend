@@ -13517,6 +13517,21 @@ function recebRender(){
   linhas.forEach(o=>{ o.saldo = (o.situacao==='Recebida'||o.situacao==='Cancelada') ? 0 : recebSaldo(o); });
   recebRenderConteudo(linhas);
 }
+// o RM às vezes devolve um campo numérico como TEXTO (ex: "74111.24"
+// em vez do número 74111.24) — o Excel brasileiro não reconhece ponto
+// como separador decimal, então a célula vira texto alinhado à
+// esquerda em vez de número alinhado à direita. Aqui a gente converte
+// esses casos pro tipo number de verdade, SEM mexer em código com zero
+// à esquerda (NOTA FISCAL, protocolo...), onde o zero é significativo
+// e não pode sumir
+function recebCoagirNumeroExcel(v){
+  if(typeof v !== 'string') return v;
+  const s = v.trim();
+  if(!/^-?\d+(\.\d+)?$/.test(s)) return v;
+  if(/^0\d/.test(s)) return v; // "000003482" etc — mantém como texto
+  const n = Number(s);
+  return isNaN(n) ? v : n;
+}
 // exporta a consulta atual (já com os filtros aplicados) pro Excel — TODAS
 // as colunas que a consulta do RM devolveu de verdade (não só as que o
 // painel usa), com o nome e o valor exatos de cada uma, na ordem em que
@@ -13535,7 +13550,7 @@ async function recebExportarExcel(){
     Object.keys(o._rm || {}).forEach(k=>{ if(!vistas.has(k)){ vistas.add(k); colunasRm.push(k); } });
   });
   const cabecalho = [...colunasRm, 'Saldo'];
-  const corpo = linhas.map(o=>[...colunasRm.map(k=>{ const v = o._rm ? o._rm[k] : undefined; return v==null ? '' : v; }), Number(o.saldo.toFixed(2))]);
+  const corpo = linhas.map(o=>[...colunasRm.map(k=>{ const v = o._rm ? o._rm[k] : undefined; return v==null ? '' : recebCoagirNumeroExcel(v); }), Number(o.saldo.toFixed(2))]);
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalho, ...corpo]), 'Recebíveis');
   await salvarWorkbook(livro, `painel-recebiveis-${hojeLocalISO()}.xlsx`);
