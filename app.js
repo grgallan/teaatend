@@ -13029,7 +13029,7 @@ function recebRenderWidgetAbertas(widget, linhas){
       <td>${fmtMoeda(o.t)}</td><td>${o.r?fmtMoeda(o.r):''}</td><td><b>${fmtMoeda(o.saldo)}</b></td></tr>`;
   }).join('');
   const tab = document.getElementById(`receb-${widget.id}-tabela`);
-  if(tab) tab.innerHTML = `<thead><tr><th>Situação</th><th>Vencimento</th><th>Dias</th><th>NF</th><th>Cliente</th><th>Município</th><th>Contrato</th><th>Total NF</th><th>Recebido</th><th>Saldo</th></tr></thead>
+  if(tab) tab.innerHTML = `<thead><tr><th>STATUS</th><th>VENCIMENTO</th><th>Dias</th><th>NOTA FISCAL</th><th>CLIENTE</th><th>PREFEITURA</th><th>CONTRATO</th><th>TOTAL NF</th><th>RECEBIDO</th><th>Saldo</th></tr></thead>
     <tbody>${linhasHtml || `<tr><td colspan="10" class="empty">${recebLinhas.length ? 'Nenhuma nota em aberto com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
     <tfoot><tr><td colspan="9"><b>${abertas.length} notas</b></td><td><b>${fmtMoeda(total)}</b></td></tr></tfoot>`;
 }
@@ -13055,11 +13055,14 @@ function recebRenderWidgetContratos(widget, linhas){
 // catálogo de colunas da "Tabela (colunas à sua escolha)" quando a fonte é
 // "notas" (uma linha por nota) — quando a fonte é "agrupado", as colunas
 // disponíveis são as próprias RECEB_MEDIDAS (reaproveitadas)
+// os rótulos são os nomes EXATOS das colunas como a consulta do RM devolve
+// (conferido direto num export da RealizaConsulta) — "Dias" e "Saldo" são
+// os únicos sem equivalente lá, por serem calculados aqui no sistema
 const RECEB_COLUNAS_NOTAS = {
-  situacao:'Situação', vencimento:'Vencimento', dias:'Dias', emissao:'Emissão', nf:'NF',
-  cliente:'Cliente', municipio:'Município', contrato:'Contrato', competencia:'Competência',
-  totalNf:'Total NF', recebido:'Recebido', dataRecebido:'Data Recebido', saldo:'Saldo',
-  medido:'Valor Medido', inss:'INSS', iss:'ISS', outrasRetencoes:'Outras Retenções',
+  situacao:'STATUS', vencimento:'VENCIMENTO', dias:'Dias', emissao:'EMISSÃO', nf:'NOTA FISCAL',
+  cliente:'CLIENTE', municipio:'PREFEITURA', contrato:'CONTRATO', competencia:'MÊS',
+  totalNf:'TOTAL NF', recebido:'RECEBIDO', dataRecebido:'DATA RECEBIDO', saldo:'Saldo',
+  medido:'VALOR MEDIDO', inss:'INSS', iss:'ISS', outrasRetencoes:'OUTRAS RETENÇÕES',
 };
 const RECEB_COLUNAS_NOTAS_PADRAO = ['situacao','vencimento','nf','cliente','municipio','contrato','totalNf','recebido','saldo'];
 function recebValorColunaNota(o, hoje, chave){
@@ -13134,7 +13137,7 @@ function recebRenderWidgetTabelaPersonalizada(widget, linhas){
 async function recebCopiarAbertas(widgetId){
   const hoje = recebHoje();
   const lista = recebUltimaListaAbertas[widgetId] || [];
-  const linhasTxt = [['Situação','Vencimento','Dias','NF','Cliente','Município','Contrato','Total NF','Recebido','Saldo'].join('\t'),
+  const linhasTxt = [['STATUS','VENCIMENTO','Dias','NOTA FISCAL','CLIENTE','PREFEITURA','CONTRATO','TOTAL NF','RECEBIDO','Saldo'].join('\t'),
     ...lista.map(o=>[RECEB_PILL_TXT[o.situacao]||o.situacao, recebFmtDia(o.v), o.v==null?'':o.v-hoje, o.nf, o.g, o.u, o.k, o.t.toFixed(2).replace('.',','), (o.r||0).toFixed(2).replace('.',','), o.saldo.toFixed(2).replace('.',',')].join('\t'))];
   try{ await navigator.clipboard.writeText(linhasTxt.join('\n')); toast(`${lista.length} notas copiadas. Cole direto no Excel.`); }
   catch(e){ toast('O navegador bloqueou a cópia. Selecione a tabela e copie manualmente.'); }
@@ -13266,7 +13269,7 @@ async function recebExportarExcel(){
     return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada') ? 0 : recebSaldo(o) };
   });
   if(linhas.length === 0){ toast('Nada pra exportar com esses filtros.'); return; }
-  const cabecalho = ['Situação','Competência','Vencimento','Emissão','NF','Cliente','Município','Contrato','Total NF','Recebido','Data Recebido','Saldo','Valor Medido','INSS','ISS','Outras Retenções'];
+  const cabecalho = ['STATUS','MÊS','VENCIMENTO','EMISSÃO','NOTA FISCAL','CLIENTE','PREFEITURA','CONTRATO','TOTAL NF','RECEBIDO','DATA RECEBIDO','Saldo','VALOR MEDIDO','INSS','ISS','OUTRAS RETENÇÕES'];
   const corpo = linhas.map(o=>{
     const c = recebCtrLbl(o.k);
     return [
