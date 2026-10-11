@@ -13095,6 +13095,7 @@ function recebRender(){
   const temDados = recebLinhas.length > 0;
   document.getElementById('recebCardGradeTopo').style.display = temDados ? '' : 'none';
   document.getElementById('recebCardFiltros').style.display = temDados ? '' : 'none';
+  document.getElementById('btnRecebExportarExcel').style.display = temDados ? '' : 'none';
   document.getElementById('recebBaseInfo').textContent = temDados
     ? `${recebInfo.nomeRelatorio} · ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'}. Atualizado em ${new Date(recebInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`
     : 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
@@ -13105,6 +13106,29 @@ function recebRender(){
   const linhas = recebFiltrados().map(o=>({ ...o, situacao: recebSit(o, hoje) }));
   linhas.forEach(o=>{ o.saldo = (o.situacao==='Recebida'||o.situacao==='Cancelada') ? 0 : recebSaldo(o); });
   recebRenderConteudo(linhas);
+}
+// exporta a consulta atual (já com os filtros aplicados) pro Excel — uma
+// linha por nota, com os mesmos campos que o RM devolveu, já tratados
+async function recebExportarExcel(){
+  const hoje = recebHoje();
+  const linhas = recebFiltrados().map(o=>{
+    const situacao = recebSit(o, hoje);
+    return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada') ? 0 : recebSaldo(o) };
+  });
+  if(linhas.length === 0){ toast('Nada pra exportar com esses filtros.'); return; }
+  const cabecalho = ['Situação','Competência','Vencimento','Emissão','NF','Cliente','Município','Contrato','Total NF','Recebido','Data Recebido','Saldo','Valor Medido','INSS','ISS','Outras Retenções'];
+  const corpo = linhas.map(o=>{
+    const c = recebCtrLbl(o.k);
+    return [
+      o.situacao, o.m ? recebMesLbl(o.m) : '', recebFmtDia(o.v), recebFmtDia(o.e), o.nf, o.g, o.u, `${c.n} ${c.d}`.trim(),
+      Number(o.t.toFixed(2)), Number((o.r||0).toFixed(2)), recebFmtDia(o.d), Number(o.saldo.toFixed(2)),
+      Number(o.md.toFixed(2)), Number(o.inss.toFixed(2)), Number(o.iss.toFixed(2)), Number(o.ot.toFixed(2)),
+    ];
+  });
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalho, ...corpo]), 'Recebíveis');
+  await salvarWorkbook(livro, `painel-recebiveis-${hojeLocalISO()}.xlsx`);
+  toast(`Excel exportado com ${linhas.length} linha${linhas.length===1?'':'s'}.`);
 }
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
@@ -14526,6 +14550,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnCancelarEdicaoRmRelatorio').addEventListener('click', cancelarEdicaoRmRelatorio);
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
+  document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
   RECEB_LOOKUPS.forEach(cfg=>{
     document.getElementById(cfg.busca).addEventListener('input', e=>recebFiltrarLookupPorBusca(cfg.resultados, e.target.value));
     document.getElementById(cfg.resultados).addEventListener('change', e=>{
