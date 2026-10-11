@@ -13514,6 +13514,7 @@ function recebRender(){
   document.getElementById('recebCardGradeTopo').style.display = temDados ? '' : 'none';
   document.getElementById('recebCardFiltros').style.display = temDados ? '' : 'none';
   document.getElementById('btnRecebExportarExcel').style.display = temDados ? '' : 'none';
+  document.getElementById('btnRecebExportarCsv').style.display = temDados ? '' : 'none';
   document.getElementById('recebBaseInfo').textContent = temDados
     ? `${recebInfo.nomeRelatorio} · ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'}. Atualizado em ${new Date(recebInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`
     : 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
@@ -13545,24 +13546,54 @@ function recebCoagirNumeroExcel(v){
 // painel usa), com o nome e o valor exatos de cada uma, na ordem em que
 // aparecerem. "Saldo" vai no fim por ser calculado aqui, sem equivalente
 // na consulta
-async function recebExportarExcel(){
+// monta cabeçalho + linhas cruas (array de arrays) a partir dos filtros
+// ativos — reaproveitado pelo Exportar Excel e pelo Exportar CSV, já que
+// os dois exportam exatamente as mesmas colunas/linhas, só muda o formato
+// do arquivo
+function recebMontarLinhasExportacao(){
   const hoje = recebHoje();
   const linhas = recebFiltrados().map(o=>{
     const situacao = recebSit(o, hoje);
     return { ...o, situacao, saldo: (situacao==='Recebida'||situacao==='Cancelada') ? 0 : recebSaldo(o) };
   });
-  if(linhas.length === 0){ toast('Nada pra exportar com esses filtros.'); return; }
+  if(linhas.length === 0) return null;
   const colunasRm = [];
   const vistas = new Set();
   linhas.forEach(o=>{
     Object.keys(o._rm || {}).forEach(k=>{ if(!vistas.has(k)){ vistas.add(k); colunasRm.push(k); } });
   });
   const cabecalho = [...colunasRm, 'Saldo'];
-  const corpo = linhas.map(o=>[...colunasRm.map(k=>{ const v = o._rm ? o._rm[k] : undefined; return v==null ? '' : recebCoagirNumeroExcel(v); }), Number(o.saldo.toFixed(2))]);
+  const corpo = linhas.map(o=>[...colunasRm.map(k=>{ const v = o._rm ? o._rm[k] : undefined; return v==null ? '' : v; }), Number(o.saldo.toFixed(2))]);
+  return { cabecalho, corpo, totalLinhas: linhas.length };
+}
+async function recebExportarExcel(){
+  const r = recebMontarLinhasExportacao();
+  if(!r){ toast('Nada pra exportar com esses filtros.'); return; }
+  const corpoTipado = r.corpo.map(linha => linha.map(v => typeof v === 'string' ? recebCoagirNumeroExcel(v) : v));
   const livro = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([cabecalho, ...corpo]), 'Recebíveis');
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([r.cabecalho, ...corpoTipado]), 'Recebíveis');
   await salvarWorkbook(livro, `painel-recebiveis-${hojeLocalISO()}.xlsx`);
-  toast(`Excel exportado com ${linhas.length} linha${linhas.length===1?'':'s'} e ${cabecalho.length} colunas.`);
+  toast(`Excel exportado com ${r.totalLinhas} linha${r.totalLinhas===1?'':'s'} e ${r.cabecalho.length} colunas.`);
+}
+// cada célula vira texto puro — "," no lugar de ";" (senão quebraria a
+// coluna) e sem quebra de linha interna; separador de arquivo é ";"
+// (igual o resto do app já faz nos outros "Exportar CSV"), já que a
+// vírgula aqui é só um caractere de texto, não separador decimal
+function recebCelulaCsv(v){
+  if(v == null || v === '') return '';
+  return String(v).replace(/;/g, ',').replace(/[\r\n]+/g, ' ');
+}
+// alternativa ao Exportar Excel pra consultas muito grandes — o Excel
+// trava em 1.048.576 linhas por aba; CSV não tem esse teto
+async function recebExportarCsv(){
+  const r = recebMontarLinhasExportacao();
+  if(!r){ toast('Nada pra exportar com esses filtros.'); return; }
+  const csv = [r.cabecalho, ...r.corpo].map(linha => linha.map(recebCelulaCsv).join(';')).join('\r\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `painel-recebiveis-${hojeLocalISO()}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast(`CSV exportado com ${r.totalLinhas} linha${r.totalLinhas===1?'':'s'} e ${r.cabecalho.length} colunas.`);
 }
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
@@ -15127,6 +15158,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnCancelarEdicaoRmRelatorio').addEventListener('click', cancelarEdicaoRmRelatorio);
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
   document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
+  document.getElementById('btnRecebExportarCsv').addEventListener('click', recebExportarCsv);
   document.getElementById('recebCardFiltros').addEventListener('click', e=>{
     const remover = e.target.closest('[data-removerfiltro]');
     if(remover){ recebRemoverFiltro(remover.dataset.removerfiltro); return; }
