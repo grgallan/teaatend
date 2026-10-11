@@ -2983,7 +2983,7 @@ function dashLegendHtml(items){
   return items.map(i=>`<span><span class="sw" style="background:${i.cor}"></span>${escaparHtml(i.label)}</span>`).join('');
 }
 
-function dashBarChart(container, {data, height=180, horizontal=false, rotateLabels=false, unit=''}){
+function dashBarChart(container, {data, height=180, horizontal=false, rotateLabels=false, unit='', mostrarRotulos=false}){
   container.innerHTML = '';
   if(!data.length || !data.some(d=>d.value>0)){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
   const w = container.clientWidth || 300;
@@ -3018,6 +3018,10 @@ function dashBarChart(container, {data, height=180, horizontal=false, rotateLabe
     svg.appendChild(bar);
     const t = dashSvgEl('text', {x:x+bw/2, y:height-(rotateLabels?24:6), 'text-anchor':rotateLabels?'end':'middle', style:`font-size:10.5px;fill:${dashCss('--muted')}`, transform: rotateLabels?`rotate(-28 ${x+bw/2} ${height-24})`:''});
     t.textContent = d.label; svg.appendChild(t);
+    if(mostrarRotulos && d.value>0){
+      const rot = dashSvgEl('text', {x:x+bw/2, y:y-4, 'text-anchor':'middle', style:`font-size:10px;font-weight:700;fill:${dashCss('--text')}`});
+      rot.textContent = dashFmtValor(d.value, unit); svg.appendChild(rot);
+    }
   });
   container.appendChild(svg);
 }
@@ -3084,7 +3088,7 @@ function dashRanking(container, data){
   });
 }
 
-function dashLineChart(container, {labels, series, height=180}){
+function dashLineChart(container, {labels, series, height=180, mostrarRotulos=false}){
   container.innerHTML = '';
   if(!labels.length){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
   const w = container.clientWidth || 300, padL=22, padB=20, padT=8, padR=22;
@@ -3106,6 +3110,10 @@ function dashLineChart(container, {labels, series, height=180}){
   });
   dots.forEach(pt=>{
     svg.appendChild(dashSvgEl('circle', {cx:pt.x, cy:pt.y, r:2.8, fill:dashCss(pt.tok)}));
+    if(mostrarRotulos){
+      const rot = dashSvgEl('text', {x:pt.x, y:pt.y-8, 'text-anchor':'middle', style:`font-size:9.5px;font-weight:700;fill:${dashCss('--text')}`});
+      rot.textContent = pt.v; svg.appendChild(rot);
+    }
     const c = dashSvgEl('circle', {cx:pt.x, cy:pt.y, r:9, fill:'transparent'});
     c.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${pt.v}</b> · ${pt.label}<br>${pt.mes}`));
     c.addEventListener('mousemove', dashMoveTip); c.addEventListener('mouseleave', dashHideTip);
@@ -12630,6 +12638,12 @@ let recebFormColunasAtual = [];
 // dimensao,top} — ver RECEB_MEDIDAS/RECEB_DIMENSOES mais abaixo.
 let recebPainelWidgets = [];
 let recebPainelWidgetsSalvos = [];
+// catálogo de medidas (overrides de uma medida de sistema + medidas
+// personalizadas) — mesmo esquema de edição/cancelar/salvar dos widgets e
+// filtros. Ver RECEB_MEDIDAS/recebReconstruirCatalogoMedidas mais abaixo.
+let recebPainelMedidas = [];
+let recebPainelMedidasSalvos = [];
+let recebEditandoMedidaId = null;
 let recebLayoutCarregado = false;
 let recebModoEdicao = false;
 let recebEditandoWidgetId = null;
@@ -12810,6 +12824,9 @@ function recebCarregarLayoutPainel(){
   recebPainelFiltros = layout && Array.isArray(layout.filtros) ? layout.filtros.slice() : ['mes','cliente','municipio','contrato'];
   recebPainelFiltrosSalvos = recebPainelFiltros.slice();
   recebFiltros = Object.fromEntries(recebPainelFiltros.map(c=>[c, new Set()]));
+  recebPainelMedidas = layout && Array.isArray(layout.medidas) ? JSON.parse(JSON.stringify(layout.medidas)) : [];
+  recebPainelMedidasSalvos = JSON.parse(JSON.stringify(recebPainelMedidas));
+  recebReconstruirCatalogoMedidas();
   recebLayoutCarregado = true;
 }
 function recebAbrir(){
@@ -12977,7 +12994,10 @@ function recebRemoverFiltro(campo){
    o que se mede (faturado, recebido...), "dimensao" é o agrupamento
    (por mês, por cliente...) — qualquer combinação medida×dimensão vira
    um gráfico, sem precisar de código novo pra cada combinação. */
-const RECEB_MEDIDAS = {
+// as 12 medidas "de sistema" (fórmulas de negócio fixas, com a regra de
+// cancelada/situação embutida) — nunca removíveis, mas o rótulo e o
+// formato de exibição podem ser editados em "Medidas" no modo edição
+const RECEB_MEDIDAS_PADRAO = {
   faturado: { label:'Faturado (Total NF)', fmt:'money' },
   recebido: { label:'Recebido', fmt:'money' },
   emAberto: { label:'Em aberto', fmt:'money' },
@@ -12991,7 +13011,67 @@ const RECEB_MEDIDAS = {
   prazoMedio: { label:'Prazo médio de recebimento', fmt:'dias' },
   pontualidade: { label:'Recebido no prazo', fmt:'pct' },
 };
+// catálogo EFETIVO de medidas — começa igual ao padrão, e é reconstruído
+// (recebReconstruirCatalogoMedidas) toda vez que recebPainelMedidas muda,
+// aplicando os overrides (label/fmt de uma medida de sistema) e as
+// medidas personalizadas (campo+função) por cima. Usado em TODO lugar
+// que já lia RECEB_MEDIDAS[x].label/.fmt — nenhum desses lugares precisou
+// mudar, só passou a enxergar um catálogo editável.
+let RECEB_MEDIDAS = { ...RECEB_MEDIDAS_PADRAO };
+function recebReconstruirCatalogoMedidas(){
+  RECEB_MEDIDAS = { ...RECEB_MEDIDAS_PADRAO };
+  (recebPainelMedidas||[]).forEach(m=>{
+    RECEB_MEDIDAS[m.id] = { label:m.label, fmt:m.fmt, campo:m.campo, funcao:m.funcao };
+  });
+}
+// campos numéricos que uma medida personalizada pode agregar: os já
+// processados (iguais aos da tabela) + qualquer coluna crua da consulta
+const RECEB_CAMPOS_MEDIDA_BUILTIN = { totalNf:'Total NF', recebido:'Recebido', saldo:'Saldo', medido:'Valor Medido', inss:'INSS', iss:'ISS', outrasRetencoes:'Outras Retenções' };
+function recebCamposMedidaDisponiveis(){
+  const opcoes = Object.entries(RECEB_CAMPOS_MEDIDA_BUILTIN).map(([campo,label])=>({campo,label}));
+  recebColunasRmDisponiveis().forEach(col=>opcoes.push({ campo:'rm:'+col, label:col }));
+  return opcoes;
+}
+function recebValorCampoMedidaBruto(o, campo){
+  switch(campo){
+    case 'totalNf': return o.t; case 'recebido': return o.r; case 'saldo': return o.saldo;
+    case 'medido': return o.md; case 'inss': return o.inss; case 'iss': return o.iss; case 'outrasRetencoes': return o.ot;
+    default: return campo && campo.startsWith('rm:') ? (o._rm ? o._rm[campo.slice(3)] : undefined) : undefined;
+  }
+}
+function recebValorCampoMedidaNum(o, campo){
+  const v = recebValorCampoMedidaBruto(o, campo);
+  if(typeof v === 'number') return v;
+  if(v==null || v==='') return 0;
+  const n = parseFloat(String(v).replace(/[^\d,.\-]/g,'').replace(',','.'));
+  return isNaN(n) ? 0 : n;
+}
+// medida personalizada: {campo, funcao[, campoBase]} — "contagem" nem
+// olha pro campo (conta linhas), as demais agregam recebValorCampoMedidaNum
+function recebCalcularMedidaGenerica(linhas, def){
+  if(def.funcao === 'contagem') return linhas.length;
+  if(def.funcao === 'contagemDistinta'){
+    const vistos = new Set();
+    linhas.forEach(o=>{ const v = recebValorCampoMedidaBruto(o, def.campo); if(v!=null && v!=='') vistos.add(String(v)); });
+    return vistos.size;
+  }
+  const vals = linhas.map(o=>recebValorCampoMedidaNum(o, def.campo));
+  switch(def.funcao){
+    case 'soma': return vals.reduce((s,v)=>s+v,0);
+    case 'media': return vals.length ? vals.reduce((s,v)=>s+v,0)/vals.length : 0;
+    case 'min': return vals.length ? Math.min(...vals) : 0;
+    case 'max': return vals.length ? Math.max(...vals) : 0;
+    case 'percentualDoTotal': {
+      const totalGeral = recebLinhas.reduce((s,o)=>s+recebValorCampoMedidaNum(o, def.campo),0);
+      const soma = vals.reduce((s,v)=>s+v,0);
+      return totalGeral ? soma/totalGeral : 0;
+    }
+    default: return 0;
+  }
+}
 function recebCalcularMedida(linhas, medida){
+  const def = RECEB_MEDIDAS[medida];
+  if(def && def.campo && def.funcao) return recebCalcularMedidaGenerica(linhas, def);
   const validas = linhas.filter(o=>o.situacao!=='Cancelada');
   const canceladas = linhas.filter(o=>o.situacao==='Cancelada');
   switch(medida){
@@ -13122,20 +13202,26 @@ function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
     });
     // dashLineChart não desenha <rect> por ponto (só <path>/<circle>) — por
     // isso, diferente da barra/ranking, a linha não tem clique-pra-filtrar
-    dashLineChart(cont, { labels: chaves.map(fmtLabel), series });
+    dashLineChart(cont, { labels: chaves.map(fmtLabel), series, mostrarRotulos: !!widget.mostrarRotulos });
+    if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
     return;
   }
   let grupos = recebAgruparPorDimensao(linhas, widget.dimensao, widget.medida);
   if(widget.top) grupos = grupos.slice(0, Number(widget.top));
   if(tipo==='donut'){
     const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
+    const total = grupos.reduce((s,g)=>s+g.valor,0);
     dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })));
+    if(widget.mostrarLegenda){
+      const itens = grupos.map((g,i)=>({ label: widget.mostrarRotulos && total ? `${g.rotulo} (${Math.round(g.valor/total*100)}%)` : g.rotulo, cor:dashCss(cores[i%cores.length]) }));
+      cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(itens)}</div>`);
+    }
     return;
   }
   const unit = (RECEB_MEDIDAS[widget.medida]||{}).fmt === 'pct' ? '' : 'R$';
   const data = grupos.map(g=>({ label:g.rotulo, value:g.valor, tok:'--blue' }));
   const horizontal = tipo==='barra-h';
-  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit });
+  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos });
   if(RECEB_DIMENSOES_FILTRAVEIS.has(widget.dimensao)) recebLigarCliqueBarras(cont, grupos, widget.dimensao, horizontal);
 }
 function recebRenderWidgetAbertas(widget, linhas){
@@ -13194,6 +13280,14 @@ const RECEB_COLUNAS_NOTAS = {
   medido:'VALOR MEDIDO', inss:'INSS', iss:'ISS', outrasRetencoes:'OUTRAS RETENÇÕES',
 };
 const RECEB_COLUNAS_NOTAS_PADRAO = ['situacao','vencimento','nf','cliente','municipio','contrato','totalNf','recebido','saldo'];
+// catálogo de colunas disponíveis na tabela "fonte: notas" — os campos
+// processados de cima + TODAS as colunas cruas que a consulta do RM
+// trouxer (igual o Exportar Excel, pra não faltar nenhuma)
+function recebColunasTabelaDisponiveis(){
+  const opcoes = { ...RECEB_COLUNAS_NOTAS };
+  recebColunasRmDisponiveis().forEach(col=>{ const campo = 'rm:'+col; if(!opcoes[campo]) opcoes[campo] = col; });
+  return opcoes;
+}
 function recebValorColunaNota(o, hoje, chave){
   switch(chave){
     case 'situacao': return o.situacao;
@@ -13213,37 +13307,59 @@ function recebValorColunaNota(o, hoje, chave){
     case 'inss': return fmtMoeda(o.inss);
     case 'iss': return fmtMoeda(o.iss);
     case 'outrasRetencoes': return fmtMoeda(o.ot);
-    default: return '';
+    default:
+      if(chave && chave.startsWith('rm:')){ const v = o._rm ? o._rm[chave.slice(3)] : undefined; return v==null ? '' : v; }
+      return '';
   }
 }
-// agrupa uma vez só e calcula VÁRIAS medidas por grupo — usado pela tabela
-// personalizada no modo "agrupado" (uma coluna por medida escolhida)
-function recebAgruparMultiplasMedidas(linhas, dimensaoChave, medidas){
-  let baseGrupos;
-  if(dimensaoChave === 'faixaVencimento'){
-    const hoje = recebHoje();
-    baseGrupos = RECEB_FAIXAS_VENCIMENTO.map(f=>({ chave:f.nome, rotulo:f.nome, itens: linhas.filter(o=>f.teste(o,hoje)) }));
-  }else{
-    const dim = RECEB_DIMENSOES[dimensaoChave];
-    if(!dim) return [];
-    const grupos = {};
-    linhas.forEach(o=>{ const k = dim.chave(o); (grupos[k] = grupos[k] || []).push(o); });
-    baseGrupos = Object.entries(grupos).map(([k,itens])=>({ chave:k, rotulo:dim.fmtLabel(k), itens }));
-  }
-  const resultado = baseGrupos.map(g=>({ chave:g.chave, rotulo:g.rotulo, valores: Object.fromEntries(medidas.map(m=>[m, recebCalcularMedida(g.itens, m)])) }));
-  const dim = RECEB_DIMENSOES[dimensaoChave];
-  if(dim && dim.ordenar==='chave') resultado.sort((a,b)=>String(a.chave).localeCompare(String(b.chave)));
-  else if(medidas[0]) resultado.sort((a,b)=>(b.valores[medidas[0]]||0)-(a.valores[medidas[0]]||0));
+// valor/rótulo de UM nível de agrupamento — isola o caso especial da
+// "faixaVencimento" (não é um campo fixo, depende da data de hoje)
+function recebChaveDimensaoValor(o, dimKey, hoje){
+  if(dimKey === 'faixaVencimento'){ const f = RECEB_FAIXAS_VENCIMENTO.find(f=>f.teste(o,hoje)); return f ? f.nome : ''; }
+  const dim = RECEB_DIMENSOES[dimKey];
+  return dim ? dim.chave(o) : '';
+}
+function recebRotuloDimensaoValor(chave, dimKey){
+  if(dimKey === 'faixaVencimento') return chave;
+  const dim = RECEB_DIMENSOES[dimKey];
+  return dim ? dim.fmtLabel(chave) : chave;
+}
+// agrupa por 1 a 3 níveis de dimensão de uma vez e calcula VÁRIAS medidas
+// por grupo — usado pela tabela personalizada no modo "agrupado"
+function recebAgruparMultiplasDimensoes(linhas, dimensoesChaves, medidas){
+  const hoje = recebHoje();
+  const grupos = {};
+  linhas.forEach(o=>{
+    const chaves = dimensoesChaves.map(d=>recebChaveDimensaoValor(o, d, hoje));
+    const chaveComposta = chaves.join('␟');
+    if(!grupos[chaveComposta]) grupos[chaveComposta] = { chaves, itens:[] };
+    grupos[chaveComposta].itens.push(o);
+  });
+  const resultado = Object.values(grupos).map(g=>({
+    chaves: g.chaves,
+    rotulos: g.chaves.map((k,i)=>recebRotuloDimensaoValor(k, dimensoesChaves[i])),
+    valores: Object.fromEntries(medidas.map(m=>[m, recebCalcularMedida(g.itens, m)])),
+  }));
+  const dim0 = RECEB_DIMENSOES[dimensoesChaves[0]];
+  const ordenarPorChave = dimensoesChaves[0]!=='faixaVencimento' && dim0 && dim0.ordenar==='chave';
+  resultado.sort((a,b)=>{
+    let d = ordenarPorChave ? String(a.chaves[0]).localeCompare(String(b.chaves[0])) : (medidas[0] ? (b.valores[medidas[0]]||0)-(a.valores[medidas[0]]||0) : 0);
+    if(d) return d;
+    for(let i=1;i<a.chaves.length;i++){ d = String(a.chaves[i]).localeCompare(String(b.chaves[i])); if(d) return d; }
+    return 0;
+  });
   return resultado;
 }
 function recebRenderWidgetTabelaPersonalizada(widget, linhas){
   const tab = document.getElementById(`receb-${widget.id}-tabela`); if(!tab) return;
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : RECEB_COLUNAS_NOTAS_PADRAO;
   if(widget.fonte === 'agrupado'){
-    const grupos = recebAgruparMultiplasMedidas(linhas, widget.dimensao, colunas);
-    const cab = [RECEB_DIMENSOES[widget.dimensao]?.label || 'Grupo', ...colunas.map(c=>(RECEB_MEDIDAS[c]||{}).label||c)];
+    const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
+    const grupos = recebAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
+    const cabDim = dimensoes.map(d=>RECEB_DIMENSOES_TODAS[d] || d);
+    const cab = [...cabDim, ...colunas.map(c=>(RECEB_MEDIDAS[c]||{}).label||c)];
     const corpo = grupos.map(g=>{
-      const celulas = [g.rotulo, ...colunas.map(c=>recebFormatarMedida(g.valores[c], c))];
+      const celulas = [...g.rotulos, ...colunas.map(c=>recebFormatarMedida(g.valores[c], c))];
       return `<tr>${celulas.map(v=>`<td>${escaparHtml(String(v))}</td>`).join('')}</tr>`;
     }).join('');
     tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
@@ -13252,13 +13368,14 @@ function recebRenderWidgetTabelaPersonalizada(widget, linhas){
   }
   // fonte 'notas' — uma linha por nota, com busca própria do widget
   const hoje = recebHoje();
+  const catalogo = recebColunasTabelaDisponiveis();
   const buscaEl = document.querySelector(`[data-wbusca][data-wid="${widget.id}"]`);
   const busca = (buscaEl?.value || '').trim().toLowerCase();
   let itens = widget.apenasAbertas ? linhas.filter(o=>o.saldo>0) : linhas.slice();
   if(busca) itens = itens.filter(o=>[o.nf,o.c,o.k,o.u,o.g].join(' ').toLowerCase().includes(busca));
   itens.sort((a,b)=>(a.v??9e9)-(b.v??9e9));
   recebUltimaListaAbertas[widget.id] = itens;
-  const cab = colunas.map(c=>RECEB_COLUNAS_NOTAS[c]||c);
+  const cab = colunas.map(c=>catalogo[c]||c);
   const corpo = itens.map(o=>`<tr>${colunas.map(c=>`<td>${escaparHtml(String(recebValorColunaNota(o,hoje,c)))}</td>`).join('')}</tr>`).join('');
   tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${recebLinhas.length ? 'Nenhuma nota com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
@@ -13283,7 +13400,7 @@ function recebWidgetTitulo(w){
 // opções de coluna do formulário "tabela (colunas à sua escolha)" — notas
 // usa o catálogo por nota, agrupado reaproveita as próprias RECEB_MEDIDAS
 function recebOpcoesColunasPorFonte(fonte){
-  return fonte === 'agrupado' ? RECEB_MEDIDAS : RECEB_COLUNAS_NOTAS;
+  return fonte === 'agrupado' ? RECEB_MEDIDAS : recebColunasTabelaDisponiveis();
 }
 function recebRenderColunasPicker(fonte){
   const opcoes = recebOpcoesColunasPorFonte(fonte);
@@ -13435,13 +13552,37 @@ function recebAtualizarCamposNovoWidget(){
   document.getElementById('recebNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoApenasAbertas').style.display = (ehTabelaPersonalizada && fonte==='notas') ? 'flex' : 'none';
   document.getElementById('recebNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
-  const medidaSel = document.getElementById('recebNovoWidgetMedida');
-  if(!medidaSel.options.length) medidaSel.innerHTML = Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
-  const medida2Sel = document.getElementById('recebNovoWidgetMedida2');
-  if(!medida2Sel.options.length) medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
+  document.getElementById('recebNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
+  recebPopularSelectsMedidaWidget();
   const dimSel = document.getElementById('recebNovoWidgetDimensao');
   if(!dimSel.options.length) dimSel.innerHTML = Object.entries(RECEB_DIMENSOES_TODAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v)}</option>`).join('');
+  const multi = ehTabelaPersonalizada && fonte==='agrupado';
+  document.getElementById('recebNovoWidgetCampoDimensao2').style.display = multi ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoDimensao3').style.display = multi ? '' : 'none';
+  if(multi){
+    const dim2Sel = document.getElementById('recebNovoWidgetDimensao2'), dim3Sel = document.getElementById('recebNovoWidgetDimensao3');
+    const opcoesExtra = `<option value="">(nenhum)</option>` + Object.entries(RECEB_DIMENSOES_TODAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v)}</option>`).join('');
+    if(!dim2Sel.options.length) dim2Sel.innerHTML = opcoesExtra;
+    if(!dim3Sel.options.length) dim3Sel.innerHTML = opcoesExtra;
+  }
   if(ehTabelaPersonalizada) recebRenderColunasPicker(fonte);
+}
+// repopula os <select> de medida do formulário de widget preservando o
+// valor marcado — chamado tanto ao trocar de tipo quanto sempre que o
+// catálogo de medidas muda (medida nova/editada/removida em "Medidas")
+function recebPopularSelectsMedidaWidget(){
+  const medidaSel = document.getElementById('recebNovoWidgetMedida');
+  if(medidaSel){
+    const atual = medidaSel.value;
+    medidaSel.innerHTML = Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
+    if([...medidaSel.options].some(o=>o.value===atual)) medidaSel.value = atual;
+  }
+  const medida2Sel = document.getElementById('recebNovoWidgetMedida2');
+  if(medida2Sel){
+    const atual2 = medida2Sel.value;
+    medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + Object.entries(RECEB_MEDIDAS).map(([k,v])=>`<option value="${k}">${escaparHtml(v.label)}</option>`).join('');
+    if([...medida2Sel.options].some(o=>o.value===atual2)) medida2Sel.value = atual2;
+  }
 }
 function recebResetFormNovoWidget(){
   recebEditandoWidgetId = null;
@@ -13452,10 +13593,14 @@ function recebResetFormNovoWidget(){
   document.getElementById('recebNovoWidgetFonte').value = 'notas';
   document.getElementById('recebNovoWidgetApenasAbertas').checked = false;
   recebFormColunasAtual = [];
+  document.getElementById('recebNovoWidgetLegenda').checked = false;
+  document.getElementById('recebNovoWidgetRotulos').checked = false;
   recebAtualizarCamposNovoWidget();
   document.getElementById('recebNovoWidgetMedida').value = 'faturado';
   document.getElementById('recebNovoWidgetMedida2').value = '';
   document.getElementById('recebNovoWidgetDimensao').value = 'mes';
+  document.getElementById('recebNovoWidgetDimensao2').value = '';
+  document.getElementById('recebNovoWidgetDimensao3').value = '';
   document.getElementById('btnRecebAdicionarWidget').textContent = 'Adicionar ao painel';
 }
 function recebWidgetMover(id, dir){
@@ -13484,10 +13629,81 @@ function recebWidgetEditar(id){
   document.getElementById('recebNovoWidgetTitulo').value = w.titulo || '';
   document.getElementById('recebNovoWidgetMedida').value = w.medida || 'faturado';
   document.getElementById('recebNovoWidgetDimensao').value = w.dimensao || 'mes';
+  document.getElementById('recebNovoWidgetDimensao2').value = w.dimensao2 || '';
+  document.getElementById('recebNovoWidgetDimensao3').value = w.dimensao3 || '';
   document.getElementById('recebNovoWidgetTop').value = w.top || '';
   document.getElementById('recebNovoWidgetMedida2').value = w.medida2 || '';
+  document.getElementById('recebNovoWidgetLegenda').checked = !!w.mostrarLegenda;
+  document.getElementById('recebNovoWidgetRotulos').checked = !!w.mostrarRotulos;
   document.getElementById('btnRecebAdicionarWidget').textContent = 'Salvar alterações no widget';
   document.getElementById('recebCardAddWidget').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+/* ---------- Medidas (criar/editar o catálogo de medidas do painel) ---------- */
+function recebGerarIdMedida(){ return 'medida'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function recebLabelCampoMedida(campo){
+  if(RECEB_CAMPOS_MEDIDA_BUILTIN[campo]) return RECEB_CAMPOS_MEDIDA_BUILTIN[campo];
+  if(campo && campo.startsWith('rm:')) return campo.slice(3);
+  return campo || '';
+}
+const RECEB_FUNCOES_MEDIDA = { soma:'Soma', media:'Média', contagem:'Contagem', contagemDistinta:'Contagem distinta', min:'Mínimo', max:'Máximo', percentualDoTotal:'% do total geral' };
+function recebLabelFuncaoMedida(funcao){ return RECEB_FUNCOES_MEDIDA[funcao] || funcao || ''; }
+function recebRenderListaMedidas(){
+  const cont = document.getElementById('recebListaMedidas');
+  if(!cont) return;
+  cont.innerHTML = Object.entries(RECEB_MEDIDAS).map(([id,def])=>{
+    const souSistema = !!RECEB_MEDIDAS_PADRAO[id];
+    const detalhe = def.campo ? ` · ${escaparHtml(recebLabelCampoMedida(def.campo))} · ${escaparHtml(recebLabelFuncaoMedida(def.funcao))}` : (def.funcao==='contagem' ? ` · ${escaparHtml(recebLabelFuncaoMedida(def.funcao))}` : '');
+    return `<div class="row" style="align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+      <div style="flex:1;"><b>${escaparHtml(def.label)}</b><span style="font-size:11px;color:var(--muted);margin-left:6px;">${souSistema ? 'sistema' : 'personalizada'}${detalhe}</span></div>
+      <button class="ghost" type="button" data-editarmedida="${escaparHtml(id)}" style="width:auto;padding:4px 10px;">Editar</button>
+      ${souSistema ? '' : `<button class="ghost" type="button" data-removermedida="${escaparHtml(id)}" style="width:auto;padding:4px 10px;color:var(--bad);">Remover</button>`}
+    </div>`;
+  }).join('');
+}
+function recebPopularSelectCampoMedida(){
+  const sel = document.getElementById('recebMedidaCampo');
+  if(!sel) return;
+  const atual = sel.value;
+  sel.innerHTML = recebCamposMedidaDisponiveis().map(o=>`<option value="${escaparHtml(o.campo)}">${escaparHtml(o.label)}</option>`).join('');
+  if([...sel.options].some(o=>o.value===atual)) sel.value = atual;
+}
+function recebAtualizarCamposFormMedida(){
+  const souSistema = recebEditandoMedidaId && !!RECEB_MEDIDAS_PADRAO[recebEditandoMedidaId];
+  const funcao = document.getElementById('recebMedidaFuncao').value;
+  document.getElementById('recebMedidaCampoFuncao').style.display = souSistema ? 'none' : '';
+  document.getElementById('recebMedidaCampoFuncaoCampo').style.display = (souSistema || funcao==='contagem') ? 'none' : '';
+}
+function recebResetFormMedida(){
+  recebEditandoMedidaId = null;
+  const nomeEl = document.getElementById('recebMedidaNome'); if(!nomeEl) return;
+  nomeEl.value = '';
+  document.getElementById('recebMedidaFuncao').value = 'soma';
+  document.getElementById('recebMedidaFormato').value = 'money';
+  recebPopularSelectCampoMedida();
+  recebAtualizarCamposFormMedida();
+  document.getElementById('btnRecebAdicionarMedida').textContent = 'Adicionar medida';
+}
+function recebEditarMedida(id){
+  const def = RECEB_MEDIDAS[id]; if(!def) return;
+  recebEditandoMedidaId = id;
+  document.getElementById('recebMedidaNome').value = def.label || '';
+  document.getElementById('recebMedidaFormato').value = def.fmt || 'money';
+  recebPopularSelectCampoMedida();
+  document.getElementById('recebMedidaFuncao').value = def.funcao || 'soma';
+  recebAtualizarCamposFormMedida();
+  if(def.campo) document.getElementById('recebMedidaCampo').value = def.campo;
+  document.getElementById('btnRecebAdicionarMedida').textContent = 'Salvar alterações na medida';
+  document.getElementById('recebCardMedidas').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function recebRemoverMedida(id){
+  if(RECEB_MEDIDAS_PADRAO[id]) return; // nunca remove uma medida de sistema
+  recebPainelMedidas = recebPainelMedidas.filter(m=>m.id!==id);
+  recebReconstruirCatalogoMedidas();
+  if(recebEditandoMedidaId===id) recebResetFormMedida();
+  recebRenderListaMedidas();
+  recebPopularSelectsMedidaWidget();
+  recebRender();
 }
 function recebEntrarModoEdicao(){
   recebModoEdicao = true;
@@ -13496,8 +13712,11 @@ function recebEntrarModoEdicao(){
   document.getElementById('btnRecebCancelarEdicaoPainel').style.display = '';
   document.getElementById('recebCardAddWidget').style.display = '';
   document.getElementById('recebLinhaAddFiltro').style.display = 'flex';
+  document.getElementById('recebCardMedidas').style.display = '';
   recebPopularSelectNovoFiltro();
   recebResetFormNovoWidget();
+  recebResetFormMedida();
+  recebRenderListaMedidas();
   recebRender();
 }
 function recebSairModoEdicao(){
@@ -13507,23 +13726,28 @@ function recebSairModoEdicao(){
   document.getElementById('btnRecebCancelarEdicaoPainel').style.display = 'none';
   document.getElementById('recebCardAddWidget').style.display = 'none';
   document.getElementById('recebLinhaAddFiltro').style.display = 'none';
+  document.getElementById('recebCardMedidas').style.display = 'none';
   recebResetFormNovoWidget();
+  recebResetFormMedida();
 }
 function recebCancelarEdicaoPainel(){
   recebPainelWidgets = JSON.parse(JSON.stringify(recebPainelWidgetsSalvos));
   recebPainelFiltros = recebPainelFiltrosSalvos.slice();
   recebFiltros = Object.fromEntries(recebPainelFiltros.map(c=>[c, recebFiltros[c] || new Set()]));
+  recebPainelMedidas = JSON.parse(JSON.stringify(recebPainelMedidasSalvos));
+  recebReconstruirCatalogoMedidas();
   recebSairModoEdicao();
   recebRender();
 }
 async function recebSalvarPainel(){
-  const r = await api('salvarRmPainelLayout', { contaId: contaAtual().id, slug:'painel-recebiveis', widgets: recebPainelWidgets, filtros: recebPainelFiltros });
+  const r = await api('salvarRmPainelLayout', { contaId: contaAtual().id, slug:'painel-recebiveis', widgets: recebPainelWidgets, filtros: recebPainelFiltros, medidas: recebPainelMedidas });
   if(!r.ok){ toast(r.erro || 'Não foi possível salvar o layout.'); return; }
   recebPainelWidgetsSalvos = JSON.parse(JSON.stringify(recebPainelWidgets));
   recebPainelFiltrosSalvos = recebPainelFiltros.slice();
+  recebPainelMedidasSalvos = JSON.parse(JSON.stringify(recebPainelMedidas));
   const idx = rmPainelLayouts.findIndex(p=>p.slug==='painel-recebiveis');
-  if(idx>=0){ rmPainelLayouts[idx].widgets = recebPainelWidgetsSalvos; rmPainelLayouts[idx].filtros = recebPainelFiltrosSalvos; }
-  else rmPainelLayouts.push({ slug:'painel-recebiveis', widgets:recebPainelWidgetsSalvos, filtros:recebPainelFiltrosSalvos });
+  if(idx>=0){ rmPainelLayouts[idx].widgets = recebPainelWidgetsSalvos; rmPainelLayouts[idx].filtros = recebPainelFiltrosSalvos; rmPainelLayouts[idx].medidas = recebPainelMedidasSalvos; }
+  else rmPainelLayouts.push({ slug:'painel-recebiveis', widgets:recebPainelWidgetsSalvos, filtros:recebPainelFiltrosSalvos, medidas:recebPainelMedidasSalvos });
   recebSairModoEdicao();
   recebRender();
   toast('Layout do painel salvo.');
@@ -14867,6 +15091,36 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnRecebAdicionarFiltro').addEventListener('click', ()=>{
     recebAdicionarFiltro(document.getElementById('recebNovoFiltroCampo').value);
   });
+  document.getElementById('recebMedidaFuncao').addEventListener('change', recebAtualizarCamposFormMedida);
+  document.getElementById('recebListaMedidas').addEventListener('click', e=>{
+    const editar = e.target.closest('[data-editarmedida]');
+    if(editar){ recebEditarMedida(editar.dataset.editarmedida); return; }
+    const remover = e.target.closest('[data-removermedida]');
+    if(remover){ pedirConfirmacao('Remover medida?','Qualquer widget que já use essa medida vai parar de calcular.', ()=>recebRemoverMedida(remover.dataset.removermedida)); return; }
+  });
+  document.getElementById('btnRecebAdicionarMedida').addEventListener('click', ()=>{
+    const nome = document.getElementById('recebMedidaNome').value.trim();
+    if(!nome){ toast('Dê um nome pra medida.'); return; }
+    const fmt = document.getElementById('recebMedidaFormato').value;
+    const souSistema = recebEditandoMedidaId && !!RECEB_MEDIDAS_PADRAO[recebEditandoMedidaId];
+    let entrada;
+    if(souSistema){
+      entrada = { id: recebEditandoMedidaId, label: nome, fmt };
+    }else{
+      const funcao = document.getElementById('recebMedidaFuncao').value;
+      const campo = document.getElementById('recebMedidaCampo').value;
+      if(funcao!=='contagem' && !campo){ toast('Escolha o campo que a medida vai agregar.'); return; }
+      entrada = { id: recebEditandoMedidaId || recebGerarIdMedida(), label: nome, fmt, funcao };
+      if(funcao!=='contagem') entrada.campo = campo;
+    }
+    const i = recebPainelMedidas.findIndex(m=>m.id===entrada.id);
+    if(i>=0) recebPainelMedidas[i] = entrada; else recebPainelMedidas.push(entrada);
+    recebReconstruirCatalogoMedidas();
+    recebResetFormMedida();
+    recebRenderListaMedidas();
+    recebPopularSelectsMedidaWidget();
+    recebRender();
+  });
   document.getElementById('recebFiltroColunaPortal').addEventListener('click', e=>{
     const item = e.target.closest('.lista-filtro-coluna-item'); if(!item || !item.dataset.chave) return;
     const chave = item.dataset.chave, valor = item.dataset.valor;
@@ -14938,6 +15192,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const titulo = document.getElementById('recebNovoWidgetTitulo').value.trim();
     const medida = document.getElementById('recebNovoWidgetMedida').value;
     const dimensao = document.getElementById('recebNovoWidgetDimensao').value;
+    const dimensao2 = document.getElementById('recebNovoWidgetDimensao2').value;
+    const dimensao3 = document.getElementById('recebNovoWidgetDimensao3').value;
     const top = document.getElementById('recebNovoWidgetTop').value;
     const medida2 = document.getElementById('recebNovoWidgetMedida2').value;
     const fonte = document.getElementById('recebNovoWidgetFonte').value || 'notas';
@@ -14948,12 +15204,20 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(ehTabelaPersonalizada){
       widget.fonte = fonte;
       widget.colunas = recebFormColunasAtual.slice();
-      if(fonte==='agrupado') widget.dimensao = dimensao;
+      if(fonte==='agrupado'){
+        widget.dimensao = dimensao;
+        if(dimensao2) widget.dimensao2 = dimensao2;
+        if(dimensao3 && dimensao2) widget.dimensao3 = dimensao3;
+      }
       else widget.apenasAbertas = document.getElementById('recebNovoWidgetApenasAbertas').checked;
     }else if(!ehTabelaPronta){
       widget.medida = medida;
       if(tipo==='linha'){ widget.dimensao = dimensao; if(medida2) widget.medida2 = medida2; }
       else { widget.dimensao = dimensao; if(top) widget.top = Number(top); }
+      if(tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut'){
+        widget.mostrarLegenda = document.getElementById('recebNovoWidgetLegenda').checked;
+        widget.mostrarRotulos = document.getElementById('recebNovoWidgetRotulos').checked;
+      }
     }
     if(recebEditandoWidgetId){
       const i = recebPainelWidgets.findIndex(w=>w.id===recebEditandoWidgetId);

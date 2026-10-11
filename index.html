@@ -2687,6 +2687,10 @@
           <div class="field" id="recebNovoWidgetCampoMedida"><label>Medida</label><select id="recebNovoWidgetMedida"></select></div>
           <div class="field" id="recebNovoWidgetCampoDimensao"><label>Agrupar por</label><select id="recebNovoWidgetDimensao"></select></div>
         </div>
+        <div class="row">
+          <div class="field" id="recebNovoWidgetCampoDimensao2" style="display:none;"><label>Depois por (nível 2, opcional)</label><select id="recebNovoWidgetDimensao2"></select></div>
+          <div class="field" id="recebNovoWidgetCampoDimensao3" style="display:none;"><label>Depois por (nível 3, opcional)</label><select id="recebNovoWidgetDimensao3"></select></div>
+        </div>
         <div class="field" id="recebNovoWidgetCampoTop" style="display:none;"><label>Mostrar só os N maiores (opcional)</label><input type="number" id="recebNovoWidgetTop" min="1" placeholder="Ex: 12"></div>
         <div class="field" id="recebNovoWidgetCampoMedidas2" style="display:none;"><label>Segunda medida (opcional, pra comparar duas linhas)</label><select id="recebNovoWidgetMedida2"></select></div>
         <div class="field" id="recebNovoWidgetCampoFonte" style="display:none;">
@@ -2703,7 +2707,49 @@
           <label id="recebNovoWidgetLabelColunas">Colunas</label>
           <div id="recebNovoWidgetColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
         </div>
+        <div id="recebNovoWidgetCampoGrafico" style="display:none;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0;cursor:pointer;">
+            <input type="checkbox" id="recebNovoWidgetLegenda" style="width:auto;"> Mostrar legenda
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0 10px;cursor:pointer;">
+            <input type="checkbox" id="recebNovoWidgetRotulos" style="width:auto;"> Mostrar rótulos de valor
+          </label>
+        </div>
         <button class="primary" id="btnRecebAdicionarWidget" type="button">Adicionar ao painel</button>
+      </div>
+
+      <div class="card" id="recebCardMedidas" style="display:none;">
+        <h2>Medidas</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie suas próprias medidas (um campo + uma função: soma, média, contagem...) ou edite o nome/formato das medidas prontas.</p>
+        <div id="recebListaMedidas"></div>
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+          <div class="row">
+            <div class="field"><label>Nome</label><input type="text" id="recebMedidaNome" placeholder="Ex: Valor médio da nota"></div>
+            <div class="field" id="recebMedidaCampoFuncaoCampo"><label>Campo</label><select id="recebMedidaCampo"></select></div>
+          </div>
+          <div class="row">
+            <div class="field" id="recebMedidaCampoFuncao"><label>Função</label>
+              <select id="recebMedidaFuncao">
+                <option value="soma">Soma</option>
+                <option value="media">Média</option>
+                <option value="contagem">Contagem (quantidade de notas)</option>
+                <option value="contagemDistinta">Contagem distinta</option>
+                <option value="min">Mínimo</option>
+                <option value="max">Máximo</option>
+                <option value="percentualDoTotal">% do total geral</option>
+              </select>
+            </div>
+            <div class="field"><label>Formato</label>
+              <select id="recebMedidaFormato">
+                <option value="money">Dinheiro (R$)</option>
+                <option value="pct">Percentual (%)</option>
+                <option value="int">Número inteiro</option>
+                <option value="dias">Dias</option>
+              </select>
+            </div>
+          </div>
+          <button class="primary" id="btnRecebAdicionarMedida" type="button">Adicionar medida</button>
+        </div>
       </div>
 
       <div id="recebGradeWidgets"></div>
