@@ -13324,9 +13324,12 @@ function recebRotuloDimensaoValor(chave, dimKey){
   const dim = RECEB_DIMENSOES[dimKey];
   return dim ? dim.fmtLabel(chave) : chave;
 }
-// agrupa por 1 a 3 níveis de dimensão de uma vez e calcula VÁRIAS medidas
-// por grupo — usado pela tabela personalizada no modo "agrupado"
-function recebAgruparMultiplasDimensoes(linhas, dimensoesChaves, medidas){
+// agrupa por 1 a 3 níveis de dimensão de uma vez — "colunas" pode
+// misturar medidas (agregadas com recebCalcularMedida) e campos crus (o
+// valor da 1ª nota do grupo, já que um campo de nota não tem como ser
+// "somado" — útil pra ver, por exemplo, um dado complementar daquele
+// grupo junto com as medidas) — usado pela tabela personalizada "agrupado"
+function recebAgruparMultiplasDimensoes(linhas, dimensoesChaves, colunas){
   const hoje = recebHoje();
   const grupos = {};
   linhas.forEach(o=>{
@@ -13338,12 +13341,13 @@ function recebAgruparMultiplasDimensoes(linhas, dimensoesChaves, medidas){
   const resultado = Object.values(grupos).map(g=>({
     chaves: g.chaves,
     rotulos: g.chaves.map((k,i)=>recebRotuloDimensaoValor(k, dimensoesChaves[i])),
-    valores: Object.fromEntries(medidas.map(m=>[m, recebCalcularMedida(g.itens, m)])),
+    valores: Object.fromEntries(colunas.map(c=>[c, RECEB_MEDIDAS[c] ? recebCalcularMedida(g.itens, c) : recebValorColunaNota(g.itens[0], hoje, c)])),
   }));
   const dim0 = RECEB_DIMENSOES[dimensoesChaves[0]];
   const ordenarPorChave = dimensoesChaves[0]!=='faixaVencimento' && dim0 && dim0.ordenar==='chave';
+  const primeiraMedida = colunas.find(c=>RECEB_MEDIDAS[c]);
   resultado.sort((a,b)=>{
-    let d = ordenarPorChave ? String(a.chaves[0]).localeCompare(String(b.chaves[0])) : (medidas[0] ? (b.valores[medidas[0]]||0)-(a.valores[medidas[0]]||0) : 0);
+    let d = ordenarPorChave ? String(a.chaves[0]).localeCompare(String(b.chaves[0])) : (primeiraMedida ? (b.valores[primeiraMedida]||0)-(a.valores[primeiraMedida]||0) : 0);
     if(d) return d;
     for(let i=1;i<a.chaves.length;i++){ d = String(a.chaves[i]).localeCompare(String(b.chaves[i])); if(d) return d; }
     return 0;
@@ -13354,12 +13358,13 @@ function recebRenderWidgetTabelaPersonalizada(widget, linhas){
   const tab = document.getElementById(`receb-${widget.id}-tabela`); if(!tab) return;
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : RECEB_COLUNAS_NOTAS_PADRAO;
   if(widget.fonte === 'agrupado'){
+    const catalogoCampos = recebColunasTabelaDisponiveis();
     const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
     const grupos = recebAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
     const cabDim = dimensoes.map(d=>RECEB_DIMENSOES_TODAS[d] || d);
-    const cab = [...cabDim, ...colunas.map(c=>(RECEB_MEDIDAS[c]||{}).label||c)];
+    const cab = [...cabDim, ...colunas.map(c=>(RECEB_MEDIDAS[c]||{}).label || catalogoCampos[c] || c)];
     const corpo = grupos.map(g=>{
-      const celulas = [...g.rotulos, ...colunas.map(c=>recebFormatarMedida(g.valores[c], c))];
+      const celulas = [...g.rotulos, ...colunas.map(c=>RECEB_MEDIDAS[c] ? recebFormatarMedida(g.valores[c], c) : g.valores[c])];
       return `<tr>${celulas.map(v=>`<td>${escaparHtml(String(v))}</td>`).join('')}</tr>`;
     }).join('');
     tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
@@ -13398,20 +13403,26 @@ function recebWidgetTitulo(w){
   return (RECEB_MEDIDAS[w.medida]||{}).label || w.medida || '(sem título)';
 }
 // opções de coluna do formulário "tabela (colunas à sua escolha)" — notas
-// usa o catálogo por nota, agrupado reaproveita as próprias RECEB_MEDIDAS
-function recebOpcoesColunasPorFonte(fonte){
-  return fonte === 'agrupado' ? RECEB_MEDIDAS : recebColunasTabelaDisponiveis();
-}
+// usa só o catálogo de campos; agrupado mescla as MEDIDAS (agregadas por
+// grupo) com os mesmos CAMPOS de notas (aí o valor mostrado é o da 1ª
+// nota do grupo, já que um campo cru não tem como ser "somado")
 function recebRenderColunasPicker(fonte){
-  const opcoes = recebOpcoesColunasPorFonte(fonte);
   const marcadas = new Set(recebFormColunasAtual);
-  document.getElementById('recebNovoWidgetLabelColunas').textContent = fonte==='agrupado' ? 'Medidas (colunas)' : 'Colunas';
-  document.getElementById('recebNovoWidgetColunasLista').innerHTML = Object.entries(opcoes).map(([k,v])=>{
+  const montaItens = opcoes => Object.entries(opcoes).map(([k,v])=>{
     const label = typeof v === 'string' ? v : v.label;
     return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
       <input type="checkbox" data-wcoluna value="${k}" ${marcadas.has(k)?'checked':''} style="width:auto;"> ${escaparHtml(label)}
     </label>`;
   }).join('');
+  if(fonte === 'agrupado'){
+    document.getElementById('recebNovoWidgetLabelColunas').textContent = 'Colunas (medidas e campos)';
+    document.getElementById('recebNovoWidgetColunasLista').innerHTML =
+      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:2px 0;">MEDIDAS (somadas/calculadas por grupo)</div>${montaItens(RECEB_MEDIDAS)}` +
+      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª nota do grupo)</div>${montaItens(recebColunasTabelaDisponiveis())}`;
+  }else{
+    document.getElementById('recebNovoWidgetLabelColunas').textContent = 'Colunas';
+    document.getElementById('recebNovoWidgetColunasLista').innerHTML = montaItens(recebColunasTabelaDisponiveis());
+  }
 }
 function recebHtmlToolbar(w, i, total){
   if(!recebModoEdicao) return '';
