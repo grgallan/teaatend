@@ -2642,33 +2642,28 @@
 
       <div class="card" id="recebCardFiltros" style="display:none;">
         <h2>Filtros</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Escolha quantos valores quiser em cada filtro — sem nenhum marcado, entram todos.</p>
-        <div class="field">
-          <label>Competência</label>
-          <input type="text" id="receb_busca_competencia" placeholder="Buscar competência...">
-          <div class="rm-chips-selecionados" id="recebChipsCompetencia"></div>
-          <div class="rm-lookup-resultados" id="recebLookupCompetencia"></div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Clique no ▾ de cada filtro — "Selecionar todos" ou vá marcando quais quer, igual nas colunas de Atendimentos.</p>
+        <div class="row" style="flex-wrap:wrap;gap:14px;">
+          <div class="field" style="flex:1;min-width:150px;">
+            <label>Competência <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="competencia" style="cursor:pointer;" title="Filtrar Competência">▾</span></span></label>
+            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-competencia">Todos</div>
+          </div>
+          <div class="field" style="flex:1;min-width:150px;">
+            <label>Cliente (grupo) <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="cliente" style="cursor:pointer;" title="Filtrar Cliente">▾</span></span></label>
+            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-cliente">Todos</div>
+          </div>
+          <div class="field" style="flex:1;min-width:150px;">
+            <label>Município <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="municipio" style="cursor:pointer;" title="Filtrar Município">▾</span></span></label>
+            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-municipio">Todos</div>
+          </div>
+          <div class="field" style="flex:1;min-width:150px;">
+            <label>Contrato <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="contrato" style="cursor:pointer;" title="Filtrar Contrato">▾</span></span></label>
+            <div style="font-size:12.5px;color:var(--muted);" id="recebResumo-contrato">Todos</div>
+          </div>
         </div>
-        <div class="field">
-          <label>Cliente (grupo)</label>
-          <input type="text" id="receb_busca_cliente_filtro" placeholder="Buscar cliente...">
-          <div class="rm-chips-selecionados" id="recebChipsCliente"></div>
-          <div class="rm-lookup-resultados" id="recebLookupCliente"></div>
-        </div>
-        <div class="field">
-          <label>Município</label>
-          <input type="text" id="receb_busca_municipio" placeholder="Buscar município...">
-          <div class="rm-chips-selecionados" id="recebChipsMunicipio"></div>
-          <div class="rm-lookup-resultados" id="recebLookupMunicipio"></div>
-        </div>
-        <div class="field">
-          <label>Contrato</label>
-          <input type="text" id="receb_busca_contrato" placeholder="Buscar contrato...">
-          <div class="rm-chips-selecionados" id="recebChipsContrato"></div>
-          <div class="rm-lookup-resultados" id="recebLookupContrato"></div>
-        </div>
-        <button class="ghost" id="btnRecebLimparFiltros" type="button" style="width:auto;padding:8px 14px;">Limpar filtros</button>
+        <button class="ghost" id="btnRecebLimparFiltros" type="button" style="width:auto;padding:8px 14px;margin-top:10px;">Limpar filtros</button>
       </div>
+      <div class="lista-filtro-coluna-dropdown" id="recebFiltroColunaPortal"></div>
 
       <div class="card" id="recebCardGradeTopo" style="display:none;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">

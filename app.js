@@ -12729,12 +12729,22 @@ function recebCarregarLayoutPainel(){
 }
 function recebAbrir(){
   if(!recebLayoutCarregado) recebCarregarLayoutPainel();
-  const disponiveis = recebClientesDisponiveis();
+  const conta = contaAtual();
+  // USUARIO só enxerga (e só pode escolher) o próprio cliente — o mesmo
+  // isolamento que já existe em Resumo/Dashboard/Financeiro pra quem é
+  // da empresa cliente, não da consultoria; ADMIN/ATENDENTE continuam
+  // vendo qualquer cliente com o relatório cadastrado
+  const souUsuario = conta && conta.perfil === 'USUARIO';
+  let disponiveis = recebClientesDisponiveis();
+  if(souUsuario) disponiveis = disponiveis.filter(c=>String(c.id)===String(conta.clienteId));
   const sel = document.getElementById('receb_cliente');
+  sel.disabled = souUsuario;
   sel.innerHTML = disponiveis.length === 0
-    ? `<option value="">Nenhum cliente com relatório cadastrado</option>`
+    ? `<option value="">${souUsuario ? 'Seu cliente ainda não tem esse relatório cadastrado' : 'Nenhum cliente com relatório cadastrado'}</option>`
     : disponiveis.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}${c.rmUrl ? '' : ' (falta configurar a conexão RM)'}</option>`).join('');
-  if(disponiveis.length === 0) document.getElementById('recebStatus').textContent = 'Cadastre um relatório "Painel de Recebíveis" pra algum cliente em Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios.';
+  if(disponiveis.length === 0) document.getElementById('recebStatus').textContent = souUsuario
+    ? 'Peça pro administrador cadastrar o relatório "Painel de Recebíveis" pro seu cliente, em Relatórios Gerenciais TOTVS RM.'
+    : 'Cadastre um relatório "Painel de Recebíveis" pra algum cliente em Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios.';
   else document.getElementById('recebStatus').textContent = '';
   if(recebClienteId && disponiveis.some(c=>String(c.id)===String(recebClienteId))) sel.value = recebClienteId;
   else recebClienteId = sel.value || '';
@@ -12764,40 +12774,53 @@ async function recebAtualizarDoRm(){
 // "lookup" de multi-seleção (busca + chips dos escolhidos + lista com
 // checkbox) — mesmo padrão visual já usado no Gerador SQL RM, só que
 // genérico pra qualquer lista de {value,label}, reusado nos 4 filtros
-function recebRenderLookup(resultadosId, chipsId, opcoes, selecionados){
-  const chipsEl = document.getElementById(chipsId);
-  const escolhidos = opcoes.filter(o=>selecionados.has(o.value));
-  chipsEl.innerHTML = escolhidos.length
-    ? escolhidos.map(o=>`<div class="chip on" data-v="${escaparHtml(o.value)}">${escaparHtml(o.label)} ✕</div>`).join('')
-    : `<span style="color:var(--muted);font-size:12px;">Todos (nenhum filtro aplicado)</span>`;
-  const el = document.getElementById(resultadosId);
-  el.innerHTML = opcoes.length === 0 ? `<div class="empty" style="padding:6px 0;font-size:12px;">Nenhuma opção disponível.</div>` : opcoes.map(o=>
-    `<label class="rm-campo-row" data-busca="${escaparHtml(String(o.label).toLowerCase())}" style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:12.5px;cursor:pointer;"><input type="checkbox" data-v="${escaparHtml(o.value)}" ${selecionados.has(o.value)?'checked':''}> ${escaparHtml(o.label)}</label>`
-  ).join('');
-}
-function recebFiltrarLookupPorBusca(containerId, termo){
-  const t = String(termo||'').trim().toLowerCase();
-  document.querySelectorAll(`#${containerId} .rm-campo-row`).forEach(linha=>{
-    linha.hidden = !!t && !(linha.dataset.busca||'').includes(t);
-  });
-}
-const RECEB_LOOKUPS = [
-  { chave:'competencia', resultados:'recebLookupCompetencia', chips:'recebChipsCompetencia', busca:'receb_busca_competencia' },
-  { chave:'cliente', resultados:'recebLookupCliente', chips:'recebChipsCliente', busca:'receb_busca_cliente_filtro' },
-  { chave:'municipio', resultados:'recebLookupMunicipio', chips:'recebChipsMunicipio', busca:'receb_busca_municipio' },
-  { chave:'contrato', resultados:'recebLookupContrato', chips:'recebChipsContrato', busca:'receb_busca_contrato' },
-];
-function recebRenderFiltros(){
+// filtros no mesmo padrão "estilo Excel" já usado nas colunas de
+// Atendimentos/Financeiro/Tarefas: um dropdown com "Selecionar todos" +
+// uma linha por valor (✓ = marcado), num portal único posicionado embaixo
+// do ▾ clicado — Set vazio = "todos" (nenhum filtro aplicado)
+let recebFiltroColunaAberta = null; // qual dos 4 filtros está com o dropdown aberto agora
+function recebOpcoesPorFiltro(){
   const competencias = [...new Set(recebLinhas.map(o=>o.m).filter(Boolean))].sort().map(m=>({ value:m, label:recebMesLbl(m) }));
   const porTotal = (chave)=>{ const m={}; recebLinhas.forEach(o=>{ m[o[chave]] = (m[o[chave]]||0) + o.t; }); return Object.keys(m).sort((a,b)=>m[b]-m[a]); };
   const clientesOpts = porTotal('g').map(v=>({ value:v, label:v }));
   const municipiosOpts = [...new Set(recebLinhas.map(o=>o.u))].sort((a,b)=>a.localeCompare(b,'pt')).map(v=>({ value:v, label:v }));
   const contratosOpts = porTotal('k').map(k=>{ const c=recebCtrLbl(k); return { value:k, label:c.n+' '+c.d }; });
-  const opcoesPorFiltro = { competencia:competencias, cliente:clientesOpts, municipio:municipiosOpts, contrato:contratosOpts };
-  RECEB_LOOKUPS.forEach(cfg=>{
-    recebRenderLookup(cfg.resultados, cfg.chips, opcoesPorFiltro[cfg.chave], recebFiltros[cfg.chave]);
-    const buscaEl = document.getElementById(cfg.busca);
-    if(buscaEl && buscaEl.value) recebFiltrarLookupPorBusca(cfg.resultados, buscaEl.value);
+  return { competencia:competencias, cliente:clientesOpts, municipio:municipiosOpts, contrato:contratosOpts };
+}
+function recebFecharFiltroColuna(){
+  recebFiltroColunaAberta = null;
+  const portal = document.getElementById('recebFiltroColunaPortal');
+  if(portal){ portal.classList.remove('show'); portal.innerHTML = ''; }
+}
+function recebToggleFiltroColuna(chave, spanEl){
+  const jaAbertoParaEsse = recebFiltroColunaAberta === chave;
+  recebFecharFiltroColuna();
+  if(jaAbertoParaEsse) return;
+  recebFiltroColunaAberta = chave;
+  const portal = document.getElementById('recebFiltroColunaPortal');
+  if(!portal || !spanEl) return;
+  const set = recebFiltros[chave];
+  const opcoes = recebOpcoesPorFiltro()[chave] || [];
+  const itensDropdown = opcoes.length
+    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${chave}" data-valor="${escaparHtml(o.value)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
+    : `<div class="lista-filtro-coluna-item" style="color:var(--muted);cursor:default;">Nenhuma opção disponível</div>`;
+  portal.innerHTML = `
+    <div class="lista-filtro-coluna-item" data-chave="${chave}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
+    ${itensDropdown}
+  `;
+  const r = spanEl.getBoundingClientRect();
+  portal.style.left = `${r.left}px`;
+  portal.style.top = `${r.bottom + 4}px`;
+  portal.classList.add('show');
+}
+function recebRenderFiltros(){
+  if(recebFiltroColunaAberta) recebFecharFiltroColuna();
+  ['competencia','cliente','municipio','contrato'].forEach(chave=>{
+    const n = recebFiltros[chave].size;
+    const resumo = document.getElementById(`recebResumo-${chave}`);
+    if(resumo) resumo.textContent = n === 0 ? 'Todos' : `${n} selecionado${n===1?'':'s'}`;
+    const trigger = document.querySelector(`[data-rfiltro="${chave}"]`);
+    if(trigger) trigger.style.color = n > 0 ? 'var(--accent)' : '';
   });
 }
 function recebToggleFiltro(chave, valor){
@@ -14551,17 +14574,20 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnCancelarEdicaoRmRelatorio').addEventListener('click', cancelarEdicaoRmRelatorio);
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
   document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
-  RECEB_LOOKUPS.forEach(cfg=>{
-    document.getElementById(cfg.busca).addEventListener('input', e=>recebFiltrarLookupPorBusca(cfg.resultados, e.target.value));
-    document.getElementById(cfg.resultados).addEventListener('change', e=>{
-      const cb = e.target.closest('input[type=checkbox]'); if(!cb) return;
-      recebToggleFiltro(cfg.chave, cb.dataset.v);
-    });
-    document.getElementById(cfg.chips).addEventListener('click', e=>{
-      const chip = e.target.closest('.chip'); if(!chip) return;
-      recebToggleFiltro(cfg.chave, chip.dataset.v);
-    });
+  document.getElementById('recebCardFiltros').addEventListener('click', e=>{
+    const trigger = e.target.closest('[data-rfiltro]'); if(!trigger) return;
+    recebToggleFiltroColuna(trigger.dataset.rfiltro, trigger);
   });
+  document.getElementById('recebFiltroColunaPortal').addEventListener('click', e=>{
+    const item = e.target.closest('.lista-filtro-coluna-item'); if(!item || !item.dataset.chave) return;
+    const chave = item.dataset.chave, valor = item.dataset.valor;
+    const set = recebFiltros[chave];
+    if(valor === '') set.clear();
+    else if(set.has(valor)) set.delete(valor); else set.add(valor);
+    recebFecharFiltroColuna();
+    recebRender();
+  });
+  document.addEventListener('click', e=>{ if(!e.target.closest('[data-rfiltro]') && !e.target.closest('#recebFiltroColunaPortal')) recebFecharFiltroColuna(); });
   document.getElementById('btnRecebLimparFiltros').addEventListener('click', ()=>{
     recebFiltros = { competencia: new Set(), cliente: new Set(), municipio: new Set(), contrato: new Set() };
     recebRender();
