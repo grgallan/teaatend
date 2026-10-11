@@ -904,6 +904,12 @@
   .rm-campos-grid label[hidden]{display:none;}
   .rm-lookup-resultados{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:6px;background:var(--panel-2);margin-bottom:6px;}
   .rm-lookup-resultados:empty{display:none;border:none;padding:0;margin:0;}
+  .recebwidget{position:relative;}
+  .recebwidget-toolbar{display:none;position:absolute;top:10px;right:10px;gap:4px;z-index:2;}
+  .recebwidget.editando .recebwidget-toolbar{display:flex;}
+  .recebwidget-toolbar button{width:26px;height:26px;padding:0;border:1px solid var(--line);background:var(--panel-2);border-radius:6px;cursor:pointer;font-size:12px;color:var(--text);}
+  .recebwidget-toolbar button:hover{border-color:var(--accent);}
+  .recebwidget-editform{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:10px;}
   .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;white-space:normal;}
   .rm-lookup-item:hover{background:var(--accent-dim);color:var(--accent);}
   .rm-lookup-item.on{background:var(--accent-dim);color:var(--accent);font-weight:600;}
@@ -2663,51 +2669,46 @@
         <button class="ghost" id="btnRecebLimparFiltros" type="button" style="width:auto;padding:8px 14px;">Limpar filtros</button>
       </div>
 
-      <div class="summary" id="recebKpis" style="display:none;"></div>
-
-      <div class="card" id="recebCardRegua" style="display:none;">
-        <h2>Régua de cobrança</h2>
-        <div class="summary" id="recebReguaNumeros"></div>
-        <div id="recebGraficoRegua" style="margin-top:10px;"></div>
-      </div>
-
-      <div class="card" id="recebCardMes" style="display:none;overflow-x:auto;">
-        <h2>Faturado e recebido mês a mês</h2>
-        <div id="recebGraficoMes"></div>
-        <div class="dash-legend" id="recebLegendaMes"></div>
-      </div>
-
-      <div class="card" id="recebCardClientes" style="display:none;">
-        <h2>Clientes</h2>
-        <div class="dash-sub">clique numa barra pra filtrar o painel por esse cliente</div>
-        <div id="recebBarrasClientes"></div>
-      </div>
-
-      <div class="card" id="recebCardMunicipios" style="display:none;">
-        <h2>Municípios</h2>
-        <div class="dash-sub">os 12 com maior faturamento no período — clique pra filtrar</div>
-        <div id="recebBarrasMunicipios"></div>
-      </div>
-
-      <div class="card" id="recebCardAbertas" style="display:none;">
-        <h2>Notas em aberto</h2>
-        <div class="dash-sub">tudo o que ainda não foi recebido, do vencimento mais antigo pro mais novo</div>
-        <div class="filters" id="recebSegAbertas">
-          <div class="chip on" data-seg="todas">Todas</div>
-          <div class="chip" data-seg="Atrasada">Vencidas</div>
-          <div class="chip" data-seg="Próximos dias">Próximos 7 dias</div>
-          <div class="chip" data-seg="A vencer">A vencer</div>
+      <div class="card" id="recebCardGradeTopo" style="display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <h2 style="margin:0;">Painel</h2>
+            <p style="color:var(--muted);font-size:11.5px;margin:2px 0 0;">Monte o painel do seu jeito — adicione, remova e reordene os widgets.</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="ghost" id="btnRecebEditarPainel" type="button" style="width:auto;padding:8px 14px;">⚙ Configurar painel</button>
+            <button class="primary" id="btnRecebSalvarPainel" type="button" style="width:auto;padding:8px 14px;display:none;">Salvar layout</button>
+            <button class="ghost" id="btnRecebCancelarEdicaoPainel" type="button" style="width:auto;padding:8px 14px;display:none;">Cancelar</button>
+          </div>
         </div>
-        <input type="search" id="receb_busca" placeholder="Buscar nota, cliente, contrato ou município" style="margin-bottom:10px;">
-        <div style="overflow-x:auto;"><table class="valores-table" id="recebTabelaAbertas"></table></div>
-        <button class="ghost" id="btnRecebCopiarAbertas" type="button" style="width:auto;margin-top:10px;padding:8px 14px;">Copiar lista</button>
       </div>
 
-      <div class="card" id="recebCardContratos" style="display:none;overflow-x:auto;">
-        <h2>Contratos</h2>
-        <div class="dash-sub">ordenados pelo maior faturado no período</div>
-        <table class="valores-table" id="recebTabelaContratos"></table>
+      <div class="card" id="recebCardAddWidget" style="display:none;">
+        <h2>Adicionar widget</h2>
+        <div class="row">
+          <div class="field"><label>Tipo</label>
+            <select id="recebNovoWidgetTipo">
+              <option value="kpi">Indicador (número único)</option>
+              <option value="barra">Gráfico de barras</option>
+              <option value="barra-h">Ranking (barras horizontais)</option>
+              <option value="linha">Gráfico de linha (por competência)</option>
+              <option value="donut">Gráfico de pizza (donut)</option>
+              <option value="tabela-abertas">Tabela: Notas em aberto</option>
+              <option value="tabela-contratos">Tabela: Contratos</option>
+            </select>
+          </div>
+          <div class="field"><label>Título</label><input type="text" id="recebNovoWidgetTitulo" placeholder="Ex: Faturado por cliente"></div>
+        </div>
+        <div class="row" id="recebNovoWidgetLinhaMedida">
+          <div class="field" id="recebNovoWidgetCampoMedida"><label>Medida</label><select id="recebNovoWidgetMedida"></select></div>
+          <div class="field" id="recebNovoWidgetCampoDimensao"><label>Agrupar por</label><select id="recebNovoWidgetDimensao"></select></div>
+        </div>
+        <div class="field" id="recebNovoWidgetCampoTop" style="display:none;"><label>Mostrar só os N maiores (opcional)</label><input type="number" id="recebNovoWidgetTop" min="1" placeholder="Ex: 12"></div>
+        <div class="field" id="recebNovoWidgetCampoMedidas2" style="display:none;"><label>Segunda medida (opcional, pra comparar duas linhas)</label><select id="recebNovoWidgetMedida2"></select></div>
+        <button class="primary" id="btnRecebAdicionarWidget" type="button">Adicionar ao painel</button>
       </div>
+
+      <div id="recebGradeWidgets"></div>
     </div>
   </section>
 
