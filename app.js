@@ -13166,6 +13166,44 @@ function recebAgruparPorDimensao(linhas, dimensaoChave, medida){
   arr.sort(dim.ordenar==='chave' ? (a,b)=>String(a.chave).localeCompare(String(b.chave)) : (a,b)=>b.valor-a.valor);
   return arr;
 }
+// agrupa por uma dimensão calculando a MESMA quebra por situação que o
+// painel standalone já tinha (Recebido/Vencido/A vencer) — usado pelo
+// widget "ranking-situacao", ordenado sempre do maior faturado pro menor
+function recebAgruparRankingSituacao(linhas, dimensaoChave, top){
+  const hoje = recebHoje();
+  const grupos = {};
+  linhas.forEach(o=>{
+    if(o.situacao === 'Cancelada') return;
+    const k = recebChaveDimensaoValor(o, dimensaoChave, hoje);
+    const g = grupos[k] || (grupos[k] = { chave:k, rotulo: recebRotuloDimensaoValor(k, dimensaoChave), t:0, r:0, v:0, f:0 });
+    g.t += o.t;
+    g.r += Math.min(o.r||0, o.t); // nunca deixa o "recebido" passar do total (nota paga a mais não estoura a barra)
+    if(o.situacao === 'Atrasada') g.v += o.saldo; else g.f += o.saldo;
+  });
+  let arr = Object.values(grupos).sort((a,b)=>b.t-a.t);
+  if(top) arr = arr.slice(0, Number(top));
+  return arr;
+}
+function recebRenderWidgetRankingSituacao(containerId, widget, linhas){
+  const cont = document.getElementById(containerId); if(!cont) return;
+  const grupos = recebAgruparRankingSituacao(linhas, widget.dimensao, widget.top);
+  if(!grupos.length){ cont.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const max = Math.max(...grupos.map(g=>g.t), 1);
+  const w = x => (x/max*100).toFixed(2)+'%';
+  const filtravel = RECEB_DIMENSOES_FILTRAVEIS.has(widget.dimensao);
+  cont.innerHTML = grupos.map(g=>{
+    const outro = Math.max(0, g.t - g.r - g.v - g.f);
+    const nome = filtravel
+      ? `<button type="button" class="receb-rs-nome" data-rsclique="${escaparHtml(widget.dimensao)}" data-rsvalor="${escaparHtml(g.chave)}" title="Filtrar por ${escaparHtml(g.rotulo)}">${escaparHtml(g.rotulo)}</button>`
+      : `<span>${escaparHtml(g.rotulo)}</span>`;
+    return `<div class="receb-rs-row">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">${nome}<span class="receb-rs-valor">${fmtMoeda(g.t)}</span></div>
+      <div class="receb-rs-track" title="Recebido ${fmtMoeda(g.r)} · Vencido ${fmtMoeda(g.v)} · A vencer ${fmtMoeda(g.f)}">
+        <span style="width:${w(g.r)};background:${dashCss('--ok')};"></span><span style="width:${w(g.v)};background:${dashCss('--bad')};"></span><span style="width:${w(g.f)};background:${dashCss('--warn')};"></span><span style="width:${w(outro)};background:${dashCss('--line')};"></span>
+      </div>
+    </div>`;
+  }).join('');
+}
 // clique na barra filtra o painel por aquele valor — no modo horizontal
 // o dashBarChart desenha 2 <rect> por linha (trilho + barra, por isso
 // índice ímpar); no vertical é 1 <rect> por barra (índice direto)
@@ -13408,6 +13446,7 @@ function recebWidgetTitulo(w){
   if(w.tipo==='tabela-abertas') return 'Notas em aberto';
   if(w.tipo==='tabela-contratos') return 'Contratos';
   if(w.tipo==='tabela') return 'Tabela';
+  if(w.tipo==='ranking-situacao') return `${RECEB_DIMENSOES_TODAS[w.dimensao] || 'Ranking'} por situação`;
   return (RECEB_MEDIDAS[w.medida]||{}).label || w.medida || '(sem título)';
 }
 // opções de coluna do formulário "tabela (colunas à sua escolha)" — notas
@@ -13477,6 +13516,13 @@ function recebHtmlWidget(w, i, total){
   if(w.tipo === 'kpi'){
     return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="receb-${w.id}-conteudo"></div></div>`;
   }
+  if(w.tipo === 'ranking-situacao'){
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+      <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
+      <div class="dash-legend" style="margin:2px 0 10px;">${dashLegendHtml([{label:'Recebido',cor:dashCss('--ok')},{label:'Vencido',cor:dashCss('--bad')},{label:'A vencer',cor:dashCss('--warn')}])}</div>
+      <div id="receb-${w.id}-conteudo"></div>
+    </div>`;
+  }
   return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${w.tipo==='linha'?' style="overflow-x:auto;"':''}>${toolbar}
     <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
     <div id="receb-${w.id}-conteudo" style="margin-top:8px;"></div>
@@ -13506,6 +13552,7 @@ function recebRenderConteudo(linhas){
     else if(w.tipo==='tabela-abertas') recebRenderWidgetAbertas(w, linhas);
     else if(w.tipo==='tabela-contratos') recebRenderWidgetContratos(w, linhas);
     else if(w.tipo==='tabela') recebRenderWidgetTabelaPersonalizada(w, linhas);
+    else if(w.tipo==='ranking-situacao') recebRenderWidgetRankingSituacao(`receb-${w.id}-conteudo`, w, linhas);
     else recebRenderWidgetGrafico(`receb-${w.id}-conteudo`, w, linhas, w.tipo);
   });
 }
@@ -13604,15 +13651,18 @@ function recebAtualizarCamposNovoWidget(){
   const ehTabelaPersonalizada = tipo==='tabela';
   const ehKpi = tipo==='kpi';
   const ehLinha = tipo==='linha';
+  const ehRankingSituacao = tipo==='ranking-situacao';
   const fonte = document.getElementById('recebNovoWidgetFonte').value || 'notas';
   // na tabela personalizada não existe campo "Medida" (quem escolhe as
-  // medidas é o picker de colunas) e "Agrupar por" só se a fonte é "agrupado"
-  const precisaMedida = !ehTabelaPronta && !ehTabelaPersonalizada;
+  // medidas é o picker de colunas) e "Agrupar por" só se a fonte é "agrupado";
+  // no ranking por situação também não tem medida — a quebra é sempre fixa
+  // (Recebido/Vencido/A vencer), só precisa da dimensão de agrupamento
+  const precisaMedida = !ehTabelaPronta && !ehTabelaPersonalizada && !ehRankingSituacao;
   const precisaDimensao = !ehTabelaPronta && !ehKpi && (!ehTabelaPersonalizada || fonte==='agrupado');
   document.getElementById('recebNovoWidgetLinhaMedida').style.display = (precisaMedida || precisaDimensao) ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoDimensao').style.display = precisaDimensao ? '' : 'none';
-  document.getElementById('recebNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra') ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra'||ehRankingSituacao) ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoMedidas2').style.display = ehLinha ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoApenasAbertas').style.display = (ehTabelaPersonalizada && fonte==='notas') ? 'flex' : 'none';
@@ -15246,6 +15296,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(copyBtn){ recebCopiarAbertas(copyBtn.dataset.wid); return; }
     const trCtr = e.target.closest('tr[data-ctr]');
     if(trCtr){ recebToggleFiltro('contrato', trCtr.dataset.ctr); return; }
+    const rsClique = e.target.closest('[data-rsclique]');
+    if(rsClique){ recebToggleFiltro(rsClique.dataset.rsclique, rsClique.dataset.rsvalor); return; }
   });
   document.getElementById('recebGradeWidgets').addEventListener('input', e=>{
     const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
@@ -15296,6 +15348,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         if(dimensao3 && dimensao2) widget.dimensao3 = dimensao3;
       }
       else widget.apenasAbertas = document.getElementById('recebNovoWidgetApenasAbertas').checked;
+    }else if(tipo === 'ranking-situacao'){
+      widget.dimensao = dimensao;
+      if(top) widget.top = Number(top);
     }else if(!ehTabelaPronta){
       widget.medida = medida;
       if(tipo==='linha'){ widget.dimensao = dimensao; if(medida2) widget.medida2 = medida2; }

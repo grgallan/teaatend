@@ -298,6 +298,12 @@
   .dash-rank-row .track{flex:1;height:9px;background:var(--panel-2);border-radius:5px;overflow:hidden;}
   .dash-rank-row .fill{height:100%;border-radius:5px;background:var(--blue);}
   .dash-rank-row .val{flex:none;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--muted);white-space:nowrap;}
+  .receb-rs-row{padding:6px 0;border-bottom:1px solid var(--line);}
+  .receb-rs-row:last-child{border-bottom:none;}
+  .receb-rs-nome{background:none;border:none;padding:0;font:inherit;font-size:13px;font-weight:600;color:var(--text);text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+  .receb-rs-nome:hover{text-decoration:underline;}
+  .receb-rs-valor{flex:none;font-size:12.5px;font-weight:700;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
+  .receb-rs-track{display:flex;height:9px;border-radius:5px;overflow:hidden;background:var(--panel-2);margin-top:4px;}
   .dash-tooltip{position:fixed;pointer-events:none;background:var(--text);color:var(--panel);font-size:11.5px;font-weight:600;padding:6px 9px;border-radius:8px;z-index:99;opacity:0;transform:translate(-50%,-100%);transition:opacity .08s;white-space:nowrap;}
   .dash-tooltip.show{opacity:1;}
   .dash-empty{font-size:12.5px;color:var(--muted);padding:6px 0;}
@@ -2675,6 +2681,7 @@
               <option value="kpi">Indicador (número único)</option>
               <option value="barra">Gráfico de barras</option>
               <option value="barra-h">Ranking (barras horizontais)</option>
+              <option value="ranking-situacao">Ranking por situação (Recebido/Vencido/A vencer)</option>
               <option value="linha">Gráfico de linha</option>
               <option value="donut">Gráfico de pizza (donut)</option>
               <option value="tabela">Tabela (colunas à sua escolha)</option>
