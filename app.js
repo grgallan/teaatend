@@ -14364,6 +14364,120 @@ function pnlCalcularMedida(linhas, medidaId){
     default: return 0;
   }
 }
+// tokeniza uma fórmula de medida: números, operadores + - * /, parênteses
+// e referências [idDaMedida]
+function pnlTokenizarFormulaMedida(formula){
+  const tokens = [];
+  const re = /\s*(?:(\[[a-zA-Z0-9_]+\])|(\d+(?:\.\d+)?)|([+\-*/()]))\s*/y;
+  let i = 0;
+  while(i < formula.length){
+    re.lastIndex = i;
+    const m = re.exec(formula);
+    if(!m || m.index !== i) throw new Error('formula invalida');
+    if(m[1]) tokens.push({ tipo:'ref', valor: m[1].slice(1,-1) });
+    else if(m[2]) tokens.push({ tipo:'num', valor: Number(m[2]) });
+    else if(m[3]) tokens.push({ tipo:'op', valor: m[3] });
+    i = re.lastIndex;
+  }
+  return tokens;
+}
+// avalia a fórmula com um parser recursivo (sem eval/Function — só
+// +, -, *, /, parênteses, números e [id] resolvido por "resolverRef")
+function pnlAvaliarFormulaMedida(formula, resolverRef){
+  let tokens;
+  try { tokens = pnlTokenizarFormulaMedida(formula || ''); } catch(e){ return 0; }
+  let pos = 0;
+  const pico = () => tokens[pos];
+  function expr(){
+    let v = termo();
+    while(pico() && pico().tipo==='op' && (pico().valor==='+'||pico().valor==='-')){
+      const op = tokens[pos++].valor;
+      const d = termo();
+      v = op==='+' ? v+d : v-d;
+    }
+    return v;
+  }
+  function termo(){
+    let v = fator();
+    while(pico() && pico().tipo==='op' && (pico().valor==='*'||pico().valor==='/')){
+      const op = tokens[pos++].valor;
+      const d = fator();
+      v = op==='*' ? v*d : (d ? v/d : 0);
+    }
+    return v;
+  }
+  function fator(){
+    const t = pico();
+    if(!t) return 0;
+    if(t.tipo==='op' && t.valor==='-'){ pos++; return -fator(); }
+    if(t.tipo==='op' && t.valor==='('){ pos++; const v = expr(); if(pico() && pico().valor===')') pos++; return v; }
+    if(t.tipo==='num'){ pos++; return t.valor; }
+    if(t.tipo==='ref'){ pos++; return resolverRef(t.valor); }
+    pos++; return 0;
+  }
+  try { return expr(); } catch(e){ return 0; }
+}
+// detecta ciclo (direto ou indireto) entre fórmulas: a nova fórmula de
+// "id" não pode, direta ou indiretamente, acabar referenciando "id" de
+// volta — isso travaria pnlValorMedida num loop (a "pilha" ali já
+// protege contra travar de verdade, mas aqui dá pra avisar na hora)
+function pnlFormulaReferenciaCiclo(id, formula){
+  const vistos = new Set([id]);
+  function expandir(f){
+    const refs = [...String(f||'').matchAll(/\[([a-zA-Z0-9_]+)\]/g)].map(m=>m[1]);
+    for(const r of refs){
+      if(vistos.has(r)) return true;
+      vistos.add(r);
+      const def = pnlMedidaPorId(r);
+      if(def && def.formula && expandir(def.formula)) return true;
+    }
+    return false;
+  }
+  return expandir(formula);
+}
+// troca os [id] da fórmula pelo rótulo da medida, só pra exibição
+function pnlFormulaParaExibicao(formula){
+  return String(formula||'').replace(/\[([a-zA-Z0-9_]+)\]/g, (m, id) => {
+    const def = pnlMedidaPorId(id);
+    return def ? def.label : '?';
+  });
+}
+// linhas de UMA consulta, já com os filtros gerais aplicados e, se houver
+// um "grupo" ativo (agrupamento por 1-3 campos, usado nas tabelas
+// agrupadas e nos gráficos por dimensão), também filtradas por esses
+// campos — null quando essa consulta não tem algum desses campos (não dá
+// pra saber quais das linhas dela pertencem a esse grupo, então ela
+// simplesmente não contribui com esse grupo)
+function pnlLinhasConsultaNoContexto(consultaId, grupo){
+  let linhas = pnlFiltrados(consultaId);
+  if(!grupo) return linhas;
+  for(let i=0;i<grupo.campos.length;i++){
+    const campo = grupo.campos[i];
+    if(!pnlConsultaTemCampo(consultaId, campo)) return null;
+    const valor = grupo.valores[i];
+    linhas = linhas.filter(o=>pnlValorFiltro(o, campo)===valor);
+  }
+  return linhas;
+}
+// valor de QUALQUER medida (campo+função OU fórmula) num contexto —
+// grupo=null é o painel inteiro (KPI), ou {campos,valores} é um grupo
+// específico (tabela agrupada / gráficos por dimensão). "pilha" evita
+// loop infinito quando fórmulas se referenciam em ciclo
+function pnlValorMedida(medidaId, grupo, pilha){
+  const def = pnlMedidaPorId(medidaId);
+  if(!def) return 0;
+  pilha = pilha || new Set();
+  if(pilha.has(medidaId)) return 0;
+  if(def.formula){
+    pilha.add(medidaId);
+    const v = pnlAvaliarFormulaMedida(def.formula, id => pnlValorMedida(id, grupo, pilha));
+    pilha.delete(medidaId);
+    return v;
+  }
+  const linhas = pnlLinhasConsultaNoContexto(def.consultaId, grupo);
+  if(linhas === null) return 0;
+  return pnlCalcularMedida(linhas, medidaId);
+}
 function pnlFormatarMedida(valor, medidaId){
   const def = pnlMedidaPorId(medidaId) || {};
   const fmt = def.fmt;
@@ -14403,7 +14517,7 @@ function pnlAgruparMultiplasDimensoes(linhas, camposChaves, colunas){
   const resultado = Object.values(grupos).map(g=>({
     chaves: g.chaves,
     rotulos: g.chaves,
-    valores: Object.fromEntries(colunas.map(c=>[c, pnlMedidaPorId(c) ? pnlCalcularMedida(g.itens, c) : pnlFormatarValorColuna(g.itens[0][c])])),
+    valores: Object.fromEntries(colunas.map(c=>[c, pnlMedidaPorId(c) ? pnlValorMedida(c, {campos:camposChaves, valores:g.chaves}) : pnlFormatarValorColuna(g.itens[0][c])])),
   }));
   const primeiraMedida = colunas.find(c=>pnlMedidaPorId(c));
   resultado.sort((a,b)=>{
@@ -14420,7 +14534,7 @@ function pnlAgruparMultiplasDimensoes(linhas, camposChaves, colunas){
 function pnlAgruparPorCampo(linhas, campo, medidaId){
   const grupos = {};
   linhas.forEach(o=>{ const k = pnlValorFiltro(o, campo); (grupos[k] = grupos[k] || []).push(o); });
-  const arr = Object.entries(grupos).map(([k,itens])=>({ chave:k, rotulo:k, valor: medidaId ? pnlCalcularMedida(itens, medidaId) : itens.length }));
+  const arr = Object.entries(grupos).map(([k,itens])=>({ chave:k, rotulo:k, valor: medidaId ? pnlValorMedida(medidaId, {campos:[campo], valores:[k]}) : itens.length }));
   arr.sort((a,b)=>b.valor-a.valor);
   return arr;
 }
@@ -14603,7 +14717,7 @@ function pnlMoverFiltro(campo, dir){
 /* ---------- render de cada tipo de widget ---------- */
 function pnlRenderWidgetKpi(containerId, widget, linhas){
   const el = document.getElementById(containerId); if(!el) return;
-  const valor = pnlCalcularMedida(linhas, widget.medida);
+  const valor = pnlValorMedida(widget.medida, null);
   const def = pnlMedidaPorId(widget.medida) || {};
   const sub = widget.subtitulo || '';
   el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}</div>`;
@@ -14782,8 +14896,10 @@ function pnlRenderColunasPicker(fonte, consultaId){
     </label>`;
   }).join('');
   // só as medidas CRIADAS EM CIMA dessa mesma consulta fazem sentido aqui
-  // — uma medida de "Vendas" não tem como agregar linhas de "Compras"
-  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.consultaId===consultaId);
+  // — uma medida de "Vendas" não tem como agregar linhas de "Compras" —,
+  // mas uma medida-fórmula vale em qualquer consulta, já que ela combina
+  // outras medidas (de qualquer consulta) em vez de ler linhas direto
+  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.formula || m.consultaId===consultaId);
   let opcoesCombinadas;
   if(fonte === 'agrupado'){
     const medidas = Object.fromEntries(medidasDaConsulta.map(m=>[m.id, m.label]));
@@ -15020,7 +15136,7 @@ function pnlAtualizarFiltroFixoValor(){
 }
 function pnlPopularSelectsMedidaWidget(){
   const consultaId = pnlConsultaSelecionadaNoForm();
-  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.consultaId===consultaId);
+  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.formula || m.consultaId===consultaId);
   const medidaSel = document.getElementById('pnlNovoWidgetMedida');
   if(medidaSel) medidaSel.innerHTML = medidasDaConsulta.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
   const medida2Sel = document.getElementById('pnlNovoWidgetMedida2');
@@ -15096,10 +15212,11 @@ function pnlRenderListaMedidas(){
   const cont = document.getElementById('pnlListaMedidas');
   if(!cont) return;
   cont.innerHTML = pnlPainelMedidas.map(def=>{
-    const detalhe = def.funcao==='contagem' ? ` · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}` : ` · ${escaparHtml(def.campo||'')} · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}`;
+    const detalhe = def.formula ? ` · Fórmula: ${escaparHtml(pnlFormulaParaExibicao(def.formula))}`
+      : (def.funcao==='contagem' ? ` · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}` : ` · ${escaparHtml(def.campo||'')} · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}`);
     const casas = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
     const detalheFormato = def.fmt==='money' ? '' : ` · ${casas>0 ? casas+' casa'+(casas>1?'s':'')+' decimal'+(casas>1?'is':'') : 'inteiro'}`;
-    const consulta = pnlConsultasCarregadas.length > 1 ? pnlConsultasCarregadas.find(c=>c.id===def.consultaId) : null;
+    const consulta = (!def.formula && pnlConsultasCarregadas.length > 1) ? pnlConsultasCarregadas.find(c=>c.id===def.consultaId) : null;
     const detalheConsulta = consulta ? ` · ${escaparHtml(consulta.nome)}` : '';
     return `<div class="row" style="align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
       <div style="flex:1;"><b>${escaparHtml(def.label)}</b><span style="font-size:11px;color:var(--muted);margin-left:6px;">${detalhe}${detalheFormato}${detalheConsulta}</span></div>
@@ -15129,11 +15246,39 @@ function pnlPopularSelectCampoMedida(){
   sel.innerHTML = pnlColunasDisponiveis(pnlConsultaSelecionadaNoFormMedida()).map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
   if([...sel.options].some(o=>o.value===atual)) sel.value = atual;
 }
+// paleta de botões (medidas existentes + operadores) pra montar a
+// fórmula sem precisar decorar/digitar o id de cada medida na mão
+function pnlRenderPaletaFormula(){
+  const cont = document.getElementById('pnlMedidaPaletaFormula');
+  if(!cont) return;
+  const medidasDisponiveis = pnlPainelMedidas.filter(m=>m.id!==pnlEditandoMedidaId);
+  const botoesMedida = medidasDisponiveis.map(m=>`<button type="button" data-inserirformula="[${escaparHtml(m.id)}]" style="background:var(--bg2,#eef2f6);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;">${escaparHtml(m.label)}</button>`).join('');
+  const botoesOperador = ['+','-','×','÷','(',')'].map(op=>{
+    const token = op==='×' ? '*' : (op==='÷' ? '/' : op);
+    return `<button type="button" data-inserirformula="${escaparHtml(token)}" style="background:var(--bg2,#eef2f6);border:1px solid var(--line);border-radius:6px;padding:3px 10px;font-size:13px;font-weight:700;cursor:pointer;">${op}</button>`;
+  }).join('');
+  cont.innerHTML = (medidasDisponiveis.length ? botoesMedida + `<span style="width:100%;height:0;"></span>` : `<div class="empty" style="padding:2px 0;">Crie outras medidas primeiro pra poder combiná-las aqui.</div>`) + botoesOperador;
+}
+function pnlInserirTokenFormula(token){
+  const input = document.getElementById('pnlMedidaFormula');
+  if(!input) return;
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? input.value.length;
+  input.value = input.value.slice(0, start) + token + input.value.slice(end);
+  const pos = start + token.length;
+  input.focus();
+  input.setSelectionRange(pos, pos);
+}
 function pnlAtualizarCamposFormMedida(){
+  const ehFormula = document.getElementById('pnlMedidaTipo').value === 'formula';
+  document.getElementById('pnlMedidaCampoFormula').style.display = ehFormula ? '' : 'none';
+  document.getElementById('pnlMedidaCampoFuncao').style.display = ehFormula ? 'none' : '';
+  document.getElementById('pnlMedidaCampoConsulta').style.display = (!ehFormula && pnlConsultasCarregadas.length > 1) ? '' : 'none';
+  if(ehFormula){ pnlRenderPaletaFormula(); }
   const funcao = document.getElementById('pnlMedidaFuncao').value;
   const formato = document.getElementById('pnlMedidaFormato').value;
   const tipoNumero = document.getElementById('pnlMedidaTipoNumero').value;
-  document.getElementById('pnlMedidaCampo').closest('.field').style.display = funcao==='contagem' ? 'none' : '';
+  document.getElementById('pnlMedidaCampoCampo').style.display = (ehFormula || funcao==='contagem') ? 'none' : '';
   document.getElementById('pnlMedidaLinhaCasas').style.display = formato!=='money' ? 'flex' : 'none';
   document.getElementById('pnlMedidaCampoCasas').style.display = (formato!=='money' && tipoNumero==='decimal') ? '' : 'none';
 }
@@ -15141,6 +15286,8 @@ function pnlResetFormMedida(){
   pnlEditandoMedidaId = null;
   const nomeEl = document.getElementById('pnlMedidaNome'); if(!nomeEl) return;
   nomeEl.value = '';
+  document.getElementById('pnlMedidaTipo').value = 'campo';
+  document.getElementById('pnlMedidaFormula').value = '';
   const selConsultaMedida = document.getElementById('pnlMedidaConsulta');
   if(selConsultaMedida) selConsultaMedida.value = pnlConsultaPadrao() || '';
   document.getElementById('pnlMedidaFuncao').value = 'soma';
@@ -15156,6 +15303,8 @@ function pnlEditarMedida(id){
   pnlEditandoMedidaId = id;
   document.getElementById('pnlMedidaNome').value = def.label || '';
   document.getElementById('pnlMedidaFormato').value = def.fmt || 'money';
+  document.getElementById('pnlMedidaTipo').value = def.formula ? 'formula' : 'campo';
+  document.getElementById('pnlMedidaFormula').value = def.formula || '';
   const selConsultaMedida = document.getElementById('pnlMedidaConsulta');
   if(selConsultaMedida) selConsultaMedida.value = def.consultaId || pnlConsultaPadrao() || '';
   pnlPopularSelectCampoMedida();
@@ -16809,20 +16958,35 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const casas = fmt==='money' ? undefined : (document.getElementById('pnlMedidaTipoNumero').value==='decimal'
       ? Math.max(1, Math.min(4, Number(document.getElementById('pnlMedidaCasas').value) || 2))
       : 0);
-    const funcao = document.getElementById('pnlMedidaFuncao').value;
-    const campo = document.getElementById('pnlMedidaCampo').value;
-    if(funcao!=='contagem' && !campo){ toast('Escolha o campo que a medida vai agregar.'); return; }
-    const entrada = { id: pnlEditandoMedidaId || pnlGerarIdMedida(), label: nome, fmt, funcao };
-    if(funcao!=='contagem') entrada.campo = campo;
+    const id = pnlEditandoMedidaId || pnlGerarIdMedida();
+    const ehFormula = document.getElementById('pnlMedidaTipo').value === 'formula';
+    let entrada;
+    if(ehFormula){
+      const formula = document.getElementById('pnlMedidaFormula').value.trim();
+      if(!formula){ toast('Escreva a fórmula, combinando as medidas já criadas.'); return; }
+      if(pnlFormulaReferenciaCiclo(id, formula)){ toast('Essa fórmula cria uma referência circular entre medidas (uma depende da outra em ciclo).'); return; }
+      entrada = { id, label: nome, fmt, formula };
+    }else{
+      const funcao = document.getElementById('pnlMedidaFuncao').value;
+      const campo = document.getElementById('pnlMedidaCampo').value;
+      if(funcao!=='contagem' && !campo){ toast('Escolha o campo que a medida vai agregar.'); return; }
+      entrada = { id, label: nome, fmt, funcao };
+      if(funcao!=='contagem') entrada.campo = campo;
+      const consultaIdMedida = pnlConsultaSelecionadaNoFormMedida();
+      if(consultaIdMedida) entrada.consultaId = consultaIdMedida;
+    }
     if(casas!=null) entrada.casas = casas;
-    const consultaIdMedida = pnlConsultaSelecionadaNoFormMedida();
-    if(consultaIdMedida) entrada.consultaId = consultaIdMedida;
     const i = pnlPainelMedidas.findIndex(m=>m.id===entrada.id);
     if(i>=0) pnlPainelMedidas[i] = entrada; else pnlPainelMedidas.push(entrada);
     pnlResetFormMedida();
     pnlRenderListaMedidas();
     pnlPopularSelectsMedidaWidget();
     pnlRender();
+  });
+  document.getElementById('pnlMedidaTipo').addEventListener('change', pnlAtualizarCamposFormMedida);
+  document.getElementById('pnlMedidaPaletaFormula').addEventListener('click', e=>{
+    const btn = e.target.closest('[data-inserirformula]'); if(!btn) return;
+    pnlInserirTokenFormula(btn.dataset.inserirformula);
   });
   document.getElementById('pnlFiltroColunaPortal').addEventListener('click', e=>{
     const item = e.target.closest('.lista-filtro-coluna-item'); if(!item || !item.dataset.chave) return;
