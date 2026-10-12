@@ -13645,6 +13645,34 @@ function recebWidgetTitulo(w){
 // usa só o catálogo de campos; agrupado mescla as MEDIDAS (agregadas por
 // grupo) com os mesmos CAMPOS de notas (aí o valor mostrado é o da 1ª
 // nota do grupo, já que um campo cru não tem como ser "somado")
+// opções (chave->label) da última renderização do picker de colunas —
+// cacheado só pra recebMoverColuna conseguir re-render a lista de ordem
+// sem precisar recalcular tudo de novo
+let recebColunasOrdemOpcoes = {};
+function recebRenderColunasOrdem(opcoes){
+  recebColunasOrdemOpcoes = opcoes;
+  const cont = document.getElementById('recebNovoWidgetColunasOrdem');
+  if(!cont) return;
+  if(!recebFormColunasAtual.length){ cont.innerHTML = ''; return; }
+  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Ordem das colunas (use ↑/↓)</div>` +
+    recebFormColunasAtual.map((c,i)=>{
+      const v = opcoes[c];
+      const label = typeof v === 'string' ? v : (v ? v.label : c);
+      return `<div style="display:flex;align-items:center;gap:4px;padding:2px 0;">
+        <button type="button" data-movercoluna="up" data-coluna="${escaparHtml(c)}" ${i===0?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↑</button>
+        <button type="button" data-movercoluna="down" data-coluna="${escaparHtml(c)}" ${i===recebFormColunasAtual.length-1?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↓</button>
+        <span style="font-size:13px;">${escaparHtml(label)}</span>
+      </div>`;
+    }).join('');
+}
+function recebMoverColuna(campo, dir){
+  const i = recebFormColunasAtual.indexOf(campo);
+  if(i<0) return;
+  const j = dir==='up' ? i-1 : i+1;
+  if(j<0 || j>=recebFormColunasAtual.length) return;
+  [recebFormColunasAtual[i], recebFormColunasAtual[j]] = [recebFormColunasAtual[j], recebFormColunasAtual[i]];
+  recebRenderColunasOrdem(recebColunasOrdemOpcoes);
+}
 function recebRenderColunasPicker(fonte){
   const marcadas = new Set(recebFormColunasAtual);
   const montaItens = opcoes => Object.entries(opcoes).map(([k,v])=>{
@@ -13653,15 +13681,20 @@ function recebRenderColunasPicker(fonte){
       <input type="checkbox" data-wcoluna value="${k}" ${marcadas.has(k)?'checked':''} style="width:auto;"> ${escaparHtml(label)}
     </label>`;
   }).join('');
+  let opcoesCombinadas;
   if(fonte === 'agrupado'){
+    const campos = recebColunasTabelaDisponiveis();
+    opcoesCombinadas = { ...RECEB_MEDIDAS, ...campos };
     document.getElementById('recebNovoWidgetLabelColunas').textContent = 'Colunas (medidas e campos)';
     document.getElementById('recebNovoWidgetColunasLista').innerHTML =
       `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:2px 0;">MEDIDAS (somadas/calculadas por grupo)</div>${montaItens(RECEB_MEDIDAS)}` +
-      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª nota do grupo)</div>${montaItens(recebColunasTabelaDisponiveis())}`;
+      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª nota do grupo)</div>${montaItens(campos)}`;
   }else{
+    opcoesCombinadas = recebColunasTabelaDisponiveis();
     document.getElementById('recebNovoWidgetLabelColunas').textContent = 'Colunas';
-    document.getElementById('recebNovoWidgetColunasLista').innerHTML = montaItens(recebColunasTabelaDisponiveis());
+    document.getElementById('recebNovoWidgetColunasLista').innerHTML = montaItens(opcoesCombinadas);
   }
+  recebRenderColunasOrdem(opcoesCombinadas);
 }
 function recebHtmlToolbar(w, i, total){
   if(!recebModoEdicao) return '';
@@ -14712,6 +14745,34 @@ function pnlWidgetTitulo(w){
   if(w.tipo==='tabela') return 'Tabela';
   return (pnlMedidaPorId(w.medida)||{}).label || w.medida || '(sem título)';
 }
+// opções (chave->label) da última renderização do picker de colunas —
+// cacheado só pra pnlMoverColuna conseguir re-render a lista de ordem
+// sem precisar recalcular tudo de novo
+let pnlColunasOrdemOpcoes = {};
+function pnlRenderColunasOrdem(opcoes){
+  pnlColunasOrdemOpcoes = opcoes;
+  const cont = document.getElementById('pnlNovoWidgetColunasOrdem');
+  if(!cont) return;
+  if(!pnlFormColunasAtual.length){ cont.innerHTML = ''; return; }
+  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Ordem das colunas (use ↑/↓)</div>` +
+    pnlFormColunasAtual.map((c,i)=>{
+      const v = opcoes[c];
+      const label = typeof v === 'string' ? v : (v ? v.label : c);
+      return `<div style="display:flex;align-items:center;gap:4px;padding:2px 0;">
+        <button type="button" data-movercoluna="up" data-coluna="${escaparHtml(c)}" ${i===0?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↑</button>
+        <button type="button" data-movercoluna="down" data-coluna="${escaparHtml(c)}" ${i===pnlFormColunasAtual.length-1?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↓</button>
+        <span style="font-size:13px;">${escaparHtml(label)}</span>
+      </div>`;
+    }).join('');
+}
+function pnlMoverColuna(campo, dir){
+  const i = pnlFormColunasAtual.indexOf(campo);
+  if(i<0) return;
+  const j = dir==='up' ? i-1 : i+1;
+  if(j<0 || j>=pnlFormColunasAtual.length) return;
+  [pnlFormColunasAtual[i], pnlFormColunasAtual[j]] = [pnlFormColunasAtual[j], pnlFormColunasAtual[i]];
+  pnlRenderColunasOrdem(pnlColunasOrdemOpcoes);
+}
 function pnlRenderColunasPicker(fonte, consultaId){
   const marcadas = new Set(pnlFormColunasAtual);
   const montaItens = opcoes => Object.entries(opcoes).map(([k,v])=>{
@@ -14723,16 +14784,21 @@ function pnlRenderColunasPicker(fonte, consultaId){
   // só as medidas CRIADAS EM CIMA dessa mesma consulta fazem sentido aqui
   // — uma medida de "Vendas" não tem como agregar linhas de "Compras"
   const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.consultaId===consultaId);
+  let opcoesCombinadas;
   if(fonte === 'agrupado'){
     const medidas = Object.fromEntries(medidasDaConsulta.map(m=>[m.id, m.label]));
+    const campos = pnlColunasTabelaDisponiveis(consultaId);
+    opcoesCombinadas = { ...medidas, ...campos };
     document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas (medidas e campos)';
     document.getElementById('pnlNovoWidgetColunasLista').innerHTML =
       (medidasDaConsulta.length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:2px 0;">MEDIDAS (calculadas por grupo)</div>${montaItens(medidas)}` : '') +
-      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª linha do grupo)</div>${montaItens(pnlColunasTabelaDisponiveis(consultaId))}`;
+      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª linha do grupo)</div>${montaItens(campos)}`;
   }else{
+    opcoesCombinadas = pnlColunasTabelaDisponiveis(consultaId);
     document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas';
-    document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(pnlColunasTabelaDisponiveis(consultaId));
+    document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(opcoesCombinadas);
   }
+  pnlRenderColunasOrdem(opcoesCombinadas);
 }
 function pnlHtmlToolbar(w, i, total){
   if(!pnlModoEdicao) return '';
@@ -16632,6 +16698,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const k = cb.value;
     if(cb.checked){ if(!recebFormColunasAtual.includes(k)) recebFormColunasAtual.push(k); }
     else recebFormColunasAtual = recebFormColunasAtual.filter(c=>c!==k);
+    recebRenderColunasOrdem(recebColunasOrdemOpcoes);
+  });
+  document.getElementById('recebNovoWidgetColunasOrdem').addEventListener('click', e=>{
+    const btn = e.target.closest('[data-movercoluna]'); if(!btn) return;
+    recebMoverColuna(btn.dataset.coluna, btn.dataset.movercoluna);
   });
   document.getElementById('btnRecebAdicionarWidget').addEventListener('click', ()=>{
     const tipo = document.getElementById('recebNovoWidgetTipo').value;
@@ -16807,6 +16878,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const k = cb.value;
     if(cb.checked){ if(!pnlFormColunasAtual.includes(k)) pnlFormColunasAtual.push(k); }
     else pnlFormColunasAtual = pnlFormColunasAtual.filter(c=>c!==k);
+    pnlRenderColunasOrdem(pnlColunasOrdemOpcoes);
+  });
+  document.getElementById('pnlNovoWidgetColunasOrdem').addEventListener('click', e=>{
+    const btn = e.target.closest('[data-movercoluna]'); if(!btn) return;
+    pnlMoverColuna(btn.dataset.coluna, btn.dataset.movercoluna);
   });
   document.getElementById('btnPnlAdicionarWidget').addEventListener('click', ()=>{
     const tipo = document.getElementById('pnlNovoWidgetTipo').value;
