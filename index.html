@@ -2698,6 +2698,10 @@
 
       <div class="card" id="pnlCardAddWidget" style="display:none;">
         <h2>Adicionar widget</h2>
+        <div class="field" id="pnlNovoWidgetCampoConsulta" style="display:none;">
+          <label>Consulta (fonte de dados)</label>
+          <select id="pnlNovoWidgetConsulta"></select>
+        </div>
         <div class="row">
           <div class="field"><label>Tipo</label>
             <select id="pnlNovoWidgetTipo">
@@ -2779,6 +2783,10 @@
         <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie medidas (um campo da consulta + uma função: soma, média, contagem...) pra usar nos widgets.</p>
         <div id="pnlListaMedidas"></div>
         <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+          <div class="field" id="pnlMedidaCampoConsulta" style="display:none;">
+            <label>Consulta (fonte de dados)</label>
+            <select id="pnlMedidaConsulta"></select>
+          </div>
           <div class="row">
             <div class="field"><label>Nome</label><input type="text" id="pnlMedidaNome" placeholder="Ex: Valor médio"></div>
             <div class="field"><label>Campo</label><select id="pnlMedidaCampo"></select></div>

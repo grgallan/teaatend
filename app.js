@@ -13042,7 +13042,7 @@ function recebRenderGradeFiltros(){
       : escaparHtml(label);
     return `<div class="field" style="flex:1;min-width:150px;position:relative;">
       ${botoesEdicao}
-      <label>${labelHtml} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
+      <label for="_">${labelHtml} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
       <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">Todos</div>
     </div>`;
   }).join('') : `<div class="empty" style="padding:4px 0;">Nenhum filtro configurado${recebModoEdicao ? ' — escolha um campo abaixo e clique em "+ Adicionar".' : '.'}</div>`;
@@ -14169,12 +14169,22 @@ async function recebSalvarPainel(){
    widgets em rm_painel_layouts, chaveada pelo slug do painel.
    ========================================================= */
 // acha, entre as consultas vinculadas a um painel, a que pertence a um
-// cliente — usado tanto aqui quanto pelo Painel de Recebíveis (ver
-// recebClientesDisponiveis/recebAtualizarDoRm)
+// cliente (combinação singular) — usado pelo Painel de Recebíveis, que
+// assume 1 consulta por cliente (ver recebClientesDisponiveis/
+// recebAtualizarDoRm). O painel GENÉRICO usa a versão plural logo abaixo
+// (pnlConsultasDoCliente), porque agora um cliente pode ter várias
+// consultas diferentes vinculadas ao mesmo painel (ex: Vendas + Compras)
 function pnlConsultaIdParaCliente(painel, clienteId){
   const vinculadas = new Set((painel && painel.consultas || []).map(String));
   const r = rmRelatoriosGerenciais.find(x=>vinculadas.has(String(x.id)) && String(x.clienteId)===String(clienteId));
   return r ? r.id : null;
+}
+// TODAS as consultas vinculadas ao painel que pertencem a esse cliente —
+// usado pelo painel genérico pra buscar/combinar N consultas do mesmo
+// cliente (cada widget/medida depois escolhe de qual delas usar os dados)
+function pnlConsultasDoCliente(painel, clienteId){
+  const vinculadas = new Set((painel && painel.consultas || []).map(String));
+  return rmRelatoriosGerenciais.filter(r=>vinculadas.has(String(r.id)) && String(r.clienteId)===String(clienteId));
 }
 function pnlClientesDoPainel(painel){
   const vinculadas = new Set((painel && painel.consultas || []).map(String));
@@ -14183,7 +14193,12 @@ function pnlClientesDoPainel(painel){
 }
 
 let pnlClienteId = '';
-let pnlLinhas = []; // linhas CRUAS da consulta, sem nenhum tratamento — a chave de cada coluna é o nome exato que a sentença RM devolveu
+// linhas CRUAS de CADA consulta carregada, uma chave por consultaId — a
+// chave de cada coluna dentro de uma linha é o nome exato que a sentença
+// RM devolveu. pnlConsultasCarregadas guarda {id,nome} na ordem em que
+// foram buscadas, pra popular os seletores "Consulta" dos formulários
+let pnlDadosPorConsulta = {};
+let pnlConsultasCarregadas = [];
 let pnlInfo = null;
 let pnlCarregando = false;
 let pnlPainelFiltros = [];
@@ -14199,10 +14214,23 @@ let pnlEditandoMedidaId = null;
 let pnlSlugCarregado = null; // qual slug de painel já está carregado em pnlPainelWidgets/Filtros/Medidas — muda ao abrir um painel diferente
 let pnlModoEdicao = false;
 let pnlEditandoWidgetId = null;
-let pnlUltimoLinhasFiltradas = [];
+// última lista de linhas (já filtrada) de cada widget — por id do widget,
+// já que agora cada widget pode vir de uma consulta/filtro diferente
+let pnlUltimoLinhasFiltradasPorWidget = {};
 // filtro rápido (chips clicáveis) de um widget Tabela — só desse widget,
 // nunca mexe no filtro geral do painel. 'todas' (ou ausente) = sem filtro.
 let pnlFiltroRapidoPorWidget = {};
+// primeira consulta carregada — usado como "consulta padrão" de um widget
+// que ainda não tem consultaId salvo (widget criado antes dessa função
+// existir, ou painel com 1 consulta só, onde não faz sentido perguntar)
+function pnlConsultaPadrao(){ return pnlConsultasCarregadas[0] ? pnlConsultasCarregadas[0].id : null; }
+// uma consulta "tem" um campo se ALGUMA linha dela tiver essa chave — varre
+// todas as linhas (não só a primeira) porque o RM às vezes omite um campo
+// nulo numa linha específica (mesmo caso do recebNormalizar)
+function pnlConsultaTemCampo(consultaId, campo){
+  const linhas = pnlDadosPorConsulta[consultaId];
+  return !!linhas && linhas.some(o=>campo in o);
+}
 
 // mesma regra seguar do Painel de Recebíveis: converte string numérica
 // (ex "74111.24") pro tipo number de verdade, sem mexer em código com
@@ -14223,31 +14251,55 @@ function pnlNum(v){
   const p = parseFloat(String(v).replace(/[^\d,.\-]/g,'').replace(',','.'));
   return isNaN(p) ? 0 : p;
 }
-// todas as colunas que vieram na consulta atual (descobertas varrendo
-// TODAS as linhas — o RM às vezes omite uma coluna numa linha quando ela
-// vem nula)
-function pnlColunasDisponiveis(){
+// todas as colunas de UMA consulta carregada (descobertas varrendo TODAS
+// as linhas — o RM às vezes omite uma coluna numa linha quando ela vem
+// nula)
+function pnlColunasDisponiveis(consultaId){
+  const linhas = pnlDadosPorConsulta[consultaId] || [];
   const vistas = new Set(), colunas = [];
-  pnlLinhas.forEach(o=>{ Object.keys(o||{}).forEach(k=>{ if(!vistas.has(k)){ vistas.add(k); colunas.push(k); } }); });
+  linhas.forEach(o=>{ Object.keys(o||{}).forEach(k=>{ if(!vistas.has(k)){ vistas.add(k); colunas.push(k); } }); });
   return colunas;
 }
 function pnlValorFiltro(o, campo){ const v = o[campo]; return v==null ? '' : String(v); }
+// catálogo pro seletor "Adicionar filtro" — união das colunas de TODAS as
+// consultas já carregadas (um filtro "Mês" pode valer pra mais de uma, se
+// o nome da coluna bater; ver pnlFiltrados)
 function pnlCamposFiltroDisponiveis(){
   const jaConfigurados = new Set(pnlPainelFiltros.map(f=>f.campo));
-  return pnlColunasDisponiveis().filter(c=>!jaConfigurados.has(c)).map(c=>({ campo:c, label:c }));
+  const todasColunas = new Set();
+  pnlConsultasCarregadas.forEach(c=>pnlColunasDisponiveis(c.id).forEach(col=>todasColunas.add(col)));
+  return [...todasColunas].filter(c=>!jaConfigurados.has(c)).map(c=>({ campo:c, label:c }));
 }
-function pnlFiltrados(){
-  return pnlLinhas.filter(o=>pnlPainelFiltros.every(f=>{
+// linhas de UMA consulta, já filtradas pelos filtros gerais do painel —
+// um filtro só se aplica se a coluna dele EXISTIR nessa consulta (mesmo
+// nome de campo pode filtrar Vendas e Compras ao mesmo tempo, se as duas
+// tiverem a coluna; se só uma tiver, o filtro não afeta a outra)
+function pnlFiltrados(consultaId){
+  const linhas = pnlDadosPorConsulta[consultaId] || [];
+  return linhas.filter(o=>pnlPainelFiltros.every(f=>{
+    if(!pnlConsultaTemCampo(consultaId, f.campo)) return true;
     const set = pnlFiltros[f.campo];
     return !set || set.size===0 || set.has(pnlValorFiltro(o, f.campo));
   }));
 }
+// linhas restritas por TODOS os outros filtros já marcados, menos o
+// próprio campo — usada só pra montar as OPÇÕES do dropdown de um filtro;
+// varre TODAS as consultas carregadas que têm essa coluna (pra listar
+// valores vindos de qualquer uma delas) e cruza com os outros filtros
+// aplicáveis em CADA consulta
 function pnlLinhasParaOpcoes(campoExcluir){
-  return pnlLinhas.filter(o=>pnlPainelFiltros.every(f=>{
-    if(f.campo === campoExcluir) return true;
-    const set = pnlFiltros[f.campo];
-    return !set || set.size===0 || set.has(pnlValorFiltro(o, f.campo));
-  }));
+  let linhas = [];
+  pnlConsultasCarregadas.forEach(c=>{
+    if(!pnlConsultaTemCampo(c.id, campoExcluir)) return;
+    const base = pnlDadosPorConsulta[c.id] || [];
+    linhas = linhas.concat(base.filter(o=>pnlPainelFiltros.every(f=>{
+      if(f.campo === campoExcluir) return true;
+      if(!pnlConsultaTemCampo(c.id, f.campo)) return true;
+      const set = pnlFiltros[f.campo];
+      return !set || set.size===0 || set.has(pnlValorFiltro(o, f.campo));
+    })));
+  });
+  return linhas;
 }
 
 /* ---------- medidas (sempre campo+função — não existe medida "de sistema" num painel genérico) ---------- */
@@ -14271,7 +14323,8 @@ function pnlCalcularMedida(linhas, medidaId){
     case 'min': return vals.length ? Math.min(...vals) : 0;
     case 'max': return vals.length ? Math.max(...vals) : 0;
     case 'percentualDoTotal': {
-      const totalGeral = pnlLinhas.reduce((s,o)=>s+pnlNum(o[def.campo]),0);
+      const todasLinhas = pnlDadosPorConsulta[def.consultaId] || linhas;
+      const totalGeral = todasLinhas.reduce((s,o)=>s+pnlNum(o[def.campo]),0);
       const soma = vals.reduce((s,v)=>s+v,0);
       return totalGeral ? soma/totalGeral : 0;
     }
@@ -14361,7 +14414,7 @@ function pnlAbrir(){
   if(pnlSlugCarregado !== pnlPainelAtual.slug){
     pnlModoEdicao = false;
     pnlClienteId = '';
-    pnlLinhas = []; pnlInfo = null;
+    pnlDadosPorConsulta = {}; pnlConsultasCarregadas = []; pnlInfo = null;
     pnlCarregarLayoutPainel();
   }
   document.getElementById('pnlTitulo').textContent = pnlPainelAtual.nome;
@@ -14391,14 +14444,21 @@ async function pnlAtualizarDoRm(){
   btn.disabled = true; btn.textContent = 'Consultando o RM…';
   document.getElementById('pnlStatus').textContent = '';
   try{
-    const relatorioId = pnlConsultaIdParaCliente(pnlPainelAtual, pnlClienteId);
-    if(!relatorioId){ document.getElementById('pnlStatus').textContent = 'Esse cliente não está vinculado a esse painel — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
-    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId });
-    if(!r.ok){ document.getElementById('pnlStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
-    pnlLinhas = r.linhas || [];
-    pnlInfo = { quando: new Date().toISOString(), nomeRelatorio: r.nomeRelatorio || pnlPainelAtual.nome };
+    // busca TODAS as consultas vinculadas ao painel que pertencem a esse
+    // cliente de uma vez só (pode ser 1, pode ser várias — ex: Vendas +
+    // Compras da mesma CORAL)
+    const consultas = pnlConsultasDoCliente(pnlPainelAtual, pnlClienteId);
+    if(!consultas.length){ document.getElementById('pnlStatus').textContent = 'Esse cliente não está vinculado a esse painel — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
+    const resultados = await Promise.all(consultas.map(c=>api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id })));
+    const falha = resultados.find(r=>!r.ok);
+    if(falha){ document.getElementById('pnlStatus').textContent = falha.erro || 'Não foi possível atualizar.'; return; }
+    pnlDadosPorConsulta = {};
+    consultas.forEach((c,i)=>{ pnlDadosPorConsulta[c.id] = resultados[i].linhas || []; });
+    pnlConsultasCarregadas = consultas.map(c=>({ id:c.id, nome:c.nome }));
+    pnlInfo = { quando: new Date().toISOString() };
     pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(f=>[f.campo, new Set()]));
-    toast(`Painel atualizado com ${pnlLinhas.length} linha${pnlLinhas.length===1?'':'s'} do RM.`);
+    const totalLinhas = consultas.reduce((s,c)=>s+(pnlDadosPorConsulta[c.id]||[]).length, 0);
+    toast(`Painel atualizado com ${totalLinhas} linha${totalLinhas===1?'':'s'} do RM (${consultas.length} consulta${consultas.length===1?'':'s'}).`);
     pnlRender();
   } finally {
     pnlCarregando = false;
@@ -14455,7 +14515,7 @@ function pnlRenderGradeFiltros(){
       : escaparHtml(label);
     return `<div class="field" style="flex:1;min-width:150px;position:relative;">
       ${botoesEdicao}
-      <label>${labelHtml} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
+      <label for="_">${labelHtml} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
       <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">Todos</div>
     </div>`;
   }).join('') : `<div class="empty" style="padding:4px 0;">Nenhum filtro configurado${pnlModoEdicao ? ' — escolha um campo abaixo e clique em "+ Adicionar".' : '.'}</div>`;
@@ -14573,19 +14633,20 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
     pnlLigarCliqueBarras(cont, grupos, widget.dimensao);
   }
 }
-// catálogo de colunas disponíveis pra "Tabela (colunas à sua escolha)" —
-// tudo que a consulta trouxer, sem distinção (não existe campo "processado"
-// num painel genérico, é tudo coluna crua)
-function pnlColunasTabelaDisponiveis(){
+// catálogo de colunas disponíveis de UMA consulta pra "Tabela (colunas à
+// sua escolha)" — tudo que ela trouxer, sem distinção (não existe campo
+// "processado" num painel genérico, é tudo coluna crua)
+function pnlColunasTabelaDisponiveis(consultaId){
   const opcoes = {};
-  pnlColunasDisponiveis().forEach(c=>{ opcoes[c] = c; });
+  pnlColunasDisponiveis(consultaId).forEach(c=>{ opcoes[c] = c; });
   return opcoes;
 }
-// valores distintos de uma coluna, em cima de TODAS as linhas carregadas
-// (pnlLinhas) — popula o seletor "Valor" do filtro fixo do widget
-function pnlValoresDistintosColuna(campo){
+// valores distintos de uma coluna de UMA consulta — popula o seletor
+// "Valor" do filtro fixo do widget
+function pnlValoresDistintosColuna(campo, consultaId){
   if(!campo) return [];
-  return [...new Set(pnlLinhas.map(o=>pnlValorFiltro(o, campo)))]
+  const linhas = pnlDadosPorConsulta[consultaId] || [];
+  return [...new Set(linhas.map(o=>pnlValorFiltro(o, campo)))]
     .filter(v=>v!=='').sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
 }
 // monta os chips do filtro rápido (um widget Tabela só) em cima das
@@ -14602,8 +14663,9 @@ function pnlRenderOpcoesFiltroRapido(widget, itensBase){
 }
 function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   const tab = document.getElementById(`pnl-${widget.id}-tabela`); if(!tab) return;
-  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis().slice(0,8);
-  const catalogo = pnlColunasTabelaDisponiveis();
+  const consultaId = widget.consultaId || pnlConsultaPadrao();
+  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,8);
+  const catalogo = pnlColunasTabelaDisponiveis(consultaId);
   // filtro fixo do widget — restrição permanente (ex: só o cliente X),
   // independente do filtro geral e do filtro rápido; vale pras duas
   // fontes (linhas e agrupado)
@@ -14619,7 +14681,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
       return `<tr>${celulas.map(v=>`<td>${escaparHtml(String(v))}</td>`).join('')}</tr>`;
     }).join('');
     tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
-      <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${pnlLinhas.length ? 'Nenhum grupo com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+      <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum grupo com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
     return;
   }
   // fonte 'linhas' — uma linha por registro, com busca livre (qualquer coluna)
@@ -14640,7 +14702,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
     return vals.length ? `<td><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
   }).join('');
   tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
-    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${pnlLinhas.length ? 'Nenhuma linha com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
+    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhuma linha com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
     ${itens.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}`;
 }
 
@@ -14650,7 +14712,7 @@ function pnlWidgetTitulo(w){
   if(w.tipo==='tabela') return 'Tabela';
   return (pnlMedidaPorId(w.medida)||{}).label || w.medida || '(sem título)';
 }
-function pnlRenderColunasPicker(fonte){
+function pnlRenderColunasPicker(fonte, consultaId){
   const marcadas = new Set(pnlFormColunasAtual);
   const montaItens = opcoes => Object.entries(opcoes).map(([k,v])=>{
     const label = typeof v === 'string' ? v : v.label;
@@ -14658,15 +14720,18 @@ function pnlRenderColunasPicker(fonte){
       <input type="checkbox" data-wcoluna value="${k}" ${marcadas.has(k)?'checked':''} style="width:auto;"> ${escaparHtml(label)}
     </label>`;
   }).join('');
+  // só as medidas CRIADAS EM CIMA dessa mesma consulta fazem sentido aqui
+  // — uma medida de "Vendas" não tem como agregar linhas de "Compras"
+  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.consultaId===consultaId);
   if(fonte === 'agrupado'){
-    const medidas = Object.fromEntries(pnlPainelMedidas.map(m=>[m.id, m.label]));
+    const medidas = Object.fromEntries(medidasDaConsulta.map(m=>[m.id, m.label]));
     document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas (medidas e campos)';
     document.getElementById('pnlNovoWidgetColunasLista').innerHTML =
-      (pnlPainelMedidas.length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:2px 0;">MEDIDAS (calculadas por grupo)</div>${montaItens(medidas)}` : '') +
-      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª linha do grupo)</div>${montaItens(pnlColunasTabelaDisponiveis())}`;
+      (medidasDaConsulta.length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:2px 0;">MEDIDAS (calculadas por grupo)</div>${montaItens(medidas)}` : '') +
+      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª linha do grupo)</div>${montaItens(pnlColunasTabelaDisponiveis(consultaId))}`;
   }else{
     document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas';
-    document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(pnlColunasTabelaDisponiveis());
+    document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(pnlColunasTabelaDisponiveis(consultaId));
   }
 }
 function pnlHtmlToolbar(w, i, total){
@@ -14721,46 +14786,79 @@ function pnlRenderEsqueleto(){
   }
   grade.innerHTML = html || `<div class="empty">Nenhum widget nesse painel ainda. Clique em "⚙ Configurar painel" pra adicionar.</div>`;
 }
-function pnlRenderConteudo(linhas){
-  pnlUltimoLinhasFiltradas = linhas;
+// cada widget lê de UMA consulta (widget.consultaId — ou a 1ª carregada,
+// pra widget salvo antes dessa configuração existir); por isso cada um
+// calcula sua própria lista já filtrada, em vez de todos dividirem a
+// mesma "linhas" de antes
+function pnlRenderConteudo(){
   pnlPainelWidgets.forEach(w=>{
+    const consultaId = w.consultaId || pnlConsultaPadrao();
+    const linhas = pnlFiltrados(consultaId);
+    pnlUltimoLinhasFiltradasPorWidget[w.id] = linhas;
     if(w.tipo==='kpi') pnlRenderWidgetKpi(`pnl-${w.id}-conteudo`, w, linhas);
     else if(w.tipo==='tabela') pnlRenderWidgetTabelaPersonalizada(w, linhas);
     else pnlRenderWidgetGrafico(`pnl-${w.id}-conteudo`, w, linhas, w.tipo);
   });
 }
 function pnlRender(){
-  const temDados = pnlLinhas.length > 0;
+  const temDados = pnlConsultasCarregadas.length > 0;
   document.getElementById('pnlCardGradeTopo').style.display = temDados ? '' : 'none';
   document.getElementById('pnlCardFiltros').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarExcel').style.display = temDados ? '' : 'none';
-  document.getElementById('btnPnlExportarCsv').style.display = temDados ? '' : 'none';
-  document.getElementById('pnlBaseInfo').textContent = temDados
-    ? `${pnlInfo.nomeRelatorio} · ${pnlLinhas.length} linha${pnlLinhas.length===1?'':'s'}. Atualizado em ${new Date(pnlInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`
-    : 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
+  document.getElementById('btnPnlExportarCsv').style.display = (temDados && pnlConsultasCarregadas.length===1) ? '' : 'none';
+  if(temDados){
+    const resumo = pnlConsultasCarregadas.map(c=>`${c.nome}: ${(pnlDadosPorConsulta[c.id]||[]).length} linha${(pnlDadosPorConsulta[c.id]||[]).length===1?'':'s'}`).join(' · ');
+    document.getElementById('pnlBaseInfo').textContent = `${resumo}. Atualizado em ${new Date(pnlInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`;
+  }else{
+    document.getElementById('pnlBaseInfo').textContent = 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
+  }
   if(!temDados){ document.getElementById('pnlGradeWidgets').innerHTML = ''; return; }
   pnlRenderFiltros();
   pnlRenderEsqueleto();
-  pnlRenderConteudo(pnlFiltrados());
+  pnlRenderConteudo();
 }
 
 /* ---------- exportar Excel/CSV ---------- */
+// uma aba (sheet) por consulta carregada — cada uma com suas próprias
+// colunas e já filtrada pelos filtros gerais que fizerem sentido nela
+function pnlMontarAbasExportacao(){
+  return pnlConsultasCarregadas.map(c=>{
+    const linhas = pnlFiltrados(c.id);
+    const colunas = pnlColunasDisponiveis(c.id);
+    const corpo = linhas.map(o=>colunas.map(col=>{ const v = o[col]; return v==null ? '' : v; }));
+    return { nome: c.nome, cabecalho: colunas, corpo, totalLinhas: linhas.length };
+  }).filter(aba=>aba.totalLinhas>0);
+}
+// exportação em CSV (1 arquivo só) — só funciona com 1 consulta carregada,
+// já que CSV não tem conceito de "aba"; ver pnlMontarAbasExportacao pro Excel
 function pnlMontarLinhasExportacao(){
-  const linhas = pnlFiltrados();
-  if(linhas.length === 0) return null;
-  const colunas = pnlColunasDisponiveis();
-  const cabecalho = colunas;
-  const corpo = linhas.map(o=>colunas.map(c=>{ const v = o[c]; return v==null ? '' : v; }));
-  return { cabecalho, corpo, totalLinhas: linhas.length };
+  if(pnlConsultasCarregadas.length !== 1) return null;
+  const abas = pnlMontarAbasExportacao();
+  return abas[0] || null;
+}
+// nome de aba do Excel não pode passar de 31 caracteres nem ter : \ / ? * [ ]
+function pnlNomeAbaExcel(nome, usados){
+  let base = String(nome).replace(/[:\\\/?*\[\]]/g, ' ').trim().slice(0, 31) || 'Painel';
+  let final = base, n = 2;
+  while(usados.has(final)){ final = `${base.slice(0, 28)} ${n}`; n++; }
+  usados.add(final);
+  return final;
 }
 async function pnlExportarExcel(){
-  const r = pnlMontarLinhasExportacao();
-  if(!r){ toast('Nada pra exportar com esses filtros.'); return; }
-  const corpoTipado = r.corpo.map(linha => linha.map(v => typeof v === 'string' ? pnlCoagirNumero(v) : v));
+  const abas = pnlMontarAbasExportacao();
+  if(!abas.length){ toast('Nada pra exportar com esses filtros.'); return; }
   const livro = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([r.cabecalho, ...corpoTipado]), 'Painel');
+  const nomesUsados = new Set();
+  let totalLinhas = 0;
+  abas.forEach(aba=>{
+    const corpoTipado = aba.corpo.map(linha => linha.map(v => typeof v === 'string' ? pnlCoagirNumero(v) : v));
+    XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([aba.cabecalho, ...corpoTipado]), pnlNomeAbaExcel(aba.nome, nomesUsados));
+    totalLinhas += aba.totalLinhas;
+  });
   await salvarWorkbook(livro, `${pnlPainelAtual.slug}-${hojeLocalISO()}.xlsx`);
-  toast(`Excel exportado com ${r.totalLinhas} linha${r.totalLinhas===1?'':'s'} e ${r.cabecalho.length} colunas.`);
+  toast(abas.length > 1
+    ? `Excel exportado com ${totalLinhas} linha${totalLinhas===1?'':'s'} em ${abas.length} abas (1 por consulta).`
+    : `Excel exportado com ${totalLinhas} linha${totalLinhas===1?'':'s'} e ${abas[0].cabecalho.length} colunas.`);
 }
 function pnlCelulaCsv(v){
   if(v == null || v === '') return '';
@@ -14768,7 +14866,7 @@ function pnlCelulaCsv(v){
 }
 async function pnlExportarCsv(){
   const r = pnlMontarLinhasExportacao();
-  if(!r){ toast('Nada pra exportar com esses filtros.'); return; }
+  if(!r){ toast(pnlConsultasCarregadas.length > 1 ? 'CSV só funciona com 1 consulta carregada — use o Exportar Excel (uma aba por consulta).' : 'Nada pra exportar com esses filtros.'); return; }
   const csv = [r.cabecalho, ...r.corpo].map(linha => linha.map(pnlCelulaCsv).join(';')).join('\r\n');
   const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -14779,6 +14877,13 @@ async function pnlExportarCsv(){
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
 function pnlGerarIdWidget(){ return 'w'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+// qual consulta o formulário de widget está usando agora — o seletor só
+// aparece quando o painel carregou mais de 1 consulta pro cliente atual;
+// com 1 só, nem precisa perguntar (resolve sozinho)
+function pnlConsultaSelecionadaNoForm(){
+  const sel = document.getElementById('pnlNovoWidgetConsulta');
+  return (sel && sel.value) || pnlConsultaPadrao();
+}
 function pnlAtualizarCamposNovoWidget(){
   const tipo = document.getElementById('pnlNovoWidgetTipo').value;
   const ehTabelaPersonalizada = tipo==='tabela';
@@ -14787,6 +14892,14 @@ function pnlAtualizarCamposNovoWidget(){
   const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
   const precisaMedida = !ehTabelaPersonalizada;
   const precisaDimensao = !ehKpi && (!ehTabelaPersonalizada || fonte==='agrupado');
+  const selConsulta = document.getElementById('pnlNovoWidgetConsulta');
+  document.getElementById('pnlNovoWidgetCampoConsulta').style.display = pnlConsultasCarregadas.length > 1 ? '' : 'none';
+  if(pnlConsultasCarregadas.length){
+    const atualConsulta = selConsulta.value;
+    selConsulta.innerHTML = pnlConsultasCarregadas.map(c=>`<option value="${escaparHtml(c.id)}">${escaparHtml(c.nome)}</option>`).join('');
+    if(pnlConsultasCarregadas.some(c=>c.id===atualConsulta)) selConsulta.value = atualConsulta;
+  }
+  const consultaId = pnlConsultaSelecionadaNoForm();
   document.getElementById('pnlNovoWidgetCampoLargura').style.display = ehKpi ? 'none' : '';
   document.getElementById('pnlNovoWidgetLinhaMedida').style.display = (precisaMedida || precisaDimensao) ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
@@ -14799,7 +14912,7 @@ function pnlAtualizarCamposNovoWidget(){
   if(ehTabelaPersonalizada && fonte==='linhas'){
     const selFR = document.getElementById('pnlNovoWidgetFiltroRapido');
     const atualFR = selFR.value;
-    selFR.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis()).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
+    selFR.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
     if([...selFR.options].some(o=>o.value===atualFR)) selFR.value = atualFR;
   }
   document.getElementById('pnlNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
@@ -14808,12 +14921,12 @@ function pnlAtualizarCamposNovoWidget(){
   if(ehTabelaPersonalizada){
     const selFF = document.getElementById('pnlNovoWidgetFiltroFixoCampo');
     const atualFF = selFF.value;
-    selFF.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis()).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
+    selFF.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
     if([...selFF.options].some(o=>o.value===atualFF)) selFF.value = atualFF;
     pnlAtualizarFiltroFixoValor();
   }
   pnlPopularSelectsMedidaWidget();
-  const colunas = pnlColunasDisponiveis();
+  const colunas = pnlColunasDisponiveis(consultaId);
   const dimSel = document.getElementById('pnlNovoWidgetDimensao');
   dimSel.innerHTML = colunas.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
   const multi = ehTabelaPersonalizada && fonte==='agrupado';
@@ -14824,7 +14937,7 @@ function pnlAtualizarCamposNovoWidget(){
     document.getElementById('pnlNovoWidgetDimensao2').innerHTML = opcoesExtra;
     document.getElementById('pnlNovoWidgetDimensao3').innerHTML = opcoesExtra;
   }
-  if(ehTabelaPersonalizada) pnlRenderColunasPicker(fonte);
+  if(ehTabelaPersonalizada) pnlRenderColunasPicker(fonte, consultaId);
 }
 // mostra/popula o seletor "Valor" do filtro fixo, em cima do campo
 // escolhido no select ao lado
@@ -14835,15 +14948,17 @@ function pnlAtualizarFiltroFixoValor(){
   campoValor.style.display = campo ? '' : 'none';
   if(!campo) return;
   const atual = selValor.value;
-  const valores = pnlValoresDistintosColuna(campo);
+  const valores = pnlValoresDistintosColuna(campo, pnlConsultaSelecionadaNoForm());
   selValor.innerHTML = valores.map(v=>`<option value="${escaparHtml(v)}">${escaparHtml(v)}</option>`).join('') || `<option value="">(sem valores carregados)</option>`;
   if(valores.includes(atual)) selValor.value = atual;
 }
 function pnlPopularSelectsMedidaWidget(){
+  const consultaId = pnlConsultaSelecionadaNoForm();
+  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.consultaId===consultaId);
   const medidaSel = document.getElementById('pnlNovoWidgetMedida');
-  if(medidaSel) medidaSel.innerHTML = pnlPainelMedidas.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
+  if(medidaSel) medidaSel.innerHTML = medidasDaConsulta.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
   const medida2Sel = document.getElementById('pnlNovoWidgetMedida2');
-  if(medida2Sel) medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + pnlPainelMedidas.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('');
+  if(medida2Sel) medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + medidasDaConsulta.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('');
 }
 function pnlResetFormNovoWidget(){
   pnlEditandoWidgetId = null;
@@ -14887,6 +15002,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetTipo').value = w.tipo;
   document.getElementById('pnlNovoWidgetTipo').disabled = true;
   document.getElementById('pnlNovoWidgetFonte').value = w.fonte || 'linhas';
+  document.getElementById('pnlNovoWidgetConsulta').value = w.consultaId || pnlConsultaPadrao() || '';
   pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
@@ -14917,18 +15033,34 @@ function pnlRenderListaMedidas(){
     const detalhe = def.funcao==='contagem' ? ` · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}` : ` · ${escaparHtml(def.campo||'')} · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}`;
     const casas = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
     const detalheFormato = def.fmt==='money' ? '' : ` · ${casas>0 ? casas+' casa'+(casas>1?'s':'')+' decimal'+(casas>1?'is':'') : 'inteiro'}`;
+    const consulta = pnlConsultasCarregadas.length > 1 ? pnlConsultasCarregadas.find(c=>c.id===def.consultaId) : null;
+    const detalheConsulta = consulta ? ` · ${escaparHtml(consulta.nome)}` : '';
     return `<div class="row" style="align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
-      <div style="flex:1;"><b>${escaparHtml(def.label)}</b><span style="font-size:11px;color:var(--muted);margin-left:6px;">${detalhe}${detalheFormato}</span></div>
+      <div style="flex:1;"><b>${escaparHtml(def.label)}</b><span style="font-size:11px;color:var(--muted);margin-left:6px;">${detalhe}${detalheFormato}${detalheConsulta}</span></div>
       <button class="ghost" type="button" data-editarmedida="${escaparHtml(def.id)}" style="width:auto;padding:4px 10px;">Editar</button>
       <button class="ghost" type="button" data-removermedida="${escaparHtml(def.id)}" style="width:auto;padding:4px 10px;color:var(--bad);">Remover</button>
     </div>`;
   }).join('') || `<div class="empty">Nenhuma medida criada ainda.</div>`;
 }
+// qual consulta o formulário de medida está usando agora — mesma lógica
+// do formulário de widget (seletor só aparece com mais de 1 consulta)
+function pnlConsultaSelecionadaNoFormMedida(){
+  const sel = document.getElementById('pnlMedidaConsulta');
+  return (sel && sel.value) || pnlConsultaPadrao();
+}
 function pnlPopularSelectCampoMedida(){
   const sel = document.getElementById('pnlMedidaCampo');
   if(!sel) return;
+  const selConsulta = document.getElementById('pnlMedidaConsulta');
+  const campoConsulta = document.getElementById('pnlMedidaCampoConsulta');
+  if(campoConsulta) campoConsulta.style.display = pnlConsultasCarregadas.length > 1 ? '' : 'none';
+  if(selConsulta && pnlConsultasCarregadas.length){
+    const atualConsulta = selConsulta.value;
+    selConsulta.innerHTML = pnlConsultasCarregadas.map(c=>`<option value="${escaparHtml(c.id)}">${escaparHtml(c.nome)}</option>`).join('');
+    if(pnlConsultasCarregadas.some(c=>c.id===atualConsulta)) selConsulta.value = atualConsulta;
+  }
   const atual = sel.value;
-  sel.innerHTML = pnlColunasDisponiveis().map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  sel.innerHTML = pnlColunasDisponiveis(pnlConsultaSelecionadaNoFormMedida()).map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
   if([...sel.options].some(o=>o.value===atual)) sel.value = atual;
 }
 function pnlAtualizarCamposFormMedida(){
@@ -14943,6 +15075,8 @@ function pnlResetFormMedida(){
   pnlEditandoMedidaId = null;
   const nomeEl = document.getElementById('pnlMedidaNome'); if(!nomeEl) return;
   nomeEl.value = '';
+  const selConsultaMedida = document.getElementById('pnlMedidaConsulta');
+  if(selConsultaMedida) selConsultaMedida.value = pnlConsultaPadrao() || '';
   document.getElementById('pnlMedidaFuncao').value = 'soma';
   document.getElementById('pnlMedidaFormato').value = 'money';
   document.getElementById('pnlMedidaTipoNumero').value = 'inteiro';
@@ -14956,6 +15090,8 @@ function pnlEditarMedida(id){
   pnlEditandoMedidaId = id;
   document.getElementById('pnlMedidaNome').value = def.label || '';
   document.getElementById('pnlMedidaFormato').value = def.fmt || 'money';
+  const selConsultaMedida = document.getElementById('pnlMedidaConsulta');
+  if(selConsultaMedida) selConsultaMedida.value = def.consultaId || pnlConsultaPadrao() || '';
   pnlPopularSelectCampoMedida();
   document.getElementById('pnlMedidaFuncao').value = def.funcao || 'soma';
   const casasAtuais = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
@@ -16585,6 +16721,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlAdicionarFiltro').addEventListener('click', ()=>{
     pnlAdicionarFiltro(document.getElementById('pnlNovoFiltroCampo').value);
   });
+  document.getElementById('pnlMedidaConsulta').addEventListener('change', pnlPopularSelectCampoMedida);
   document.getElementById('pnlMedidaFuncao').addEventListener('change', pnlAtualizarCamposFormMedida);
   document.getElementById('pnlMedidaFormato').addEventListener('change', pnlAtualizarCamposFormMedida);
   document.getElementById('pnlMedidaTipoNumero').addEventListener('change', pnlAtualizarCamposFormMedida);
@@ -16607,6 +16744,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const entrada = { id: pnlEditandoMedidaId || pnlGerarIdMedida(), label: nome, fmt, funcao };
     if(funcao!=='contagem') entrada.campo = campo;
     if(casas!=null) entrada.casas = casas;
+    const consultaIdMedida = pnlConsultaSelecionadaNoFormMedida();
+    if(consultaIdMedida) entrada.consultaId = consultaIdMedida;
     const i = pnlPainelMedidas.findIndex(m=>m.id===entrada.id);
     if(i>=0) pnlPainelMedidas[i] = entrada; else pnlPainelMedidas.push(entrada);
     pnlResetFormMedida();
@@ -16643,7 +16782,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       pnlFiltroRapidoPorWidget[wid] = filtroRapido.dataset.wfiltrorapido;
       document.querySelectorAll(`[data-wfiltrorapido][data-wid="${wid}"]`).forEach(c=>c.classList.toggle('on', c===filtroRapido));
       const w = pnlPainelWidgets.find(x=>x.id===wid);
-      if(w) pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradas);
+      if(w) pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradasPorWidget[wid]);
       return;
     }
   });
@@ -16651,12 +16790,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
     const w = pnlPainelWidgets.find(x=>x.id===busca.dataset.wid);
     if(!w) return;
-    pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradas);
+    pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradasPorWidget[w.id]);
   });
   document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
   document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
   document.getElementById('pnlNovoWidgetTipo').addEventListener('change', pnlAtualizarCamposNovoWidget);
+  document.getElementById('pnlNovoWidgetConsulta').addEventListener('change', pnlAtualizarCamposNovoWidget);
   document.getElementById('pnlNovoWidgetFonte').addEventListener('change', ()=>{
     pnlFormColunasAtual = [];
     pnlAtualizarCamposNovoWidget();
@@ -16684,6 +16824,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(ehTabelaPersonalizada && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     if(ehTabelaPersonalizada && pnlFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
     const widget = { id: pnlEditandoWidgetId || pnlGerarIdWidget(), tipo, titulo };
+    const consultaId = pnlConsultaSelecionadaNoForm();
+    if(consultaId) widget.consultaId = consultaId;
     if(tipo !== 'kpi'){
       const largura = document.getElementById('pnlNovoWidgetLargura').value || 'completa';
       if(largura !== 'completa') widget.largura = largura;
