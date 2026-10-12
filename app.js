@@ -13308,6 +13308,7 @@ function recebRenderWidgetKpi(containerId, widget, linhas){
 }
 function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
   const cont = document.getElementById(containerId); if(!cont) return;
+  const altura = RECEB_ALTURAS_WIDGET[widget.altura];
   if(tipo==='linha'){
     const dimensao = widget.dimensao || 'mes';
     const medidas = widget.medida2 ? [widget.medida, widget.medida2] : [widget.medida];
@@ -13326,7 +13327,7 @@ function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
     });
     // dashLineChart não desenha <rect> por ponto (só <path>/<circle>) — por
     // isso, diferente da barra/ranking, a linha não tem clique-pra-filtrar
-    dashLineChart(cont, { labels: chaves.map(fmtLabel), series, mostrarRotulos: !!widget.mostrarRotulos });
+    dashLineChart(cont, { labels: chaves.map(fmtLabel), series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
     return;
   }
@@ -13335,7 +13336,7 @@ function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
   if(tipo==='donut'){
     const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
     const total = grupos.reduce((s,g)=>s+g.valor,0);
-    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })));
+    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })), altura ? {size:altura} : undefined);
     if(widget.mostrarLegenda){
       const itens = grupos.map((g,i)=>({ label: widget.mostrarRotulos && total ? `${g.rotulo} (${Math.round(g.valor/total*100)}%)` : g.rotulo, cor:dashCss(cores[i%cores.length]) }));
       cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(itens)}</div>`);
@@ -13345,7 +13346,7 @@ function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
   const unit = (RECEB_MEDIDAS[widget.medida]||{}).fmt === 'pct' ? '' : 'R$';
   const data = grupos.map(g=>({ label:g.rotulo, value:g.valor, tok:'--blue' }));
   const horizontal = tipo==='barra-h';
-  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos });
+  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
   if(RECEB_DIMENSOES_FILTRAVEIS.has(widget.dimensao)) recebLigarCliqueBarras(cont, grupos, widget.dimensao, horizontal);
 }
 function recebRenderWidgetAbertas(widget, linhas){
@@ -13601,9 +13602,18 @@ function recebHtmlToolbar(w, i, total){
     <button type="button" data-wtoolbar="remover" data-wid="${w.id}" title="Remover">✕</button>
   </div>`;
 }
+// altura máxima (com rolagem vertical) pras tabelas e pro ranking por
+// situação — os gráficos (barra/linha/donut) não usam isso, porque já
+// recebem a altura direto no height/size do dashBarChart/dashLineChart/
+// dashDonut (ver recebRenderWidgetGrafico)
+function recebEstiloAlturaScroll(w){
+  const altura = RECEB_ALTURAS_WIDGET[w.altura];
+  return altura ? `max-height:${altura}px;overflow-y:auto;` : '';
+}
 function recebHtmlWidget(w, i, total){
   const toolbar = recebHtmlToolbar(w, i, total);
   const classeEdit = recebModoEdicao ? ' editando' : '';
+  const estiloAltura = recebEstiloAlturaScroll(w);
   if(w.tipo === 'tabela-abertas'){
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
@@ -13615,23 +13625,23 @@ function recebHtmlWidget(w, i, total){
         <div class="chip ${recebSegPorWidget[w.id]==='A vencer'?'on':''}" data-wseg="A vencer" data-wid="${w.id}">A vencer</div>
       </div>
       <input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar nota, cliente, contrato ou município" style="margin-bottom:10px;">
-      <div style="overflow-x:auto;"><table class="valores-table" id="receb-${w.id}-tabela"></table></div>
+      <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="receb-${w.id}-tabela"></table></div>
       <button class="ghost" data-wcopy data-wid="${w.id}" type="button" style="width:auto;margin-top:10px;padding:8px 14px;">Copiar lista</button>
     </div>`;
   }
   if(w.tipo === 'tabela-contratos'){
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}" style="overflow-x:auto;">${toolbar}
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
       <div class="dash-sub">ordenados pelo maior faturado no período</div>
-      <table class="valores-table" id="receb-${w.id}-tabela"></table>
+      <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="receb-${w.id}-tabela"></table></div>
     </div>`;
   }
   if(w.tipo === 'tabela'){
     const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar nota, cliente, contrato ou município" style="margin-bottom:10px;">` : '';
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}" style="overflow-x:auto;">${toolbar}
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
       ${buscaHtml}
-      <table class="valores-table" id="receb-${w.id}-tabela"></table>
+      <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="receb-${w.id}-tabela"></table></div>
     </div>`;
   }
   if(w.tipo === 'kpi'){
@@ -13641,12 +13651,18 @@ function recebHtmlWidget(w, i, total){
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
       <div class="dash-legend" style="margin:2px 0 10px;">${dashLegendHtml([{label:'Recebido',cor:dashCss('--ok')},{label:'Vencido',cor:dashCss('--bad')},{label:'A vencer',cor:dashCss('--warn')}])}</div>
-      <div id="receb-${w.id}-conteudo"></div>
+      <div id="receb-${w.id}-conteudo" style="${estiloAltura}"></div>
     </div>`;
   }
+  // barra-h (ranking) ignora o "height" do dashBarChart — a altura dele
+  // sempre nasce do número de linhas, então "Altura" vira um teto com
+  // rolagem no lugar de um tamanho fixo (igual a tabela); os outros
+  // (barra/linha/donut) já recebem a altura certinha no gráfico, então
+  // nem precisam do wrapper
+  const estiloAlturaRanking = w.tipo==='barra-h' ? estiloAltura : '';
   return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${w.tipo==='linha'?' style="overflow-x:auto;"':''}>${toolbar}
     <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
-    <div id="receb-${w.id}-conteudo" style="margin-top:8px;"></div>
+    <div id="receb-${w.id}-conteudo" style="margin-top:8px;${estiloAlturaRanking}"></div>
   </div>`;
 }
 // largura de cada widget (exceto kpi, que sempre fica dentro do .summary
@@ -13660,6 +13676,11 @@ const RECEB_LARGURAS_WIDGET = {
   metade: 'calc(50% - 7px)',
   terco: 'calc(33.3334% - 9.3334px)',
 };
+// altura de gráficos (passada direto pro dashBarChart/dashLineChart/
+// dashDonut) e, pra tabela, a altura máxima da área com rolagem —
+// "padrao" não força nada, cada tipo de gráfico usa o próprio tamanho
+// de sempre (180px, ou 140 de "size" no donut)
+const RECEB_ALTURAS_WIDGET = { padrao: null, baixa: 140, alta: 320, enorme: 450 };
 function recebRenderEsqueleto(){
   const grade = document.getElementById('recebGradeWidgets');
   const ws = recebPainelWidgets;
@@ -13852,6 +13873,7 @@ function recebResetFormNovoWidget(){
   document.getElementById('recebNovoWidgetLegenda').checked = false;
   document.getElementById('recebNovoWidgetRotulos').checked = false;
   document.getElementById('recebNovoWidgetLargura').value = 'completa';
+  document.getElementById('recebNovoWidgetAltura').value = 'padrao';
   document.getElementById('recebNovoWidgetMostrarSubtitulo').checked = true;
   document.getElementById('recebNovoWidgetSubtitulo').value = '';
   recebAtualizarCamposNovoWidget();
@@ -13885,6 +13907,7 @@ function recebWidgetEditar(id){
   document.getElementById('recebNovoWidgetApenasAbertas').checked = !!w.apenasAbertas;
   recebFormColunasAtual = w.colunas ? w.colunas.slice() : [];
   document.getElementById('recebNovoWidgetLargura').value = w.largura || 'completa';
+  document.getElementById('recebNovoWidgetAltura').value = w.altura || 'padrao';
   recebAtualizarCamposNovoWidget();
   document.getElementById('recebNovoWidgetTitulo').value = w.titulo || '';
   document.getElementById('recebNovoWidgetMedida').value = w.medida || 'faturado';
@@ -14370,6 +14393,7 @@ function pnlLigarCliqueBarras(container, grupos, campoFiltro){
 }
 function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
   const cont = document.getElementById(containerId); if(!cont) return;
+  const altura = RECEB_ALTURAS_WIDGET[widget.altura];
   if(tipo==='linha'){
     const dimensao = widget.dimensao;
     const medidas = widget.medida2 ? [widget.medida, widget.medida2] : [widget.medida];
@@ -14380,7 +14404,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
       const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
       return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
     });
-    dashLineChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos });
+    dashLineChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
     return;
   }
@@ -14389,7 +14413,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
   if(tipo==='donut'){
     const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
     const total = grupos.reduce((s,g)=>s+g.valor,0);
-    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })));
+    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })), altura ? {size:altura} : undefined);
     if(widget.mostrarLegenda){
       const itens = grupos.map((g,i)=>({ label: widget.mostrarRotulos && total ? `${g.rotulo} (${Math.round(g.valor/total*100)}%)` : g.rotulo, cor:dashCss(cores[i%cores.length]) }));
       cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(itens)}</div>`);
@@ -14403,7 +14427,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
   const unit = (pnlMedidaPorId(widget.medida)||{}).fmt === 'money' ? 'R$' : '';
   const data = grupos.map(g=>({ label:g.rotulo, value:g.valor, tok:'--blue' }));
   const horizontal = tipo==='barra-h';
-  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos });
+  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
   if(horizontal){
     // horizontal desenha 2 <rect> por linha (trilho + barra) — reaproveita
     // a mesma convenção de índice ímpar do recebLigarCliqueBarras
@@ -14493,20 +14517,24 @@ function pnlHtmlToolbar(w, i, total){
 function pnlHtmlWidget(w, i, total){
   const toolbar = pnlHtmlToolbar(w, i, total);
   const classeEdit = pnlModoEdicao ? ' editando' : '';
+  const estiloAltura = recebEstiloAlturaScroll(w);
   if(w.tipo === 'tabela'){
     const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar..." style="margin-bottom:10px;">` : '';
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}" style="overflow-x:auto;">${toolbar}
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${buscaHtml}
-      <table class="valores-table" id="pnl-${w.id}-tabela"></table>
+      <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="pnl-${w.id}-tabela"></table></div>
     </div>`;
   }
   if(w.tipo === 'kpi'){
     return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="pnl-${w.id}-conteudo"></div></div>`;
   }
+  // barra-h ignora o "height" do dashBarChart (altura sempre nasce do
+  // número de linhas) — "Altura" vira um teto com rolagem, igual na tabela
+  const estiloAlturaRanking = w.tipo==='barra-h' ? estiloAltura : '';
   return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${w.tipo==='linha'?' style="overflow-x:auto;"':''}>${toolbar}
     <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
-    <div id="pnl-${w.id}-conteudo" style="margin-top:8px;"></div>
+    <div id="pnl-${w.id}-conteudo" style="margin-top:8px;${estiloAlturaRanking}"></div>
   </div>`;
 }
 function pnlRenderEsqueleto(){
@@ -14634,6 +14662,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
+  document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
   document.getElementById('pnlNovoWidgetSubtitulo').value = '';
   pnlAtualizarCamposNovoWidget();
   document.getElementById('pnlNovoWidgetMedida2').value = '';
@@ -14663,6 +14692,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetFonte').value = w.fonte || 'linhas';
   pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
+  document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   pnlAtualizarCamposNovoWidget();
   document.getElementById('pnlNovoWidgetTitulo').value = w.titulo || '';
   if(w.medida) document.getElementById('pnlNovoWidgetMedida').value = w.medida;
@@ -16269,6 +16299,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(tipo !== 'kpi'){
       const largura = document.getElementById('recebNovoWidgetLargura').value || 'completa';
       if(largura !== 'completa') widget.largura = largura;
+      const altura = document.getElementById('recebNovoWidgetAltura').value || 'padrao';
+      if(altura !== 'padrao') widget.altura = altura;
     }
     if(ehTabelaPersonalizada){
       widget.fonte = fonte;
@@ -16411,6 +16443,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(tipo !== 'kpi'){
       const largura = document.getElementById('pnlNovoWidgetLargura').value || 'completa';
       if(largura !== 'completa') widget.largura = largura;
+      const altura = document.getElementById('pnlNovoWidgetAltura').value || 'padrao';
+      if(altura !== 'padrao') widget.altura = altura;
     }
     if(ehTabelaPersonalizada){
       widget.fonte = fonte;
