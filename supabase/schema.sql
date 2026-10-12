@@ -1384,3 +1384,40 @@ alter table rm_painel_layouts add column if not exists filtros jsonb not null de
 -- código (ver RECEB_MEDIDAS_PADRAO no app.js). Vazio/ausente = usa só as
 -- medidas de sistema, sem nenhuma personalizada.
 alter table rm_painel_layouts add column if not exists medidas jsonb not null default '[]';
+
+-- "slug" em rm_relatorios_gerenciais virou um resquício histórico: toda
+-- linha nascia com o mesmo valor fixo 'painel-recebiveis' (não distinguia
+-- nada de verdade) e por causa disso só dava pra cadastrar UMA consulta por
+-- cliente (o unique era cliente_id+slug, e slug nunca variava). Agora cada
+-- cliente pode ter quantas Consultas SQL quiser — quem decide pra qual
+-- Painel cada consulta alimenta é o cadastro de Painéis logo abaixo
+-- (rm_paineis.consultas), não mais o slug da consulta.
+drop index if exists idx_rm_relatorios_cliente_slug;
+
+-- cadastro de Painéis: cada painel usa 1 ou mais Consultas SQL (linhas de
+-- rm_relatorios_gerenciais) — tipicamente a MESMA consulta repetida uma vez
+-- por cliente (mesma estrutura de colunas). Na tela do painel, o usuário
+-- escolhe o cliente e o sistema acha, entre as consultas vinculadas, a que
+-- pertence a esse cliente. tipo='especial' é o Painel de Recebíveis — tem
+-- tela e regras de negócio próprias, fixas no código (medidas, situação,
+-- vencimento...); tipo='generico' é um painel novo, 100% configurável em
+-- cima das colunas cruas que a consulta trouxer (grade de widgets, medidas
+-- e filtros do jeito que o usuário montar, ver recebPainelWidgets-like
+-- estrutura em pnlPainelWidgets no app.js). O layout (grade de widgets) de
+-- cada painel fica em rm_painel_layouts, chaveado pelo MESMO slug.
+create table if not exists rm_paineis (
+  id text primary key,
+  slug text unique not null,
+  nome text not null,
+  tipo text not null default 'generico' check (tipo in ('especial','generico')),
+  consultas jsonb not null default '[]',
+  criado_em timestamptz default now()
+);
+alter table rm_paineis enable row level security;
+-- a linha do Painel de Recebíveis precisa sempre existir (a tela especial
+-- é fixa no código) — nasce sem nenhuma consulta vinculada; o admin liga as
+-- consultas de cada cliente a ela em Relatórios Gerenciais RM → Painéis,
+-- a mesma tela usada pra criar painéis genéricos novos
+insert into rm_paineis (id, slug, nome, tipo, consultas)
+  values ('pnl-painel-recebiveis', 'painel-recebiveis', 'Painel de Recebíveis', 'especial', '[]')
+  on conflict (id) do nothing;
