@@ -13574,7 +13574,14 @@ function recebHtmlWidget(w, i, total){
 // largura de cada widget (exceto kpi, que sempre fica dentro do .summary
 // de sempre) — flex-basis em %; combinado com flex-wrap no
 // #recebGradeWidgets, dois widgets "metade" seguidos ficam lado a lado
-const RECEB_LARGURAS_WIDGET = { completa:100, metade:50, terco:33.3334 };
+// a largura precisa descontar o gap (14px) entre widgets da mesma linha,
+// senão "50% + 50% + gap" ultrapassa a largura do contêiner e o 2º
+// widget quebra pra linha de baixo em vez de ficar do lado do 1º
+const RECEB_LARGURAS_WIDGET = {
+  completa: '100%',
+  metade: 'calc(50% - 7px)',
+  terco: 'calc(33.3334% - 9.3334px)',
+};
 function recebRenderEsqueleto(){
   const grade = document.getElementById('recebGradeWidgets');
   const ws = recebPainelWidgets;
@@ -13586,8 +13593,13 @@ function recebRenderEsqueleto(){
       html += `<div style="flex:1 1 100%;min-width:0;"><div class="summary">${grupoHtml}</div></div>`;
       i = j;
     }else{
-      const largura = RECEB_LARGURAS_WIDGET[ws[i].largura] || 100;
-      html += `<div style="flex:1 1 ${largura}%;min-width:280px;">${recebHtmlWidget(ws[i], i, ws.length)}</div>`;
+      // flex-grow 0 é de propósito: um widget "metade"/"terço" sozinho
+      // na linha (sem outro do lado) precisa manter a largura configurada
+      // e deixar o resto da linha vazio, em vez de esticar pra 100% —
+      // senão "metade" fica visualmente idêntico a "completa" quando é
+      // o único widget daquele tamanho ali
+      const largura = RECEB_LARGURAS_WIDGET[ws[i].largura] || RECEB_LARGURAS_WIDGET.completa;
+      html += `<div style="flex:0 1 ${largura};min-width:280px;">${recebHtmlWidget(ws[i], i, ws.length)}</div>`;
       i++;
     }
   }
