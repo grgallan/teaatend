@@ -304,6 +304,12 @@
   .receb-rs-nome:hover{text-decoration:underline;}
   .receb-rs-valor{flex:none;font-size:12.5px;font-weight:700;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
   .receb-rs-track{display:flex;height:9px;border-radius:5px;overflow:hidden;background:var(--panel-2);margin-top:4px;}
+  /* grade de widgets do Painel de Recebíveis — cada widget fica num
+     "flex item" cuja largura vem de widget.largura (completa/metade/
+     terço); com flex-wrap, dois widgets "metade" colados ficam lado a
+     lado, e min-width garante que empilha de volta em telas estreitas */
+  #recebGradeWidgets{display:flex;flex-wrap:wrap;gap:14px;}
+  #recebGradeWidgets > div > .card{margin-bottom:0;}
   .dash-tooltip{position:fixed;pointer-events:none;background:var(--text);color:var(--panel);font-size:11.5px;font-weight:600;padding:6px 9px;border-radius:8px;z-index:99;opacity:0;transform:translate(-50%,-100%);transition:opacity .08s;white-space:nowrap;}
   .dash-tooltip.show{opacity:1;}
   .dash-empty{font-size:12.5px;color:var(--muted);padding:6px 0;}
@@ -2691,6 +2697,15 @@
           </div>
           <div class="field"><label>Título</label><input type="text" id="recebNovoWidgetTitulo" placeholder="Ex: Faturado por cliente"></div>
         </div>
+        <div class="row" id="recebNovoWidgetCampoLargura">
+          <div class="field"><label>Largura</label>
+            <select id="recebNovoWidgetLargura">
+              <option value="completa">Completa (sozinho na linha)</option>
+              <option value="metade">Metade (2 lado a lado)</option>
+              <option value="terco">Um terço (3 lado a lado)</option>
+            </select>
+          </div>
+        </div>
         <div class="row" id="recebNovoWidgetLinhaMedida">
           <div class="field" id="recebNovoWidgetCampoMedida"><label>Medida</label><select id="recebNovoWidgetMedida"></select></div>
           <div class="field" id="recebNovoWidgetCampoDimensao"><label>Agrupar por</label><select id="recebNovoWidgetDimensao"></select></div>
@@ -2701,6 +2716,12 @@
         </div>
         <div class="field" id="recebNovoWidgetCampoTop" style="display:none;"><label>Mostrar só os N maiores (opcional)</label><input type="number" id="recebNovoWidgetTop" min="1" placeholder="Ex: 12"></div>
         <div class="field" id="recebNovoWidgetCampoMedidas2" style="display:none;"><label>Segunda medida (opcional, pra comparar duas linhas)</label><select id="recebNovoWidgetMedida2"></select></div>
+        <div id="recebNovoWidgetCampoSubtitulo" style="display:none;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0;cursor:pointer;">
+            <input type="checkbox" id="recebNovoWidgetMostrarSubtitulo" style="width:auto;" checked> Mostrar subtítulo
+          </label>
+          <div class="field"><label>Texto do subtítulo (em branco usa o texto automático, quando houver)</label><input type="text" id="recebNovoWidgetSubtitulo" placeholder="Ex: 22,2% do faturado"></div>
+        </div>
         <div class="field" id="recebNovoWidgetCampoFonte" style="display:none;">
           <label>De onde vêm as linhas da tabela</label>
           <select id="recebNovoWidgetFonte">
