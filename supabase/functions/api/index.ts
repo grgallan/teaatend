@@ -285,6 +285,9 @@ function clienteParaApi(c: any) {
 function rmRelatorioGerencialParaApi(r: any) {
   return { id: r.id, slug: r.slug || '', nome: r.nome, codigoSentenca: r.codigo_sentenca, coligada: r.coligada || '1', sistema: r.sistema || 'G', parametros: r.parametros || '', empresaId: r.empresa_id || '', clienteId: r.cliente_id || '' };
 }
+function rmPainelParaApi(p: any) {
+  return { id: p.id, slug: p.slug, nome: p.nome, tipo: p.tipo || 'generico', consultas: p.consultas || [] };
+}
 function categoriaFinanceiraParaApi(c: any) {
   return { id: c.id, nome: c.nome, tipo: c.tipo || 'DESPESA', empresaId: c.empresa_id || '' };
 }
@@ -382,6 +385,9 @@ async function rotear(req: any): Promise<any> {
     case 'removerRmRelatorioGerencial': return acaoRemoverRmRelatorioGerencial(req);
     case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
     case 'salvarRmPainelLayout': return acaoSalvarRmPainelLayout(req);
+    case 'addRmPainel': return acaoAddRmPainel(req);
+    case 'atualizarRmPainel': return acaoAtualizarRmPainel(req);
+    case 'removerRmPainel': return acaoRemoverRmPainel(req);
     case 'addCategoriaFinanceira': return acaoAddCategoriaFinanceira(req);
     case 'atualizarCategoriaFinanceira': return acaoAtualizarCategoriaFinanceira(req);
     case 'removerCategoriaFinanceira': return acaoRemoverCategoriaFinanceira(req);
@@ -536,7 +542,7 @@ async function acaoDados(req: any) {
   if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
   let rmRelatoriosQuery = db.from('rm_relatorios_gerenciais').select('*').order('nome');
   if (empresaId) rmRelatoriosQuery = rmRelatoriosQuery.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }] = await Promise.all([
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -552,6 +558,7 @@ async function acaoDados(req: any) {
     categoriasFinanceirasQuery,
     rmRelatoriosQuery,
     db.from('rm_painel_layouts').select('*'),
+    db.from('rm_paineis').select('*').order('nome'),
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
@@ -710,6 +717,7 @@ async function acaoDados(req: any) {
     categoriasFinanceiras: (categoriasFinanceirasRaw || []).map(categoriaFinanceiraParaApi),
     rmRelatoriosGerenciais: (rmRelatoriosRaw || []).map(rmRelatorioGerencialParaApi),
     rmPainelLayouts: (rmPainelLayoutsRaw || []).map((p: any) => ({ slug: p.slug, widgets: p.widgets || [], filtros: p.filtros || [], medidas: p.medidas || [] })),
+    rmPaineis: (rmPaineisRaw || []).map(rmPainelParaApi),
   };
 }
 
@@ -3888,32 +3896,31 @@ async function acaoAtualizarCliente(req: any) {
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
-/* ---------- Relatórios Gerenciais TOTVS RM: cadastro das consultas
+/* ---------- Relatórios Gerenciais TOTVS RM: cadastro das Consultas SQL
    (Código da Sentença/Coligada/Sistema/Parâmetros) + execução via RM ---------- */
-// por enquanto só existe UM tipo de relatório gerencial com tela própria
-// (o Painel de Recebíveis) — toda linha nova já nasce com esse slug fixo;
-// quando existir um segundo tipo, troca por um seletor na tela
-const RM_RELATORIO_SLUG_PADRAO = 'painel-recebiveis';
+// "slug" nessa tabela é só um resquício histórico (não é mais usado pra
+// nada) — quem decide se uma consulta alimenta o Painel de Recebíveis
+// (tela especial, lógica de negócio fixa) ou um Painel genérico novo é o
+// cadastro de Painéis (rm_paineis.consultas), não mais o slug da consulta.
+// Um cliente agora pode ter QUANTAS consultas quiser (o unique antigo de
+// (cliente_id, slug) foi removido na migration).
 async function acaoAddRmRelatorioGerencial(req: any) {
-  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar relatórios gerenciais.' };
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar consultas SQL.' };
   if (!req.clienteId) return { ok: false, erro: 'Escolha o cliente — a sentença/coligada/sistema são da conexão RM de cada cliente.' };
-  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome do relatório.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome da consulta.' };
   if (!req.codigoSentenca || !String(req.codigoSentenca).trim()) return { ok: false, erro: 'Informe o código da sentença.' };
   const registro = {
-    id: gerarId(), slug: RM_RELATORIO_SLUG_PADRAO, nome: req.nome, codigo_sentenca: req.codigoSentenca,
+    id: gerarId(), nome: req.nome, codigo_sentenca: req.codigoSentenca,
     coligada: req.coligada || '1', sistema: (req.sistema || 'G').toUpperCase(), parametros: req.parametros || '',
     empresa_id: req.empresaId || null, cliente_id: req.clienteId,
   };
   const { error } = await db.from('rm_relatorios_gerenciais').insert(registro);
-  if (error) {
-    if (String(error.message || '').includes('idx_rm_relatorios_cliente_slug')) return { ok: false, erro: 'Esse cliente já tem um Painel de Recebíveis cadastrado — edite o relatório existente em vez de criar outro.' };
-    return { ok: false, erro: error.message };
-  }
+  if (error) return { ok: false, erro: error.message };
   return { ok: true, registro: rmRelatorioGerencialParaApi(registro) };
 }
 async function acaoAtualizarRmRelatorioGerencial(req: any) {
-  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar relatórios gerenciais.' };
-  if (!req.id) return { ok: false, erro: 'Relatório não informado.' };
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.cadastro', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar consultas SQL.' };
+  if (!req.id) return { ok: false, erro: 'Consulta não informada.' };
   const atualizado: any = {};
   if (req.nome !== undefined) atualizado.nome = req.nome;
   if (req.codigoSentenca !== undefined) atualizado.codigo_sentenca = req.codigoSentenca;
@@ -3922,10 +3929,7 @@ async function acaoAtualizarRmRelatorioGerencial(req: any) {
   if (req.parametros !== undefined) atualizado.parametros = req.parametros;
   if (req.clienteId) atualizado.cliente_id = req.clienteId;
   const { error } = await db.from('rm_relatorios_gerenciais').update(atualizado).eq('id', req.id);
-  if (error) {
-    if (String(error.message || '').includes('idx_rm_relatorios_cliente_slug')) return { ok: false, erro: 'Esse cliente já tem um Painel de Recebíveis cadastrado — edite o relatório existente em vez de criar outro.' };
-    return { ok: false, erro: error.message };
-  }
+  if (error) return { ok: false, erro: error.message };
   return { ok: true };
 }
 async function acaoRemoverRmRelatorioGerencial(req: any) {
@@ -3995,15 +3999,56 @@ async function acaoExecutarRmRelatorioGerencial(req: any) {
   }
 }
 // grava a grade de widgets configurável de um painel (ex: 'painel-recebiveis')
-// — compartilhada por todo mundo que usa aquele painel, não por cliente
+// — compartilhada por todo mundo que usa aquele painel, não por cliente.
+// A permissão que vale depende do TIPO do painel: o especial (Painel de
+// Recebíveis, tela fixa no código) continua checando a permissão de sempre;
+// um painel genérico novo checa a permissão nova de Painéis.
 async function acaoSalvarRmPainelLayout(req: any) {
-  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.painelrecebiveis', 'editar'))) return { ok: false, erro: 'Você não tem permissão para configurar esse painel.' };
   if (!req.slug) return { ok: false, erro: 'Painel não informado.' };
+  const { data: painel } = await db.from('rm_paineis').select('tipo').eq('slug', req.slug).maybeSingle();
+  const menu = painel?.tipo === 'especial' ? 'relatoriosgerenciaisrm.painelrecebiveis' : 'relatoriosgerenciaisrm.paineis';
+  if (!(await podeAgir(req.contaId, menu, 'editar'))) return { ok: false, erro: 'Você não tem permissão para configurar esse painel.' };
   if (!Array.isArray(req.widgets)) return { ok: false, erro: 'Lista de widgets inválida.' };
   const filtros = Array.isArray(req.filtros) ? req.filtros : [];
   const medidas = Array.isArray(req.medidas) ? req.medidas : [];
   const { error } = await db.from('rm_painel_layouts').upsert({ slug: req.slug, widgets: req.widgets, filtros, medidas, atualizado_em: new Date().toISOString() });
   if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+// cadastro de Painéis — cada painel vincula 1+ Consultas SQL já
+// cadastradas (rm_relatorios_gerenciais). "slug" é gerado a partir do nome
+// na criação e nunca muda depois (é por ele que a grade de widgets do
+// painel — rm_painel_layouts — e a tela que abre o painel acham ele).
+function gerarSlugPainel(nome: string): string {
+  const base = String(nome || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'painel';
+  return base + '-' + crypto.randomUUID().slice(0, 6);
+}
+async function acaoAddRmPainel(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.paineis', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar painéis.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome do painel.' };
+  const consultas = Array.isArray(req.consultas) ? req.consultas.map(String) : [];
+  const registro = { id: gerarId(), slug: gerarSlugPainel(req.nome), nome: req.nome, tipo: 'generico', consultas };
+  const { error } = await db.from('rm_paineis').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: rmPainelParaApi(registro) };
+}
+async function acaoAtualizarRmPainel(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.paineis', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar painéis.' };
+  if (!req.id) return { ok: false, erro: 'Painel não informado.' };
+  const atualizado: any = {};
+  if (req.nome !== undefined && String(req.nome).trim()) atualizado.nome = req.nome;
+  if (req.consultas !== undefined) atualizado.consultas = Array.isArray(req.consultas) ? req.consultas.map(String) : [];
+  const { error } = await db.from('rm_paineis').update(atualizado).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRemoverRmPainel(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.paineis', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover painéis.' };
+  const { data: painel } = await db.from('rm_paineis').select('tipo').eq('id', req.id).maybeSingle();
+  if (painel?.tipo === 'especial') return { ok: false, erro: 'O Painel de Recebíveis não pode ser removido — ele é fixo no sistema.' };
+  await db.from('rm_paineis').delete().eq('id', req.id);
   return { ok: true };
 }
 

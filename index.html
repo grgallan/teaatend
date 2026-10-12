@@ -308,8 +308,8 @@
      "flex item" cuja largura vem de widget.largura (completa/metade/
      terço); com flex-wrap, dois widgets "metade" colados ficam lado a
      lado, e min-width garante que empilha de volta em telas estreitas */
-  #recebGradeWidgets{display:flex;flex-wrap:wrap;gap:14px;}
-  #recebGradeWidgets > div > .card{margin-bottom:0;}
+  #recebGradeWidgets,#pnlGradeWidgets{display:flex;flex-wrap:wrap;gap:14px;}
+  #recebGradeWidgets > div > .card,#pnlGradeWidgets > div > .card{margin-bottom:0;}
   .dash-tooltip{position:fixed;pointer-events:none;background:var(--text);color:var(--panel);font-size:11.5px;font-weight:600;padding:6px 9px;border-radius:8px;z-index:99;opacity:0;transform:translate(-50%,-100%);transition:opacity .08s;white-space:nowrap;}
   .dash-tooltip.show{opacity:1;}
   .dash-empty{font-size:12.5px;color:var(--muted);padding:6px 0;}
@@ -2615,16 +2615,17 @@
   <!-- RELATÓRIOS GERENCIAIS TOTVS RM -->
   <section class="view" id="view-relatoriosgerenciaisrm">
     <div class="subtabs" id="rgrmSubtabs">
-      <div class="subtab active" data-rgrmsub="cadastro">Cadastro de Relatórios</div>
+      <div class="subtab active" data-rgrmsub="cadastro">Consultas SQL</div>
+      <div class="subtab" data-rgrmsub="paineis">Painéis</div>
       <div class="subtab" data-rgrmsub="painelrecebiveis">Painel de Recebíveis</div>
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-cadastro">
       <div class="card">
-        <h2 id="rgrm_tituloForm">Novo relatório gerencial</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Cada linha é uma consulta SQL do RM (RealizaConsulta) disponível pro sistema — os mesmos dados que antes só existiam na tela de configuração do painel separado. A Sentença/Coligada/Sistema são da conexão RM de UM cliente específico (cada cliente tem seu próprio servidor RM), por isso escolha o cliente antes de salvar.</p>
+        <h2 id="rgrm_tituloForm">Nova consulta SQL</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Cada linha é uma consulta SQL do RM (RealizaConsulta) disponível pro sistema. A Sentença/Coligada/Sistema são da conexão RM de UM cliente específico (cada cliente tem seu próprio servidor RM), por isso escolha o cliente antes de salvar. Depois de cadastrada, vincule a consulta a um Painel na aba "Painéis" pra poder visualizar os dados.</p>
         <div class="field"><label>Cliente</label><select id="rgrm_cliente"></select></div>
-        <div class="field"><label>Nome do relatório</label><input type="text" id="rgrm_nome" placeholder="Ex: PAINEL DE RECEBIVEIS"></div>
+        <div class="field"><label>Nome da consulta</label><input type="text" id="rgrm_nome" placeholder="Ex: PAINEL DE RECEBIVEIS"></div>
         <div class="row">
           <div class="field"><label>Código da Sentença</label><input type="text" id="rgrm_sentenca" placeholder="Ex: PAINEL.RECEB"></div>
           <div class="field"><label>Coligada</label><input type="text" id="rgrm_coligada" value="1"></div>
@@ -2633,10 +2634,169 @@
           <div class="field"><label>Sistema (aplicação)</label><input type="text" id="rgrm_sistema" value="G" maxlength="2"></div>
           <div class="field"><label>Parâmetros (opcional)</label><input type="text" id="rgrm_parametros" placeholder="Ex: DATAINI_D=2025-01-01"></div>
         </div>
-        <button class="primary" id="btnAddRmRelatorio">Adicionar relatório</button>
+        <button class="primary" id="btnAddRmRelatorio">Adicionar consulta</button>
         <button class="ghost" id="btnCancelarEdicaoRmRelatorio" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
       <div id="listRmRelatorios"></div>
+    </div>
+
+    <div class="rgrm-sub-view" id="rgrm-sub-paineis" style="display:none;">
+      <div class="card">
+        <h2 id="pnl_tituloForm">Novo painel</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Um painel monta uma grade de indicadores/gráficos/tabelas configurável em cima de 1 ou mais Consultas SQL (normalmente a mesma consulta repetida uma vez por cliente). Cadastre as Consultas SQL primeiro, na aba "Consultas SQL".</p>
+        <div class="field"><label>Nome do painel</label><input type="text" id="pnl_nome" placeholder="Ex: FICHA FINANCEIRA"></div>
+        <div class="field">
+          <label>Consultas SQL vinculadas</label>
+          <div id="pnl_consultasLista" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
+        </div>
+        <button class="primary" id="btnAddRmPainel">Adicionar painel</button>
+        <button class="ghost" id="btnCancelarEdicaoRmPainel" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div id="listRmPaineis"></div>
+    </div>
+
+    <div class="rgrm-sub-view" id="rgrm-sub-painelgenerico" style="display:none;">
+      <div class="card">
+        <button type="button" class="ghost" id="btnPnlVoltar" style="width:auto;padding:8px 14px;margin-bottom:10px;">← Painéis</button>
+        <h2 id="pnlTitulo">Painel</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Busca direto da API do TOTVS RM, usando a conexão cadastrada no cliente (Cadastros → Clientes).</p>
+        <div class="row">
+          <div class="field"><label>Cliente</label><select id="pnl_cliente"></select></div>
+          <div class="field"><label>&nbsp;</label><button class="primary" id="btnPnlAtualizar" type="button" style="width:100%;">Atualizar do RM</button></div>
+        </div>
+        <button class="ghost" id="btnPnlExportarExcel" type="button" style="width:auto;padding:8px 14px;display:none;">📊 Exportar Excel</button>
+        <button class="ghost" id="btnPnlExportarCsv" type="button" style="width:auto;padding:8px 14px;display:none;margin-left:8px;" title="Pra consultas muito grandes — o Excel trava em ~1 milhão de linhas por aba, o CSV não">📄 Exportar CSV</button>
+        <p id="pnlBaseInfo" style="color:var(--muted);font-size:12.5px;margin:4px 0 0;">Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".</p>
+        <p id="pnlStatus" style="color:var(--bad);font-size:12.5px;margin:4px 0 0;"></p>
+      </div>
+
+      <div class="card" id="pnlCardFiltros" style="display:none;">
+        <h2>Filtros</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Clique no ▾ de cada filtro — "Selecionar todos" ou vá marcando quais quer. Use "⚙ Configurar painel" pra escolher quais filtros aparecem aqui, com base em qualquer coluna que a consulta trouxer.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;" id="pnlGradeFiltros"></div>
+        <div class="row" id="pnlLinhaAddFiltro" style="display:none;margin-top:12px;align-items:flex-end;gap:10px;flex-wrap:wrap;">
+          <div class="field" style="flex:1;min-width:200px;"><label>Adicionar filtro</label><select id="pnlNovoFiltroCampo"></select></div>
+          <button class="ghost" id="btnPnlAdicionarFiltro" type="button" style="width:auto;padding:8px 14px;">+ Adicionar</button>
+        </div>
+        <button class="ghost" id="btnPnlLimparFiltros" type="button" style="width:auto;padding:8px 14px;margin-top:10px;">Limpar filtros</button>
+      </div>
+      <div class="lista-filtro-coluna-dropdown" id="pnlFiltroColunaPortal"></div>
+
+      <div class="card" id="pnlCardGradeTopo" style="display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+          <div>
+            <h2 style="margin:0;">Painel</h2>
+            <p style="color:var(--muted);font-size:11.5px;margin:2px 0 0;">Monte o painel do seu jeito — adicione, remova e reordene os widgets.</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="ghost" id="btnPnlEditarPainel" type="button" style="width:auto;padding:8px 14px;">⚙ Configurar painel</button>
+            <button class="primary" id="btnPnlSalvarPainel" type="button" style="width:auto;padding:8px 14px;display:none;">Salvar layout</button>
+            <button class="ghost" id="btnPnlCancelarEdicaoPainel" type="button" style="width:auto;padding:8px 14px;display:none;">Cancelar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="pnlCardAddWidget" style="display:none;">
+        <h2>Adicionar widget</h2>
+        <div class="row">
+          <div class="field"><label>Tipo</label>
+            <select id="pnlNovoWidgetTipo">
+              <option value="kpi">Indicador (número único)</option>
+              <option value="barra">Gráfico de barras</option>
+              <option value="barra-h">Ranking (barras horizontais)</option>
+              <option value="linha">Gráfico de linha</option>
+              <option value="donut">Gráfico de pizza (donut)</option>
+              <option value="tabela">Tabela (colunas à sua escolha)</option>
+            </select>
+          </div>
+          <div class="field"><label>Título</label><input type="text" id="pnlNovoWidgetTitulo" placeholder="Ex: Total por mês"></div>
+        </div>
+        <div class="row" id="pnlNovoWidgetCampoLargura">
+          <div class="field"><label>Largura</label>
+            <select id="pnlNovoWidgetLargura">
+              <option value="completa">Completa (sozinho na linha)</option>
+              <option value="metade">Metade (2 lado a lado)</option>
+              <option value="terco">Um terço (3 lado a lado)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" id="pnlNovoWidgetLinhaMedida">
+          <div class="field" id="pnlNovoWidgetCampoMedida"><label>Medida</label><select id="pnlNovoWidgetMedida"></select></div>
+          <div class="field" id="pnlNovoWidgetCampoDimensao"><label>Agrupar por</label><select id="pnlNovoWidgetDimensao"></select></div>
+        </div>
+        <div class="row">
+          <div class="field" id="pnlNovoWidgetCampoDimensao2" style="display:none;"><label>Depois por (nível 2, opcional)</label><select id="pnlNovoWidgetDimensao2"></select></div>
+          <div class="field" id="pnlNovoWidgetCampoDimensao3" style="display:none;"><label>Depois por (nível 3, opcional)</label><select id="pnlNovoWidgetDimensao3"></select></div>
+        </div>
+        <div class="field" id="pnlNovoWidgetCampoTop" style="display:none;"><label>Mostrar só os N maiores (opcional)</label><input type="number" id="pnlNovoWidgetTop" min="1" placeholder="Ex: 12"></div>
+        <div class="field" id="pnlNovoWidgetCampoMedidas2" style="display:none;"><label>Segunda medida (opcional, pra comparar duas linhas)</label><select id="pnlNovoWidgetMedida2"></select></div>
+        <div class="field" id="pnlNovoWidgetCampoSubtitulo" style="display:none;"><label>Subtítulo (opcional)</label><input type="text" id="pnlNovoWidgetSubtitulo" placeholder="Ex: Meta do mês: R$ 10.000,00"></div>
+        <div class="field" id="pnlNovoWidgetCampoFonte" style="display:none;">
+          <label>De onde vêm as linhas da tabela</label>
+          <select id="pnlNovoWidgetFonte">
+            <option value="linhas">Linhas (uma linha por registro)</option>
+            <option value="agrupado">Agrupado por uma dimensão (uma linha por valor)</option>
+          </select>
+        </div>
+        <div class="field" id="pnlNovoWidgetCampoColunas" style="display:none;">
+          <label id="pnlNovoWidgetLabelColunas">Colunas</label>
+          <div id="pnlNovoWidgetColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
+        </div>
+        <div id="pnlNovoWidgetCampoGrafico" style="display:none;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0;cursor:pointer;">
+            <input type="checkbox" id="pnlNovoWidgetLegenda" style="width:auto;"> Mostrar legenda
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0 10px;cursor:pointer;">
+            <input type="checkbox" id="pnlNovoWidgetRotulos" style="width:auto;"> Mostrar rótulos de valor
+          </label>
+        </div>
+        <button class="primary" id="btnPnlAdicionarWidget" type="button">Adicionar ao painel</button>
+      </div>
+
+      <div class="card" id="pnlCardMedidas" style="display:none;">
+        <h2>Medidas</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie medidas (um campo da consulta + uma função: soma, média, contagem...) pra usar nos widgets.</p>
+        <div id="pnlListaMedidas"></div>
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+          <div class="row">
+            <div class="field"><label>Nome</label><input type="text" id="pnlMedidaNome" placeholder="Ex: Valor médio"></div>
+            <div class="field"><label>Campo</label><select id="pnlMedidaCampo"></select></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Função</label>
+              <select id="pnlMedidaFuncao">
+                <option value="soma">Soma</option>
+                <option value="media">Média</option>
+                <option value="contagem">Contagem (quantidade de linhas)</option>
+                <option value="contagemDistinta">Contagem distinta</option>
+                <option value="min">Mínimo</option>
+                <option value="max">Máximo</option>
+                <option value="percentualDoTotal">% do total geral</option>
+              </select>
+            </div>
+            <div class="field"><label>Formato</label>
+              <select id="pnlMedidaFormato">
+                <option value="money">Dinheiro (R$)</option>
+                <option value="pct">Percentual (%)</option>
+                <option value="int">Número</option>
+                <option value="dias">Dias</option>
+              </select>
+            </div>
+          </div>
+          <div class="row" id="pnlMedidaLinhaCasas" style="display:none;">
+            <div class="field"><label>Tipo</label>
+              <select id="pnlMedidaTipoNumero">
+                <option value="inteiro">Inteiro</option>
+                <option value="decimal">Decimal</option>
+              </select>
+            </div>
+            <div class="field" id="pnlMedidaCampoCasas" style="display:none;"><label>Casas decimais</label><input type="number" id="pnlMedidaCasas" min="1" max="4" value="2"></div>
+          </div>
+          <button class="primary" id="btnPnlAdicionarMedida" type="button">Adicionar medida</button>
+        </div>
+      </div>
+
+      <div id="pnlGradeWidgets"></div>
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-painelrecebiveis" style="display:none;">

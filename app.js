@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [], rmPaineis = [];
 let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
@@ -147,7 +147,8 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'painelrecebiveis', label:'Painel de Recebíveis (RM)' },
   ]},
   { chave:'relatoriosgerenciaisrm', label:'Relatórios Gerenciais TOTVS RM', subContainer:'#rgrmSubtabs', subDataAttr:'rgrmsub', submenus:[
-    { chave:'cadastro', label:'Cadastro de Relatórios' },
+    { chave:'cadastro', label:'Consultas SQL' },
+    { chave:'paineis', label:'Painéis' },
     { chave:'painelrecebiveis', label:'Painel de Recebíveis' },
   ]},
 ];
@@ -794,6 +795,7 @@ async function carregarTudo(){
   categoriasFinanceiras = r.categoriasFinanceiras||[];
   rmRelatoriosGerenciais = r.rmRelatoriosGerenciais||[];
   rmPainelLayouts = r.rmPainelLayouts||[];
+  rmPaineis = r.rmPaineis||[];
   atualizarBadgeAtendimentos();
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
@@ -12537,7 +12539,9 @@ function goRgrmSub(sub){
   document.querySelectorAll('#rgrmSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.rgrmsub===sub));
   document.querySelectorAll('.rgrm-sub-view').forEach(v=>{ v.style.display = (v.id === 'rgrm-sub-'+sub) ? '' : 'none'; });
   if(sub === 'cadastro') renderListRmRelatorios();
+  if(sub === 'paineis') renderListRmPaineis();
   if(sub === 'painelrecebiveis') recebAbrir();
+  if(sub === 'painelgenerico') pnlAbrir();
 }
 
 /* ---------- Cadastro de Relatórios (CRUD simples, mesmo padrão de Categorias Financeiras) ---------- */
@@ -12554,7 +12558,7 @@ function renderListRmRelatorios(){
   const el = document.getElementById('listRmRelatorios');
   if(!el) return;
   popularSelectRgrmCliente(document.getElementById('rgrm_cliente').value);
-  if(rmRelatoriosGerenciais.length===0){ el.innerHTML = `<div class="empty">Nenhum relatório gerencial cadastrado.</div>`; return; }
+  if(rmRelatoriosGerenciais.length===0){ el.innerHTML = `<div class="empty">Nenhuma consulta SQL cadastrada.</div>`; return; }
   el.innerHTML = rmRelatoriosGerenciais.map(r=>`
     <div class="cad-item"><div class="info"><b>${escaparHtml(r.nome)}</b>
       <span>Cliente: ${r.clienteId ? escaparHtml(rgrmNomeCliente(r.clienteId)) : '(nenhum — edite e escolha um cliente)'}</span>
@@ -12564,7 +12568,7 @@ function renderListRmRelatorios(){
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarRmRelatorio('${r.id}')">Editar</button>
-      <button class="danger" onclick="pedirConfirmacao('Remover relatório?','Isso remove só o cadastro da consulta — não mexe em nada dentro do RM.', ()=>removerRmRelatorio('${r.id}'))">Remover</button>
+      <button class="danger" onclick="pedirConfirmacao('Remover consulta?','Isso remove só o cadastro da consulta — não mexe em nada dentro do RM. Painéis que usam essa consulta deixam de enxergar os dados desse cliente.', ()=>removerRmRelatorio('${r.id}'))">Remover</button>
     </div></div>`).join('');
 }
 function editarRmRelatorio(id){
@@ -12577,7 +12581,7 @@ function editarRmRelatorio(id){
   document.getElementById('rgrm_coligada').value = r.coligada;
   document.getElementById('rgrm_sistema').value = r.sistema;
   document.getElementById('rgrm_parametros').value = r.parametros || '';
-  document.getElementById('rgrm_tituloForm').textContent = 'Editar relatório gerencial';
+  document.getElementById('rgrm_tituloForm').textContent = 'Editar consulta SQL';
   document.getElementById('btnAddRmRelatorio').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmRelatorio').style.display = '';
   document.getElementById('rgrm_nome').scrollIntoView({ behavior:'smooth', block:'center' });
@@ -12590,8 +12594,8 @@ function cancelarEdicaoRmRelatorio(){
   document.getElementById('rgrm_coligada').value = '1';
   document.getElementById('rgrm_sistema').value = 'G';
   document.getElementById('rgrm_parametros').value = '';
-  document.getElementById('rgrm_tituloForm').textContent = 'Novo relatório gerencial';
-  document.getElementById('btnAddRmRelatorio').textContent = 'Adicionar relatório';
+  document.getElementById('rgrm_tituloForm').textContent = 'Nova consulta SQL';
+  document.getElementById('btnAddRmRelatorio').textContent = 'Adicionar consulta';
   document.getElementById('btnCancelarEdicaoRmRelatorio').style.display = 'none';
 }
 async function removerRmRelatorio(id){
@@ -12599,7 +12603,80 @@ async function removerRmRelatorio(id){
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   await carregarTudo();
   renderListRmRelatorios();
-  toast('Relatório removido');
+  toast('Consulta removida');
+}
+
+/* ---------- Cadastro de Painéis (CRUD) ---------- */
+let editandoRmPainelId = null;
+// mesmo elemento que um painel generico usa pra abrir ("pnlPainelAtual")
+let pnlPainelAtual = null;
+function renderConsultasPickerPainel(consultasMarcadas){
+  const el = document.getElementById('pnl_consultasLista');
+  if(!el) return;
+  const marcadas = new Set((consultasMarcadas||[]).map(String));
+  if(rmRelatoriosGerenciais.length===0){ el.innerHTML = `<div class="empty">Nenhuma consulta SQL cadastrada ainda — cadastre em "Consultas SQL".</div>`; return; }
+  el.innerHTML = rmRelatoriosGerenciais.map(r=>`
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+      <input type="checkbox" data-pnlconsulta="${r.id}" style="width:auto;" ${marcadas.has(String(r.id))?'checked':''}>
+      ${escaparHtml(r.nome)} <span style="color:var(--muted);">(${r.clienteId ? escaparHtml(rgrmNomeCliente(r.clienteId)) : 'sem cliente'})</span>
+    </label>`).join('');
+}
+function consultasMarcadasPainel(){
+  return [...document.querySelectorAll('#pnl_consultasLista input[data-pnlconsulta]:checked')].map(el=>el.dataset.pnlconsulta);
+}
+function renderListRmPaineis(){
+  const el = document.getElementById('listRmPaineis');
+  if(!el) return;
+  renderConsultasPickerPainel(editandoRmPainelId ? (rmPaineis.find(p=>p.id===editandoRmPainelId)||{}).consultas : []);
+  if(rmPaineis.length===0){ el.innerHTML = `<div class="empty">Nenhum painel cadastrado.</div>`; return; }
+  el.innerHTML = rmPaineis.map(p=>{
+    const nomesConsultas = (p.consultas||[]).map(id=>{
+      const r = rmRelatoriosGerenciais.find(x=>String(x.id)===String(id));
+      return r ? (r.clienteId ? rgrmNomeCliente(r.clienteId) : r.nome) : null;
+    }).filter(Boolean);
+    return `
+    <div class="cad-item"><div class="info"><b>${escaparHtml(p.nome)}${p.tipo==='especial' ? ' <span class="pill">especial</span>' : ''}</b>
+      <span>${nomesConsultas.length ? 'Clientes: '+escaparHtml(nomesConsultas.join(', ')) : 'Nenhuma consulta vinculada ainda'}</span>
+    </div>
+    <div class="acts">
+      <button class="ghost" onclick="abrirRmPainel('${p.id}')">Abrir</button>
+      <button class="ghost" onclick="editarRmPainel('${p.id}')">Editar</button>
+      ${p.tipo!=='especial' ? `<button class="danger" onclick="pedirConfirmacao('Remover painel?','Isso remove só a configuração do painel (grade de widgets) — as consultas SQL vinculadas continuam cadastradas.', ()=>removerRmPainel('${p.id}'))">Remover</button>` : ''}
+    </div></div>`;
+  }).join('');
+}
+function abrirRmPainel(id){
+  const p = rmPaineis.find(x=>x.id===id);
+  if(!p) return;
+  if(p.tipo==='especial'){ goRgrmSub('painelrecebiveis'); return; }
+  pnlPainelAtual = p;
+  goRgrmSub('painelgenerico');
+}
+function editarRmPainel(id){
+  const p = rmPaineis.find(x=>x.id===id);
+  if(!p) return;
+  editandoRmPainelId = id;
+  document.getElementById('pnl_nome').value = p.nome;
+  renderConsultasPickerPainel(p.consultas);
+  document.getElementById('pnl_tituloForm').textContent = 'Editar painel';
+  document.getElementById('btnAddRmPainel').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoRmPainel').style.display = '';
+  document.getElementById('pnl_nome').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function cancelarEdicaoRmPainel(){
+  editandoRmPainelId = null;
+  document.getElementById('pnl_nome').value = '';
+  renderConsultasPickerPainel([]);
+  document.getElementById('pnl_tituloForm').textContent = 'Novo painel';
+  document.getElementById('btnAddRmPainel').textContent = 'Adicionar painel';
+  document.getElementById('btnCancelarEdicaoRmPainel').style.display = 'none';
+}
+async function removerRmPainel(id){
+  const r = await api('removerRmPainel', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarTudo();
+  renderListRmPaineis();
+  toast('Painel removido');
 }
 
 /* ---------- Painel de Recebíveis (interno) ---------- */
@@ -12808,12 +12885,11 @@ function recebLinhasParaOpcoes(campoExcluir){
   );
 }
 
-// só entram clientes que têm o relatório "Painel de Recebíveis" cadastrado
-// pra eles (Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios) — ter
-// só a conexão RM no cadastro do cliente não basta, falta a sentença
+// só entram clientes cuja Consulta SQL está vinculada ao painel "especial"
+// Painel de Recebíveis (Relatórios Gerenciais TOTVS RM → Painéis) — ter só
+// a conexão RM no cadastro do cliente não basta, falta vincular a consulta
 function recebClientesDisponiveis(){
-  const idsComRelatorio = new Set(rmRelatoriosGerenciais.filter(r=>r.slug==='painel-recebiveis' && r.clienteId).map(r=>r.clienteId));
-  return clientes.filter(c=>idsComRelatorio.has(String(c.id)));
+  return pnlClientesDoPainel(rmPaineis.find(p=>p.slug==='painel-recebiveis'));
 }
 function recebCarregarLayoutPainel(){
   const layout = rmPainelLayouts.find(p=>p.slug==='painel-recebiveis');
@@ -12845,8 +12921,8 @@ function recebAbrir(){
     ? `<option value="">${souUsuario ? 'Seu cliente ainda não tem esse relatório cadastrado' : 'Nenhum cliente com relatório cadastrado'}</option>`
     : disponiveis.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}${c.rmUrl ? '' : ' (falta configurar a conexão RM)'}</option>`).join('');
   if(disponiveis.length === 0) document.getElementById('recebStatus').textContent = souUsuario
-    ? 'Peça pro administrador cadastrar o relatório "Painel de Recebíveis" pro seu cliente, em Relatórios Gerenciais TOTVS RM.'
-    : 'Cadastre um relatório "Painel de Recebíveis" pra algum cliente em Relatórios Gerenciais TOTVS RM → Cadastro de Relatórios.';
+    ? 'Peça pro administrador vincular a consulta do seu cliente ao Painel de Recebíveis, em Relatórios Gerenciais TOTVS RM → Painéis.'
+    : 'Cadastre uma consulta SQL pra algum cliente e vincule ela ao Painel de Recebíveis em Relatórios Gerenciais TOTVS RM → Painéis.';
   else document.getElementById('recebStatus').textContent = '';
   if(recebClienteId && disponiveis.some(c=>String(c.id)===String(recebClienteId))) sel.value = recebClienteId;
   else recebClienteId = sel.value || '';
@@ -12861,7 +12937,9 @@ async function recebAtualizarDoRm(){
   btn.disabled = true; btn.textContent = 'Consultando o RM…';
   document.getElementById('recebStatus').textContent = '';
   try{
-    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, slug: 'painel-recebiveis' });
+    const relatorioId = pnlConsultaIdParaCliente(rmPaineis.find(p=>p.slug==='painel-recebiveis'), recebClienteId);
+    if(!relatorioId){ document.getElementById('recebStatus').textContent = 'Esse cliente não está vinculado ao Painel de Recebíveis — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
+    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, relatorioId });
     if(!r.ok){ document.getElementById('recebStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
     recebLinhas = recebNormalizar(r.linhas || []);
     // calcula situação/saldo já aqui (não só no render) — o filtro por
@@ -13945,6 +14023,770 @@ async function recebSalvarPainel(){
   else rmPainelLayouts.push({ slug:'painel-recebiveis', widgets:recebPainelWidgetsSalvos, filtros:recebPainelFiltrosSalvos, medidas:recebPainelMedidasSalvos });
   recebSairModoEdicao();
   recebRender();
+  toast('Layout do painel salvo.');
+}
+
+/* =========================================================
+   Painel GENÉRICO (configurável, qualquer Consulta SQL) —
+   mesmo motor de widgets/medidas/filtros do Painel de Recebíveis, mas sem
+   NENHUM conhecimento fixo de campo (vencimento, situação, cliente...): um
+   "campo" aqui é sempre uma coluna crua, do jeito que a consulta do RM
+   devolveu. Cada painel genérico fica guardado em rm_paineis (nome +
+   lista de Consultas SQL vinculadas, uma por cliente) e sua grade de
+   widgets em rm_painel_layouts, chaveada pelo slug do painel.
+   ========================================================= */
+// acha, entre as consultas vinculadas a um painel, a que pertence a um
+// cliente — usado tanto aqui quanto pelo Painel de Recebíveis (ver
+// recebClientesDisponiveis/recebAtualizarDoRm)
+function pnlConsultaIdParaCliente(painel, clienteId){
+  const vinculadas = new Set((painel && painel.consultas || []).map(String));
+  const r = rmRelatoriosGerenciais.find(x=>vinculadas.has(String(x.id)) && String(x.clienteId)===String(clienteId));
+  return r ? r.id : null;
+}
+function pnlClientesDoPainel(painel){
+  const vinculadas = new Set((painel && painel.consultas || []).map(String));
+  const clienteIds = new Set(rmRelatoriosGerenciais.filter(r=>vinculadas.has(String(r.id)) && r.clienteId).map(r=>String(r.clienteId)));
+  return clientes.filter(c=>clienteIds.has(String(c.id)));
+}
+
+let pnlClienteId = '';
+let pnlLinhas = []; // linhas CRUAS da consulta, sem nenhum tratamento — a chave de cada coluna é o nome exato que a sentença RM devolveu
+let pnlInfo = null;
+let pnlCarregando = false;
+let pnlPainelFiltros = [];
+let pnlPainelFiltrosSalvos = [];
+let pnlFiltros = {};
+let pnlFiltroColunaAberta = null;
+let pnlFormColunasAtual = [];
+let pnlPainelWidgets = [];
+let pnlPainelWidgetsSalvos = [];
+let pnlPainelMedidas = [];
+let pnlPainelMedidasSalvos = [];
+let pnlEditandoMedidaId = null;
+let pnlSlugCarregado = null; // qual slug de painel já está carregado em pnlPainelWidgets/Filtros/Medidas — muda ao abrir um painel diferente
+let pnlModoEdicao = false;
+let pnlEditandoWidgetId = null;
+let pnlUltimoLinhasFiltradas = [];
+
+// mesma regra seguar do Painel de Recebíveis: converte string numérica
+// (ex "74111.24") pro tipo number de verdade, sem mexer em código com
+// zero à esquerda (NOTA FISCAL, protocolo...)
+function pnlCoagirNumero(v){
+  if(typeof v === 'number') return v;
+  if(typeof v !== 'string') return v;
+  const s = v.trim();
+  if(!/^-?\d+(\.\d+)?$/.test(s)) return v;
+  if(/^0\d/.test(s)) return v;
+  const n = Number(s);
+  return isNaN(n) ? v : n;
+}
+function pnlNum(v){
+  const n = pnlCoagirNumero(v);
+  if(typeof n === 'number') return n;
+  if(v==null || v==='') return 0;
+  const p = parseFloat(String(v).replace(/[^\d,.\-]/g,'').replace(',','.'));
+  return isNaN(p) ? 0 : p;
+}
+// todas as colunas que vieram na consulta atual (descobertas varrendo
+// TODAS as linhas — o RM às vezes omite uma coluna numa linha quando ela
+// vem nula)
+function pnlColunasDisponiveis(){
+  const vistas = new Set(), colunas = [];
+  pnlLinhas.forEach(o=>{ Object.keys(o||{}).forEach(k=>{ if(!vistas.has(k)){ vistas.add(k); colunas.push(k); } }); });
+  return colunas;
+}
+function pnlValorFiltro(o, campo){ const v = o[campo]; return v==null ? '' : String(v); }
+function pnlCamposFiltroDisponiveis(){
+  const jaConfigurados = new Set(pnlPainelFiltros);
+  return pnlColunasDisponiveis().filter(c=>!jaConfigurados.has(c)).map(c=>({ campo:c, label:c }));
+}
+function pnlFiltrados(){
+  return pnlLinhas.filter(o=>pnlPainelFiltros.every(campo=>{
+    const set = pnlFiltros[campo];
+    return !set || set.size===0 || set.has(pnlValorFiltro(o, campo));
+  }));
+}
+function pnlLinhasParaOpcoes(campoExcluir){
+  return pnlLinhas.filter(o=>pnlPainelFiltros.every(campo=>{
+    if(campo === campoExcluir) return true;
+    const set = pnlFiltros[campo];
+    return !set || set.size===0 || set.has(pnlValorFiltro(o, campo));
+  }));
+}
+
+/* ---------- medidas (sempre campo+função — não existe medida "de sistema" num painel genérico) ---------- */
+function pnlGerarIdMedida(){ return 'medida'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function pnlMedidaPorId(id){ return pnlPainelMedidas.find(m=>m.id===id); }
+const RECEB_FUNCOES_MEDIDA_REF = { soma:'Soma', media:'Média', contagem:'Contagem', contagemDistinta:'Contagem distinta', min:'Mínimo', max:'Máximo', percentualDoTotal:'% do total geral' };
+function pnlLabelFuncaoMedida(funcao){ return RECEB_FUNCOES_MEDIDA_REF[funcao] || funcao || ''; }
+function pnlCalcularMedida(linhas, medidaId){
+  const def = pnlMedidaPorId(medidaId);
+  if(!def) return 0;
+  if(def.funcao === 'contagem') return linhas.length;
+  if(def.funcao === 'contagemDistinta'){
+    const vistos = new Set();
+    linhas.forEach(o=>{ const v = o[def.campo]; if(v!=null && v!=='') vistos.add(String(v)); });
+    return vistos.size;
+  }
+  const vals = linhas.map(o=>pnlNum(o[def.campo]));
+  switch(def.funcao){
+    case 'soma': return vals.reduce((s,v)=>s+v,0);
+    case 'media': return vals.length ? vals.reduce((s,v)=>s+v,0)/vals.length : 0;
+    case 'min': return vals.length ? Math.min(...vals) : 0;
+    case 'max': return vals.length ? Math.max(...vals) : 0;
+    case 'percentualDoTotal': {
+      const totalGeral = pnlLinhas.reduce((s,o)=>s+pnlNum(o[def.campo]),0);
+      const soma = vals.reduce((s,v)=>s+v,0);
+      return totalGeral ? soma/totalGeral : 0;
+    }
+    default: return 0;
+  }
+}
+function pnlFormatarMedida(valor, medidaId){
+  const def = pnlMedidaPorId(medidaId) || {};
+  const fmt = def.fmt;
+  if(fmt==='money') return fmtMoeda(valor);
+  const casas = Number.isInteger(def.casas) ? def.casas : (fmt==='pct' ? 1 : 0);
+  if(fmt==='pct') return (valor*100).toLocaleString('pt-BR',{minimumFractionDigits:casas,maximumFractionDigits:casas})+'%';
+  const numFmt = valor.toLocaleString('pt-BR',{minimumFractionDigits:casas,maximumFractionDigits:casas});
+  if(fmt==='dias') return numFmt+' dias';
+  return numFmt;
+}
+
+/* ---------- agrupamento por campo cru (dimensão genérica) ---------- */
+function pnlFormatarValorColuna(v){
+  if(v == null || v === '') return '';
+  const n = pnlCoagirNumero(v);
+  if(typeof n !== 'number') return String(v);
+  return Number.isInteger(n) ? n.toLocaleString('pt-BR') : n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function pnlValorColunaNumerico(o, campo){
+  const n = pnlCoagirNumero(o[campo]);
+  return typeof n === 'number' ? n : null;
+}
+function pnlFormatarTotalColuna(soma){
+  return Number.isInteger(soma) ? soma.toLocaleString('pt-BR') : soma.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+// agrupa por 1 a 3 campos ao mesmo tempo — "colunas" pode misturar medidas
+// (agregadas com pnlCalcularMedida) e campos crus (valor da 1ª linha do
+// grupo, já que um campo cru não dá pra "somar" direto)
+function pnlAgruparMultiplasDimensoes(linhas, camposChaves, colunas){
+  const grupos = {};
+  linhas.forEach(o=>{
+    const chaves = camposChaves.map(c=>pnlValorFiltro(o, c));
+    const chaveComposta = chaves.join('␟');
+    if(!grupos[chaveComposta]) grupos[chaveComposta] = { chaves, itens:[] };
+    grupos[chaveComposta].itens.push(o);
+  });
+  const resultado = Object.values(grupos).map(g=>({
+    chaves: g.chaves,
+    rotulos: g.chaves,
+    valores: Object.fromEntries(colunas.map(c=>[c, pnlMedidaPorId(c) ? pnlCalcularMedida(g.itens, c) : pnlFormatarValorColuna(g.itens[0][c])])),
+  }));
+  const primeiraMedida = colunas.find(c=>pnlMedidaPorId(c));
+  resultado.sort((a,b)=>{
+    let d = primeiraMedida ? (b.valores[primeiraMedida]||0)-(a.valores[primeiraMedida]||0) : String(a.chaves[0]).localeCompare(String(b.chaves[0]),'pt',{numeric:true});
+    if(d) return d;
+    for(let i=1;i<a.chaves.length;i++){ d = String(a.chaves[i]).localeCompare(String(b.chaves[i]),'pt',{numeric:true}); if(d) return d; }
+    return 0;
+  });
+  return resultado;
+}
+// agrupa por UM campo só, pra gráficos (barra/linha/donut) — "medida" pode
+// ser uma medida de verdade (soma/média/...) ou, sem nenhuma configurada
+// ainda, cai em "contar linhas" (sempre existe pelo menos essa leitura)
+function pnlAgruparPorCampo(linhas, campo, medidaId){
+  const grupos = {};
+  linhas.forEach(o=>{ const k = pnlValorFiltro(o, campo); (grupos[k] = grupos[k] || []).push(o); });
+  const arr = Object.entries(grupos).map(([k,itens])=>({ chave:k, rotulo:k, valor: medidaId ? pnlCalcularMedida(itens, medidaId) : itens.length }));
+  arr.sort((a,b)=>b.valor-a.valor);
+  return arr;
+}
+
+/* ---------- carregar/abrir o painel ---------- */
+function pnlCarregarLayoutPainel(){
+  if(!pnlPainelAtual) return;
+  const layout = rmPainelLayouts.find(p=>p.slug===pnlPainelAtual.slug);
+  pnlPainelWidgets = layout ? JSON.parse(JSON.stringify(layout.widgets||[])) : [];
+  pnlPainelWidgetsSalvos = JSON.parse(JSON.stringify(pnlPainelWidgets));
+  pnlPainelFiltros = layout && Array.isArray(layout.filtros) ? layout.filtros.slice() : [];
+  pnlPainelFiltrosSalvos = pnlPainelFiltros.slice();
+  pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(c=>[c, new Set()]));
+  pnlPainelMedidas = layout && Array.isArray(layout.medidas) ? JSON.parse(JSON.stringify(layout.medidas)) : [];
+  pnlPainelMedidasSalvos = JSON.parse(JSON.stringify(pnlPainelMedidas));
+  pnlSlugCarregado = pnlPainelAtual.slug;
+}
+function pnlAbrir(){
+  if(!pnlPainelAtual){ goRgrmSub('paineis'); return; }
+  if(pnlSlugCarregado !== pnlPainelAtual.slug){
+    pnlModoEdicao = false;
+    pnlClienteId = '';
+    pnlLinhas = []; pnlInfo = null;
+    pnlCarregarLayoutPainel();
+  }
+  document.getElementById('pnlTitulo').textContent = pnlPainelAtual.nome;
+  const conta = contaAtual();
+  const souUsuario = conta && conta.perfil === 'USUARIO';
+  let disponiveis = pnlClientesDoPainel(pnlPainelAtual);
+  if(souUsuario) disponiveis = disponiveis.filter(c=>String(c.id)===String(conta.clienteId));
+  const sel = document.getElementById('pnl_cliente');
+  sel.disabled = souUsuario;
+  sel.innerHTML = disponiveis.length === 0
+    ? `<option value="">${souUsuario ? 'Seu cliente ainda não tem esse painel cadastrado' : 'Nenhum cliente vinculado a esse painel'}</option>`
+    : disponiveis.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}${c.rmUrl ? '' : ' (falta configurar a conexão RM)'}</option>`).join('');
+  if(disponiveis.length === 0) document.getElementById('pnlStatus').textContent = souUsuario
+    ? 'Peça pro administrador vincular a consulta do seu cliente a esse painel, em Relatórios Gerenciais TOTVS RM → Painéis.'
+    : 'Vincule uma Consulta SQL a esse painel em Relatórios Gerenciais TOTVS RM → Painéis.';
+  else document.getElementById('pnlStatus').textContent = '';
+  if(pnlClienteId && disponiveis.some(c=>String(c.id)===String(pnlClienteId))) sel.value = pnlClienteId;
+  else pnlClienteId = sel.value || '';
+  pnlRender();
+}
+async function pnlAtualizarDoRm(){
+  if(pnlCarregando || !pnlPainelAtual) return;
+  pnlClienteId = document.getElementById('pnl_cliente').value;
+  if(!pnlClienteId){ toast('Escolha um cliente com conexão RM cadastrada.'); return; }
+  pnlCarregando = true;
+  const btn = document.getElementById('btnPnlAtualizar');
+  btn.disabled = true; btn.textContent = 'Consultando o RM…';
+  document.getElementById('pnlStatus').textContent = '';
+  try{
+    const relatorioId = pnlConsultaIdParaCliente(pnlPainelAtual, pnlClienteId);
+    if(!relatorioId){ document.getElementById('pnlStatus').textContent = 'Esse cliente não está vinculado a esse painel — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
+    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId });
+    if(!r.ok){ document.getElementById('pnlStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
+    pnlLinhas = r.linhas || [];
+    pnlInfo = { quando: new Date().toISOString(), nomeRelatorio: r.nomeRelatorio || pnlPainelAtual.nome };
+    pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(c=>[c, new Set()]));
+    toast(`Painel atualizado com ${pnlLinhas.length} linha${pnlLinhas.length===1?'':'s'} do RM.`);
+    pnlRender();
+  } finally {
+    pnlCarregando = false;
+    btn.disabled = false; btn.textContent = 'Atualizar do RM';
+  }
+}
+
+/* ---------- filtros configuráveis (mesmo "estilo Excel" do Painel de Recebíveis) ---------- */
+function pnlOpcoesPorCampo(campo){
+  const linhas = pnlLinhasParaOpcoes(campo);
+  const vistos = new Set();
+  linhas.forEach(o=>{ const v = pnlValorFiltro(o, campo); if(v!=='') vistos.add(v); });
+  return [...vistos].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true})).map(v=>({ value:v, label:v }));
+}
+function pnlFecharFiltroColuna(){
+  pnlFiltroColunaAberta = null;
+  const portal = document.getElementById('pnlFiltroColunaPortal');
+  if(portal){ portal.classList.remove('show'); portal.innerHTML = ''; }
+}
+function pnlToggleFiltroColuna(campo, spanEl){
+  const jaAberto = pnlFiltroColunaAberta === campo;
+  pnlFecharFiltroColuna();
+  if(jaAberto) return;
+  pnlFiltroColunaAberta = campo;
+  const portal = document.getElementById('pnlFiltroColunaPortal');
+  if(!portal || !spanEl) return;
+  const set = pnlFiltros[campo] || new Set();
+  const opcoes = pnlOpcoesPorCampo(campo);
+  const itensDropdown = opcoes.length
+    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="${escaparHtml(o.value)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
+    : `<div class="lista-filtro-coluna-item" style="color:var(--muted);cursor:default;">Nenhuma opção disponível</div>`;
+  portal.innerHTML = `
+    <div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
+    ${itensDropdown}
+  `;
+  const r = spanEl.getBoundingClientRect();
+  portal.style.left = `${r.left}px`;
+  portal.style.top = `${r.bottom + 4}px`;
+  portal.classList.add('show');
+}
+function pnlRenderGradeFiltros(){
+  const cont = document.getElementById('pnlGradeFiltros');
+  if(!cont) return;
+  cont.innerHTML = pnlPainelFiltros.length ? pnlPainelFiltros.map(campo=>{
+    const botaoRemover = pnlModoEdicao ? `<button type="button" data-removerfiltro="${escaparHtml(campo)}" title="Remover filtro" style="position:absolute;top:0;right:0;background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:2px;">✕</button>` : '';
+    return `<div class="field" style="flex:1;min-width:150px;position:relative;">
+      ${botaoRemover}
+      <label>${escaparHtml(campo)} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(campo)}">▾</span></span></label>
+      <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">Todos</div>
+    </div>`;
+  }).join('') : `<div class="empty" style="padding:4px 0;">Nenhum filtro configurado${pnlModoEdicao ? ' — escolha um campo abaixo e clique em "+ Adicionar".' : '.'}</div>`;
+}
+function pnlRenderFiltros(){
+  if(pnlFiltroColunaAberta) pnlFecharFiltroColuna();
+  pnlRenderGradeFiltros();
+  document.querySelectorAll('#pnlGradeFiltros [data-resumo-filtro]').forEach(el=>{
+    const n = (pnlFiltros[el.dataset.resumoFiltro] || new Set()).size;
+    el.textContent = n === 0 ? 'Todos' : `${n} selecionado${n===1?'':'s'}`;
+  });
+  document.querySelectorAll('#pnlGradeFiltros [data-rfiltro]').forEach(el=>{
+    const n = (pnlFiltros[el.dataset.rfiltro] || new Set()).size;
+    el.style.color = n > 0 ? 'var(--accent)' : '';
+  });
+}
+function pnlToggleFiltro(campo, valor){
+  const set = pnlFiltros[campo];
+  if(!set) return;
+  if(set.has(valor)) set.delete(valor); else set.add(valor);
+  pnlRender();
+}
+function pnlPopularSelectNovoFiltro(){
+  const sel = document.getElementById('pnlNovoFiltroCampo');
+  if(!sel) return;
+  const opcoes = pnlCamposFiltroDisponiveis();
+  sel.innerHTML = opcoes.length
+    ? opcoes.map(o=>`<option value="${escaparHtml(o.campo)}">${escaparHtml(o.label)}</option>`).join('')
+    : `<option value="">Nenhum campo disponível</option>`;
+}
+function pnlAdicionarFiltro(campo){
+  if(!campo || pnlPainelFiltros.includes(campo)) return;
+  pnlPainelFiltros.push(campo);
+  if(!pnlFiltros[campo]) pnlFiltros[campo] = new Set();
+  pnlPopularSelectNovoFiltro();
+  pnlRender();
+}
+function pnlRemoverFiltro(campo){
+  pnlPainelFiltros = pnlPainelFiltros.filter(c=>c!==campo);
+  pnlPopularSelectNovoFiltro();
+  pnlRender();
+}
+
+/* ---------- render de cada tipo de widget ---------- */
+function pnlRenderWidgetKpi(containerId, widget, linhas){
+  const el = document.getElementById(containerId); if(!el) return;
+  const valor = pnlCalcularMedida(linhas, widget.medida);
+  const def = pnlMedidaPorId(widget.medida) || {};
+  const sub = widget.subtitulo || '';
+  el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}</div>`;
+}
+function pnlLigarCliqueBarras(container, grupos, campoFiltro){
+  if(!pnlPainelFiltros.includes(campoFiltro)) return;
+  const rects = container.querySelectorAll('rect');
+  grupos.forEach((g,i)=>{
+    const bar = rects[i]; // dashBarChart vertical: 1 <rect> por barra; horizontal teria 2 (trilho+barra) — ver recebLigarCliqueBarras
+    if(!bar) return;
+    bar.style.cursor = 'pointer';
+    bar.addEventListener('click', ()=>pnlToggleFiltro(campoFiltro, g.chave));
+  });
+}
+function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
+  const cont = document.getElementById(containerId); if(!cont) return;
+  if(tipo==='linha'){
+    const dimensao = widget.dimensao;
+    const medidas = widget.medida2 ? [widget.medida, widget.medida2] : [widget.medida];
+    const cores = ['--blue','--ok','--bad','--warn'];
+    const porMedida = medidas.map(m=>pnlAgruparPorCampo(linhas, dimensao, m));
+    const chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+    const series = medidas.map((m,i)=>{
+      const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
+      return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
+    });
+    dashLineChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos });
+    if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
+    return;
+  }
+  let grupos = pnlAgruparPorCampo(linhas, widget.dimensao, widget.medida);
+  if(widget.top) grupos = grupos.slice(0, Number(widget.top));
+  if(tipo==='donut'){
+    const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
+    const total = grupos.reduce((s,g)=>s+g.valor,0);
+    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })));
+    if(widget.mostrarLegenda){
+      const itens = grupos.map((g,i)=>({ label: widget.mostrarRotulos && total ? `${g.rotulo} (${Math.round(g.valor/total*100)}%)` : g.rotulo, cor:dashCss(cores[i%cores.length]) }));
+      cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(itens)}</div>`);
+    }
+    return;
+  }
+  // dashFmtValor (usado nos rótulos/tooltip do gráfico) só reconhece "R$"
+  // como unidade especial — só faz sentido passar quando a medida
+  // escolhida for mesmo formato Dinheiro, diferente do Painel de
+  // Recebíveis (lá toda medida sem ser % é sempre dinheiro)
+  const unit = (pnlMedidaPorId(widget.medida)||{}).fmt === 'money' ? 'R$' : '';
+  const data = grupos.map(g=>({ label:g.rotulo, value:g.valor, tok:'--blue' }));
+  const horizontal = tipo==='barra-h';
+  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos });
+  if(horizontal){
+    // horizontal desenha 2 <rect> por linha (trilho + barra) — reaproveita
+    // a mesma convenção de índice ímpar do recebLigarCliqueBarras
+    if(pnlPainelFiltros.includes(widget.dimensao)){
+      const rects = cont.querySelectorAll('rect');
+      grupos.forEach((g,i)=>{ const bar = rects[i*2+1]; if(!bar) return; bar.style.cursor='pointer'; bar.addEventListener('click', ()=>pnlToggleFiltro(widget.dimensao, g.chave)); });
+    }
+  } else {
+    pnlLigarCliqueBarras(cont, grupos, widget.dimensao);
+  }
+}
+// catálogo de colunas disponíveis pra "Tabela (colunas à sua escolha)" —
+// tudo que a consulta trouxer, sem distinção (não existe campo "processado"
+// num painel genérico, é tudo coluna crua)
+function pnlColunasTabelaDisponiveis(){
+  const opcoes = {};
+  pnlColunasDisponiveis().forEach(c=>{ opcoes[c] = c; });
+  return opcoes;
+}
+function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
+  const tab = document.getElementById(`pnl-${widget.id}-tabela`); if(!tab) return;
+  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis().slice(0,8);
+  const catalogo = pnlColunasTabelaDisponiveis();
+  if(widget.fonte === 'agrupado'){
+    const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
+    const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
+    const cab = [...dimensoes, ...colunas.map(c=>(pnlMedidaPorId(c)||{}).label || catalogo[c] || c)];
+    const corpo = grupos.map(g=>{
+      const celulas = [...g.rotulos, ...colunas.map(c=>pnlMedidaPorId(c) ? pnlFormatarMedida(g.valores[c], c) : g.valores[c])];
+      return `<tr>${celulas.map(v=>`<td>${escaparHtml(String(v))}</td>`).join('')}</tr>`;
+    }).join('');
+    tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+      <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${pnlLinhas.length ? 'Nenhum grupo com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+    return;
+  }
+  // fonte 'linhas' — uma linha por registro, com busca livre (qualquer coluna)
+  const buscaEl = document.querySelector(`[data-wbusca][data-wid="${widget.id}"]`);
+  const busca = (buscaEl?.value || '').trim().toLowerCase();
+  let itens = linhas;
+  if(busca) itens = itens.filter(o=>Object.values(o).some(v=>v!=null && String(v).toLowerCase().includes(busca)));
+  const cab = colunas.map(c=>catalogo[c]||c);
+  const corpo = itens.map(o=>`<tr>${colunas.map(c=>`<td>${escaparHtml(pnlFormatarValorColuna(o[c]))}</td>`).join('')}</tr>`).join('');
+  const totais = colunas.map((c,i)=>{
+    if(i===0) return `<td><b>${itens.length} linha${itens.length===1?'':'s'}</b></td>`;
+    const vals = itens.map(o=>pnlValorColunaNumerico(o,c)).filter(v=>v!=null);
+    return vals.length ? `<td><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
+  }).join('');
+  tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${pnlLinhas.length ? 'Nenhuma linha com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
+    ${itens.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}`;
+}
+
+/* ---------- grade configurável (montagem do esqueleto + edição) ---------- */
+function pnlWidgetTitulo(w){
+  if(w.titulo) return w.titulo;
+  if(w.tipo==='tabela') return 'Tabela';
+  return (pnlMedidaPorId(w.medida)||{}).label || w.medida || '(sem título)';
+}
+function pnlRenderColunasPicker(fonte){
+  const marcadas = new Set(pnlFormColunasAtual);
+  const montaItens = opcoes => Object.entries(opcoes).map(([k,v])=>{
+    const label = typeof v === 'string' ? v : v.label;
+    return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
+      <input type="checkbox" data-wcoluna value="${k}" ${marcadas.has(k)?'checked':''} style="width:auto;"> ${escaparHtml(label)}
+    </label>`;
+  }).join('');
+  if(fonte === 'agrupado'){
+    const medidas = Object.fromEntries(pnlPainelMedidas.map(m=>[m.id, m.label]));
+    document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas (medidas e campos)';
+    document.getElementById('pnlNovoWidgetColunasLista').innerHTML =
+      (pnlPainelMedidas.length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:2px 0;">MEDIDAS (calculadas por grupo)</div>${montaItens(medidas)}` : '') +
+      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª linha do grupo)</div>${montaItens(pnlColunasTabelaDisponiveis())}`;
+  }else{
+    document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas';
+    document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(pnlColunasTabelaDisponiveis());
+  }
+}
+function pnlHtmlToolbar(w, i, total){
+  if(!pnlModoEdicao) return '';
+  return `<div class="recebwidget-toolbar">
+    <button type="button" data-wtoolbar="up" data-wid="${w.id}" ${i===0?'disabled':''} title="Mover pra cima">↑</button>
+    <button type="button" data-wtoolbar="down" data-wid="${w.id}" ${i===total-1?'disabled':''} title="Mover pra baixo">↓</button>
+    <button type="button" data-wtoolbar="editar" data-wid="${w.id}" title="Editar">✎</button>
+    <button type="button" data-wtoolbar="remover" data-wid="${w.id}" title="Remover">✕</button>
+  </div>`;
+}
+function pnlHtmlWidget(w, i, total){
+  const toolbar = pnlHtmlToolbar(w, i, total);
+  const classeEdit = pnlModoEdicao ? ' editando' : '';
+  if(w.tipo === 'tabela'){
+    const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar..." style="margin-bottom:10px;">` : '';
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}" style="overflow-x:auto;">${toolbar}
+      <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      ${buscaHtml}
+      <table class="valores-table" id="pnl-${w.id}-tabela"></table>
+    </div>`;
+  }
+  if(w.tipo === 'kpi'){
+    return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="pnl-${w.id}-conteudo"></div></div>`;
+  }
+  return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${w.tipo==='linha'?' style="overflow-x:auto;"':''}>${toolbar}
+    <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+    <div id="pnl-${w.id}-conteudo" style="margin-top:8px;"></div>
+  </div>`;
+}
+function pnlRenderEsqueleto(){
+  const grade = document.getElementById('pnlGradeWidgets');
+  const ws = pnlPainelWidgets;
+  let html = '', i = 0;
+  while(i < ws.length){
+    if(ws[i].tipo === 'kpi'){
+      let j = i, grupoHtml = '';
+      while(j < ws.length && ws[j].tipo === 'kpi'){ grupoHtml += pnlHtmlWidget(ws[j], j, ws.length); j++; }
+      html += `<div style="flex:1 1 100%;min-width:0;"><div class="summary">${grupoHtml}</div></div>`;
+      i = j;
+    }else{
+      const largura = RECEB_LARGURAS_WIDGET[ws[i].largura] || RECEB_LARGURAS_WIDGET.completa;
+      html += `<div style="flex:0 1 ${largura};min-width:280px;">${pnlHtmlWidget(ws[i], i, ws.length)}</div>`;
+      i++;
+    }
+  }
+  grade.innerHTML = html || `<div class="empty">Nenhum widget nesse painel ainda. Clique em "⚙ Configurar painel" pra adicionar.</div>`;
+}
+function pnlRenderConteudo(linhas){
+  pnlUltimoLinhasFiltradas = linhas;
+  pnlPainelWidgets.forEach(w=>{
+    if(w.tipo==='kpi') pnlRenderWidgetKpi(`pnl-${w.id}-conteudo`, w, linhas);
+    else if(w.tipo==='tabela') pnlRenderWidgetTabelaPersonalizada(w, linhas);
+    else pnlRenderWidgetGrafico(`pnl-${w.id}-conteudo`, w, linhas, w.tipo);
+  });
+}
+function pnlRender(){
+  const temDados = pnlLinhas.length > 0;
+  document.getElementById('pnlCardGradeTopo').style.display = temDados ? '' : 'none';
+  document.getElementById('pnlCardFiltros').style.display = temDados ? '' : 'none';
+  document.getElementById('btnPnlExportarExcel').style.display = temDados ? '' : 'none';
+  document.getElementById('btnPnlExportarCsv').style.display = temDados ? '' : 'none';
+  document.getElementById('pnlBaseInfo').textContent = temDados
+    ? `${pnlInfo.nomeRelatorio} · ${pnlLinhas.length} linha${pnlLinhas.length===1?'':'s'}. Atualizado em ${new Date(pnlInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`
+    : 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
+  if(!temDados){ document.getElementById('pnlGradeWidgets').innerHTML = ''; return; }
+  pnlRenderFiltros();
+  pnlRenderEsqueleto();
+  pnlRenderConteudo(pnlFiltrados());
+}
+
+/* ---------- exportar Excel/CSV ---------- */
+function pnlMontarLinhasExportacao(){
+  const linhas = pnlFiltrados();
+  if(linhas.length === 0) return null;
+  const colunas = pnlColunasDisponiveis();
+  const cabecalho = colunas;
+  const corpo = linhas.map(o=>colunas.map(c=>{ const v = o[c]; return v==null ? '' : v; }));
+  return { cabecalho, corpo, totalLinhas: linhas.length };
+}
+async function pnlExportarExcel(){
+  const r = pnlMontarLinhasExportacao();
+  if(!r){ toast('Nada pra exportar com esses filtros.'); return; }
+  const corpoTipado = r.corpo.map(linha => linha.map(v => typeof v === 'string' ? pnlCoagirNumero(v) : v));
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, XLSX.utils.aoa_to_sheet([r.cabecalho, ...corpoTipado]), 'Painel');
+  await salvarWorkbook(livro, `${pnlPainelAtual.slug}-${hojeLocalISO()}.xlsx`);
+  toast(`Excel exportado com ${r.totalLinhas} linha${r.totalLinhas===1?'':'s'} e ${r.cabecalho.length} colunas.`);
+}
+function pnlCelulaCsv(v){
+  if(v == null || v === '') return '';
+  return String(v).replace(/;/g, ',').replace(/[\r\n]+/g, ' ');
+}
+async function pnlExportarCsv(){
+  const r = pnlMontarLinhasExportacao();
+  if(!r){ toast('Nada pra exportar com esses filtros.'); return; }
+  const csv = [r.cabecalho, ...r.corpo].map(linha => linha.map(pnlCelulaCsv).join(';')).join('\r\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `${pnlPainelAtual.slug}-${hojeLocalISO()}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  toast(`CSV exportado com ${r.totalLinhas} linha${r.totalLinhas===1?'':'s'} e ${r.cabecalho.length} colunas.`);
+}
+
+/* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
+function pnlGerarIdWidget(){ return 'w'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function pnlAtualizarCamposNovoWidget(){
+  const tipo = document.getElementById('pnlNovoWidgetTipo').value;
+  const ehTabelaPersonalizada = tipo==='tabela';
+  const ehKpi = tipo==='kpi';
+  const ehLinha = tipo==='linha';
+  const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
+  const precisaMedida = !ehTabelaPersonalizada;
+  const precisaDimensao = !ehKpi && (!ehTabelaPersonalizada || fonte==='agrupado');
+  document.getElementById('pnlNovoWidgetCampoLargura').style.display = ehKpi ? 'none' : '';
+  document.getElementById('pnlNovoWidgetLinhaMedida').style.display = (precisaMedida || precisaDimensao) ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoDimensao').style.display = precisaDimensao ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra') ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoMedidas2').style.display = ehLinha ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoSubtitulo').style.display = ehKpi ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
+  pnlPopularSelectsMedidaWidget();
+  const colunas = pnlColunasDisponiveis();
+  const dimSel = document.getElementById('pnlNovoWidgetDimensao');
+  dimSel.innerHTML = colunas.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  const multi = ehTabelaPersonalizada && fonte==='agrupado';
+  document.getElementById('pnlNovoWidgetCampoDimensao2').style.display = multi ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoDimensao3').style.display = multi ? '' : 'none';
+  if(multi){
+    const opcoesExtra = `<option value="">(nenhum)</option>` + colunas.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+    document.getElementById('pnlNovoWidgetDimensao2').innerHTML = opcoesExtra;
+    document.getElementById('pnlNovoWidgetDimensao3').innerHTML = opcoesExtra;
+  }
+  if(ehTabelaPersonalizada) pnlRenderColunasPicker(fonte);
+}
+function pnlPopularSelectsMedidaWidget(){
+  const medidaSel = document.getElementById('pnlNovoWidgetMedida');
+  if(medidaSel) medidaSel.innerHTML = pnlPainelMedidas.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
+  const medida2Sel = document.getElementById('pnlNovoWidgetMedida2');
+  if(medida2Sel) medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + pnlPainelMedidas.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('');
+}
+function pnlResetFormNovoWidget(){
+  pnlEditandoWidgetId = null;
+  document.getElementById('pnlNovoWidgetTipo').disabled = false;
+  document.getElementById('pnlNovoWidgetTipo').value = 'kpi';
+  document.getElementById('pnlNovoWidgetTitulo').value = '';
+  document.getElementById('pnlNovoWidgetTop').value = '';
+  document.getElementById('pnlNovoWidgetFonte').value = 'linhas';
+  pnlFormColunasAtual = [];
+  document.getElementById('pnlNovoWidgetLegenda').checked = false;
+  document.getElementById('pnlNovoWidgetRotulos').checked = false;
+  document.getElementById('pnlNovoWidgetLargura').value = 'completa';
+  document.getElementById('pnlNovoWidgetSubtitulo').value = '';
+  pnlAtualizarCamposNovoWidget();
+  document.getElementById('pnlNovoWidgetMedida2').value = '';
+  document.getElementById('pnlNovoWidgetDimensao2').value = '';
+  document.getElementById('pnlNovoWidgetDimensao3').value = '';
+  document.getElementById('btnPnlAdicionarWidget').textContent = 'Adicionar ao painel';
+}
+function pnlWidgetMover(id, dir){
+  const i = pnlPainelWidgets.findIndex(w=>w.id===id);
+  if(i<0) return;
+  const j = dir==='up' ? i-1 : i+1;
+  if(j<0 || j>=pnlPainelWidgets.length) return;
+  [pnlPainelWidgets[i], pnlPainelWidgets[j]] = [pnlPainelWidgets[j], pnlPainelWidgets[i]];
+  pnlRender();
+}
+function pnlWidgetRemover(id){
+  pnlPainelWidgets = pnlPainelWidgets.filter(w=>w.id!==id);
+  if(pnlEditandoWidgetId===id) pnlResetFormNovoWidget();
+  pnlRender();
+}
+function pnlWidgetEditar(id){
+  const w = pnlPainelWidgets.find(x=>x.id===id);
+  if(!w) return;
+  pnlEditandoWidgetId = id;
+  document.getElementById('pnlNovoWidgetTipo').value = w.tipo;
+  document.getElementById('pnlNovoWidgetTipo').disabled = true;
+  document.getElementById('pnlNovoWidgetFonte').value = w.fonte || 'linhas';
+  pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
+  document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
+  pnlAtualizarCamposNovoWidget();
+  document.getElementById('pnlNovoWidgetTitulo').value = w.titulo || '';
+  if(w.medida) document.getElementById('pnlNovoWidgetMedida').value = w.medida;
+  if(w.dimensao) document.getElementById('pnlNovoWidgetDimensao').value = w.dimensao;
+  document.getElementById('pnlNovoWidgetDimensao2').value = w.dimensao2 || '';
+  document.getElementById('pnlNovoWidgetDimensao3').value = w.dimensao3 || '';
+  document.getElementById('pnlNovoWidgetTop').value = w.top || '';
+  document.getElementById('pnlNovoWidgetMedida2').value = w.medida2 || '';
+  document.getElementById('pnlNovoWidgetLegenda').checked = !!w.mostrarLegenda;
+  document.getElementById('pnlNovoWidgetRotulos').checked = !!w.mostrarRotulos;
+  document.getElementById('pnlNovoWidgetSubtitulo').value = w.subtitulo || '';
+  document.getElementById('btnPnlAdicionarWidget').textContent = 'Salvar alterações no widget';
+  document.getElementById('pnlCardAddWidget').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+/* ---------- Medidas (criar/editar — tudo campo+função, sem nenhuma "de sistema") ---------- */
+function pnlRenderListaMedidas(){
+  const cont = document.getElementById('pnlListaMedidas');
+  if(!cont) return;
+  cont.innerHTML = pnlPainelMedidas.map(def=>{
+    const detalhe = def.funcao==='contagem' ? ` · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}` : ` · ${escaparHtml(def.campo||'')} · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}`;
+    const casas = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
+    const detalheFormato = def.fmt==='money' ? '' : ` · ${casas>0 ? casas+' casa'+(casas>1?'s':'')+' decimal'+(casas>1?'is':'') : 'inteiro'}`;
+    return `<div class="row" style="align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);">
+      <div style="flex:1;"><b>${escaparHtml(def.label)}</b><span style="font-size:11px;color:var(--muted);margin-left:6px;">${detalhe}${detalheFormato}</span></div>
+      <button class="ghost" type="button" data-editarmedida="${escaparHtml(def.id)}" style="width:auto;padding:4px 10px;">Editar</button>
+      <button class="ghost" type="button" data-removermedida="${escaparHtml(def.id)}" style="width:auto;padding:4px 10px;color:var(--bad);">Remover</button>
+    </div>`;
+  }).join('') || `<div class="empty">Nenhuma medida criada ainda.</div>`;
+}
+function pnlPopularSelectCampoMedida(){
+  const sel = document.getElementById('pnlMedidaCampo');
+  if(!sel) return;
+  const atual = sel.value;
+  sel.innerHTML = pnlColunasDisponiveis().map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  if([...sel.options].some(o=>o.value===atual)) sel.value = atual;
+}
+function pnlAtualizarCamposFormMedida(){
+  const funcao = document.getElementById('pnlMedidaFuncao').value;
+  const formato = document.getElementById('pnlMedidaFormato').value;
+  const tipoNumero = document.getElementById('pnlMedidaTipoNumero').value;
+  document.getElementById('pnlMedidaCampo').closest('.field').style.display = funcao==='contagem' ? 'none' : '';
+  document.getElementById('pnlMedidaLinhaCasas').style.display = formato!=='money' ? 'flex' : 'none';
+  document.getElementById('pnlMedidaCampoCasas').style.display = (formato!=='money' && tipoNumero==='decimal') ? '' : 'none';
+}
+function pnlResetFormMedida(){
+  pnlEditandoMedidaId = null;
+  const nomeEl = document.getElementById('pnlMedidaNome'); if(!nomeEl) return;
+  nomeEl.value = '';
+  document.getElementById('pnlMedidaFuncao').value = 'soma';
+  document.getElementById('pnlMedidaFormato').value = 'money';
+  document.getElementById('pnlMedidaTipoNumero').value = 'inteiro';
+  document.getElementById('pnlMedidaCasas').value = '2';
+  pnlPopularSelectCampoMedida();
+  pnlAtualizarCamposFormMedida();
+  document.getElementById('btnPnlAdicionarMedida').textContent = 'Adicionar medida';
+}
+function pnlEditarMedida(id){
+  const def = pnlMedidaPorId(id); if(!def) return;
+  pnlEditandoMedidaId = id;
+  document.getElementById('pnlMedidaNome').value = def.label || '';
+  document.getElementById('pnlMedidaFormato').value = def.fmt || 'money';
+  pnlPopularSelectCampoMedida();
+  document.getElementById('pnlMedidaFuncao').value = def.funcao || 'soma';
+  const casasAtuais = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
+  document.getElementById('pnlMedidaTipoNumero').value = casasAtuais>0 ? 'decimal' : 'inteiro';
+  document.getElementById('pnlMedidaCasas').value = casasAtuais>0 ? casasAtuais : 2;
+  pnlAtualizarCamposFormMedida();
+  if(def.campo) document.getElementById('pnlMedidaCampo').value = def.campo;
+  document.getElementById('btnPnlAdicionarMedida').textContent = 'Salvar alterações na medida';
+  document.getElementById('pnlCardMedidas').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function pnlRemoverMedida(id){
+  pnlPainelMedidas = pnlPainelMedidas.filter(m=>m.id!==id);
+  if(pnlEditandoMedidaId===id) pnlResetFormMedida();
+  pnlRenderListaMedidas();
+  pnlPopularSelectsMedidaWidget();
+  pnlRender();
+}
+function pnlEntrarModoEdicao(){
+  pnlModoEdicao = true;
+  document.getElementById('btnPnlEditarPainel').style.display = 'none';
+  document.getElementById('btnPnlSalvarPainel').style.display = '';
+  document.getElementById('btnPnlCancelarEdicaoPainel').style.display = '';
+  document.getElementById('pnlCardAddWidget').style.display = '';
+  document.getElementById('pnlLinhaAddFiltro').style.display = 'flex';
+  document.getElementById('pnlCardMedidas').style.display = '';
+  pnlPopularSelectNovoFiltro();
+  pnlResetFormNovoWidget();
+  pnlResetFormMedida();
+  pnlRenderListaMedidas();
+  pnlRender();
+}
+function pnlSairModoEdicao(){
+  pnlModoEdicao = false;
+  document.getElementById('btnPnlEditarPainel').style.display = '';
+  document.getElementById('btnPnlSalvarPainel').style.display = 'none';
+  document.getElementById('btnPnlCancelarEdicaoPainel').style.display = 'none';
+  document.getElementById('pnlCardAddWidget').style.display = 'none';
+  document.getElementById('pnlLinhaAddFiltro').style.display = 'none';
+  document.getElementById('pnlCardMedidas').style.display = 'none';
+  pnlResetFormNovoWidget();
+  pnlResetFormMedida();
+}
+function pnlCancelarEdicaoPainel(){
+  pnlPainelWidgets = JSON.parse(JSON.stringify(pnlPainelWidgetsSalvos));
+  pnlPainelFiltros = pnlPainelFiltrosSalvos.slice();
+  pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(c=>[c, pnlFiltros[c] || new Set()]));
+  pnlPainelMedidas = JSON.parse(JSON.stringify(pnlPainelMedidasSalvos));
+  pnlSairModoEdicao();
+  pnlRender();
+}
+async function pnlSalvarPainel(){
+  const slug = pnlPainelAtual.slug;
+  const r = await api('salvarRmPainelLayout', { contaId: contaAtual().id, slug, widgets: pnlPainelWidgets, filtros: pnlPainelFiltros, medidas: pnlPainelMedidas });
+  if(!r.ok){ toast(r.erro || 'Não foi possível salvar o layout.'); return; }
+  pnlPainelWidgetsSalvos = JSON.parse(JSON.stringify(pnlPainelWidgets));
+  pnlPainelFiltrosSalvos = pnlPainelFiltros.slice();
+  pnlPainelMedidasSalvos = JSON.parse(JSON.stringify(pnlPainelMedidas));
+  const idx = rmPainelLayouts.findIndex(p=>p.slug===slug);
+  if(idx>=0){ rmPainelLayouts[idx].widgets = pnlPainelWidgetsSalvos; rmPainelLayouts[idx].filtros = pnlPainelFiltrosSalvos; rmPainelLayouts[idx].medidas = pnlPainelMedidasSalvos; }
+  else rmPainelLayouts.push({ slug, widgets:pnlPainelWidgetsSalvos, filtros:pnlPainelFiltrosSalvos, medidas:pnlPainelMedidasSalvos });
+  pnlSairModoEdicao();
+  pnlRender();
   toast('Layout do painel salvo.');
 }
 
@@ -15261,7 +16103,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const sistema = document.getElementById('rgrm_sistema').value.trim() || 'G';
     const parametros = document.getElementById('rgrm_parametros').value.trim();
     if(!clienteId){ toast('Escolha o cliente'); return; }
-    if(!nome){ toast('Informe o nome do relatório'); return; }
+    if(!nome){ toast('Informe o nome da consulta'); return; }
     if(!codigoSentenca){ toast('Informe o código da sentença'); return; }
     const editando = !!editandoRmRelatorioId;
     const contaId = contaAtual().id;
@@ -15272,9 +16114,25 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     cancelarEdicaoRmRelatorio();
     await carregarTudo();
     renderListRmRelatorios();
-    toast(editando ? 'Relatório atualizado' : 'Relatório adicionado');
+    toast(editando ? 'Consulta atualizada' : 'Consulta adicionada');
   });
   document.getElementById('btnCancelarEdicaoRmRelatorio').addEventListener('click', cancelarEdicaoRmRelatorio);
+  document.getElementById('btnAddRmPainel').addEventListener('click', async ()=>{
+    const nome = document.getElementById('pnl_nome').value.trim();
+    if(!nome){ toast('Informe o nome do painel'); return; }
+    const consultas = consultasMarcadasPainel();
+    const editando = !!editandoRmPainelId;
+    const contaId = contaAtual().id;
+    const r = editando
+      ? await api('atualizarRmPainel', { contaId, id: editandoRmPainelId, nome: nome.toUpperCase(), consultas })
+      : await api('addRmPainel', { contaId, nome: nome.toUpperCase(), consultas });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    cancelarEdicaoRmPainel();
+    await carregarTudo();
+    renderListRmPaineis();
+    toast(editando ? 'Painel atualizado' : 'Painel adicionado');
+  });
+  document.getElementById('btnCancelarEdicaoRmPainel').addEventListener('click', cancelarEdicaoRmPainel);
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
   document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
   document.getElementById('btnRecebExportarCsv').addEventListener('click', recebExportarCsv);
@@ -15447,6 +16305,142 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
     recebResetFormNovoWidget();
     recebRender();
+  });
+  document.getElementById('btnPnlVoltar').addEventListener('click', ()=>goRgrmSub('paineis'));
+  document.getElementById('btnPnlAtualizar').addEventListener('click', pnlAtualizarDoRm);
+  document.getElementById('btnPnlExportarExcel').addEventListener('click', pnlExportarExcel);
+  document.getElementById('btnPnlExportarCsv').addEventListener('click', pnlExportarCsv);
+  document.getElementById('pnlCardFiltros').addEventListener('click', e=>{
+    const remover = e.target.closest('[data-removerfiltro]');
+    if(remover){ pnlRemoverFiltro(remover.dataset.removerfiltro); return; }
+    const trigger = e.target.closest('[data-rfiltro]'); if(!trigger) return;
+    pnlToggleFiltroColuna(trigger.dataset.rfiltro, trigger);
+  });
+  document.getElementById('btnPnlAdicionarFiltro').addEventListener('click', ()=>{
+    pnlAdicionarFiltro(document.getElementById('pnlNovoFiltroCampo').value);
+  });
+  document.getElementById('pnlMedidaFuncao').addEventListener('change', pnlAtualizarCamposFormMedida);
+  document.getElementById('pnlMedidaFormato').addEventListener('change', pnlAtualizarCamposFormMedida);
+  document.getElementById('pnlMedidaTipoNumero').addEventListener('change', pnlAtualizarCamposFormMedida);
+  document.getElementById('pnlListaMedidas').addEventListener('click', e=>{
+    const editar = e.target.closest('[data-editarmedida]');
+    if(editar){ pnlEditarMedida(editar.dataset.editarmedida); return; }
+    const remover = e.target.closest('[data-removermedida]');
+    if(remover){ pedirConfirmacao('Remover medida?','Qualquer widget que já use essa medida vai parar de calcular.', ()=>pnlRemoverMedida(remover.dataset.removermedida)); return; }
+  });
+  document.getElementById('btnPnlAdicionarMedida').addEventListener('click', ()=>{
+    const nome = document.getElementById('pnlMedidaNome').value.trim();
+    if(!nome){ toast('Dê um nome pra medida.'); return; }
+    const fmt = document.getElementById('pnlMedidaFormato').value;
+    const casas = fmt==='money' ? undefined : (document.getElementById('pnlMedidaTipoNumero').value==='decimal'
+      ? Math.max(1, Math.min(4, Number(document.getElementById('pnlMedidaCasas').value) || 2))
+      : 0);
+    const funcao = document.getElementById('pnlMedidaFuncao').value;
+    const campo = document.getElementById('pnlMedidaCampo').value;
+    if(funcao!=='contagem' && !campo){ toast('Escolha o campo que a medida vai agregar.'); return; }
+    const entrada = { id: pnlEditandoMedidaId || pnlGerarIdMedida(), label: nome, fmt, funcao };
+    if(funcao!=='contagem') entrada.campo = campo;
+    if(casas!=null) entrada.casas = casas;
+    const i = pnlPainelMedidas.findIndex(m=>m.id===entrada.id);
+    if(i>=0) pnlPainelMedidas[i] = entrada; else pnlPainelMedidas.push(entrada);
+    pnlResetFormMedida();
+    pnlRenderListaMedidas();
+    pnlPopularSelectsMedidaWidget();
+    pnlRender();
+  });
+  document.getElementById('pnlFiltroColunaPortal').addEventListener('click', e=>{
+    const item = e.target.closest('.lista-filtro-coluna-item'); if(!item || !item.dataset.chave) return;
+    const chave = item.dataset.chave, valor = item.dataset.valor;
+    const set = pnlFiltros[chave];
+    if(valor === '') set.clear();
+    else if(set.has(valor)) set.delete(valor); else set.add(valor);
+    pnlFecharFiltroColuna();
+    pnlRender();
+  });
+  document.addEventListener('click', e=>{ if(!e.target.closest('[data-rfiltro]') && !e.target.closest('#pnlFiltroColunaPortal')) pnlFecharFiltroColuna(); });
+  document.getElementById('btnPnlLimparFiltros').addEventListener('click', ()=>{
+    pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(c=>[c, new Set()]));
+    pnlRender();
+  });
+  document.getElementById('pnlGradeWidgets').addEventListener('click', e=>{
+    const toolbarBtn = e.target.closest('[data-wtoolbar]');
+    if(toolbarBtn){
+      const id = toolbarBtn.dataset.wid, acao = toolbarBtn.dataset.wtoolbar;
+      if(acao==='up' || acao==='down') pnlWidgetMover(id, acao);
+      else if(acao==='editar') pnlWidgetEditar(id);
+      else if(acao==='remover') pedirConfirmacao('Remover widget?','Isso só tira do painel — não mexe em nenhum dado.', ()=>pnlWidgetRemover(id));
+      return;
+    }
+  });
+  document.getElementById('pnlGradeWidgets').addEventListener('input', e=>{
+    const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
+    const w = pnlPainelWidgets.find(x=>x.id===busca.dataset.wid);
+    if(!w) return;
+    pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradas);
+  });
+  document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
+  document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
+  document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
+  document.getElementById('pnlNovoWidgetTipo').addEventListener('change', pnlAtualizarCamposNovoWidget);
+  document.getElementById('pnlNovoWidgetFonte').addEventListener('change', ()=>{
+    pnlFormColunasAtual = [];
+    pnlAtualizarCamposNovoWidget();
+  });
+  document.getElementById('pnlNovoWidgetColunasLista').addEventListener('change', e=>{
+    const cb = e.target.closest('[data-wcoluna]'); if(!cb) return;
+    const k = cb.value;
+    if(cb.checked){ if(!pnlFormColunasAtual.includes(k)) pnlFormColunasAtual.push(k); }
+    else pnlFormColunasAtual = pnlFormColunasAtual.filter(c=>c!==k);
+  });
+  document.getElementById('btnPnlAdicionarWidget').addEventListener('click', ()=>{
+    const tipo = document.getElementById('pnlNovoWidgetTipo').value;
+    const ehTabelaPersonalizada = tipo==='tabela';
+    const titulo = document.getElementById('pnlNovoWidgetTitulo').value.trim();
+    const medida = document.getElementById('pnlNovoWidgetMedida').value;
+    const dimensao = document.getElementById('pnlNovoWidgetDimensao').value;
+    const dimensao2 = document.getElementById('pnlNovoWidgetDimensao2').value;
+    const dimensao3 = document.getElementById('pnlNovoWidgetDimensao3').value;
+    const top = document.getElementById('pnlNovoWidgetTop').value;
+    const medida2 = document.getElementById('pnlNovoWidgetMedida2').value;
+    const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
+    if(!ehTabelaPersonalizada && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    if(!ehTabelaPersonalizada && !medida){ toast('Crie uma medida primeiro, no card "Medidas".'); return; }
+    if(ehTabelaPersonalizada && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    if(ehTabelaPersonalizada && pnlFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
+    const widget = { id: pnlEditandoWidgetId || pnlGerarIdWidget(), tipo, titulo };
+    if(tipo !== 'kpi'){
+      const largura = document.getElementById('pnlNovoWidgetLargura').value || 'completa';
+      if(largura !== 'completa') widget.largura = largura;
+    }
+    if(ehTabelaPersonalizada){
+      widget.fonte = fonte;
+      widget.colunas = pnlFormColunasAtual.slice();
+      if(fonte==='agrupado'){
+        widget.dimensao = dimensao;
+        if(dimensao2) widget.dimensao2 = dimensao2;
+        if(dimensao3 && dimensao2) widget.dimensao3 = dimensao3;
+      }
+    }else{
+      widget.medida = medida;
+      if(tipo==='kpi'){
+        const subtitulo = document.getElementById('pnlNovoWidgetSubtitulo').value.trim();
+        if(subtitulo) widget.subtitulo = subtitulo;
+      }
+      else if(tipo==='linha'){ widget.dimensao = dimensao; if(medida2) widget.medida2 = medida2; }
+      else { widget.dimensao = dimensao; if(top) widget.top = Number(top); }
+      if(tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut'){
+        widget.mostrarLegenda = document.getElementById('pnlNovoWidgetLegenda').checked;
+        widget.mostrarRotulos = document.getElementById('pnlNovoWidgetRotulos').checked;
+      }
+    }
+    if(pnlEditandoWidgetId){
+      const i = pnlPainelWidgets.findIndex(w=>w.id===pnlEditandoWidgetId);
+      if(i>=0) pnlPainelWidgets[i] = widget;
+    }else{
+      pnlPainelWidgets.push(widget);
+    }
+    pnlResetFormNovoWidget();
+    pnlRender();
   });
   document.getElementById('verNota_fechar').addEventListener('click', ()=>{
     document.getElementById('verNotaModal').classList.remove('show');
