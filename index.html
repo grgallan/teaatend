@@ -2781,19 +2781,26 @@
 
       <div class="card" id="pnlCardMedidas" style="display:none;">
         <h2>Medidas</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie medidas (um campo da consulta + uma função: soma, média, contagem...) pra usar nos widgets.</p>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie medidas (um campo da consulta + uma função: soma, média, contagem...) ou medidas-fórmula (que combinam outras medidas, inclusive de consultas diferentes) pra usar nos widgets.</p>
         <div id="pnlListaMedidas"></div>
         <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+          <div class="field" id="pnlMedidaCampoTipo">
+            <label>Tipo de medida</label>
+            <select id="pnlMedidaTipo">
+              <option value="campo">Campo da consulta (soma, média...)</option>
+              <option value="formula">Fórmula (combina outras medidas, de qualquer consulta)</option>
+            </select>
+          </div>
           <div class="field" id="pnlMedidaCampoConsulta" style="display:none;">
             <label>Consulta (fonte de dados)</label>
             <select id="pnlMedidaConsulta"></select>
           </div>
           <div class="row">
             <div class="field"><label>Nome</label><input type="text" id="pnlMedidaNome" placeholder="Ex: Valor médio"></div>
-            <div class="field"><label>Campo</label><select id="pnlMedidaCampo"></select></div>
+            <div class="field" id="pnlMedidaCampoCampo"><label>Campo</label><select id="pnlMedidaCampo"></select></div>
           </div>
           <div class="row">
-            <div class="field"><label>Função</label>
+            <div class="field" id="pnlMedidaCampoFuncao"><label>Função</label>
               <select id="pnlMedidaFuncao">
                 <option value="soma">Soma</option>
                 <option value="media">Média</option>
@@ -2812,6 +2819,12 @@
                 <option value="dias">Dias</option>
               </select>
             </div>
+          </div>
+          <div class="field" id="pnlMedidaCampoFormula" style="display:none;">
+            <label>Fórmula</label>
+            <input type="text" id="pnlMedidaFormula" placeholder="Ex: [medida1] - [medida2]">
+            <div style="font-size:11px;color:var(--muted);margin:4px 0 2px;">Clique pra inserir na fórmula:</div>
+            <div id="pnlMedidaPaletaFormula" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
           </div>
           <div class="row" id="pnlMedidaLinhaCasas" style="display:none;">
             <div class="field"><label>Tipo</label>
