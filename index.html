@@ -2750,6 +2750,15 @@
           <label>Filtro rápido (chips clicáveis, só desse widget)</label>
           <select id="pnlNovoWidgetFiltroRapido"><option value="">(nenhum)</option></select>
         </div>
+        <div class="row" id="pnlNovoWidgetLinhaFiltroFixo" style="display:none;">
+          <div class="field"><label>Filtro fixo do widget (campo)</label>
+            <select id="pnlNovoWidgetFiltroFixoCampo"><option value="">(nenhum)</option></select>
+          </div>
+          <div class="field" id="pnlNovoWidgetCampoFiltroFixoValor" style="display:none;">
+            <label>Valor</label>
+            <select id="pnlNovoWidgetFiltroFixoValor"></select>
+          </div>
+        </div>
         <div class="field" id="pnlNovoWidgetCampoColunas" style="display:none;">
           <label id="pnlNovoWidgetLabelColunas">Colunas</label>
           <div id="pnlNovoWidgetColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
@@ -2908,6 +2917,15 @@
             <option value="notas">Notas (uma linha por nota)</option>
             <option value="agrupado">Agrupado por uma dimensão (uma linha por valor)</option>
           </select>
+        </div>
+        <div class="row" id="recebNovoWidgetLinhaFiltroFixo" style="display:none;">
+          <div class="field"><label>Filtro fixo do widget (campo)</label>
+            <select id="recebNovoWidgetFiltroFixoCampo"><option value="">(nenhum)</option></select>
+          </div>
+          <div class="field" id="recebNovoWidgetCampoFiltroFixoValor" style="display:none;">
+            <label>Valor</label>
+            <select id="recebNovoWidgetFiltroFixoValor"></select>
+          </div>
         </div>
         <label id="recebNovoWidgetCampoApenasAbertas" style="display:none;align-items:center;gap:8px;font-size:13px;margin:4px 0 10px;cursor:pointer;">
           <input type="checkbox" id="recebNovoWidgetApenasAbertas" style="width:auto;"> Mostrar só notas em aberto (saldo &gt; 0)
