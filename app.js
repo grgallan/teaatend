@@ -12706,6 +12706,12 @@ let recebFiltros = {};
 // motor de widgets não impede mais de um em tese)
 let recebSegPorWidget = {};
 let recebUltimaListaAbertas = {};
+// filtro rápido (chips clicáveis) de cada widget "tabela (colunas à sua
+// escolha)" — igual o seletor Todas/Atrasada/Próximos dias/A vencer da
+// tabela de notas em aberto, mas pro CAMPO que o admin escolher ao criar o
+// widget (widget.filtroRapido) e só vale PRA ESSE widget, nunca mexe no
+// filtro geral do painel. 'todas' (ou ausente) = sem filtro. Por id do widget.
+let recebFiltroRapidoPorWidget = {};
 // colunas marcadas no formulário "Adicionar widget" quando tipo==='tabela'
 // (trabalha junto com o seletor de fonte — notas ou agrupado)
 let recebFormColunasAtual = [];
@@ -13513,6 +13519,19 @@ function recebAgruparMultiplasDimensoes(linhas, dimensoesChaves, colunas){
   });
   return resultado;
 }
+// monta os chips do filtro rápido (um widget Tabela só) em cima das
+// linhas-base (antes da busca e do próprio filtro rápido, senão o valor
+// escolhido sumiria da lista assim que fosse aplicado)
+function recebRenderOpcoesFiltroRapido(widget, itensBase){
+  const cont = document.getElementById(`receb-${widget.id}-filtrorapido`);
+  if(!cont) return;
+  const hoje = recebHoje();
+  const valores = [...new Set(itensBase.map(o=>recebValorColunaNota(o, hoje, widget.filtroRapido)))]
+    .filter(v=>v!=='' && v!=null).sort((a,b)=>String(a).localeCompare(String(b),'pt',{numeric:true}));
+  const atual = recebFiltroRapidoPorWidget[widget.id] || 'todas';
+  cont.innerHTML = `<div class="chip ${atual==='todas'?'on':''}" data-wfiltrorapido="todas" data-wid="${widget.id}">Todas</div>` +
+    valores.map(v=>`<div class="chip ${atual===v?'on':''}" data-wfiltrorapido="${escaparHtml(v)}" data-wid="${widget.id}">${escaparHtml(v)}</div>`).join('');
+}
 function recebRenderWidgetTabelaPersonalizada(widget, linhas){
   const tab = document.getElementById(`receb-${widget.id}-tabela`); if(!tab) return;
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : RECEB_COLUNAS_NOTAS_PADRAO;
@@ -13536,6 +13555,15 @@ function recebRenderWidgetTabelaPersonalizada(widget, linhas){
   const buscaEl = document.querySelector(`[data-wbusca][data-wid="${widget.id}"]`);
   const busca = (buscaEl?.value || '').trim().toLowerCase();
   let itens = widget.apenasAbertas ? linhas.filter(o=>o.saldo>0) : linhas.slice();
+  // filtro rápido (chips) — SÓ desse widget, nunca mexe no filtro geral do
+  // painel; os chips são montados em cima das linhas de ANTES desse filtro
+  // (recebRenderOpcoesFiltroRapido), senão o valor escolhido sumiria da
+  // lista de opções assim que fosse aplicado
+  if(widget.filtroRapido){
+    recebRenderOpcoesFiltroRapido(widget, itens);
+    const seg = recebFiltroRapidoPorWidget[widget.id];
+    if(seg && seg!=='todas') itens = itens.filter(o=>recebValorColunaNota(o,hoje,widget.filtroRapido)===seg);
+  }
   if(busca) itens = itens.filter(o=>[o.nf,o.c,o.k,o.u,o.g].join(' ').toLowerCase().includes(busca));
   itens.sort((a,b)=>(a.v??9e9)-(b.v??9e9));
   recebUltimaListaAbertas[widget.id] = itens;
@@ -13638,8 +13666,10 @@ function recebHtmlWidget(w, i, total){
   }
   if(w.tipo === 'tabela'){
     const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar nota, cliente, contrato ou município" style="margin-bottom:10px;">` : '';
+    const filtroRapidoHtml = (w.fonte !== 'agrupado' && w.filtroRapido) ? `<div class="filters" id="receb-${w.id}-filtrorapido"></div>` : '';
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(recebWidgetTitulo(w))}</h2>
+      ${filtroRapidoHtml}
       ${buscaHtml}
       <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="receb-${w.id}-tabela"></table></div>
     </div>`;
@@ -13828,6 +13858,13 @@ function recebAtualizarCamposNovoWidget(){
   document.getElementById('recebNovoWidgetCampoSubtitulo').style.display = ehKpi ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoApenasAbertas').style.display = (ehTabelaPersonalizada && fonte==='notas') ? 'flex' : 'none';
+  document.getElementById('recebNovoWidgetCampoFiltroRapido').style.display = (ehTabelaPersonalizada && fonte==='notas') ? '' : 'none';
+  if(ehTabelaPersonalizada && fonte==='notas'){
+    const selFR = document.getElementById('recebNovoWidgetFiltroRapido');
+    const atualFR = selFR.value;
+    selFR.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(recebColunasTabelaDisponiveis()).map(([k,v])=>`<option value="${k}">${escaparHtml(typeof v==='string'?v:v.label)}</option>`).join('');
+    if([...selFR.options].some(o=>o.value===atualFR)) selFR.value = atualFR;
+  }
   document.getElementById('recebNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
   recebPopularSelectsMedidaWidget();
@@ -13869,6 +13906,7 @@ function recebResetFormNovoWidget(){
   document.getElementById('recebNovoWidgetTop').value = '';
   document.getElementById('recebNovoWidgetFonte').value = 'notas';
   document.getElementById('recebNovoWidgetApenasAbertas').checked = false;
+  document.getElementById('recebNovoWidgetFiltroRapido').value = '';
   recebFormColunasAtual = [];
   document.getElementById('recebNovoWidgetLegenda').checked = false;
   document.getElementById('recebNovoWidgetRotulos').checked = false;
@@ -13909,6 +13947,7 @@ function recebWidgetEditar(id){
   document.getElementById('recebNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('recebNovoWidgetAltura').value = w.altura || 'padrao';
   recebAtualizarCamposNovoWidget();
+  document.getElementById('recebNovoWidgetFiltroRapido').value = w.filtroRapido || '';
   document.getElementById('recebNovoWidgetTitulo').value = w.titulo || '';
   document.getElementById('recebNovoWidgetMedida').value = w.medida || 'faturado';
   document.getElementById('recebNovoWidgetDimensao').value = w.dimensao || 'mes';
@@ -14090,6 +14129,9 @@ let pnlSlugCarregado = null; // qual slug de painel já está carregado em pnlPa
 let pnlModoEdicao = false;
 let pnlEditandoWidgetId = null;
 let pnlUltimoLinhasFiltradas = [];
+// filtro rápido (chips clicáveis) de um widget Tabela — só desse widget,
+// nunca mexe no filtro geral do painel. 'todas' (ou ausente) = sem filtro.
+let pnlFiltroRapidoPorWidget = {};
 
 // mesma regra seguar do Painel de Recebíveis: converte string numérica
 // (ex "74111.24") pro tipo number de verdade, sem mexer em código com
@@ -14447,6 +14489,18 @@ function pnlColunasTabelaDisponiveis(){
   pnlColunasDisponiveis().forEach(c=>{ opcoes[c] = c; });
   return opcoes;
 }
+// monta os chips do filtro rápido (um widget Tabela só) em cima das
+// linhas-base (antes da busca e do próprio filtro rápido, senão o valor
+// escolhido sumiria da lista assim que fosse aplicado)
+function pnlRenderOpcoesFiltroRapido(widget, itensBase){
+  const cont = document.getElementById(`pnl-${widget.id}-filtrorapido`);
+  if(!cont) return;
+  const valores = [...new Set(itensBase.map(o=>pnlValorFiltro(o, widget.filtroRapido)))]
+    .filter(v=>v!=='').sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+  const atual = pnlFiltroRapidoPorWidget[widget.id] || 'todas';
+  cont.innerHTML = `<div class="chip ${atual==='todas'?'on':''}" data-wfiltrorapido="todas" data-wid="${widget.id}">Todas</div>` +
+    valores.map(v=>`<div class="chip ${atual===v?'on':''}" data-wfiltrorapido="${escaparHtml(v)}" data-wid="${widget.id}">${escaparHtml(v)}</div>`).join('');
+}
 function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   const tab = document.getElementById(`pnl-${widget.id}-tabela`); if(!tab) return;
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis().slice(0,8);
@@ -14464,9 +14518,14 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
     return;
   }
   // fonte 'linhas' — uma linha por registro, com busca livre (qualquer coluna)
+  let itens = linhas;
+  if(widget.filtroRapido){
+    pnlRenderOpcoesFiltroRapido(widget, itens);
+    const seg = pnlFiltroRapidoPorWidget[widget.id];
+    if(seg && seg!=='todas') itens = itens.filter(o=>pnlValorFiltro(o, widget.filtroRapido)===seg);
+  }
   const buscaEl = document.querySelector(`[data-wbusca][data-wid="${widget.id}"]`);
   const busca = (buscaEl?.value || '').trim().toLowerCase();
-  let itens = linhas;
   if(busca) itens = itens.filter(o=>Object.values(o).some(v=>v!=null && String(v).toLowerCase().includes(busca)));
   const cab = colunas.map(c=>catalogo[c]||c);
   const corpo = itens.map(o=>`<tr>${colunas.map(c=>`<td>${escaparHtml(pnlFormatarValorColuna(o[c]))}</td>`).join('')}</tr>`).join('');
@@ -14520,8 +14579,10 @@ function pnlHtmlWidget(w, i, total){
   const estiloAltura = recebEstiloAlturaScroll(w);
   if(w.tipo === 'tabela'){
     const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar..." style="margin-bottom:10px;">` : '';
+    const filtroRapidoHtml = (w.fonte !== 'agrupado' && w.filtroRapido) ? `<div class="filters" id="pnl-${w.id}-filtrorapido"></div>` : '';
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      ${filtroRapidoHtml}
       ${buscaHtml}
       <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="pnl-${w.id}-tabela"></table></div>
     </div>`;
@@ -14629,6 +14690,13 @@ function pnlAtualizarCamposNovoWidget(){
   document.getElementById('pnlNovoWidgetCampoMedidas2').style.display = ehLinha ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoSubtitulo').style.display = ehKpi ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoFiltroRapido').style.display = (ehTabelaPersonalizada && fonte==='linhas') ? '' : 'none';
+  if(ehTabelaPersonalizada && fonte==='linhas'){
+    const selFR = document.getElementById('pnlNovoWidgetFiltroRapido');
+    const atualFR = selFR.value;
+    selFR.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis()).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
+    if([...selFR.options].some(o=>o.value===atualFR)) selFR.value = atualFR;
+  }
   document.getElementById('pnlNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
   pnlPopularSelectsMedidaWidget();
@@ -14658,6 +14726,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetTitulo').value = '';
   document.getElementById('pnlNovoWidgetTop').value = '';
   document.getElementById('pnlNovoWidgetFonte').value = 'linhas';
+  document.getElementById('pnlNovoWidgetFiltroRapido').value = '';
   pnlFormColunasAtual = [];
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
@@ -14694,6 +14763,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   pnlAtualizarCamposNovoWidget();
+  document.getElementById('pnlNovoWidgetFiltroRapido').value = w.filtroRapido || '';
   document.getElementById('pnlNovoWidgetTitulo').value = w.titulo || '';
   if(w.medida) document.getElementById('pnlNovoWidgetMedida').value = w.medida;
   if(w.dimensao) document.getElementById('pnlNovoWidgetDimensao').value = w.dimensao;
@@ -16249,6 +16319,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(w) recebRenderWidgetAbertas(w, recebUltimoLinhasFiltradas);
       return;
     }
+    const filtroRapido = e.target.closest('[data-wfiltrorapido]');
+    if(filtroRapido){
+      const wid = filtroRapido.dataset.wid;
+      recebFiltroRapidoPorWidget[wid] = filtroRapido.dataset.wfiltrorapido;
+      document.querySelectorAll(`[data-wfiltrorapido][data-wid="${wid}"]`).forEach(c=>c.classList.toggle('on', c===filtroRapido));
+      const w = recebPainelWidgets.find(x=>x.id===wid);
+      if(w) recebRenderWidgetTabelaPersonalizada(w, recebUltimoLinhasFiltradas);
+      return;
+    }
     const copyBtn = e.target.closest('[data-wcopy]');
     if(copyBtn){ recebCopiarAbertas(copyBtn.dataset.wid); return; }
     const trCtr = e.target.closest('tr[data-ctr]');
@@ -16310,7 +16389,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         if(dimensao2) widget.dimensao2 = dimensao2;
         if(dimensao3 && dimensao2) widget.dimensao3 = dimensao3;
       }
-      else widget.apenasAbertas = document.getElementById('recebNovoWidgetApenasAbertas').checked;
+      else{
+        widget.apenasAbertas = document.getElementById('recebNovoWidgetApenasAbertas').checked;
+        const filtroRapido = document.getElementById('recebNovoWidgetFiltroRapido').value;
+        if(filtroRapido) widget.filtroRapido = filtroRapido;
+      }
     }else if(tipo === 'ranking-situacao'){
       widget.dimensao = dimensao;
       if(top) widget.top = Number(top);
@@ -16403,6 +16486,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       else if(acao==='remover') pedirConfirmacao('Remover widget?','Isso só tira do painel — não mexe em nenhum dado.', ()=>pnlWidgetRemover(id));
       return;
     }
+    const filtroRapido = e.target.closest('[data-wfiltrorapido]');
+    if(filtroRapido){
+      const wid = filtroRapido.dataset.wid;
+      pnlFiltroRapidoPorWidget[wid] = filtroRapido.dataset.wfiltrorapido;
+      document.querySelectorAll(`[data-wfiltrorapido][data-wid="${wid}"]`).forEach(c=>c.classList.toggle('on', c===filtroRapido));
+      const w = pnlPainelWidgets.find(x=>x.id===wid);
+      if(w) pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradas);
+      return;
+    }
   });
   document.getElementById('pnlGradeWidgets').addEventListener('input', e=>{
     const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
@@ -16453,6 +16545,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         widget.dimensao = dimensao;
         if(dimensao2) widget.dimensao2 = dimensao2;
         if(dimensao3 && dimensao2) widget.dimensao3 = dimensao3;
+      }else{
+        const filtroRapido = document.getElementById('pnlNovoWidgetFiltroRapido').value;
+        if(filtroRapido) widget.filtroRapido = filtroRapido;
       }
     }else{
       widget.medida = medida;
