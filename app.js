@@ -2985,9 +2985,10 @@ function dashLegendHtml(items){
   return items.map(i=>`<span><span class="sw" style="background:${i.cor}"></span>${escaparHtml(i.label)}</span>`).join('');
 }
 
-function dashBarChart(container, {data, height=180, horizontal=false, rotateLabels=false, unit='', mostrarRotulos=false}){
+function dashBarChart(container, {data, height=180, horizontal=false, rotateLabels=false, unit='', mostrarRotulos=false, fmtFn}){
   container.innerHTML = '';
   if(!data.length || !data.some(d=>d.value>0)){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const fmt = fmtFn || (v=>dashFmtValor(v,unit));
   const w = container.clientWidth || 300;
   if(horizontal){
     const rowH=26, padL=Math.min(150, Math.max(80, w*0.34)), padR=44;
@@ -2998,10 +2999,10 @@ function dashBarChart(container, {data, height=180, horizontal=false, rotateLabe
       const lbl = dashSvgEl('text', {x:0, y:y+13, style:`font-size:10.5px;fill:${dashCss('--muted')}`}); lbl.textContent = d.label; svg.appendChild(lbl);
       svg.appendChild(dashSvgEl('rect', {x:padL, y, width:w-padL-padR, height:14, rx:5, fill:dashCss('--panel-2')}));
       const bar = dashSvgEl('rect', {x:padL, y, width:Math.max(barW,3), height:14, rx:5, fill:dashCss(d.tok||'--blue')});
-      bar.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${dashFmtValor(d.value,unit)}</b> · ${d.label}`));
+      bar.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${fmt(d.value)}</b> · ${d.label}`));
       bar.addEventListener('mousemove', dashMoveTip); bar.addEventListener('mouseleave', dashHideTip);
       svg.appendChild(bar);
-      const val = dashSvgEl('text', {x:padL+barW+6, y:y+11, style:`font-size:10.5px;fill:${dashCss('--muted')}`}); val.textContent = dashFmtValor(d.value,unit); svg.appendChild(val);
+      const val = dashSvgEl('text', {x:padL+barW+6, y:y+11, style:`font-size:10.5px;fill:${dashCss('--muted')}`}); val.textContent = fmt(d.value); svg.appendChild(val);
     });
     container.appendChild(svg);
     return;
@@ -3015,14 +3016,14 @@ function dashBarChart(container, {data, height=180, horizontal=false, rotateLabe
   data.forEach((d,i)=>{
     const x=padL+gap*i+(gap-bw)/2, h=(d.value/max)*innerH, y=padT+innerH-h;
     const bar = dashSvgEl('rect', {x, y, width:bw, height:Math.max(h,0), rx:4, fill:dashCss(d.tok||'--blue')});
-    bar.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${dashFmtValor(d.value,unit)}</b> · ${d.label}`));
+    bar.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${fmt(d.value)}</b> · ${d.label}`));
     bar.addEventListener('mousemove', dashMoveTip); bar.addEventListener('mouseleave', dashHideTip);
     svg.appendChild(bar);
     const t = dashSvgEl('text', {x:x+bw/2, y:height-(rotateLabels?24:6), 'text-anchor':rotateLabels?'end':'middle', style:`font-size:10.5px;fill:${dashCss('--muted')}`, transform: rotateLabels?`rotate(-28 ${x+bw/2} ${height-24})`:''});
     t.textContent = d.label; svg.appendChild(t);
     if(mostrarRotulos && d.value>0){
       const rot = dashSvgEl('text', {x:x+bw/2, y:y-4, 'text-anchor':'middle', style:`font-size:10px;font-weight:700;fill:${dashCss('--text')}`});
-      rot.textContent = dashFmtValor(d.value, unit); svg.appendChild(rot);
+      rot.textContent = fmt(d.value); svg.appendChild(rot);
     }
   });
   container.appendChild(svg);
@@ -3072,13 +3073,14 @@ function dashGroupedBarChart(container, {labels, series, height=180, mostrarRotu
     const groupX = padL+gap*i+(gap-groupW)/2;
     series.forEach((s,si)=>{
       const v = s.data[i]||0, h=(v/max)*innerH, x=groupX+si*barW, y=padT+innerH-h;
+      const fmt = s.fmtFn || (vv=>dashFmtValor(vv));
       const rect = dashSvgEl('rect', {x, y, width:Math.max(barW-2,1), height:Math.max(h,0), rx:3, fill:dashCss(s.tok)});
-      rect.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${dashFmtValor(v)}</b> · ${s.label}<br>${l}`));
+      rect.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${fmt(v)}</b> · ${s.label}<br>${l}`));
       rect.addEventListener('mousemove', dashMoveTip); rect.addEventListener('mouseleave', dashHideTip);
       svg.appendChild(rect);
       if(mostrarRotulos && v>0){
         const rot = dashSvgEl('text', {x:x+(barW-2)/2, y:y-3, 'text-anchor':'middle', style:`font-size:8.5px;font-weight:700;fill:${dashCss('--text')}`});
-        rot.textContent = dashFmtValor(v); svg.appendChild(rot);
+        rot.textContent = fmt(v); svg.appendChild(rot);
       }
     });
     const t = dashSvgEl('text', {x:groupX+groupW/2, y:height-6, 'text-anchor':'middle', style:`font-size:10.5px;fill:${dashCss('--muted')}`});
@@ -3087,10 +3089,11 @@ function dashGroupedBarChart(container, {labels, series, height=180, mostrarRotu
   container.appendChild(svg);
 }
 
-function dashDonut(container, data, {size=140, thickness=18}={}){
+function dashDonut(container, data, {size=140, thickness=18, fmtFn}={}){
   container.innerHTML = '';
   const total = data.reduce((s,d)=>s+d.value,0);
   if(total===0){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const fmt = fmtFn || (v=>v);
   const r=size/2, ir=r-thickness, cx=r, cy=r;
   const svg = dashSvgEl('svg', {width:size, height:size, viewBox:`0 0 ${size} ${size}`});
   let ang = -Math.PI/2;
@@ -3102,11 +3105,11 @@ function dashDonut(container, data, {size=140, thickness=18}={}){
     const xi1=cx+ir*Math.cos(a2), yi1=cy+ir*Math.sin(a2), xi2=cx+ir*Math.cos(a1), yi2=cy+ir*Math.sin(a1);
     const dd = `M${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} L${xi1},${yi1} A${ir},${ir} 0 ${large} 0 ${xi2},${yi2} Z`;
     const path = dashSvgEl('path', {d:dd, fill:d.cor, stroke:dashCss('--panel'), 'stroke-width':2});
-    path.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${d.value}</b> · ${d.label} (${Math.round(frac*100)}%)`));
+    path.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${fmt(d.value)}</b> · ${d.label} (${Math.round(frac*100)}%)`));
     path.addEventListener('mousemove', dashMoveTip); path.addEventListener('mouseleave', dashHideTip);
     svg.appendChild(path);
   });
-  const t1 = dashSvgEl('text', {x:cx, y:cy-2, 'text-anchor':'middle', style:`font-weight:800;font-size:18px;fill:${dashCss('--text')}`}); t1.textContent = total;
+  const t1 = dashSvgEl('text', {x:cx, y:cy-2, 'text-anchor':'middle', style:`font-weight:800;font-size:18px;fill:${dashCss('--text')}`}); t1.textContent = fmt(total);
   const t2 = dashSvgEl('text', {x:cx, y:cy+15, 'text-anchor':'middle', style:`font-size:10px;fill:${dashCss('--muted')}`}); t2.textContent = 'total';
   svg.appendChild(t1); svg.appendChild(t2);
   container.appendChild(svg);
@@ -3141,16 +3144,17 @@ function dashLineChart(container, {labels, series, height=180, mostrarRotulos=fa
       const d = xs.map((x,i)=>(i?'L':'M')+x.toFixed(1)+','+ys[i].toFixed(1)).join(' ');
       svg.appendChild(dashSvgEl('path', {d, fill:'none', stroke:dashCss(s.tok), 'stroke-width':2, 'stroke-linecap':'round', 'stroke-linejoin':'round'}));
     }
-    xs.forEach((x,i)=>dots.push({x, y:ys[i], v:s.data[i], label:s.label, tok:s.tok, mes:labels[i]}));
+    const fmt = s.fmtFn || (v=>dashFmtValor(v));
+    xs.forEach((x,i)=>dots.push({x, y:ys[i], v:s.data[i], label:s.label, tok:s.tok, mes:labels[i], fmt}));
   });
   dots.forEach(pt=>{
     svg.appendChild(dashSvgEl('circle', {cx:pt.x, cy:pt.y, r:2.8, fill:dashCss(pt.tok)}));
     if(mostrarRotulos){
       const rot = dashSvgEl('text', {x:pt.x, y:pt.y-8, 'text-anchor':'middle', style:`font-size:9.5px;font-weight:700;fill:${dashCss('--text')}`});
-      rot.textContent = pt.v; svg.appendChild(rot);
+      rot.textContent = pt.fmt(pt.v); svg.appendChild(rot);
     }
     const c = dashSvgEl('circle', {cx:pt.x, cy:pt.y, r:9, fill:'transparent'});
-    c.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${pt.v}</b> · ${pt.label}<br>${pt.mes}`));
+    c.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${pt.fmt(pt.v)}</b> · ${pt.label}<br>${pt.mes}`));
     c.addEventListener('mousemove', dashMoveTip); c.addEventListener('mouseleave', dashHideTip);
     svg.appendChild(c);
   });
@@ -14784,7 +14788,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
     const chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
     const series = medidas.map((m,i)=>{
       const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
-      return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
+      return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0), fmtFn: v=>pnlFormatarMedida(v, m) };
     });
     dashLineChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
@@ -14800,7 +14804,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
     if(widget.top) chaves = chaves.slice(0, Number(widget.top));
     const series = medidas.map((m,i)=>{
       const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
-      return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
+      return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0), fmtFn: v=>pnlFormatarMedida(v, m) };
     });
     dashGroupedBarChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
@@ -14810,21 +14814,16 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
   if(widget.top) grupos = grupos.slice(0, Number(widget.top));
   if(tipo==='donut'){
     const total = grupos.reduce((s,g)=>s+g.valor,0);
-    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })), altura ? {size:altura} : undefined);
+    dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })), { fmtFn: v=>pnlFormatarMedida(v, widget.medida), ...(altura ? {size:altura} : {}) });
     if(widget.mostrarLegenda){
       const itens = grupos.map((g,i)=>({ label: widget.mostrarRotulos && total ? `${g.rotulo} (${Math.round(g.valor/total*100)}%)` : g.rotulo, cor:dashCss(cores[i%cores.length]) }));
       cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(itens)}</div>`);
     }
     return;
   }
-  // dashFmtValor (usado nos rótulos/tooltip do gráfico) só reconhece "R$"
-  // como unidade especial — só faz sentido passar quando a medida
-  // escolhida for mesmo formato Dinheiro, diferente do Painel de
-  // Recebíveis (lá toda medida sem ser % é sempre dinheiro)
-  const unit = (pnlMedidaPorId(widget.medida)||{}).fmt === 'money' ? 'R$' : '';
   const data = grupos.map(g=>({ label:g.rotulo, value:g.valor, tok:'--blue' }));
   const horizontal = tipo==='barra-h';
-  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
+  dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', fmtFn: v=>pnlFormatarMedida(v, widget.medida), mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
   if(horizontal){
     // horizontal desenha 2 <rect> por linha (trilho + barra) — reaproveita
     // a mesma convenção de índice ímpar do recebLigarCliqueBarras
