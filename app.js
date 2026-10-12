@@ -13334,6 +13334,18 @@ function recebColunasTabelaDisponiveis(){
   recebColunasRmDisponiveis().forEach(col=>{ const campo = 'rm:'+col; if(!opcoes[campo]) opcoes[campo] = col; });
   return opcoes;
 }
+// formata o valor cru de uma coluna da consulta quando ele é numérico —
+// mesma regra segura do Exportar Excel (não mexe em código com zero à
+// esquerda, tipo NOTA FISCAL/protocolo) + uma heurística: número com
+// casas decimais é tratado como dinheiro (todo campo financeiro do RM
+// sai com 2 casas), número inteiro só ganha separador de milhar, pra não
+// rotular ano/id como "R$"
+function recebFormatarCampoRm(v){
+  if(v == null || v === '') return '';
+  const n = recebCoagirNumeroExcel(v);
+  if(typeof n !== 'number') return v;
+  return Number.isInteger(n) ? n.toLocaleString('pt-BR') : fmtMoeda(n);
+}
 function recebValorColunaNota(o, hoje, chave){
   switch(chave){
     case 'situacao': return o.situacao;
@@ -13354,9 +13366,31 @@ function recebValorColunaNota(o, hoje, chave){
     case 'iss': return fmtMoeda(o.iss);
     case 'outrasRetencoes': return fmtMoeda(o.ot);
     default:
-      if(chave && chave.startsWith('rm:')){ const v = o._rm ? o._rm[chave.slice(3)] : undefined; return v==null ? '' : v; }
+      if(chave && chave.startsWith('rm:')) return recebFormatarCampoRm(o._rm ? o._rm[chave.slice(3)] : undefined);
       return '';
   }
+}
+// valor NUMÉRICO (não formatado) de uma coluna de nota — usado só pra
+// somar no rodapé da tabela; colunas que não fazem sentido somar
+// (situação, datas, texto) devolvem null e ficam de fora do total
+function recebValorColunaNotaNumerico(o, chave){
+  switch(chave){
+    case 'totalNf': return o.t;
+    case 'recebido': return o.r || 0;
+    case 'saldo': return o.saldo;
+    case 'medido': return o.md;
+    case 'inss': return o.inss;
+    case 'iss': return o.iss;
+    case 'outrasRetencoes': return o.ot;
+    default:
+      if(chave && chave.startsWith('rm:')){ const n = recebCoagirNumeroExcel(o._rm ? o._rm[chave.slice(3)] : undefined); return typeof n === 'number' ? n : null; }
+      return null;
+  }
+}
+const RECEB_COLUNAS_NOTAS_MONETARIAS = new Set(['totalNf','recebido','saldo','medido','inss','iss','outrasRetencoes']);
+function recebFormatarTotalColunaNota(chave, soma){
+  if(RECEB_COLUNAS_NOTAS_MONETARIAS.has(chave)) return fmtMoeda(soma);
+  return Number.isInteger(soma) ? soma.toLocaleString('pt-BR') : fmtMoeda(soma);
 }
 // valor/rótulo de UM nível de agrupamento — isola o caso especial da
 // "faixaVencimento" (não é um campo fixo, depende da data de hoje)
@@ -13428,8 +13462,17 @@ function recebRenderWidgetTabelaPersonalizada(widget, linhas){
   recebUltimaListaAbertas[widget.id] = itens;
   const cab = colunas.map(c=>catalogo[c]||c);
   const corpo = itens.map(o=>`<tr>${colunas.map(c=>`<td>${escaparHtml(String(recebValorColunaNota(o,hoje,c)))}</td>`).join('')}</tr>`).join('');
+  // rodapé com o total de cada coluna numérica (dinheiro ganha fmtMoeda,
+  // inteiro só separador de milhar) — a 1ª coluna sempre mostra a
+  // quantidade de notas, nunca um total, mesmo que seja numérica
+  const totais = colunas.map((c,i)=>{
+    if(i===0) return `<td><b>${itens.length} nota${itens.length===1?'':'s'}</b></td>`;
+    const vals = itens.map(o=>recebValorColunaNotaNumerico(o,c)).filter(v=>v!=null);
+    return vals.length ? `<td><b>${recebFormatarTotalColunaNota(c, vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
+  }).join('');
   tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
-    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${recebLinhas.length ? 'Nenhuma nota com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${recebLinhas.length ? 'Nenhuma nota com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
+    ${itens.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}`;
 }
 async function recebCopiarAbertas(widgetId){
   const hoje = recebHoje();
