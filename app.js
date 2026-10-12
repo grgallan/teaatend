@@ -3054,6 +3054,39 @@ function dashStackedBar(container, {labels, series, height=180}){
   container.appendChild(svg);
 }
 
+// barras agrupadas (clusters) — uma barra por série, lado a lado, dentro
+// de cada rótulo (diferente da dashStackedBar, que empilha as séries)
+function dashGroupedBarChart(container, {labels, series, height=180, mostrarRotulos=false}){
+  container.innerHTML = '';
+  if(!labels.length){ container.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
+  const w = container.clientWidth || 300, padL=8, padB=20, padT=8;
+  const innerW=w-padL-8, innerH=height-padT-padB;
+  const allVals = series.flatMap(s=>s.data);
+  const max = (Math.max(...allVals, 0) || 1) * 1.15;
+  const gap = innerW/labels.length;
+  const groupW = Math.min(gap*0.82, 46*series.length);
+  const barW = groupW/series.length;
+  const svg = dashSvgEl('svg', {width:w, height, viewBox:`0 0 ${w} ${height}`});
+  for(let i=0;i<=3;i++){ const y=padT+innerH-i/3*innerH; svg.appendChild(dashSvgEl('line',{x1:padL,x2:w,y1:y,y2:y,stroke:dashCss('--line'),'stroke-width':1})); }
+  labels.forEach((l,i)=>{
+    const groupX = padL+gap*i+(gap-groupW)/2;
+    series.forEach((s,si)=>{
+      const v = s.data[i]||0, h=(v/max)*innerH, x=groupX+si*barW, y=padT+innerH-h;
+      const rect = dashSvgEl('rect', {x, y, width:Math.max(barW-2,1), height:Math.max(h,0), rx:3, fill:dashCss(s.tok)});
+      rect.addEventListener('mouseenter', e=>dashShowTip(e, `<b>${dashFmtValor(v)}</b> · ${s.label}<br>${l}`));
+      rect.addEventListener('mousemove', dashMoveTip); rect.addEventListener('mouseleave', dashHideTip);
+      svg.appendChild(rect);
+      if(mostrarRotulos && v>0){
+        const rot = dashSvgEl('text', {x:x+(barW-2)/2, y:y-3, 'text-anchor':'middle', style:`font-size:8.5px;font-weight:700;fill:${dashCss('--text')}`});
+        rot.textContent = dashFmtValor(v); svg.appendChild(rot);
+      }
+    });
+    const t = dashSvgEl('text', {x:groupX+groupW/2, y:height-6, 'text-anchor':'middle', style:`font-size:10.5px;fill:${dashCss('--muted')}`});
+    t.textContent = l; svg.appendChild(t);
+  });
+  container.appendChild(svg);
+}
+
 function dashDonut(container, data, {size=140, thickness=18}={}){
   container.innerHTML = '';
   const total = data.reduce((s,d)=>s+d.value,0);
@@ -14239,6 +14272,7 @@ let pnlPainelFiltrosSalvos = [];
 let pnlFiltros = {};
 let pnlFiltroColunaAberta = null;
 let pnlFormColunasAtual = [];
+let pnlFormMedidasExtrasAtual = [];
 let pnlPainelWidgets = [];
 let pnlPainelWidgetsSalvos = [];
 let pnlPainelMedidas = [];
@@ -14732,13 +14766,20 @@ function pnlLigarCliqueBarras(container, grupos, campoFiltro){
     bar.addEventListener('click', ()=>pnlToggleFiltro(campoFiltro, g.chave));
   });
 }
+// medidas adicionais de um widget barra/linha — novo campo
+// "medidasExtras" (array), com fallback pro antigo "medida2" (1 só),
+// salvo por widgets criados antes dessa opção existir
+function pnlMedidasExtrasWidget(widget){
+  if(Array.isArray(widget.medidasExtras)) return widget.medidasExtras;
+  return widget.medida2 ? [widget.medida2] : [];
+}
 function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
   const cont = document.getElementById(containerId); if(!cont) return;
   const altura = RECEB_ALTURAS_WIDGET[widget.altura];
+  const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
   if(tipo==='linha'){
     const dimensao = widget.dimensao;
-    const medidas = widget.medida2 ? [widget.medida, widget.medida2] : [widget.medida];
-    const cores = ['--blue','--ok','--bad','--warn'];
+    const medidas = [widget.medida, ...pnlMedidasExtrasWidget(widget)];
     const porMedida = medidas.map(m=>pnlAgruparPorCampo(linhas, dimensao, m));
     const chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
     const series = medidas.map((m,i)=>{
@@ -14749,10 +14790,25 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
     return;
   }
+  const medidasExtras = tipo==='barra' ? pnlMedidasExtrasWidget(widget) : [];
+  if(medidasExtras.length){
+    // barra com mais de uma medida: clusters por valor do "Agrupar por",
+    // uma barra por medida dentro de cada cluster (comparação lado a lado)
+    const medidas = [widget.medida, ...medidasExtras];
+    const porMedida = medidas.map(m=>pnlAgruparPorCampo(linhas, widget.dimensao, m));
+    let chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+    if(widget.top) chaves = chaves.slice(0, Number(widget.top));
+    const series = medidas.map((m,i)=>{
+      const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
+      return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
+    });
+    dashGroupedBarChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
+    if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
+    return;
+  }
   let grupos = pnlAgruparPorCampo(linhas, widget.dimensao, widget.medida);
   if(widget.top) grupos = grupos.slice(0, Number(widget.top));
   if(tipo==='donut'){
-    const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
     const total = grupos.reduce((s,g)=>s+g.valor,0);
     dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })), altura ? {size:altura} : undefined);
     if(widget.mostrarLegenda){
@@ -15087,7 +15143,7 @@ function pnlAtualizarCamposNovoWidget(){
   document.getElementById('pnlNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoDimensao').style.display = precisaDimensao ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra') ? '' : 'none';
-  document.getElementById('pnlNovoWidgetCampoMedidas2').style.display = ehLinha ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoMedidas2').style.display = (ehLinha || tipo==='barra') ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoSubtitulo').style.display = ehKpi ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoFiltroRapido').style.display = (ehTabelaPersonalizada && fonte==='linhas') ? '' : 'none';
@@ -15134,13 +15190,30 @@ function pnlAtualizarFiltroFixoValor(){
   selValor.innerHTML = valores.map(v=>`<option value="${escaparHtml(v)}">${escaparHtml(v)}</option>`).join('') || `<option value="">(sem valores carregados)</option>`;
   if(valores.includes(atual)) selValor.value = atual;
 }
+// checklist de "medidas adicionais" (comparar lado a lado, nos tipos
+// barra/linha) — exclui a medida já escolhida como principal, pra não
+// deixar selecionar a mesma duas vezes
+function pnlRenderMedidasExtrasPicker(){
+  const cont = document.getElementById('pnlNovoWidgetMedidasExtras');
+  if(!cont) return;
+  // ao contrário da Medida principal (presa à consulta escolhida no
+  // widget), as medidas adicionais podem vir de QUALQUER consulta — é
+  // exatamente pra isso que elas servem: comparar lado a lado medidas de
+  // consultas diferentes (ex: Medido x Faturado)
+  const medidaPrincipal = document.getElementById('pnlNovoWidgetMedida').value;
+  const disponiveis = pnlPainelMedidas.filter(m=>m.id!==medidaPrincipal);
+  pnlFormMedidasExtrasAtual = pnlFormMedidasExtrasAtual.filter(id=>disponiveis.some(m=>m.id===id));
+  const marcadas = new Set(pnlFormMedidasExtrasAtual);
+  cont.innerHTML = disponiveis.map(m=>`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
+      <input type="checkbox" data-wmedidaextra value="${escaparHtml(m.id)}" ${marcadas.has(m.id)?'checked':''} style="width:auto;"> ${escaparHtml(m.label)}
+    </label>`).join('') || `<div class="empty" style="padding:2px 0;">Crie outras medidas primeiro pra poder comparar.</div>`;
+}
 function pnlPopularSelectsMedidaWidget(){
   const consultaId = pnlConsultaSelecionadaNoForm();
   const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.formula || m.consultaId===consultaId);
   const medidaSel = document.getElementById('pnlNovoWidgetMedida');
   if(medidaSel) medidaSel.innerHTML = medidasDaConsulta.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
-  const medida2Sel = document.getElementById('pnlNovoWidgetMedida2');
-  if(medida2Sel) medida2Sel.innerHTML = `<option value="">(nenhuma)</option>` + medidasDaConsulta.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('');
+  pnlRenderMedidasExtrasPicker();
 }
 function pnlResetFormNovoWidget(){
   pnlEditandoWidgetId = null;
@@ -15153,13 +15226,13 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = '';
   document.getElementById('pnlNovoWidgetFiltroFixoValor').innerHTML = '';
   pnlFormColunasAtual = [];
+  pnlFormMedidasExtrasAtual = [];
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
   document.getElementById('pnlNovoWidgetSubtitulo').value = '';
   pnlAtualizarCamposNovoWidget();
-  document.getElementById('pnlNovoWidgetMedida2').value = '';
   document.getElementById('pnlNovoWidgetDimensao2').value = '';
   document.getElementById('pnlNovoWidgetDimensao3').value = '';
   document.getElementById('btnPnlAdicionarWidget').textContent = 'Adicionar ao painel';
@@ -15186,6 +15259,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetFonte').value = w.fonte || 'linhas';
   document.getElementById('pnlNovoWidgetConsulta').value = w.consultaId || pnlConsultaPadrao() || '';
   pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
+  pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   pnlAtualizarCamposNovoWidget();
@@ -15199,7 +15273,8 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetDimensao2').value = w.dimensao2 || '';
   document.getElementById('pnlNovoWidgetDimensao3').value = w.dimensao3 || '';
   document.getElementById('pnlNovoWidgetTop').value = w.top || '';
-  document.getElementById('pnlNovoWidgetMedida2').value = w.medida2 || '';
+  pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
+  pnlRenderMedidasExtrasPicker();
   document.getElementById('pnlNovoWidgetLegenda').checked = !!w.mostrarLegenda;
   document.getElementById('pnlNovoWidgetRotulos').checked = !!w.mostrarRotulos;
   document.getElementById('pnlNovoWidgetSubtitulo').value = w.subtitulo || '';
@@ -17048,6 +17123,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const btn = e.target.closest('[data-movercoluna]'); if(!btn) return;
     pnlMoverColuna(btn.dataset.coluna, btn.dataset.movercoluna);
   });
+  document.getElementById('pnlNovoWidgetMedida').addEventListener('change', pnlRenderMedidasExtrasPicker);
+  document.getElementById('pnlNovoWidgetMedidasExtras').addEventListener('change', e=>{
+    const cb = e.target.closest('[data-wmedidaextra]'); if(!cb) return;
+    const k = cb.value;
+    if(cb.checked){ if(!pnlFormMedidasExtrasAtual.includes(k)) pnlFormMedidasExtrasAtual.push(k); }
+    else pnlFormMedidasExtrasAtual = pnlFormMedidasExtrasAtual.filter(id=>id!==k);
+  });
   document.getElementById('btnPnlAdicionarWidget').addEventListener('click', ()=>{
     const tipo = document.getElementById('pnlNovoWidgetTipo').value;
     const ehTabelaPersonalizada = tipo==='tabela';
@@ -17057,7 +17139,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dimensao2 = document.getElementById('pnlNovoWidgetDimensao2').value;
     const dimensao3 = document.getElementById('pnlNovoWidgetDimensao3').value;
     const top = document.getElementById('pnlNovoWidgetTop').value;
-    const medida2 = document.getElementById('pnlNovoWidgetMedida2').value;
     const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
     if(!ehTabelaPersonalizada && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     if(!ehTabelaPersonalizada && !medida){ toast('Crie uma medida primeiro, no card "Medidas".'); return; }
@@ -17092,8 +17173,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         const subtitulo = document.getElementById('pnlNovoWidgetSubtitulo').value.trim();
         if(subtitulo) widget.subtitulo = subtitulo;
       }
-      else if(tipo==='linha'){ widget.dimensao = dimensao; if(medida2) widget.medida2 = medida2; }
-      else { widget.dimensao = dimensao; if(top) widget.top = Number(top); }
+      else if(tipo==='linha'){ widget.dimensao = dimensao; if(pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
+      else { widget.dimensao = dimensao; if(top) widget.top = Number(top); if(tipo==='barra' && pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
       if(tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut'){
         widget.mostrarLegenda = document.getElementById('pnlNovoWidgetLegenda').checked;
         widget.mostrarRotulos = document.getElementById('pnlNovoWidgetRotulos').checked;
