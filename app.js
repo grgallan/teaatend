@@ -13224,7 +13224,7 @@ function recebRenderWidgetKpi(containerId, widget, linhas){
   const el = document.getElementById(containerId); if(!el) return;
   const valor = recebCalcularMedida(linhas, widget.medida);
   const info = RECEB_MEDIDAS[widget.medida] || {};
-  const sub = recebSubtituloMedida(linhas, widget.medida);
+  const sub = widget.mostrarSubtitulo === false ? '' : (widget.subtitulo || recebSubtituloMedida(linhas, widget.medida));
   const corDestaque = widget.medida==='vencido' ? ' style="color:var(--bad);"' : '';
   el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || info.label || widget.medida)}</div><div class="v"${corDestaque}>${recebFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}</div>`;
 }
@@ -13571,6 +13571,10 @@ function recebHtmlWidget(w, i, total){
     <div id="receb-${w.id}-conteudo" style="margin-top:8px;"></div>
   </div>`;
 }
+// largura de cada widget (exceto kpi, que sempre fica dentro do .summary
+// de sempre) — flex-basis em %; combinado com flex-wrap no
+// #recebGradeWidgets, dois widgets "metade" seguidos ficam lado a lado
+const RECEB_LARGURAS_WIDGET = { completa:100, metade:50, terco:33.3334 };
 function recebRenderEsqueleto(){
   const grade = document.getElementById('recebGradeWidgets');
   const ws = recebPainelWidgets;
@@ -13579,10 +13583,11 @@ function recebRenderEsqueleto(){
     if(ws[i].tipo === 'kpi'){
       let j = i, grupoHtml = '';
       while(j < ws.length && ws[j].tipo === 'kpi'){ grupoHtml += recebHtmlWidget(ws[j], j, ws.length); j++; }
-      html += `<div class="summary">${grupoHtml}</div>`;
+      html += `<div style="flex:1 1 100%;min-width:0;"><div class="summary">${grupoHtml}</div></div>`;
       i = j;
     }else{
-      html += recebHtmlWidget(ws[i], i, ws.length);
+      const largura = RECEB_LARGURAS_WIDGET[ws[i].largura] || 100;
+      html += `<div style="flex:1 1 ${largura}%;min-width:280px;">${recebHtmlWidget(ws[i], i, ws.length)}</div>`;
       i++;
     }
   }
@@ -13702,11 +13707,14 @@ function recebAtualizarCamposNovoWidget(){
   // (Recebido/Vencido/A vencer), só precisa da dimensão de agrupamento
   const precisaMedida = !ehTabelaPronta && !ehTabelaPersonalizada && !ehRankingSituacao;
   const precisaDimensao = !ehTabelaPronta && !ehKpi && (!ehTabelaPersonalizada || fonte==='agrupado');
+  // kpi sempre fica dentro do .summary de sempre — não tem "largura" própria
+  document.getElementById('recebNovoWidgetCampoLargura').style.display = ehKpi ? 'none' : '';
   document.getElementById('recebNovoWidgetLinhaMedida').style.display = (precisaMedida || precisaDimensao) ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoDimensao').style.display = precisaDimensao ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra'||ehRankingSituacao) ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoMedidas2').style.display = ehLinha ? '' : 'none';
+  document.getElementById('recebNovoWidgetCampoSubtitulo').style.display = ehKpi ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('recebNovoWidgetCampoApenasAbertas').style.display = (ehTabelaPersonalizada && fonte==='notas') ? 'flex' : 'none';
   document.getElementById('recebNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
@@ -13753,6 +13761,9 @@ function recebResetFormNovoWidget(){
   recebFormColunasAtual = [];
   document.getElementById('recebNovoWidgetLegenda').checked = false;
   document.getElementById('recebNovoWidgetRotulos').checked = false;
+  document.getElementById('recebNovoWidgetLargura').value = 'completa';
+  document.getElementById('recebNovoWidgetMostrarSubtitulo').checked = true;
+  document.getElementById('recebNovoWidgetSubtitulo').value = '';
   recebAtualizarCamposNovoWidget();
   document.getElementById('recebNovoWidgetMedida').value = 'faturado';
   document.getElementById('recebNovoWidgetMedida2').value = '';
@@ -13783,6 +13794,7 @@ function recebWidgetEditar(id){
   document.getElementById('recebNovoWidgetFonte').value = w.fonte || 'notas';
   document.getElementById('recebNovoWidgetApenasAbertas').checked = !!w.apenasAbertas;
   recebFormColunasAtual = w.colunas ? w.colunas.slice() : [];
+  document.getElementById('recebNovoWidgetLargura').value = w.largura || 'completa';
   recebAtualizarCamposNovoWidget();
   document.getElementById('recebNovoWidgetTitulo').value = w.titulo || '';
   document.getElementById('recebNovoWidgetMedida').value = w.medida || 'faturado';
@@ -13793,6 +13805,8 @@ function recebWidgetEditar(id){
   document.getElementById('recebNovoWidgetMedida2').value = w.medida2 || '';
   document.getElementById('recebNovoWidgetLegenda').checked = !!w.mostrarLegenda;
   document.getElementById('recebNovoWidgetRotulos').checked = !!w.mostrarRotulos;
+  document.getElementById('recebNovoWidgetMostrarSubtitulo').checked = w.mostrarSubtitulo !== false;
+  document.getElementById('recebNovoWidgetSubtitulo').value = w.subtitulo || '';
   document.getElementById('btnRecebAdicionarWidget').textContent = 'Salvar alterações no widget';
   document.getElementById('recebCardAddWidget').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -15382,6 +15396,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(ehTabelaPersonalizada && recebFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
     if(!ehTabelaPronta && !ehTabelaPersonalizada && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     const widget = { id: recebEditandoWidgetId || recebGerarIdWidget(), tipo, titulo };
+    if(tipo !== 'kpi'){
+      const largura = document.getElementById('recebNovoWidgetLargura').value || 'completa';
+      if(largura !== 'completa') widget.largura = largura;
+    }
     if(ehTabelaPersonalizada){
       widget.fonte = fonte;
       widget.colunas = recebFormColunasAtual.slice();
@@ -15396,7 +15414,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(top) widget.top = Number(top);
     }else if(!ehTabelaPronta){
       widget.medida = medida;
-      if(tipo==='linha'){ widget.dimensao = dimensao; if(medida2) widget.medida2 = medida2; }
+      if(tipo==='kpi'){
+        const mostrarSubtitulo = document.getElementById('recebNovoWidgetMostrarSubtitulo').checked;
+        const subtitulo = document.getElementById('recebNovoWidgetSubtitulo').value.trim();
+        if(!mostrarSubtitulo) widget.mostrarSubtitulo = false;
+        if(subtitulo) widget.subtitulo = subtitulo;
+      }
+      else if(tipo==='linha'){ widget.dimensao = dimensao; if(medida2) widget.medida2 = medida2; }
       else { widget.dimensao = dimensao; if(top) widget.top = Number(top); }
       if(tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut'){
         widget.mostrarLegenda = document.getElementById('recebNovoWidgetLegenda').checked;
