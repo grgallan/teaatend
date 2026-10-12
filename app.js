@@ -14950,11 +14950,11 @@ function pnlRenderColunasPicker(fonte, consultaId){
       <input type="checkbox" data-wcoluna value="${k}" ${marcadas.has(k)?'checked':''} style="width:auto;"> ${escaparHtml(label)}
     </label>`;
   }).join('');
-  // só as medidas CRIADAS EM CIMA dessa mesma consulta fazem sentido aqui
-  // — uma medida de "Vendas" não tem como agregar linhas de "Compras" —,
-  // mas uma medida-fórmula vale em qualquer consulta, já que ela combina
-  // outras medidas (de qualquer consulta) em vez de ler linhas direto
-  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.formula || m.consultaId===consultaId);
+  // qualquer medida vale aqui, independente da consulta onde ela foi
+  // criada — pnlValorMedida já sabe resolver uma medida de "Vendas"
+  // dentro de um agrupamento rodando sobre "Compras", cruzando pelo
+  // valor da própria dimensão (mesma lógica das medidas-fórmula)
+  const medidasDaConsulta = pnlPainelMedidas;
   let opcoesCombinadas;
   if(fonte === 'agrupado'){
     const medidas = Object.fromEntries(medidasDaConsulta.map(m=>[m.id, m.label]));
@@ -15208,10 +15208,10 @@ function pnlRenderMedidasExtrasPicker(){
     </label>`).join('') || `<div class="empty" style="padding:2px 0;">Crie outras medidas primeiro pra poder comparar.</div>`;
 }
 function pnlPopularSelectsMedidaWidget(){
-  const consultaId = pnlConsultaSelecionadaNoForm();
-  const medidasDaConsulta = pnlPainelMedidas.filter(m=>m.formula || m.consultaId===consultaId);
+  // qualquer medida vale em qualquer widget, independente da Consulta
+  // escolhida nele — ver comentário equivalente em pnlRenderColunasPicker
   const medidaSel = document.getElementById('pnlNovoWidgetMedida');
-  if(medidaSel) medidaSel.innerHTML = medidasDaConsulta.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
+  if(medidaSel) medidaSel.innerHTML = pnlPainelMedidas.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
   pnlRenderMedidasExtrasPicker();
 }
 function pnlResetFormNovoWidget(){
