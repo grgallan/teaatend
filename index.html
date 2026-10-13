@@ -2766,6 +2766,16 @@
             <select id="pnlNovoWidgetFiltroFixoValor"></select>
           </div>
         </div>
+        <div class="field" id="pnlNovoWidgetCampoLinks" style="display:none;">
+          <label>Ligar com outra consulta (opcional, pra puxar campos dela nesta tabela)</label>
+          <div id="pnlNovoWidgetLinksLista" style="margin-bottom:6px;"></div>
+          <div class="row" style="align-items:flex-end;gap:6px;">
+            <div class="field"><label style="font-size:11px;">Consulta</label><select id="pnlNovoWidgetLinkConsulta"></select></div>
+            <div class="field"><label style="font-size:11px;">Campo aqui</label><select id="pnlNovoWidgetLinkCampoPrincipal"></select></div>
+            <div class="field"><label style="font-size:11px;">= Campo lá</label><select id="pnlNovoWidgetLinkCampoLink"></select></div>
+            <button type="button" class="ghost" id="btnPnlAdicionarLink" style="width:auto;white-space:nowrap;">+ Adicionar link</button>
+          </div>
+        </div>
         <div class="field" id="pnlNovoWidgetCampoColunas" style="display:none;">
           <label id="pnlNovoWidgetLabelColunas">Colunas</label>
           <div id="pnlNovoWidgetColunasOrdem"></div>
