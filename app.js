@@ -205,6 +205,27 @@ function menuVisivel(conta, menu, padrao){
   const p = permissaoMenu(conta, menu);
   return p ? p.visualizar : padrao;
 }
+// um painel (rm_paineis) só vira uma allowlist restrita quando a conta OU
+// algum perfil vinculado a ela tiver pelo menos 1 painel liberado
+// explicitamente — sem NENHUMA liberação configurada em lugar nenhum,
+// continua mostrando todos os painéis (comportamento de sempre, mesma
+// lógica de compatibilidade do permissaoMenu)
+function painelAcessivel(conta, painelId){
+  if(ehAdminEfetivo(conta)) return true;
+  const idsConta = (conta && conta.painelIds) || [];
+  const idsPerfis = perfisAcesso.filter(p=>((conta && conta.perfisAcessoIds)||[]).includes(p.id)).flatMap(p=>p.painelIds||[]);
+  const todos = [...idsConta, ...idsPerfis];
+  if(todos.length === 0) return true;
+  return todos.includes(painelId);
+}
+// true se o painel tiver pelo menos 1 consulta vinculada ao cliente
+// informado — usado pra uma conta USUARIO só ver painéis do próprio cliente
+function painelTemConsultaDoCliente(painel, clienteId){
+  return (painel.consultas||[]).some(id=>{
+    const r = rmRelatoriosGerenciais.find(x=>String(x.id)===String(id));
+    return r && String(r.clienteId)===String(clienteId);
+  });
+}
 // esconde/mostra TODAS as representações de uma view (aba de cima, menu
 // lateral e barra inferior) de uma vez, sem precisar de um id em cada uma
 function aplicarVisibilidadeMenu(viewName, visivel){
@@ -6805,6 +6826,8 @@ function renderCadastrosTudo(){
   renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
   renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
   renderEmpresasCheckboxes('at_empresas', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.empresaIds||[]) : (empresaAtual ? [empresaAtual.id] : []));
+  renderPaineisVinculoCheckboxes('at_paineis', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.painelIds||[]) : []);
+  renderPaineisVinculoCheckboxes('us_paineis', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.painelIds||[]) : []);
 }
 
 /* =========================================================
@@ -7814,6 +7837,7 @@ function limparFormPerfilAcesso(){
   document.getElementById('pa_tituloForm').textContent = 'Novo perfil de acesso';
   document.getElementById('pa_nome').value = '';
   renderMatrizPerfil({});
+  renderPaineisVinculoCheckboxes('pa_paineis', []);
   document.getElementById('btnAddPerfilAcesso').textContent = 'Adicionar perfil';
   document.getElementById('btnCancelarEdicaoPerfilAcesso').style.display = 'none';
 }
@@ -7824,6 +7848,7 @@ function editarPerfilAcesso(id){
   document.getElementById('pa_tituloForm').textContent = `Editando: ${p.nome}`;
   document.getElementById('pa_nome').value = p.nome;
   renderMatrizPerfil(p.permissoes);
+  renderPaineisVinculoCheckboxes('pa_paineis', p.painelIds||[]);
   document.getElementById('btnAddPerfilAcesso').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoPerfilAcesso').style.display = '';
   document.getElementById('pa_nome').scrollIntoView({behavior:'smooth', block:'start'});
@@ -7865,6 +7890,22 @@ function renderEmpresasCheckboxes(containerId, idsMarcados){
   `).join('');
 }
 function lerEmpresasMarcadas(containerId){
+  return [...document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`)].map(c=>c.value);
+}
+
+// mesmo padrão acima, pra painéis (rm_paineis) liberados direto por
+// perfil de acesso ou por conta — usado no form de Perfis de Acesso e
+// nos forms de Atendente/Usuário (liberação direta, sem perfil)
+function renderPaineisVinculoCheckboxes(containerId, idsMarcados){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const marcados = new Set(idsMarcados || []);
+  if(rmPaineis.length === 0){ el.innerHTML = `<div class="empty">Nenhum painel cadastrado ainda.</div>`; return; }
+  el.innerHTML = rmPaineis.map(p=>`
+    <label><input type="checkbox" value="${p.id}" ${marcados.has(p.id)?'checked':''}> ${escaparHtml(p.nome)}</label>
+  `).join('');
+}
+function lerPaineisVinculoMarcados(containerId){
   return [...document.querySelectorAll(`#${containerId} input[type=checkbox]:checked`)].map(c=>c.value);
 }
 
@@ -7969,6 +8010,7 @@ function editarAtendente(id){
   document.getElementById('at_telefone').value = a.telefone || '';
   document.getElementById('at_administrador').checked = !!a.ehAdministrador;
   renderPerfisAcessoCheckboxes('at_perfis_acesso', a.perfisAcessoIds||[]);
+  renderPaineisVinculoCheckboxes('at_paineis', a.painelIds||[]);
   renderEmpresasCheckboxes('at_empresas', a.empresaIds||[]);
   document.getElementById('btnAddAtendente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoAtendente').style.display = '';
@@ -7986,6 +8028,7 @@ function cancelarEdicaoAtendente(){
   document.getElementById('at_telefone').value = '';
   document.getElementById('at_administrador').checked = false;
   renderPerfisAcessoCheckboxes('at_perfis_acesso', []);
+  renderPaineisVinculoCheckboxes('at_paineis', []);
   renderEmpresasCheckboxes('at_empresas', empresaAtual ? [empresaAtual.id] : []);
   document.getElementById('btnAddAtendente').textContent = 'Adicionar atendente';
   document.getElementById('btnCancelarEdicaoAtendente').style.display = 'none';
@@ -12665,20 +12708,35 @@ function renderListRmPaineis(){
   const el = document.getElementById('listRmPaineis');
   if(!el) return;
   renderConsultasPickerPainel(editandoRmPainelId ? (rmPaineis.find(p=>p.id===editandoRmPainelId)||{}).consultas : []);
-  if(rmPaineis.length===0){ el.innerHTML = `<div class="empty">Nenhum painel cadastrado.</div>`; return; }
-  el.innerHTML = rmPaineis.map(p=>{
+  const conta = contaAtual();
+  const souUsuario = conta && conta.perfil === 'USUARIO';
+  // cada painel usa um menu diferente pro editar/excluir — o especial
+  // (Painel de Recebíveis) é 'painelrecebiveis', os genéricos são 'paineis'
+  const permGenerico = permissaoMenu(conta, 'relatoriosgerenciaisrm.paineis');
+  const podeInserirGenerico = ehAdminEfetivo(conta) || !permGenerico || permGenerico.inserir;
+  const formCard = document.getElementById('pnlCardCadastroForm');
+  if(formCard) formCard.style.display = podeInserirGenerico ? '' : 'none';
+
+  let visiveis = rmPaineis.filter(p=>painelAcessivel(conta, p.id));
+  if(souUsuario) visiveis = visiveis.filter(p=>painelTemConsultaDoCliente(p, conta.clienteId));
+  if(visiveis.length===0){ el.innerHTML = `<div class="empty">${souUsuario ? 'Nenhum painel liberado pro seu cliente ainda.' : 'Nenhum painel cadastrado.'}</div>`; return; }
+  el.innerHTML = visiveis.map(p=>{
     const nomesConsultas = (p.consultas||[]).map(id=>{
       const r = rmRelatoriosGerenciais.find(x=>String(x.id)===String(id));
       return r ? (r.clienteId ? rgrmNomeCliente(r.clienteId) : r.nome) : null;
     }).filter(Boolean);
+    const menu = p.tipo==='especial' ? 'relatoriosgerenciaisrm.painelrecebiveis' : 'relatoriosgerenciaisrm.paineis';
+    const perm = permissaoMenu(conta, menu);
+    const podeEditar = ehAdminEfetivo(conta) || !perm || perm.editar;
+    const podeExcluir = ehAdminEfetivo(conta) || !perm || perm.excluir;
     return `
     <div class="cad-item"><div class="info"><b>${escaparHtml(p.nome)}${p.tipo==='especial' ? ' <span class="pill">especial</span>' : ''}</b>
       <span>${nomesConsultas.length ? 'Clientes: '+escaparHtml(nomesConsultas.join(', ')) : 'Nenhuma consulta vinculada ainda'}</span>
     </div>
     <div class="acts">
       <button class="ghost" onclick="abrirRmPainel('${p.id}')">Abrir</button>
-      <button class="ghost" onclick="editarRmPainel('${p.id}')">Editar</button>
-      ${p.tipo!=='especial' ? `<button class="danger" onclick="pedirConfirmacao('Remover painel?','Isso remove só a configuração do painel (grade de widgets) — as consultas SQL vinculadas continuam cadastradas.', ()=>removerRmPainel('${p.id}'))">Remover</button>` : ''}
+      ${podeEditar ? `<button class="ghost" onclick="editarRmPainel('${p.id}')">Editar</button>` : ''}
+      ${(p.tipo!=='especial' && podeExcluir) ? `<button class="danger" onclick="pedirConfirmacao('Remover painel?','Isso remove só a configuração do painel (grade de widgets) — as consultas SQL vinculadas continuam cadastradas.', ()=>removerRmPainel('${p.id}'))">Remover</button>` : ''}
     </div></div>`;
   }).join('');
 }
@@ -12974,6 +13032,8 @@ function recebAbrir(){
   else document.getElementById('recebStatus').textContent = '';
   if(recebClienteId && disponiveis.some(c=>String(c.id)===String(recebClienteId))) sel.value = recebClienteId;
   else recebClienteId = sel.value || '';
+  const perm = permissaoMenu(conta, 'relatoriosgerenciaisrm.painelrecebiveis');
+  document.getElementById('btnRecebEditarPainel').style.display = (ehAdminEfetivo(conta) || !perm || perm.editar) ? '' : 'none';
   recebRender();
 }
 async function recebAtualizarDoRm(){
@@ -14195,6 +14255,9 @@ function recebRemoverMedida(id){
   recebRender();
 }
 function recebEntrarModoEdicao(){
+  const conta = contaAtual();
+  const perm = permissaoMenu(conta, 'relatoriosgerenciaisrm.painelrecebiveis');
+  if(!ehAdminEfetivo(conta) && perm && !perm.editar){ toast('Seu perfil só tem acesso de visualização nesse painel.'); return; }
   recebModoEdicao = true;
   document.getElementById('btnRecebEditarPainel').style.display = 'none';
   document.getElementById('btnRecebSalvarPainel').style.display = '';
@@ -14738,6 +14801,8 @@ function pnlAbrir(){
   else document.getElementById('pnlStatus').textContent = '';
   if(pnlClienteId && disponiveis.some(c=>String(c.id)===String(pnlClienteId))) sel.value = pnlClienteId;
   else pnlClienteId = sel.value || '';
+  const perm = permissaoMenu(conta, 'relatoriosgerenciaisrm.paineis');
+  document.getElementById('btnPnlEditarPainel').style.display = (ehAdminEfetivo(conta) || !perm || perm.editar) ? '' : 'none';
   pnlRender();
 }
 async function pnlAtualizarDoRm(){
@@ -16068,6 +16133,9 @@ function pnlRemoverMedida(id){
   pnlRender();
 }
 function pnlEntrarModoEdicao(){
+  const conta = contaAtual();
+  const perm = permissaoMenu(conta, 'relatoriosgerenciaisrm.paineis');
+  if(!ehAdminEfetivo(conta) && perm && !perm.editar){ toast('Seu perfil só tem acesso de visualização nesse painel.'); return; }
   pnlModoEdicao = true;
   document.getElementById('btnPnlEditarPainel').style.display = 'none';
   document.getElementById('btnPnlSalvarPainel').style.display = '';
@@ -16209,6 +16277,7 @@ function editarUsuario(id){
   document.getElementById('us_telefone').value = u.telefone || '';
   document.getElementById('us_admin_cliente').checked = !!u.adminCliente;
   renderPerfisAcessoCheckboxes('us_perfis_acesso', u.perfisAcessoIds||[]);
+  renderPaineisVinculoCheckboxes('us_paineis', u.painelIds||[]);
   document.getElementById('btnAddUsuario').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoUsuario').style.display = '';
 
@@ -16241,6 +16310,7 @@ function cancelarEdicaoUsuario(){
   document.getElementById('us_telefone').value = '';
   document.getElementById('us_admin_cliente').checked = false;
   renderPerfisAcessoCheckboxes('us_perfis_acesso', []);
+  renderPaineisVinculoCheckboxes('us_paineis', []);
   document.getElementById('btnAddUsuario').textContent = 'Adicionar usuário';
   document.getElementById('btnCancelarEdicaoUsuario').style.display = 'none';
   document.getElementById('historicoUsuarioCard').style.display = 'none';
@@ -18444,6 +18514,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const telefone = document.getElementById('at_telefone').value.trim();
     const ehAdministrador = document.getElementById('at_administrador').checked;
     const perfisMarcados = lerPerfisAcessoMarcados('at_perfis_acesso');
+    const paineisMarcados = lerPaineisVinculoMarcados('at_paineis');
     const empresasMarcadas = lerEmpresasMarcadas('at_empresas');
     if(!nome || !login){ toast('Preencha nome e login'); return; }
     if(!editandoAtendenteId && !senha){ toast('Informe uma senha'); return; }
@@ -18460,6 +18531,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const contaAlvoId = editando ? editandoAtendenteId : r.conta.id;
     const conta = contaAtual();
     await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
+    await api('vincularPaineisConta', { contaId: conta.id, contaAlvoId, painelIds: paineisMarcados });
     await api('vincularEmpresasConta', { contaId: conta.id, contaAlvoId, empresaIds: empresasMarcadas });
     cancelarEdicaoAtendente();
     await carregarTudo(); renderListAtendentes(); popularSelects();
@@ -18837,6 +18909,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const telefone = document.getElementById('us_telefone').value.trim();
     const adminCliente = document.getElementById('us_admin_cliente').checked;
     const perfisMarcados = lerPerfisAcessoMarcados('us_perfis_acesso');
+    const paineisMarcados = lerPaineisVinculoMarcados('us_paineis');
     if(!clienteId || !nome || !login){ toast('Preencha todos os campos'); return; }
     if(!editandoUsuarioId && !senha){ toast('Informe uma senha'); return; }
 
@@ -18852,6 +18925,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const contaAlvoId = editando ? editandoUsuarioId : r.conta.id;
     const conta = contaAtual();
     await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
+    await api('vincularPaineisConta', { contaId: conta.id, contaAlvoId, painelIds: paineisMarcados });
     cancelarEdicaoUsuario();
     await carregarTudo(); renderListUsuarios(); popularSelects();
     toast(editando ? 'Usuário atualizado' : 'Usuário adicionado');
@@ -18863,9 +18937,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const nome = document.getElementById('pa_nome').value.trim();
     if(!nome){ toast('Dê um nome ao perfil'); return; }
     const permissoes = lerMatrizPerfil();
+    const painelIds = lerPaineisVinculoMarcados('pa_paineis');
     const conta = contaAtual();
     const editando = !!editandoPerfilAcessoId;
-    const r = await api('salvarPerfilAcesso', { contaId: conta.id, id: editandoPerfilAcessoId, nome, permissoes });
+    const r = await api('salvarPerfilAcesso', { contaId: conta.id, id: editandoPerfilAcessoId, nome, permissoes, painelIds });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     limparFormPerfilAcesso();
     await carregarTudo(); renderCadastrosTudo();
