@@ -2269,6 +2269,10 @@
           <div id="at_perfis_acesso" class="perfis-lista"></div>
         </div>
         <div class="field">
+          <label>Painéis liberados direto pra essa conta (opcional, além dos perfis de acesso)</label>
+          <div id="at_paineis" class="perfis-lista"></div>
+        </div>
+        <div class="field">
           <label>Empresas vinculadas</label>
           <div id="at_empresas" class="perfis-lista"></div>
         </div>
@@ -2442,6 +2446,10 @@
           <label>Perfis de acesso vinculados (opcional)</label>
           <div id="us_perfis_acesso" class="perfis-lista"></div>
         </div>
+        <div class="field">
+          <label>Painéis liberados direto pra essa conta (opcional, além dos perfis de acesso)</label>
+          <div id="us_paineis" class="perfis-lista"></div>
+        </div>
         <button class="primary" id="btnAddUsuario">Adicionar usuário</button>
         <button class="ghost" id="btnCancelarEdicaoUsuario" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
@@ -2466,6 +2474,10 @@
             </thead>
             <tbody></tbody>
           </table>
+        </div>
+        <div class="field">
+          <label>Painéis liberados (opcional — deixe tudo desmarcado pra não restringir)</label>
+          <div id="pa_paineis" class="perfis-lista"></div>
         </div>
         <button class="primary" id="btnAddPerfilAcesso">Adicionar perfil</button>
         <button class="ghost" id="btnCancelarEdicaoPerfilAcesso" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
@@ -2653,7 +2665,7 @@
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-paineis" style="display:none;">
-      <div class="card">
+      <div class="card" id="pnlCardCadastroForm">
         <h2 id="pnl_tituloForm">Novo painel</h2>
         <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Um painel monta uma grade de indicadores/gráficos/tabelas configurável em cima de 1 ou mais Consultas SQL (normalmente a mesma consulta repetida uma vez por cliente). Cadastre as Consultas SQL primeiro, na aba "Consultas SQL".</p>
         <div class="field"><label>Nome do painel</label><input type="text" id="pnl_nome" placeholder="Ex: FICHA FINANCEIRA"></div>

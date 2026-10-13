@@ -1421,3 +1421,32 @@ alter table rm_paineis enable row level security;
 insert into rm_paineis (id, slug, nome, tipo, consultas)
   values ('pnl-painel-recebiveis', 'painel-recebiveis', 'Painel de Recebíveis', 'especial', '[]')
   on conflict (id) do nothing;
+
+-- quais painéis (rm_paineis) um perfil de acesso ou uma conta específica
+-- pode ver — mesma convenção de compatibilidade dos outros vínculos N:N
+-- desse sistema: um perfil/conta sem NENHUMA linha aqui (nem direta, nem
+-- via perfil vinculado) continua vendo todos os painéis, igual hoje; só
+-- vira uma lista restrita (allowlist) quando pelo menos 1 linha existir
+-- pra aquele perfil/conta. "Por Perfil" e "por Usuário" coexistem: o
+-- conjunto liberado pra uma conta é a UNIÃO dos dois.
+create table if not exists perfil_acesso_paineis (
+  id text primary key,
+  perfil_id text not null references perfis_acesso(id) on delete cascade,
+  painel_id text not null references rm_paineis(id) on delete cascade
+);
+alter table perfil_acesso_paineis enable row level security;
+alter table perfil_acesso_paineis drop constraint if exists perfil_acesso_paineis_unico;
+alter table perfil_acesso_paineis add constraint perfil_acesso_paineis_unico unique (perfil_id, painel_id);
+create index if not exists idx_perfil_paineis_perfil on perfil_acesso_paineis (perfil_id);
+create index if not exists idx_perfil_paineis_painel on perfil_acesso_paineis (painel_id);
+
+create table if not exists conta_paineis (
+  id text primary key,
+  conta_id text not null references contas(id) on delete cascade,
+  painel_id text not null references rm_paineis(id) on delete cascade
+);
+alter table conta_paineis enable row level security;
+alter table conta_paineis drop constraint if exists conta_paineis_unico;
+alter table conta_paineis add constraint conta_paineis_unico unique (conta_id, painel_id);
+create index if not exists idx_conta_paineis_conta on conta_paineis (conta_id);
+create index if not exists idx_conta_paineis_painel on conta_paineis (painel_id);

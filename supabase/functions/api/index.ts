@@ -205,8 +205,8 @@ function ehAdminEfetivo(conta: any): boolean {
 }
 
 /* ---------- conversores linha (snake_case do banco) -> objeto da API (camelCase) ---------- */
-function contaParaApi(c: any, comSenha = false, perfisAcessoIds: string[] = [], empresaIds: string[] = []) {
-  const base: any = { id: c.id, nome: c.nome, login: c.login, perfil: c.perfil, clienteId: c.cliente_id, email: c.email || '', telefone: c.telefone || '', adminCliente: c.admin_cliente || false, ehAdministrador: c.eh_administrador || false, perfisAcessoIds, empresaIds };
+function contaParaApi(c: any, comSenha = false, perfisAcessoIds: string[] = [], empresaIds: string[] = [], painelIds: string[] = []) {
+  const base: any = { id: c.id, nome: c.nome, login: c.login, perfil: c.perfil, clienteId: c.cliente_id, email: c.email || '', telefone: c.telefone || '', adminCliente: c.admin_cliente || false, ehAdministrador: c.eh_administrador || false, perfisAcessoIds, empresaIds, painelIds };
   if (comSenha) base.senha = c.senha;
   return base;
 }
@@ -230,7 +230,7 @@ const MENUS_PERFIL_ACESSO = [
   'cadastros.perfisacesso', 'cadastros.empresas',
   'cadastros.tabelasrm', 'cadastros.camposrm', 'cadastros.relacionamentosrm', 'cadastros.tabelasauxrm',
   'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket', 'utilitarios.sqlrm', 'utilitarios.painelrecebiveis',
-  'relatoriosgerenciaisrm', 'relatoriosgerenciaisrm.cadastro', 'relatoriosgerenciaisrm.painelrecebiveis',
+  'relatoriosgerenciaisrm', 'relatoriosgerenciaisrm.cadastro', 'relatoriosgerenciaisrm.paineis', 'relatoriosgerenciaisrm.painelrecebiveis',
 ];
 
 function permissaoVaziaPorMenu() {
@@ -438,6 +438,7 @@ async function rotear(req: any): Promise<any> {
     case 'salvarPerfilAcesso': return acaoSalvarPerfilAcesso(req);
     case 'removerPerfilAcesso': return acaoRemoverPerfilAcesso(req);
     case 'vincularPerfisConta': return acaoVincularPerfisConta(req);
+    case 'vincularPaineisConta': return acaoVincularPaineisConta(req);
     case 'empresaPadrao': return acaoEmpresaPadrao(req);
     case 'minhasEmpresas': return acaoMinhasEmpresas(req);
     case 'salvarEmpresa': return acaoSalvarEmpresa(req);
@@ -511,7 +512,8 @@ async function acaoLogin(req: any) {
   const { data, error } = await db.from('contas').select('*').ilike('login', login).eq('senha', req.senha).maybeSingle();
   if (error || !data) return { ok: false, erro: 'Usuário ou senha inválidos.' };
   const { data: vinculos } = await db.from('conta_perfis_acesso').select('perfil_id').eq('conta_id', data.id);
-  const conta = contaParaApi(data, false, (vinculos || []).map((v: any) => v.perfil_id));
+  const { data: vinculosPaineis } = await db.from('conta_paineis').select('painel_id').eq('conta_id', data.id);
+  const conta = contaParaApi(data, false, (vinculos || []).map((v: any) => v.perfil_id), [], (vinculosPaineis || []).map((v: any) => v.painel_id));
   const resultadoEmpresas = await resolverEmpresasDaConta(data);
   return { ok: true, conta, ...resultadoEmpresas };
 }
@@ -542,7 +544,7 @@ async function acaoDados(req: any) {
   if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
   let rmRelatoriosQuery = db.from('rm_relatorios_gerenciais').select('*').order('nome');
   if (empresaId) rmRelatoriosQuery = rmRelatoriosQuery.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }] = await Promise.all([
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }, { data: perfilPaineisRaw }, { data: contaPaineisRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -559,11 +561,23 @@ async function acaoDados(req: any) {
     rmRelatoriosQuery,
     db.from('rm_painel_layouts').select('*'),
     db.from('rm_paineis').select('*').order('nome'),
+    db.from('perfil_acesso_paineis').select('*'),
+    db.from('conta_paineis').select('*'),
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
     if (!empresaIdsPorConta[v.conta_id]) empresaIdsPorConta[v.conta_id] = [];
     empresaIdsPorConta[v.conta_id].push(v.empresa_id);
+  });
+  const painelIdsPorPerfil: Record<string, string[]> = {};
+  (perfilPaineisRaw || []).forEach((v: any) => {
+    if (!painelIdsPorPerfil[v.perfil_id]) painelIdsPorPerfil[v.perfil_id] = [];
+    painelIdsPorPerfil[v.perfil_id].push(v.painel_id);
+  });
+  const painelIdsPorConta: Record<string, string[]> = {};
+  (contaPaineisRaw || []).forEach((v: any) => {
+    if (!painelIdsPorConta[v.conta_id]) painelIdsPorConta[v.conta_id] = [];
+    painelIdsPorConta[v.conta_id].push(v.painel_id);
   });
 
   const perfisAcesso = (perfisAcessoRaw || []).map((p: any) => {
@@ -571,7 +585,7 @@ async function acaoDados(req: any) {
     (permissoesRaw || []).filter((pp: any) => pp.perfil_id === p.id).forEach((pp: any) => {
       permissoes[pp.menu] = { visualizar: !!pp.visualizar, editar: !!pp.editar, excluir: !!pp.excluir, inserir: !!pp.inserir };
     });
-    return { id: p.id, nome: p.nome, permissoes };
+    return { id: p.id, nome: p.nome, permissoes, painelIds: painelIdsPorPerfil[p.id] || [] };
   });
   const perfisIdsPorConta: Record<string, string[]> = {};
   (contaPerfisRaw || []).forEach((v: any) => {
@@ -697,7 +711,7 @@ async function acaoDados(req: any) {
 
   return {
     ok: true,
-    contas: contasVisiveis.map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [], empresaIdsPorConta[c.id] || [])),
+    contas: contasVisiveis.map((c: any) => contaParaApi(c, false, perfisIdsPorConta[c.id] || [], empresaIdsPorConta[c.id] || [], painelIdsPorConta[c.id] || [])),
     clientes: (clientes || []).map(clienteParaApi),
     tipos: (tipos || []).map(simplesParaApi),
     segmentos: (segmentos || []).map(simplesParaApi),
@@ -3627,9 +3641,10 @@ async function acaoRemoverConta(req: any) {
 /* ---------- perfis de acesso (menus x visualizar/editar/excluir/inserir) ---------- */
 async function acaoListarPerfisAcesso(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.perfisacesso', 'visualizar'))) return { ok: false, erro: 'Você não tem permissão para ver os perfis de acesso.' };
-  const [{ data: perfisRaw, error }, { data: permissoesRaw }] = await Promise.all([
+  const [{ data: perfisRaw, error }, { data: permissoesRaw }, { data: paineisRaw }] = await Promise.all([
     db.from('perfis_acesso').select('*').order('nome'),
     db.from('perfil_acesso_permissoes').select('*'),
+    db.from('perfil_acesso_paineis').select('*'),
   ]);
   if (error) return { ok: false, erro: error.message };
   const perfis = (perfisRaw || []).map((p: any) => {
@@ -3637,7 +3652,8 @@ async function acaoListarPerfisAcesso(req: any) {
     (permissoesRaw || []).filter((pp: any) => pp.perfil_id === p.id).forEach((pp: any) => {
       permissoes[pp.menu] = { visualizar: !!pp.visualizar, editar: !!pp.editar, excluir: !!pp.excluir, inserir: !!pp.inserir };
     });
-    return { id: p.id, nome: p.nome, permissoes };
+    const painelIds = (paineisRaw || []).filter((pp: any) => pp.perfil_id === p.id).map((pp: any) => pp.painel_id);
+    return { id: p.id, nome: p.nome, permissoes, painelIds };
   });
   return { ok: true, perfis };
 }
@@ -3654,6 +3670,7 @@ async function acaoSalvarPerfilAcesso(req: any) {
     const { error } = await db.from('perfis_acesso').update({ nome }).eq('id', id);
     if (error) return { ok: false, erro: error.message };
     await db.from('perfil_acesso_permissoes').delete().eq('perfil_id', id);
+    await db.from('perfil_acesso_paineis').delete().eq('perfil_id', id);
   } else {
     const { error } = await db.from('perfis_acesso').insert({ id, nome });
     if (error) return { ok: false, erro: error.message };
@@ -3668,6 +3685,13 @@ async function acaoSalvarPerfilAcesso(req: any) {
   });
   const { error: erroPermissoes } = await db.from('perfil_acesso_permissoes').insert(linhas);
   if (erroPermissoes) return { ok: false, erro: erroPermissoes.message };
+
+  const painelIds: string[] = Array.isArray(req.painelIds) ? req.painelIds : [];
+  if (painelIds.length > 0) {
+    const linhasPaineis = painelIds.map((painelId) => ({ id: gerarId(), perfil_id: id, painel_id: painelId }));
+    const { error: erroPaineis } = await db.from('perfil_acesso_paineis').insert(linhasPaineis);
+    if (erroPaineis) return { ok: false, erro: erroPaineis.message };
+  }
 
   return { ok: true, id };
 }
@@ -3693,6 +3717,26 @@ async function acaoVincularPerfisConta(req: any) {
   if (perfilIds.length > 0) {
     const linhas = perfilIds.map((perfilId) => ({ id: gerarId(), conta_id: req.contaAlvoId, perfil_id: perfilId }));
     const { error: erroInsert } = await db.from('conta_perfis_acesso').insert(linhas);
+    if (erroInsert) return { ok: false, erro: erroInsert.message };
+  }
+  return { ok: true };
+}
+
+// liberação de painéis DIRETO numa conta (independente dos perfis de
+// acesso vinculados a ela) — mesmo padrão substitui-tudo de
+// acaoVincularPerfisConta/acaoVincularEmpresasConta
+async function acaoVincularPaineisConta(req: any) {
+  if (!req.contaAlvoId) return { ok: false, erro: 'Conta não informada.' };
+  const { data: contaAlvo } = await db.from('contas').select('perfil').eq('id', req.contaAlvoId).maybeSingle();
+  const menu = (contaAlvo && contaAlvo.perfil === 'USUARIO') ? 'cadastros.usuarios' : 'cadastros.atendentes';
+  if (!(await podeAgir(req.contaId, menu, 'editar'))) return { ok: false, erro: 'Você não tem permissão para vincular painéis.' };
+  const painelIds: string[] = Array.isArray(req.painelIds) ? req.painelIds : [];
+
+  const { error: erroDelete } = await db.from('conta_paineis').delete().eq('conta_id', req.contaAlvoId);
+  if (erroDelete) return { ok: false, erro: erroDelete.message };
+  if (painelIds.length > 0) {
+    const linhas = painelIds.map((painelId) => ({ id: gerarId(), conta_id: req.contaAlvoId, painel_id: painelId }));
+    const { error: erroInsert } = await db.from('conta_paineis').insert(linhas);
     if (erroInsert) return { ok: false, erro: erroInsert.message };
   }
   return { ok: true };
