@@ -15383,6 +15383,7 @@ function pnlRender(){
   document.getElementById('pnlCardFiltros').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarExcel').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarCsv').style.display = (temDados && pnlConsultasCarregadas.length===1) ? '' : 'none';
+  document.getElementById('btnPnlExportarMontado').style.display = (temDados && pnlPainelWidgets.length>0) ? '' : 'none';
   if(temDados){
     const resumo = pnlConsultasCarregadas.map(c=>`${c.nome}: ${(pnlDadosPorConsulta[c.id]||[]).length} linha${(pnlDadosPorConsulta[c.id]||[]).length===1?'':'s'}`).join(' · ');
     document.getElementById('pnlBaseInfo').textContent = `${resumo}. Atualizado em ${new Date(pnlInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`;
@@ -15450,6 +15451,185 @@ async function pnlExportarCsv(){
   const a = document.createElement('a'); a.href = url; a.download = `${pnlPainelAtual.slug}-${hojeLocalISO()}.csv`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
   toast(`CSV exportado com ${r.totalLinhas} linha${r.totalLinhas===1?'':'s'} e ${r.cabecalho.length} colunas.`);
+}
+
+/* ---------- exportar o painel MONTADO (1 aba por widget, igual a tela) ---------- */
+// cabeçalho azul/branco em negrito — mesmo padrão visual já usado nos
+// outros exports Excel do sistema (gerarExcelLancamentos etc.)
+function pnlEstilarCabecalhoExcel(planilha, numColunas, linha, offsetColuna){
+  offsetColuna = offsetColuna || 0;
+  for(let i=0;i<numColunas;i++){
+    const cel = planilha[XLSX.utils.encode_cell({ r:linha, c:i+offsetColuna })];
+    if(cel) cel.s = { font:{ bold:true, color:{ rgb:'FFFFFF' } }, fill:{ fgColor:{ rgb:'305496' } }, alignment:{ vertical:'center' } };
+  }
+}
+function pnlExportValorCelula(v){
+  return (typeof v === 'string') ? pnlCoagirNumero(v) : v;
+}
+function pnlExportLinhaKpi(widget){
+  const valor = pnlValorMedida(widget.medida, null);
+  const def = pnlMedidaPorId(widget.medida) || {};
+  return [widget.titulo || def.label || widget.medida, valor];
+}
+// widget "tabela" (fonte linhas ou agrupado) — mesma base de dados
+// (pnlUltimoLinhasFiltradasPorWidget, já filtrada pelos filtros GERAIS do
+// painel) e mesma lógica de filtro fixo do widget usada na tela; ignora
+// de propósito o filtro rápido (chip) e a busca por texto, que são estado
+// só da tela, não da configuração do widget — mesmo critério já usado no
+// "Exportar Excel" por consulta
+function pnlExportDadosWidgetTabela(widget){
+  const consultaId = widget.consultaId || pnlConsultaPadrao();
+  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,8);
+  const catalogo = pnlColunasTabelaDisponiveis(consultaId);
+  let linhas = pnlUltimoLinhasFiltradasPorWidget[widget.id] || [];
+  if(widget.filtroFixoCampo && widget.filtroFixoValor){
+    linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroFixoCampo)===widget.filtroFixoValor);
+  }
+  if(widget.fonte === 'agrupado'){
+    const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
+    const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
+    const cab = [...dimensoes, ...colunas.map(c=>pnlLabelColuna(c, catalogo))];
+    const corpo = grupos.map(g=>[...g.rotulos, ...colunas.map(c=>pnlExportValorCelula(g.valores[c]))]);
+    return { cab, corpo };
+  }
+  const indicesLinks = pnlIndicesLinksWidget(widget);
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
+  const corpo = linhas.map(o=>colunas.map(c=>pnlExportValorCelula(pnlValorColunaLinha(o, c, indicesLinks))));
+  const totais = colunas.map((c,i)=>{
+    if(i===0) return `${linhas.length} linha${linhas.length===1?'':'s'}`;
+    const vals = linhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
+    return vals.length ? vals.reduce((s,v)=>s+v,0) : '';
+  });
+  return { cab, corpo, totais: linhas.length ? totais : null };
+}
+// widget "relatorio" (Mestre + Detalhe) — reconstrói a mesma hierarquia
+// Detalhe→Subdetalhes da tela numa única aba: cada registro do Detalhe
+// vira uma linha, seguida (indentada 1 coluna) do cabeçalho+linhas+total
+// de cada subdetalhe que tiver filhos, igual ordenação/total configurados
+function pnlExportAoaWidgetRelatorio(widget){
+  const consultaId = widget.consultaId || pnlConsultaPadrao();
+  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
+  const catalogo = pnlColunasTabelaDisponiveis(consultaId);
+  let linhas = pnlUltimoLinhasFiltradasPorWidget[widget.id] || [];
+  if(widget.filtroFixoCampo && widget.filtroFixoValor){
+    linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroFixoCampo)===widget.filtroFixoValor);
+  }
+  const indicesLinks = pnlIndicesLinksWidget(widget);
+  if(widget.ordenacao && widget.ordenacao.length){
+    linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
+  }
+  const subdetalhes = (widget.subdetalhes||[]).map(sd=>({
+    ...sd,
+    indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
+    catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
+  }));
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
+  const aoa = [cab];
+  const headerStyles = [{ row:0, cols:cab.length, offset:0 }];
+  linhas.forEach(o=>{
+    aoa.push(colunas.map(c=>pnlExportValorCelula(pnlValorColunaLinha(o, c, indicesLinks))));
+    subdetalhes.forEach(sd=>{
+      const chave = pnlValorFiltro(o, sd.campoPrincipal);
+      let filhos = sd.indice[chave] || [];
+      if(!filhos.length) return;
+      if(sd.ordenacao && sd.ordenacao.length){
+        filhos = pnlOrdenarPorCriterios(filhos, sd.ordenacao, (f,c)=>f[c]);
+      }
+      aoa.push(['', `↳ ${sd.titulo || 'Detalhes'}`]);
+      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo));
+      aoa.push(['', ...cabSub]);
+      headerStyles.push({ row:aoa.length-1, cols:cabSub.length, offset:1 });
+      filhos.forEach(f=>{
+        aoa.push(['', ...sd.colunas.map(c=>pnlExportValorCelula(f[c]))]);
+      });
+      if(sd.colunasTotais && sd.colunasTotais.length){
+        aoa.push(['', ...sd.colunas.map(c=>{
+          if(!sd.colunasTotais.includes(c)) return '';
+          const vals = filhos.map(f=>pnlCoagirNumero(f[c])).filter(v=>typeof v==='number');
+          return vals.length ? vals.reduce((s,v)=>s+v,0) : '';
+        })]);
+      }
+    });
+    aoa.push([]);
+  });
+  if(linhas.length){
+    const totaisDetalhe = colunas.map((c,i)=>{
+      if(i===0) return `${linhas.length} registro${linhas.length===1?'':'s'}`;
+      const vals = linhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
+      return vals.length ? vals.reduce((s,v)=>s+v,0) : '';
+    });
+    aoa.push(totaisDetalhe);
+  }
+  return { aoa, headerStyles };
+}
+// widgets de gráfico (barra, barra-h, donut, linha) — mesmo agrupamento
+// (pnlAgruparPorCampo) e mesma ordenação/Top N usados pra desenhar o
+// gráfico na tela, só que como tabela de rótulo+valor(es)
+function pnlExportDadosWidgetGrafico(widget, tipo){
+  const linhas = pnlUltimoLinhasFiltradasPorWidget[widget.id] || [];
+  const medidasExtras = (tipo==='linha' || tipo==='barra') ? pnlMedidasExtrasWidget(widget) : [];
+  if(medidasExtras.length){
+    const medidas = [widget.medida, ...medidasExtras];
+    const porMedida = medidas.map(m=>pnlAgruparPorCampo(linhas, widget.dimensao, m));
+    let chaves = [...new Set(porMedida.flatMap(arr=>arr.map(g=>g.chave)))].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+    if(tipo!=='linha' && widget.top) chaves = chaves.slice(0, Number(widget.top));
+    const porChaveRotulo = {}; porMedida[0].forEach(g=>{ porChaveRotulo[g.chave]=g.rotulo; });
+    const cab = [widget.dimensao, ...medidas.map(m=>(pnlMedidaPorId(m)||{}).label||m)];
+    const corpo = chaves.map(chave=>[porChaveRotulo[chave]||chave, ...porMedida.map(arr=>{ const f = arr.find(g=>g.chave===chave); return f ? f.valor : 0; })]);
+    return { cab, corpo };
+  }
+  let grupos = pnlAgruparPorCampo(linhas, widget.dimensao, widget.medida);
+  if(widget.top) grupos = grupos.slice(0, Number(widget.top));
+  const cab = [widget.dimensao, (pnlMedidaPorId(widget.medida)||{}).label || widget.medida];
+  const corpo = grupos.map(g=>[g.rotulo, g.valor]);
+  return { cab, corpo };
+}
+async function pnlExportarPainelMontado(){
+  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+  if(!pnlPainelWidgets.length){ toast('Esse painel ainda não tem nenhum widget montado.'); return; }
+  const livro = XLSX.utils.book_new();
+  const nomesUsados = new Set();
+  let sheetsCriadas = 0;
+  const kpis = pnlPainelWidgets.filter(w=>w.tipo==='kpi');
+  if(kpis.length){
+    const aoa = [['Indicador','Valor'], ...kpis.map(w=>pnlExportLinhaKpi(w))];
+    const planilha = XLSX.utils.aoa_to_sheet(aoa);
+    pnlEstilarCabecalhoExcel(planilha, 2, 0);
+    planilha['!cols'] = [{wch:34},{wch:18}];
+    XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel('Resumo (KPIs)', nomesUsados));
+    sheetsCriadas++;
+  }
+  pnlPainelWidgets.forEach(w=>{
+    if(w.tipo==='kpi') return;
+    if(w.tipo==='tabela'){
+      const { cab, corpo, totais } = pnlExportDadosWidgetTabela(w);
+      if(!corpo.length) return;
+      const aoa = [cab, ...corpo];
+      if(totais) aoa.push(totais);
+      const planilha = XLSX.utils.aoa_to_sheet(aoa);
+      pnlEstilarCabecalhoExcel(planilha, cab.length, 0);
+      XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      sheetsCriadas++;
+    }else if(w.tipo==='relatorio'){
+      const { aoa, headerStyles } = pnlExportAoaWidgetRelatorio(w);
+      if(aoa.length <= 1) return;
+      const planilha = XLSX.utils.aoa_to_sheet(aoa);
+      headerStyles.forEach(hs=>pnlEstilarCabecalhoExcel(planilha, hs.cols, hs.row, hs.offset));
+      XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      sheetsCriadas++;
+    }else if(['barra','barra-h','linha','donut'].includes(w.tipo)){
+      const { cab, corpo } = pnlExportDadosWidgetGrafico(w, w.tipo);
+      if(!corpo.length) return;
+      const aoa = [cab, ...corpo];
+      const planilha = XLSX.utils.aoa_to_sheet(aoa);
+      pnlEstilarCabecalhoExcel(planilha, cab.length, 0);
+      XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      sheetsCriadas++;
+    }
+  });
+  if(!sheetsCriadas){ toast('Nada pra exportar com esses filtros.'); return; }
+  await salvarWorkbook(livro, `${pnlPainelAtual.slug}-montado-${hojeLocalISO()}.xlsx`);
+  toast(`Painel exportado com ${sheetsCriadas} aba${sheetsCriadas===1?'':'s'} (1 por widget).`);
 }
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
@@ -17373,6 +17553,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlAtualizar').addEventListener('click', pnlAtualizarDoRm);
   document.getElementById('btnPnlExportarExcel').addEventListener('click', pnlExportarExcel);
   document.getElementById('btnPnlExportarCsv').addEventListener('click', pnlExportarCsv);
+  document.getElementById('btnPnlExportarMontado').addEventListener('click', pnlExportarPainelMontado);
   document.getElementById('pnlCardFiltros').addEventListener('click', e=>{
     const remover = e.target.closest('[data-removerfiltro]');
     if(remover){ pnlRemoverFiltro(remover.dataset.removerfiltro); return; }
