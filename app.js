@@ -14277,6 +14277,9 @@ let pnlFiltros = {};
 let pnlFiltroColunaAberta = null;
 let pnlFormColunasAtual = [];
 let pnlFormMedidasExtrasAtual = [];
+// links configurados no form (fonte 'linhas') pra puxar campos de OUTRAS
+// consultas numa tabela não-agrupada — {consultaId, campoPrincipal, campoLink}
+let pnlFormLinksAtual = [];
 let pnlPainelWidgets = [];
 let pnlPainelWidgetsSalvos = [];
 let pnlPainelMedidas = [];
@@ -14497,6 +14500,62 @@ function pnlLinhasConsultaNoContexto(consultaId, grupo){
   }
   return linhas;
 }
+/* ---------- campos "linkados" (de outra consulta, puxados por uma chave de ligação) ----------
+   codificados como "@consultaId::campo" dentro do array widget.colunas, pra
+   não colidir com nome de coluna normal (coluna real nunca começa com "@") */
+function pnlEhCampoLinkado(c){ return typeof c === 'string' && c.charAt(0)==='@' && c.includes('::'); }
+function pnlCodificarCampoLinkado(consultaId, campo){ return `@${consultaId}::${campo}`; }
+function pnlParseCampoLinkado(c){ const i = c.indexOf('::'); return { consultaId: c.slice(1, i), campo: c.slice(i+2) }; }
+function pnlNomeConsulta(consultaId){ return (pnlConsultasCarregadas.find(c=>c.id===consultaId)||{}).nome || consultaId; }
+// rótulo de exibição de QUALQUER coluna (medida, campo linkado ou campo
+// cru da consulta principal) — centraliza a lógica usada no cabeçalho
+// da tabela e no picker de Colunas
+function pnlLabelColuna(c, catalogoPrincipal){
+  const medida = pnlMedidaPorId(c);
+  if(medida) return medida.label;
+  if(pnlEhCampoLinkado(c)){ const { consultaId, campo } = pnlParseCampoLinkado(c); return `${campo} (${pnlNomeConsulta(consultaId)})`; }
+  return (catalogoPrincipal && catalogoPrincipal[c]) || c;
+}
+// índice (valor do campo de ligação -> 1ª linha com esse valor) de uma
+// consulta linkada — montado 1x por render, não por linha
+function pnlIndiceConsultaLinkada(consultaId, campoLink){
+  const linhas = pnlDadosPorConsulta[consultaId] || [];
+  const indice = {};
+  linhas.forEach(o=>{
+    const chave = pnlValorFiltro(o, campoLink);
+    if(!(chave in indice)) indice[chave] = o;
+  });
+  return indice;
+}
+// um índice por link configurado no widget (fonte 'linhas')
+function pnlIndicesLinksWidget(widget){
+  const porConsulta = {};
+  (widget.links||[]).forEach(l=>{
+    porConsulta[l.consultaId] = { campoPrincipal: l.campoPrincipal, indice: pnlIndiceConsultaLinkada(l.consultaId, l.campoLink) };
+  });
+  return porConsulta;
+}
+// valor cru de uma coluna numa linha da tabela "linhas" — resolve tanto
+// campo normal (da consulta principal) quanto campo linkado (de outra
+// consulta, via o índice já montado)
+function pnlValorColunaLinha(o, c, indicesLinks){
+  if(pnlEhCampoLinkado(c)){
+    const { consultaId, campo } = pnlParseCampoLinkado(c);
+    const linkInfo = indicesLinks[consultaId];
+    if(!linkInfo) return '';
+    const linhaLinkada = linkInfo.indice[pnlValorFiltro(o, linkInfo.campoPrincipal)];
+    return linhaLinkada ? linhaLinkada[campo] : '';
+  }
+  return o[c];
+}
+// valor cru de um campo linkado numa tabela AGRUPADA — a "ligação" aqui
+// já é o(s) próprio(s) campo(s) de "Agrupar por" (mesma lógica das
+// medidas cruzando consulta), sem precisar configurar link nenhum
+function pnlValorCampoLinkadoAgrupado(c, camposChaves, valoresChaves){
+  const { consultaId, campo } = pnlParseCampoLinkado(c);
+  const linhas = pnlLinhasConsultaNoContexto(consultaId, {campos:camposChaves, valores:valoresChaves});
+  return (linhas && linhas.length) ? pnlFormatarValorColuna(linhas[0][campo]) : '';
+}
 // valor de QUALQUER medida (campo+função OU fórmula) num contexto —
 // grupo=null é o painel inteiro (KPI), ou {campos,valores} é um grupo
 // específico (tabela agrupada / gráficos por dimensão). "pilha" evita
@@ -14555,7 +14614,11 @@ function pnlAgruparMultiplasDimensoes(linhas, camposChaves, colunas){
   const resultado = Object.values(grupos).map(g=>({
     chaves: g.chaves,
     rotulos: g.chaves,
-    valores: Object.fromEntries(colunas.map(c=>[c, pnlMedidaPorId(c) ? pnlValorMedida(c, {campos:camposChaves, valores:g.chaves}) : pnlFormatarValorColuna(g.itens[0][c])])),
+    valores: Object.fromEntries(colunas.map(c=>{
+      if(pnlMedidaPorId(c)) return [c, pnlValorMedida(c, {campos:camposChaves, valores:g.chaves})];
+      if(pnlEhCampoLinkado(c)) return [c, pnlValorCampoLinkadoAgrupado(c, camposChaves, g.chaves)];
+      return [c, pnlFormatarValorColuna(g.itens[0][c])];
+    })),
   }));
   const primeiraMedida = colunas.find(c=>pnlMedidaPorId(c));
   resultado.sort((a,b)=>{
@@ -14877,7 +14940,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   if(widget.fonte === 'agrupado'){
     const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
     const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
-    const cab = [...dimensoes, ...colunas.map(c=>(pnlMedidaPorId(c)||{}).label || catalogo[c] || c)];
+    const cab = [...dimensoes, ...colunas.map(c=>pnlLabelColuna(c, catalogo))];
     const corpo = grupos.map(g=>{
       const celulas = [...g.rotulos, ...colunas.map(c=>pnlMedidaPorId(c) ? pnlFormatarMedida(g.valores[c], c) : g.valores[c])];
       return `<tr>${celulas.map(v=>`<td>${escaparHtml(String(v))}</td>`).join('')}</tr>`;
@@ -14896,11 +14959,12 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   const buscaEl = document.querySelector(`[data-wbusca][data-wid="${widget.id}"]`);
   const busca = (buscaEl?.value || '').trim().toLowerCase();
   if(busca) itens = itens.filter(o=>Object.values(o).some(v=>v!=null && String(v).toLowerCase().includes(busca)));
-  const cab = colunas.map(c=>catalogo[c]||c);
-  const corpo = itens.map(o=>`<tr>${colunas.map(c=>`<td>${escaparHtml(pnlFormatarValorColuna(o[c]))}</td>`).join('')}</tr>`).join('');
+  const indicesLinks = pnlIndicesLinksWidget(widget);
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
+  const corpo = itens.map(o=>`<tr>${colunas.map(c=>`<td>${escaparHtml(pnlFormatarValorColuna(pnlValorColunaLinha(o, c, indicesLinks)))}</td>`).join('')}</tr>`).join('');
   const totais = colunas.map((c,i)=>{
     if(i===0) return `<td><b>${itens.length} linha${itens.length===1?'':'s'}</b></td>`;
-    const vals = itens.map(o=>pnlValorColunaNumerico(o,c)).filter(v=>v!=null);
+    const vals = itens.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
     return vals.length ? `<td><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
   }).join('');
   tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
@@ -14959,17 +15023,68 @@ function pnlRenderColunasPicker(fonte, consultaId){
   if(fonte === 'agrupado'){
     const medidas = Object.fromEntries(medidasDaConsulta.map(m=>[m.id, m.label]));
     const campos = pnlColunasTabelaDisponiveis(consultaId);
-    opcoesCombinadas = { ...medidas, ...campos };
+    // campos de OUTRAS consultas também valem aqui — a "ligação" é o
+    // próprio campo de "Agrupar por", igual já funciona pras medidas
+    const camposLinkados = {};
+    pnlConsultasCarregadas.filter(c=>c.id!==consultaId).forEach(c=>{
+      pnlColunasDisponiveis(c.id).forEach(campo=>{ camposLinkados[pnlCodificarCampoLinkado(c.id, campo)] = `${campo} (${c.nome})`; });
+    });
+    opcoesCombinadas = { ...medidas, ...campos, ...camposLinkados };
     document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas (medidas e campos)';
     document.getElementById('pnlNovoWidgetColunasLista').innerHTML =
       (medidasDaConsulta.length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:2px 0;">MEDIDAS (calculadas por grupo)</div>${montaItens(medidas)}` : '') +
-      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª linha do grupo)</div>${montaItens(campos)}`;
+      `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS (valor da 1ª linha do grupo)</div>${montaItens(campos)}` +
+      (Object.keys(camposLinkados).length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS DE OUTRAS CONSULTAS (ligados por "Agrupar por")</div>${montaItens(camposLinkados)}` : '');
   }else{
-    opcoesCombinadas = pnlColunasTabelaDisponiveis(consultaId);
+    const campos = pnlColunasTabelaDisponiveis(consultaId);
+    // campos linkados (fonte 'linhas') só aparecem depois de configurar
+    // o link em "Ligar com outra consulta", logo abaixo
+    const camposLinkados = {};
+    pnlFormLinksAtual.forEach(l=>{
+      pnlColunasDisponiveis(l.consultaId).forEach(campo=>{ camposLinkados[pnlCodificarCampoLinkado(l.consultaId, campo)] = `${campo} (${pnlNomeConsulta(l.consultaId)})`; });
+    });
+    opcoesCombinadas = { ...campos, ...camposLinkados };
     document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas';
-    document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(opcoesCombinadas);
+    document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(campos) +
+      (Object.keys(camposLinkados).length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS LINKADOS</div>${montaItens(camposLinkados)}` : '');
   }
   pnlRenderColunasOrdem(opcoesCombinadas);
+}
+// lista dos links já configurados no form (fonte 'linhas'), com botão de remover
+function pnlRenderLinksLista(){
+  const cont = document.getElementById('pnlNovoWidgetLinksLista');
+  if(!cont) return;
+  cont.innerHTML = pnlFormLinksAtual.length ? pnlFormLinksAtual.map((l,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:2px 0;">
+      <span>${escaparHtml(l.campoPrincipal)} = ${escaparHtml(pnlNomeConsulta(l.consultaId))}.${escaparHtml(l.campoLink)}</span>
+      <button type="button" data-removerlink="${i}" title="Remover link" style="background:none;border:none;color:var(--bad);cursor:pointer;font-size:14px;line-height:1;padding:2px;">✕</button>
+    </div>`).join('') : `<div class="empty" style="padding:2px 0;font-size:12px;">Nenhum link configurado ainda.</div>`;
+}
+// popula os selects do form "+ Adicionar link" (consulta secundária +
+// campo desta consulta principal); chamado sempre que a Consulta
+// principal ou a fonte do widget mudam
+function pnlPopularFormNovoLink(consultaIdPrincipal){
+  const selConsulta = document.getElementById('pnlNovoWidgetLinkConsulta');
+  if(!selConsulta) return;
+  const outras = pnlConsultasCarregadas.filter(c=>c.id!==consultaIdPrincipal);
+  const atual = selConsulta.value;
+  selConsulta.innerHTML = outras.map(c=>`<option value="${escaparHtml(c.id)}">${escaparHtml(c.nome)}</option>`).join('') || `<option value="">(nenhuma outra consulta carregada)</option>`;
+  if(outras.some(c=>c.id===atual)) selConsulta.value = atual;
+  const selCampoPrincipal = document.getElementById('pnlNovoWidgetLinkCampoPrincipal');
+  const atualCampo = selCampoPrincipal.value;
+  const camposPrincipal = pnlColunasDisponiveis(consultaIdPrincipal);
+  selCampoPrincipal.innerHTML = camposPrincipal.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  if(camposPrincipal.includes(atualCampo)) selCampoPrincipal.value = atualCampo;
+  pnlAtualizarCampoLinkSecundario();
+}
+function pnlAtualizarCampoLinkSecundario(){
+  const consultaSecundaria = document.getElementById('pnlNovoWidgetLinkConsulta').value;
+  const selCampoLink = document.getElementById('pnlNovoWidgetLinkCampoLink');
+  if(!selCampoLink) return;
+  const atual = selCampoLink.value;
+  const campos = consultaSecundaria ? pnlColunasDisponiveis(consultaSecundaria) : [];
+  selCampoLink.innerHTML = campos.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  if(campos.includes(atual)) selCampoLink.value = atual;
 }
 function pnlHtmlToolbar(w, i, total){
   if(!pnlModoEdicao) return '';
@@ -15155,6 +15270,9 @@ function pnlAtualizarCamposNovoWidget(){
   document.getElementById('pnlNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
   document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = ehTabelaPersonalizada ? '' : 'none';
+  const mostraLinks = ehTabelaPersonalizada && fonte==='linhas' && pnlConsultasCarregadas.length > 1;
+  document.getElementById('pnlNovoWidgetCampoLinks').style.display = mostraLinks ? '' : 'none';
+  if(mostraLinks){ pnlPopularFormNovoLink(consultaId); pnlRenderLinksLista(); }
   if(ehTabelaPersonalizada){
     const selFF = document.getElementById('pnlNovoWidgetFiltroFixoCampo');
     const atualFF = selFF.value;
@@ -15226,6 +15344,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetFiltroFixoValor').innerHTML = '';
   pnlFormColunasAtual = [];
   pnlFormMedidasExtrasAtual = [];
+  pnlFormLinksAtual = [];
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
@@ -15259,6 +15378,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetConsulta').value = w.consultaId || pnlConsultaPadrao() || '';
   pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
   pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
+  pnlFormLinksAtual = w.links ? JSON.parse(JSON.stringify(w.links)) : [];
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   pnlAtualizarCamposNovoWidget();
@@ -17122,6 +17242,26 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const btn = e.target.closest('[data-movercoluna]'); if(!btn) return;
     pnlMoverColuna(btn.dataset.coluna, btn.dataset.movercoluna);
   });
+  document.getElementById('pnlNovoWidgetLinkConsulta').addEventListener('change', pnlAtualizarCampoLinkSecundario);
+  document.getElementById('btnPnlAdicionarLink').addEventListener('click', ()=>{
+    const consultaId = document.getElementById('pnlNovoWidgetLinkConsulta').value;
+    const campoPrincipal = document.getElementById('pnlNovoWidgetLinkCampoPrincipal').value;
+    const campoLink = document.getElementById('pnlNovoWidgetLinkCampoLink').value;
+    if(!consultaId || !campoPrincipal || !campoLink){ toast('Escolha a consulta e os dois campos pra ligar.'); return; }
+    if(pnlFormLinksAtual.some(l=>l.consultaId===consultaId)){ toast('Já existe um link com essa consulta.'); return; }
+    pnlFormLinksAtual.push({ consultaId, campoPrincipal, campoLink });
+    pnlRenderLinksLista();
+    pnlRenderColunasPicker('linhas', pnlConsultaSelecionadaNoForm());
+  });
+  document.getElementById('pnlNovoWidgetLinksLista').addEventListener('click', e=>{
+    const btn = e.target.closest('[data-removerlink]'); if(!btn) return;
+    const i = Number(btn.dataset.removerlink);
+    const removido = pnlFormLinksAtual[i];
+    pnlFormLinksAtual.splice(i, 1);
+    if(removido) pnlFormColunasAtual = pnlFormColunasAtual.filter(c=>!(pnlEhCampoLinkado(c) && pnlParseCampoLinkado(c).consultaId===removido.consultaId));
+    pnlRenderLinksLista();
+    pnlRenderColunasPicker('linhas', pnlConsultaSelecionadaNoForm());
+  });
   document.getElementById('pnlNovoWidgetMedida').addEventListener('change', pnlRenderMedidasExtrasPicker);
   document.getElementById('pnlNovoWidgetMedidasExtras').addEventListener('change', e=>{
     const cb = e.target.closest('[data-wmedidaextra]'); if(!cb) return;
@@ -17162,6 +17302,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       }else{
         const filtroRapido = document.getElementById('pnlNovoWidgetFiltroRapido').value;
         if(filtroRapido) widget.filtroRapido = filtroRapido;
+        if(pnlFormLinksAtual.length) widget.links = pnlFormLinksAtual.slice();
       }
       const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
       const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
