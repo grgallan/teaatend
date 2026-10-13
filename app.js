@@ -14289,6 +14289,8 @@ let pnlPainelFiltrosSalvos = [];
 let pnlFiltros = {};
 let pnlFiltroColunaAberta = null;
 let pnlFormColunasAtual = [];
+// apelidos (nomes customizados) das colunas do Detalhe/Tabela — {campo: texto}
+let pnlFormColunasApelidos = {};
 let pnlFormMedidasExtrasAtual = [];
 // links configurados no form (fonte 'linhas') pra puxar campos de OUTRAS
 // consultas numa tabela não-agrupada — {consultaId, campoPrincipal, campoLink}
@@ -14300,6 +14302,8 @@ let pnlEditandoSubdetalheIndex = null;
 // colunas marcadas no picker do subdetalhe que ainda está sendo montado
 // (antes de clicar em "+ Adicionar subdetalhe")
 let pnlFormSubdetalheColunasAtual = [];
+// apelidos das colunas do subdetalhe que ainda está sendo montado — {campo: texto}
+let pnlFormSubdetalheColunasApelidos = {};
 // critérios de ordenação do Detalhe do widget "relatorio" — [{campo,direcao}]
 let pnlFormOrdenacaoAtual = [];
 // critérios de ordenação e colunas a somar do subdetalhe que ainda está
@@ -14562,7 +14566,8 @@ function pnlNomeConsulta(consultaId){ return (pnlConsultasCarregadas.find(c=>c.i
 // rótulo de exibição de QUALQUER coluna (medida, campo linkado ou campo
 // cru da consulta principal) — centraliza a lógica usada no cabeçalho
 // da tabela e no picker de Colunas
-function pnlLabelColuna(c, catalogoPrincipal){
+function pnlLabelColuna(c, catalogoPrincipal, apelidos){
+  if(apelidos && apelidos[c]) return apelidos[c];
   const medida = pnlMedidaPorId(c);
   if(medida) return medida.label;
   if(pnlEhCampoLinkado(c)){ const { consultaId, campo } = pnlParseCampoLinkado(c); return `${campo} (${pnlNomeConsulta(consultaId)})`; }
@@ -14980,6 +14985,7 @@ function pnlRenderOpcoesFiltroRapido(widget, itensBase){
 }
 function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   const tab = document.getElementById(`pnl-${widget.id}-tabela`); if(!tab) return;
+  tab.classList.toggle('pnl-tabela-zebrada', !!widget.zebrado);
   const consultaId = widget.consultaId || pnlConsultaPadrao();
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,8);
   const catalogo = pnlColunasTabelaDisponiveis(consultaId);
@@ -14992,7 +14998,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   if(widget.fonte === 'agrupado'){
     const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
     const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
-    const cab = [...dimensoes, ...colunas.map(c=>pnlLabelColuna(c, catalogo))];
+    const cab = [...dimensoes, ...colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos))];
     const corpo = grupos.map(g=>{
       const celulasDim = g.rotulos.map(v=>({ raw:v, html:String(v), numerico:ehNumAlinhavel(v) }));
       const celulasVal = colunas.map(c=>{
@@ -15018,7 +15024,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   const busca = (buscaEl?.value || '').trim().toLowerCase();
   if(busca) itens = itens.filter(o=>Object.values(o).some(v=>v!=null && String(v).toLowerCase().includes(busca)));
   const indicesLinks = pnlIndicesLinksWidget(widget);
-  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
   const corpo = itens.map(o=>`<tr>${colunas.map(c=>{
     const raw = pnlValorColunaLinha(o, c, indicesLinks);
     return `<td${ehNumAlinhavel(raw)?' class="num"':''}>${escaparHtml(pnlFormatarValorColuna(raw))}</td>`;
@@ -15050,6 +15056,16 @@ function pnlIndiceConsultaLinkadaMultiplo(consultaId, campoLink){
 // principal, igual a Tabela fonte 'linhas', inclusive com "Ligar com
 // outra consulta" pra trazer 1 campo) seguido de 1+ Subdetalhes
 // (listas aninhadas, uma por registro do Detalhe, ligadas por chave)
+// linha de total/subtotal reaproveitada tanto pro rodapé geral quanto
+// pros subtotais de quebra — 1ª coluna vira o rótulo, as outras somam
+// (quando dá) os valores cru das linhas desse grupo
+function pnlLinhaTotalColunas(grupoLinhas, colunas, indicesLinks, rotulo){
+  return colunas.map((c,i)=>{
+    if(i===0) return `<td><b>${escaparHtml(rotulo)}</b></td>`;
+    const vals = grupoLinhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
+    return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
+  }).join('');
+}
 function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   const el = document.getElementById(containerId); if(!el) return;
   const consultaId = widget.consultaId || pnlConsultaPadrao();
@@ -15067,12 +15083,36 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
     indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
     catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
   }));
-  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
-  const corpo = linhas.map(o=>{
-    const linhaDetalhe = `<tr class="pnl-relat-detalhe">${colunas.map(c=>{
-      const raw = pnlValorColunaLinha(o, c, indicesLinks);
-      return `<td${ehNumAlinhavel(raw)?' class="num"':''}>${escaparHtml(pnlFormatarValorColuna(raw))}</td>`;
-    }).join('')}</tr>`;
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
+  // níveis de quebra — ordem do array de ordenação = ordem de quebra (do
+  // mais externo pro mais interno); só entram os critérios marcados
+  const niveisQuebra = (widget.ordenacao||[]).filter(cr=>cr.quebra);
+  const acumuladores = niveisQuebra.map(()=>[]);
+  let valoresAnteriores = null;
+  const partes = [];
+  const emitirSubtotais = (ateONivel)=>{
+    for(let i=niveisQuebra.length-1; i>=ateONivel; i--){
+      if(acumuladores[i].length){
+        const rotuloCampo = pnlLabelColuna(niveisQuebra[i].campo, catalogo, widget.colunasApelidos);
+        const rotuloValor = pnlFormatarValorColuna(valoresAnteriores[i]);
+        partes.push(`<tr class="pnl-relat-subtotal">${pnlLinhaTotalColunas(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`)}</tr>`);
+      }
+      acumuladores[i] = [];
+    }
+  };
+  linhas.forEach((o, idx)=>{
+    if(niveisQuebra.length){
+      const valoresAtuais = niveisQuebra.map(cr=>pnlValorColunaLinha(o, cr.campo, indicesLinks));
+      if(idx>0){
+        let nivelQueMudou = -1;
+        for(let i=0;i<niveisQuebra.length;i++){
+          if(String(valoresAtuais[i]) !== String(valoresAnteriores[i])){ nivelQueMudou = i; break; }
+        }
+        if(nivelQueMudou>=0) emitirSubtotais(nivelQueMudou);
+      }
+      valoresAnteriores = valoresAtuais;
+    }
+    const idLinha = `${widget.id}-${idx}`;
     const blocosSub = subdetalhes.map(sd=>{
       const chave = pnlValorFiltro(o, sd.campoPrincipal);
       let filhos = sd.indice[chave] || [];
@@ -15080,26 +15120,32 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
       if(sd.ordenacao && sd.ordenacao.length){
         filhos = pnlOrdenarPorCriterios(filhos, sd.ordenacao, (f,c)=>f[c]);
       }
-      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo));
+      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo, sd.colunasApelidos));
       const linhasSub = filhos.map(f=>`<tr>${sd.colunas.map(c=>`<td${ehNumAlinhavel(f[c])?' class="num"':''}>${escaparHtml(pnlFormatarValorColuna(f[c]))}</td>`).join('')}</tr>`).join('');
       const totaisSub = (sd.colunasTotais && sd.colunasTotais.length) ? sd.colunas.map(c=>{
         if(!sd.colunasTotais.includes(c)) return '<td></td>';
         const vals = filhos.map(f=>pnlCoagirNumero(f[c])).filter(v=>typeof v==='number');
         return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
       }).join('') : '';
-      return `<tr class="pnl-relat-sub-wrap"><td colspan="${colunas.length}">
+      return `<tr class="pnl-relat-sub-wrap" data-detpai="${idLinha}"><td colspan="${colunas.length}">
         <div class="pnl-relat-sub-label">${escaparHtml(sd.titulo || 'Detalhes')}</div>
         <table class="pnl-relat-sub-tabela"><thead><tr>${cabSub.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
         <tbody>${linhasSub}</tbody>${totaisSub ? `<tfoot><tr>${totaisSub}</tr></tfoot>` : ''}</table>
       </td></tr>`;
     }).join('');
-    return linhaDetalhe + blocosSub;
-  }).join('');
-  const totais = colunas.map((c,i)=>{
-    if(i===0) return `<td><b>${linhas.length} registro${linhas.length===1?'':'s'}</b></td>`;
-    const vals = linhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
-    return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
-  }).join('');
+    const temSubdetalhe = subdetalhes.some(sd=>(sd.indice[pnlValorFiltro(o, sd.campoPrincipal)]||[]).length);
+    const classeZebra = (widget.zebrado && idx%2===1) ? ' pnl-relat-zebra-impar' : '';
+    const linhaDetalhe = `<tr class="pnl-relat-detalhe${classeZebra}">${colunas.map((c,i)=>{
+      const raw = pnlValorColunaLinha(o, c, indicesLinks);
+      const toggle = (i===0 && temSubdetalhe) ? `<button type="button" class="pnl-relat-toggle" data-relattoggle="${idLinha}" title="Expandir/colapsar subdetalhes">−</button>` : '';
+      return `<td${ehNumAlinhavel(raw)?' class="num"':''}>${toggle}${escaparHtml(pnlFormatarValorColuna(raw))}</td>`;
+    }).join('')}</tr>`;
+    partes.push(linhaDetalhe + blocosSub);
+    niveisQuebra.forEach((_,i)=>acumuladores[i].push(o));
+  });
+  if(niveisQuebra.length) emitirSubtotais(0);
+  const corpo = partes.join('');
+  const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`);
   el.innerHTML = `<table class="valores-table pnl-relatorio-tabela">
     <thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
@@ -15123,14 +15169,15 @@ function pnlRenderColunasOrdem(opcoes){
   const cont = document.getElementById('pnlNovoWidgetColunasOrdem');
   if(!cont) return;
   if(!pnlFormColunasAtual.length){ cont.innerHTML = ''; return; }
-  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Ordem das colunas (use ↑/↓)</div>` +
+  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Ordem das colunas (use ↑/↓) — o campo de texto troca o nome exibido</div>` +
     pnlFormColunasAtual.map((c,i)=>{
       const v = opcoes[c];
       const label = typeof v === 'string' ? v : (v ? v.label : c);
       return `<div style="display:flex;align-items:center;gap:4px;padding:2px 0;">
         <button type="button" data-movercoluna="up" data-coluna="${escaparHtml(c)}" ${i===0?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↑</button>
         <button type="button" data-movercoluna="down" data-coluna="${escaparHtml(c)}" ${i===pnlFormColunasAtual.length-1?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↓</button>
-        <span style="font-size:13px;">${escaparHtml(label)}</span>
+        <span style="font-size:13px;flex:0 0 auto;min-width:110px;">${escaparHtml(label)}</span>
+        <input type="text" data-apelidocoluna="${escaparHtml(c)}" value="${escaparHtml(pnlFormColunasApelidos[c]||'')}" placeholder="${escaparHtml(label)}" style="flex:1;font-size:12px;padding:3px 6px;">
       </div>`;
     }).join('');
 }
@@ -15251,7 +15298,7 @@ function pnlRenderCriteriosOrdenacaoHtml(criterios, opcoes, removerAttr){
     const v = opcoes[cr.campo];
     const label = typeof v === 'string' ? v : (v ? v.label : cr.campo);
     return `<div style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:3px 0;border-bottom:1px solid var(--line);">
-      <span style="flex:1;">${i+1}. ${escaparHtml(label)} ${cr.direcao==='desc'?'↓ decrescente':'↑ crescente'}</span>
+      <span style="flex:1;">${i+1}. ${escaparHtml(label)} ${cr.direcao==='desc'?'↓ decrescente':'↑ crescente'}${cr.quebra?' · <b>quebra (subtotal)</b>':''}</span>
       <button type="button" data-${removerAttr}="${i}" title="Remover critério" style="background:none;border:none;color:var(--bad);cursor:pointer;font-size:14px;line-height:1;padding:2px;">✕</button>
     </div>`;
   }).join('');
@@ -15281,6 +15328,21 @@ function pnlRenderSubdetalheTotaisPicker(){
       </label>`).join('')
     : `<div class="empty" style="padding:2px 0;">Escolha as colunas do subdetalhe primeiro.</div>`;
 }
+function pnlRenderSubdetalheApelidosPicker(){
+  const cont = document.getElementById('pnlNovoWidgetSubdetalheApelidosLista');
+  if(!cont) return;
+  const consultaSub = document.getElementById('pnlNovoWidgetSubdetalheConsulta')?.value;
+  const catalogo = consultaSub ? pnlColunasTabelaDisponiveis(consultaSub) : {};
+  cont.innerHTML = pnlFormSubdetalheColunasAtual.length
+    ? pnlFormSubdetalheColunasAtual.map(c=>{
+        const label = catalogo[c]||c;
+        return `<div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:12px;flex:0 0 auto;min-width:100px;">${escaparHtml(label)}</span>
+          <input type="text" data-subapelidocoluna="${escaparHtml(c)}" value="${escaparHtml(pnlFormSubdetalheColunasApelidos[c]||'')}" placeholder="${escaparHtml(label)}" style="flex:1;font-size:12px;padding:3px 6px;">
+        </div>`;
+      }).join('')
+    : `<div class="empty" style="padding:2px 0;">Escolha as colunas do subdetalhe primeiro.</div>`;
+}
 function pnlAtualizarCamposSubdetalhe(){
   const consultaIdPrincipal = pnlConsultaSelecionadaNoForm();
   const selCampoPrincipal = document.getElementById('pnlNovoWidgetSubdetalheCampoPrincipal');
@@ -15295,6 +15357,7 @@ function pnlAtualizarCamposSubdetalhe(){
   if(selOrdenacaoSub) selOrdenacaoSub.innerHTML = camposSub.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
   pnlRenderSubdetalheOrdenacaoLista();
   pnlRenderSubdetalheTotaisPicker();
+  pnlRenderSubdetalheApelidosPicker();
 }
 function pnlPopularFormNovoSubdetalhe(){
   const selConsulta = document.getElementById('pnlNovoWidgetSubdetalheConsulta');
@@ -15488,12 +15551,12 @@ function pnlExportDadosWidgetTabela(widget){
   if(widget.fonte === 'agrupado'){
     const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
     const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
-    const cab = [...dimensoes, ...colunas.map(c=>pnlLabelColuna(c, catalogo))];
+    const cab = [...dimensoes, ...colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos))];
     const corpo = grupos.map(g=>[...g.rotulos, ...colunas.map(c=>pnlExportValorCelula(g.valores[c]))]);
     return { cab, corpo };
   }
   const indicesLinks = pnlIndicesLinksWidget(widget);
-  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
   const corpo = linhas.map(o=>colunas.map(c=>pnlExportValorCelula(pnlValorColunaLinha(o, c, indicesLinks))));
   const totais = colunas.map((c,i)=>{
     if(i===0) return `${linhas.length} linha${linhas.length===1?'':'s'}`;
@@ -15506,6 +15569,16 @@ function pnlExportDadosWidgetTabela(widget){
 // Detalhe→Subdetalhes da tela numa única aba: cada registro do Detalhe
 // vira uma linha, seguida (indentada 1 coluna) do cabeçalho+linhas+total
 // de cada subdetalhe que tiver filhos, igual ordenação/total configurados
+// mesma ideia de pnlLinhaTotalColunas, só que devolve um array (linha de
+// planilha) em vez de HTML — reaproveitado pro total geral e pelos
+// subtotais de quebra na exportação
+function pnlLinhaTotalColunasAoa(grupoLinhas, colunas, indicesLinks, rotulo){
+  return colunas.map((c,i)=>{
+    if(i===0) return rotulo;
+    const vals = grupoLinhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
+    return vals.length ? vals.reduce((s,v)=>s+v,0) : '';
+  });
+}
 function pnlExportAoaWidgetRelatorio(widget){
   const consultaId = widget.consultaId || pnlConsultaPadrao();
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
@@ -15523,10 +15596,34 @@ function pnlExportAoaWidgetRelatorio(widget){
     indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
     catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
   }));
-  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
   const aoa = [cab];
   const headerStyles = [{ row:0, cols:cab.length, offset:0 }];
-  linhas.forEach(o=>{
+  const niveisQuebra = (widget.ordenacao||[]).filter(cr=>cr.quebra);
+  const acumuladores = niveisQuebra.map(()=>[]);
+  let valoresAnteriores = null;
+  const emitirSubtotais = (ateONivel)=>{
+    for(let i=niveisQuebra.length-1; i>=ateONivel; i--){
+      if(acumuladores[i].length){
+        const rotuloCampo = pnlLabelColuna(niveisQuebra[i].campo, catalogo, widget.colunasApelidos);
+        const rotuloValor = pnlFormatarValorColuna(valoresAnteriores[i]);
+        aoa.push(pnlLinhaTotalColunasAoa(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`));
+      }
+      acumuladores[i] = [];
+    }
+  };
+  linhas.forEach((o, idx)=>{
+    if(niveisQuebra.length){
+      const valoresAtuais = niveisQuebra.map(cr=>pnlValorColunaLinha(o, cr.campo, indicesLinks));
+      if(idx>0){
+        let nivelQueMudou = -1;
+        for(let i=0;i<niveisQuebra.length;i++){
+          if(String(valoresAtuais[i]) !== String(valoresAnteriores[i])){ nivelQueMudou = i; break; }
+        }
+        if(nivelQueMudou>=0) emitirSubtotais(nivelQueMudou);
+      }
+      valoresAnteriores = valoresAtuais;
+    }
     aoa.push(colunas.map(c=>pnlExportValorCelula(pnlValorColunaLinha(o, c, indicesLinks))));
     subdetalhes.forEach(sd=>{
       const chave = pnlValorFiltro(o, sd.campoPrincipal);
@@ -15536,7 +15633,7 @@ function pnlExportAoaWidgetRelatorio(widget){
         filhos = pnlOrdenarPorCriterios(filhos, sd.ordenacao, (f,c)=>f[c]);
       }
       aoa.push(['', `↳ ${sd.titulo || 'Detalhes'}`]);
-      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo));
+      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo, sd.colunasApelidos));
       aoa.push(['', ...cabSub]);
       headerStyles.push({ row:aoa.length-1, cols:cabSub.length, offset:1 });
       filhos.forEach(f=>{
@@ -15551,14 +15648,11 @@ function pnlExportAoaWidgetRelatorio(widget){
       }
     });
     aoa.push([]);
+    niveisQuebra.forEach((_,i)=>acumuladores[i].push(o));
   });
+  if(niveisQuebra.length) emitirSubtotais(0);
   if(linhas.length){
-    const totaisDetalhe = colunas.map((c,i)=>{
-      if(i===0) return `${linhas.length} registro${linhas.length===1?'':'s'}`;
-      const vals = linhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
-      return vals.length ? vals.reduce((s,v)=>s+v,0) : '';
-    });
-    aoa.push(totaisDetalhe);
+    aoa.push(pnlLinhaTotalColunasAoa(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`));
   }
   return { aoa, headerStyles };
 }
@@ -15713,6 +15807,7 @@ function pnlAtualizarCamposNovoWidget(){
     if(colunas.includes(atualOrdenacao)) selOrdenacao.value = atualOrdenacao;
     pnlRenderOrdenacaoLista();
   }
+  document.getElementById('pnlNovoWidgetCampoZebrado').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
 }
 // mostra/popula o seletor "Valor" do filtro fixo, em cima do campo
 // escolhido no select ao lado
@@ -15763,6 +15858,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = '';
   document.getElementById('pnlNovoWidgetFiltroFixoValor').innerHTML = '';
   pnlFormColunasAtual = [];
+  pnlFormColunasApelidos = {};
   pnlFormMedidasExtrasAtual = [];
   pnlFormLinksAtual = [];
   pnlFormSubdetalhesAtual = [];
@@ -15771,9 +15867,11 @@ function pnlResetFormNovoWidget(){
   pnlFormOrdenacaoAtual = [];
   pnlFormSubdetalheOrdenacaoAtual = [];
   pnlFormSubdetalheTotaisAtual = [];
+  pnlFormSubdetalheColunasApelidos = {};
   document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
+  document.getElementById('pnlNovoWidgetZebrado').checked = false;
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
   document.getElementById('pnlNovoWidgetSubtitulo').value = '';
@@ -15804,6 +15902,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetFonte').value = w.fonte || 'linhas';
   document.getElementById('pnlNovoWidgetConsulta').value = w.consultaId || pnlConsultaPadrao() || '';
   pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
+  pnlFormColunasApelidos = w.colunasApelidos ? JSON.parse(JSON.stringify(w.colunasApelidos)) : {};
   pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
   pnlFormLinksAtual = w.links ? JSON.parse(JSON.stringify(w.links)) : [];
   pnlFormSubdetalhesAtual = w.subdetalhes ? JSON.parse(JSON.stringify(w.subdetalhes)) : [];
@@ -15812,9 +15911,11 @@ function pnlWidgetEditar(id){
   pnlFormOrdenacaoAtual = w.ordenacao ? JSON.parse(JSON.stringify(w.ordenacao)) : [];
   pnlFormSubdetalheOrdenacaoAtual = [];
   pnlFormSubdetalheTotaisAtual = [];
+  pnlFormSubdetalheColunasApelidos = {};
   document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
+  document.getElementById('pnlNovoWidgetZebrado').checked = !!w.zebrado;
   pnlAtualizarCamposNovoWidget();
   document.getElementById('pnlNovoWidgetFiltroRapido').value = w.filtroRapido || '';
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = w.filtroFixoCampo || '';
@@ -17649,6 +17750,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(w) pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradasPorWidget[wid]);
       return;
     }
+    const relatToggle = e.target.closest('[data-relattoggle]');
+    if(relatToggle){
+      const id = relatToggle.dataset.relattoggle;
+      const expandido = relatToggle.textContent.trim() === '−';
+      document.querySelectorAll(`[data-detpai="${id}"]`).forEach(tr=>{ tr.style.display = expandido ? 'none' : ''; });
+      relatToggle.textContent = expandido ? '+' : '−';
+      return;
+    }
   });
   document.getElementById('pnlGradeWidgets').addEventListener('input', e=>{
     const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
@@ -17677,6 +17786,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const btn = e.target.closest('[data-movercoluna]'); if(!btn) return;
     pnlMoverColuna(btn.dataset.coluna, btn.dataset.movercoluna);
   });
+  document.getElementById('pnlNovoWidgetColunasOrdem').addEventListener('input', e=>{
+    const inp = e.target.closest('[data-apelidocoluna]'); if(!inp) return;
+    const campo = inp.dataset.apelidocoluna;
+    const valor = inp.value.trim();
+    if(valor) pnlFormColunasApelidos[campo] = valor;
+    else delete pnlFormColunasApelidos[campo];
+  });
   document.getElementById('pnlNovoWidgetLinkConsulta').addEventListener('change', pnlAtualizarCampoLinkSecundario);
   document.getElementById('btnPnlAdicionarLink').addEventListener('click', ()=>{
     const consultaId = document.getElementById('pnlNovoWidgetLinkConsulta').value;
@@ -17701,20 +17817,33 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlFormSubdetalheColunasAtual = [];
     pnlFormSubdetalheOrdenacaoAtual = [];
     pnlFormSubdetalheTotaisAtual = [];
+    pnlFormSubdetalheColunasApelidos = {};
     pnlAtualizarCamposSubdetalhe();
   });
   document.getElementById('pnlNovoWidgetSubdetalheColunasLista').addEventListener('change', e=>{
     const cb = e.target.closest('[data-wsubcoluna]'); if(!cb) return;
     const k = cb.value;
     if(cb.checked){ if(!pnlFormSubdetalheColunasAtual.includes(k)) pnlFormSubdetalheColunasAtual.push(k); }
-    else { pnlFormSubdetalheColunasAtual = pnlFormSubdetalheColunasAtual.filter(c=>c!==k); pnlFormSubdetalheTotaisAtual = pnlFormSubdetalheTotaisAtual.filter(c=>c!==k); }
+    else {
+      pnlFormSubdetalheColunasAtual = pnlFormSubdetalheColunasAtual.filter(c=>c!==k);
+      pnlFormSubdetalheTotaisAtual = pnlFormSubdetalheTotaisAtual.filter(c=>c!==k);
+      delete pnlFormSubdetalheColunasApelidos[k];
+    }
     pnlRenderSubdetalheTotaisPicker();
+    pnlRenderSubdetalheApelidosPicker();
   });
   document.getElementById('pnlNovoWidgetSubdetalheTotaisLista').addEventListener('change', e=>{
     const cb = e.target.closest('[data-wsubtotal]'); if(!cb) return;
     const k = cb.value;
     if(cb.checked){ if(!pnlFormSubdetalheTotaisAtual.includes(k)) pnlFormSubdetalheTotaisAtual.push(k); }
     else pnlFormSubdetalheTotaisAtual = pnlFormSubdetalheTotaisAtual.filter(c=>c!==k);
+  });
+  document.getElementById('pnlNovoWidgetSubdetalheApelidosLista').addEventListener('input', e=>{
+    const inp = e.target.closest('[data-subapelidocoluna]'); if(!inp) return;
+    const campo = inp.dataset.subapelidocoluna;
+    const valor = inp.value.trim();
+    if(valor) pnlFormSubdetalheColunasApelidos[campo] = valor;
+    else delete pnlFormSubdetalheColunasApelidos[campo];
   });
   document.getElementById('btnPnlAdicionarSubdetalheOrdenacao').addEventListener('click', ()=>{
     const campo = document.getElementById('pnlNovoWidgetSubdetalheOrdenacaoCampo').value;
@@ -17739,6 +17868,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const item = { titulo: titulo || 'Detalhes', consultaId, campoPrincipal, campoLink, colunas: pnlFormSubdetalheColunasAtual.slice() };
     if(pnlFormSubdetalheOrdenacaoAtual.length) item.ordenacao = pnlFormSubdetalheOrdenacaoAtual.slice();
     if(pnlFormSubdetalheTotaisAtual.length) item.colunasTotais = pnlFormSubdetalheTotaisAtual.slice();
+    if(Object.keys(pnlFormSubdetalheColunasApelidos).length) item.colunasApelidos = {...pnlFormSubdetalheColunasApelidos};
     if(pnlEditandoSubdetalheIndex !== null && pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex]){
       pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex] = item;
     } else {
@@ -17750,10 +17880,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlFormSubdetalheColunasAtual = [];
     pnlFormSubdetalheOrdenacaoAtual = [];
     pnlFormSubdetalheTotaisAtual = [];
+    pnlFormSubdetalheColunasApelidos = {};
     pnlRenderSubdetalhesLista();
     pnlRenderSubdetalheColunasPicker(document.getElementById('pnlNovoWidgetSubdetalheConsulta').value);
     pnlRenderSubdetalheOrdenacaoLista();
     pnlRenderSubdetalheTotaisPicker();
+    pnlRenderSubdetalheApelidosPicker();
   });
   document.getElementById('pnlNovoWidgetSubdetalhesLista').addEventListener('click', e=>{
     const btnEditar = e.target.closest('[data-editarsubdetalhe]');
@@ -17765,6 +17897,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       pnlFormSubdetalheColunasAtual = sd.colunas.slice();
       pnlFormSubdetalheOrdenacaoAtual = sd.ordenacao ? sd.ordenacao.slice() : [];
       pnlFormSubdetalheTotaisAtual = sd.colunasTotais ? sd.colunasTotais.slice() : [];
+      pnlFormSubdetalheColunasApelidos = sd.colunasApelidos ? {...sd.colunasApelidos} : {};
       document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = sd.titulo || '';
       document.getElementById('pnlNovoWidgetSubdetalheConsulta').value = sd.consultaId;
       pnlAtualizarCamposSubdetalhe();
@@ -17788,9 +17921,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlAdicionarOrdenacao').addEventListener('click', ()=>{
     const campo = document.getElementById('pnlNovoWidgetOrdenacaoCampo').value;
     const direcao = document.getElementById('pnlNovoWidgetOrdenacaoDirecao').value;
+    const quebra = document.getElementById('pnlNovoWidgetOrdenacaoQuebra').checked;
     if(!campo) return;
     pnlFormOrdenacaoAtual = pnlFormOrdenacaoAtual.filter(cr=>cr.campo!==campo);
-    pnlFormOrdenacaoAtual.push({ campo, direcao });
+    const criterio = { campo, direcao };
+    if(quebra) criterio.quebra = true;
+    pnlFormOrdenacaoAtual.push(criterio);
+    document.getElementById('pnlNovoWidgetOrdenacaoQuebra').checked = false;
     pnlRenderOrdenacaoLista();
   });
   document.getElementById('pnlNovoWidgetOrdenacaoLista').addEventListener('click', e=>{
@@ -17829,8 +17966,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       const altura = document.getElementById('pnlNovoWidgetAltura').value || 'padrao';
       if(altura !== 'padrao') widget.altura = altura;
     }
+    if(ehRelatorio || ehTabelaPersonalizada){
+      if(document.getElementById('pnlNovoWidgetZebrado').checked) widget.zebrado = true;
+    }
     if(ehRelatorio){
       widget.colunas = pnlFormColunasAtual.slice();
+      if(Object.keys(pnlFormColunasApelidos).length) widget.colunasApelidos = {...pnlFormColunasApelidos};
       if(pnlFormLinksAtual.length) widget.links = pnlFormLinksAtual.slice();
       if(pnlFormSubdetalhesAtual.length) widget.subdetalhes = JSON.parse(JSON.stringify(pnlFormSubdetalhesAtual));
       if(pnlFormOrdenacaoAtual.length) widget.ordenacao = pnlFormOrdenacaoAtual.slice();
@@ -17840,6 +17981,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }else if(ehTabelaPersonalizada){
       widget.fonte = fonte;
       widget.colunas = pnlFormColunasAtual.slice();
+      if(Object.keys(pnlFormColunasApelidos).length) widget.colunasApelidos = {...pnlFormColunasApelidos};
       if(fonte==='agrupado'){
         widget.dimensao = dimensao;
         if(dimensao2) widget.dimensao2 = dimensao2;
