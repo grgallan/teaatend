@@ -14280,6 +14280,12 @@ let pnlFormMedidasExtrasAtual = [];
 // links configurados no form (fonte 'linhas') pra puxar campos de OUTRAS
 // consultas numa tabela não-agrupada — {consultaId, campoPrincipal, campoLink}
 let pnlFormLinksAtual = [];
+// subdetalhes já adicionados no form do widget "relatorio" — cada um
+// {titulo, consultaId, campoPrincipal, campoLink, colunas}
+let pnlFormSubdetalhesAtual = [];
+// colunas marcadas no picker do subdetalhe que ainda está sendo montado
+// (antes de clicar em "+ Adicionar subdetalhe")
+let pnlFormSubdetalheColunasAtual = [];
 let pnlPainelWidgets = [];
 let pnlPainelWidgetsSalvos = [];
 let pnlPainelMedidas = [];
@@ -14971,11 +14977,72 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhuma linha com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
     ${itens.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}`;
 }
+// índice (valor do campo de ligação -> TODAS as linhas com esse valor) de
+// uma consulta de subdetalhe — igual pnlIndiceConsultaLinkada, mas
+// guardando o array inteiro em vez de só a 1ª (aqui expande, lá só puxa 1
+// valor); usa a mesma convenção de dados crus (sem filtro geral) do link
+// simples da Tabela
+function pnlIndiceConsultaLinkadaMultiplo(consultaId, campoLink){
+  const linhas = pnlDadosPorConsulta[consultaId] || [];
+  const indice = {};
+  linhas.forEach(o=>{
+    const chave = pnlValorFiltro(o, campoLink);
+    (indice[chave] = indice[chave] || []).push(o);
+  });
+  return indice;
+}
+// widget "relatorio" — Detalhe (uma linha por registro da consulta
+// principal, igual a Tabela fonte 'linhas', inclusive com "Ligar com
+// outra consulta" pra trazer 1 campo) seguido de 1+ Subdetalhes
+// (listas aninhadas, uma por registro do Detalhe, ligadas por chave)
+function pnlRenderWidgetRelatorio(containerId, widget, linhas){
+  const el = document.getElementById(containerId); if(!el) return;
+  const consultaId = widget.consultaId || pnlConsultaPadrao();
+  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
+  const catalogo = pnlColunasTabelaDisponiveis(consultaId);
+  if(widget.filtroFixoCampo && widget.filtroFixoValor){
+    linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroFixoCampo)===widget.filtroFixoValor);
+  }
+  const indicesLinks = pnlIndicesLinksWidget(widget);
+  const subdetalhes = (widget.subdetalhes||[]).map(sd=>({
+    ...sd,
+    indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
+    catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
+  }));
+  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo));
+  const corpo = linhas.map(o=>{
+    const linhaDetalhe = `<tr class="pnl-relat-detalhe">${colunas.map(c=>`<td>${escaparHtml(pnlFormatarValorColuna(pnlValorColunaLinha(o, c, indicesLinks)))}</td>`).join('')}</tr>`;
+    const blocosSub = subdetalhes.map(sd=>{
+      const chave = pnlValorFiltro(o, sd.campoPrincipal);
+      const filhos = sd.indice[chave] || [];
+      if(!filhos.length) return '';
+      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo));
+      const linhasSub = filhos.map(f=>`<tr>${sd.colunas.map(c=>`<td>${escaparHtml(pnlFormatarValorColuna(f[c]))}</td>`).join('')}</tr>`).join('');
+      return `<tr class="pnl-relat-sub-wrap"><td colspan="${colunas.length}">
+        <div class="pnl-relat-sub-label">${escaparHtml(sd.titulo || 'Detalhes')}</div>
+        <table class="pnl-relat-sub-tabela"><thead><tr>${cabSub.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+        <tbody>${linhasSub}</tbody></table>
+      </td></tr>`;
+    }).join('');
+    return linhaDetalhe + blocosSub;
+  }).join('');
+  const totais = colunas.map((c,i)=>{
+    if(i===0) return `<td><b>${linhas.length} registro${linhas.length===1?'':'s'}</b></td>`;
+    const vals = linhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
+    return vals.length ? `<td><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
+  }).join('');
+  el.innerHTML = `<table class="valores-table pnl-relatorio-tabela">
+    <thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
+    ${linhas.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}
+  </table>`;
+}
 
 /* ---------- grade configurável (montagem do esqueleto + edição) ---------- */
 function pnlWidgetTitulo(w){
   if(w.titulo) return w.titulo;
   if(w.tipo==='tabela') return 'Tabela';
+  if(w.tipo==='relatorio') return 'Relatório';
   return (pnlMedidaPorId(w.medida)||{}).label || w.medida || '(sem título)';
 }
 // opções (chave->label) da última renderização do picker de colunas —
@@ -15086,6 +15153,44 @@ function pnlAtualizarCampoLinkSecundario(){
   selCampoLink.innerHTML = campos.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
   if(campos.includes(atual)) selCampoLink.value = atual;
 }
+/* ---------- widget "relatorio": construtor de Subdetalhes no form ---------- */
+function pnlRenderSubdetalhesLista(){
+  const cont = document.getElementById('pnlNovoWidgetSubdetalhesLista');
+  if(!cont) return;
+  cont.innerHTML = pnlFormSubdetalhesAtual.length ? pnlFormSubdetalhesAtual.map((sd,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--line);">
+      <span style="flex:1;"><b>${escaparHtml(sd.titulo||'(sem título)')}</b> · ${escaparHtml(pnlNomeConsulta(sd.consultaId))} · ${escaparHtml(sd.campoPrincipal)} = ${escaparHtml(sd.campoLink)} · ${sd.colunas.length} coluna${sd.colunas.length===1?'':'s'}</span>
+      <button type="button" data-removersubdetalhe="${i}" title="Remover subdetalhe" style="background:none;border:none;color:var(--bad);cursor:pointer;font-size:14px;line-height:1;padding:2px;">✕</button>
+    </div>`).join('') : `<div class="empty" style="padding:2px 0;font-size:12px;">Nenhum subdetalhe adicionado ainda.</div>`;
+}
+function pnlRenderSubdetalheColunasPicker(consultaSub){
+  const cont = document.getElementById('pnlNovoWidgetSubdetalheColunasLista');
+  if(!cont) return;
+  const marcadas = new Set(pnlFormSubdetalheColunasAtual);
+  const campos = consultaSub ? pnlColunasTabelaDisponiveis(consultaSub) : {};
+  cont.innerHTML = Object.entries(campos).map(([k,v])=>`<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
+      <input type="checkbox" data-wsubcoluna value="${escaparHtml(k)}" ${marcadas.has(k)?'checked':''} style="width:auto;"> ${escaparHtml(v)}
+    </label>`).join('') || `<div class="empty" style="padding:2px 0;">Escolha uma consulta primeiro.</div>`;
+}
+function pnlAtualizarCamposSubdetalhe(){
+  const consultaIdPrincipal = pnlConsultaSelecionadaNoForm();
+  const selCampoPrincipal = document.getElementById('pnlNovoWidgetSubdetalheCampoPrincipal');
+  if(!selCampoPrincipal) return;
+  selCampoPrincipal.innerHTML = pnlColunasDisponiveis(consultaIdPrincipal).map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  const consultaSub = document.getElementById('pnlNovoWidgetSubdetalheConsulta').value;
+  const selCampoLink = document.getElementById('pnlNovoWidgetSubdetalheCampoLink');
+  const camposSub = consultaSub ? pnlColunasDisponiveis(consultaSub) : [];
+  selCampoLink.innerHTML = camposSub.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  pnlRenderSubdetalheColunasPicker(consultaSub);
+}
+function pnlPopularFormNovoSubdetalhe(){
+  const selConsulta = document.getElementById('pnlNovoWidgetSubdetalheConsulta');
+  if(!selConsulta) return;
+  const atual = selConsulta.value;
+  selConsulta.innerHTML = pnlConsultasCarregadas.map(c=>`<option value="${escaparHtml(c.id)}">${escaparHtml(c.nome)}</option>`).join('');
+  if(pnlConsultasCarregadas.some(c=>c.id===atual)) selConsulta.value = atual;
+  pnlAtualizarCamposSubdetalhe();
+}
 function pnlHtmlToolbar(w, i, total){
   if(!pnlModoEdicao) return '';
   return `<div class="recebwidget-toolbar">
@@ -15107,6 +15212,12 @@ function pnlHtmlWidget(w, i, total){
       ${filtroRapidoHtml}
       ${buscaHtml}
       <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="pnl-${w.id}-tabela"></table></div>
+    </div>`;
+  }
+  if(w.tipo === 'relatorio'){
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+      <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      <div style="overflow-x:auto;${estiloAltura}" id="pnl-${w.id}-conteudo"></div>
     </div>`;
   }
   if(w.tipo === 'kpi'){
@@ -15149,6 +15260,7 @@ function pnlRenderConteudo(){
     pnlUltimoLinhasFiltradasPorWidget[w.id] = linhas;
     if(w.tipo==='kpi') pnlRenderWidgetKpi(`pnl-${w.id}-conteudo`, w, linhas);
     else if(w.tipo==='tabela') pnlRenderWidgetTabelaPersonalizada(w, linhas);
+    else if(w.tipo==='relatorio') pnlRenderWidgetRelatorio(`pnl-${w.id}-conteudo`, w, linhas);
     else pnlRenderWidgetGrafico(`pnl-${w.id}-conteudo`, w, linhas, w.tipo);
   });
 }
@@ -15239,11 +15351,12 @@ function pnlConsultaSelecionadaNoForm(){
 function pnlAtualizarCamposNovoWidget(){
   const tipo = document.getElementById('pnlNovoWidgetTipo').value;
   const ehTabelaPersonalizada = tipo==='tabela';
+  const ehRelatorio = tipo==='relatorio';
   const ehKpi = tipo==='kpi';
   const ehLinha = tipo==='linha';
   const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
-  const precisaMedida = !ehTabelaPersonalizada;
-  const precisaDimensao = !ehKpi && (!ehTabelaPersonalizada || fonte==='agrupado');
+  const precisaMedida = !ehTabelaPersonalizada && !ehRelatorio;
+  const precisaDimensao = !ehKpi && !ehRelatorio && (!ehTabelaPersonalizada || fonte==='agrupado');
   const selConsulta = document.getElementById('pnlNovoWidgetConsulta');
   document.getElementById('pnlNovoWidgetCampoConsulta').style.display = pnlConsultasCarregadas.length > 1 ? '' : 'none';
   if(pnlConsultasCarregadas.length){
@@ -15267,13 +15380,15 @@ function pnlAtualizarCamposNovoWidget(){
     selFR.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
     if([...selFR.options].some(o=>o.value===atualFR)) selFR.value = atualFR;
   }
-  document.getElementById('pnlNovoWidgetCampoColunas').style.display = ehTabelaPersonalizada ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoColunas').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
-  document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = ehTabelaPersonalizada ? '' : 'none';
-  const mostraLinks = ehTabelaPersonalizada && fonte==='linhas' && pnlConsultasCarregadas.length > 1;
+  document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
+  const mostraLinks = ((ehTabelaPersonalizada && fonte==='linhas') || ehRelatorio) && pnlConsultasCarregadas.length > 1;
   document.getElementById('pnlNovoWidgetCampoLinks').style.display = mostraLinks ? '' : 'none';
   if(mostraLinks){ pnlPopularFormNovoLink(consultaId); pnlRenderLinksLista(); }
-  if(ehTabelaPersonalizada){
+  document.getElementById('pnlNovoWidgetCampoSubdetalhes').style.display = ehRelatorio ? '' : 'none';
+  if(ehRelatorio){ pnlPopularFormNovoSubdetalhe(); pnlRenderSubdetalhesLista(); }
+  if(ehTabelaPersonalizada || ehRelatorio){
     const selFF = document.getElementById('pnlNovoWidgetFiltroFixoCampo');
     const atualFF = selFF.value;
     selFF.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
@@ -15293,6 +15408,10 @@ function pnlAtualizarCamposNovoWidget(){
     document.getElementById('pnlNovoWidgetDimensao3').innerHTML = opcoesExtra;
   }
   if(ehTabelaPersonalizada) pnlRenderColunasPicker(fonte, consultaId);
+  else if(ehRelatorio){
+    pnlRenderColunasPicker('linhas', consultaId);
+    document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas do Detalhe';
+  }
 }
 // mostra/popula o seletor "Valor" do filtro fixo, em cima do campo
 // escolhido no select ao lado
@@ -15345,6 +15464,8 @@ function pnlResetFormNovoWidget(){
   pnlFormColunasAtual = [];
   pnlFormMedidasExtrasAtual = [];
   pnlFormLinksAtual = [];
+  pnlFormSubdetalhesAtual = [];
+  pnlFormSubdetalheColunasAtual = [];
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
@@ -15379,6 +15500,8 @@ function pnlWidgetEditar(id){
   pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
   pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
   pnlFormLinksAtual = w.links ? JSON.parse(JSON.stringify(w.links)) : [];
+  pnlFormSubdetalhesAtual = w.subdetalhes ? JSON.parse(JSON.stringify(w.subdetalhes)) : [];
+  pnlFormSubdetalheColunasAtual = [];
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   pnlAtualizarCamposNovoWidget();
@@ -17262,6 +17385,34 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlRenderLinksLista();
     pnlRenderColunasPicker('linhas', pnlConsultaSelecionadaNoForm());
   });
+  document.getElementById('pnlNovoWidgetSubdetalheConsulta').addEventListener('change', ()=>{
+    pnlFormSubdetalheColunasAtual = [];
+    pnlAtualizarCamposSubdetalhe();
+  });
+  document.getElementById('pnlNovoWidgetSubdetalheColunasLista').addEventListener('change', e=>{
+    const cb = e.target.closest('[data-wsubcoluna]'); if(!cb) return;
+    const k = cb.value;
+    if(cb.checked){ if(!pnlFormSubdetalheColunasAtual.includes(k)) pnlFormSubdetalheColunasAtual.push(k); }
+    else pnlFormSubdetalheColunasAtual = pnlFormSubdetalheColunasAtual.filter(c=>c!==k);
+  });
+  document.getElementById('btnPnlAdicionarSubdetalhe').addEventListener('click', ()=>{
+    const titulo = document.getElementById('pnlNovoWidgetSubdetalheTitulo').value.trim();
+    const consultaId = document.getElementById('pnlNovoWidgetSubdetalheConsulta').value;
+    const campoPrincipal = document.getElementById('pnlNovoWidgetSubdetalheCampoPrincipal').value;
+    const campoLink = document.getElementById('pnlNovoWidgetSubdetalheCampoLink').value;
+    if(!consultaId || !campoPrincipal || !campoLink){ toast('Escolha a consulta e os dois campos pra ligar.'); return; }
+    if(!pnlFormSubdetalheColunasAtual.length){ toast('Escolha pelo menos uma coluna pro subdetalhe.'); return; }
+    pnlFormSubdetalhesAtual.push({ titulo: titulo || 'Detalhes', consultaId, campoPrincipal, campoLink, colunas: pnlFormSubdetalheColunasAtual.slice() });
+    document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = '';
+    pnlFormSubdetalheColunasAtual = [];
+    pnlRenderSubdetalhesLista();
+    pnlRenderSubdetalheColunasPicker(document.getElementById('pnlNovoWidgetSubdetalheConsulta').value);
+  });
+  document.getElementById('pnlNovoWidgetSubdetalhesLista').addEventListener('click', e=>{
+    const btn = e.target.closest('[data-removersubdetalhe]'); if(!btn) return;
+    pnlFormSubdetalhesAtual.splice(Number(btn.dataset.removersubdetalhe), 1);
+    pnlRenderSubdetalhesLista();
+  });
   document.getElementById('pnlNovoWidgetMedida').addEventListener('change', pnlRenderMedidasExtrasPicker);
   document.getElementById('pnlNovoWidgetMedidasExtras').addEventListener('change', e=>{
     const cb = e.target.closest('[data-wmedidaextra]'); if(!cb) return;
@@ -17272,6 +17423,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlAdicionarWidget').addEventListener('click', ()=>{
     const tipo = document.getElementById('pnlNovoWidgetTipo').value;
     const ehTabelaPersonalizada = tipo==='tabela';
+    const ehRelatorio = tipo==='relatorio';
     const titulo = document.getElementById('pnlNovoWidgetTitulo').value.trim();
     const medida = document.getElementById('pnlNovoWidgetMedida').value;
     const dimensao = document.getElementById('pnlNovoWidgetDimensao').value;
@@ -17279,10 +17431,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dimensao3 = document.getElementById('pnlNovoWidgetDimensao3').value;
     const top = document.getElementById('pnlNovoWidgetTop').value;
     const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
-    if(!ehTabelaPersonalizada && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
-    if(!ehTabelaPersonalizada && !medida){ toast('Crie uma medida primeiro, no card "Medidas".'); return; }
+    if(!ehTabelaPersonalizada && !ehRelatorio && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    if(!ehTabelaPersonalizada && !ehRelatorio && !medida){ toast('Crie uma medida primeiro, no card "Medidas".'); return; }
     if(ehTabelaPersonalizada && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
-    if(ehTabelaPersonalizada && pnlFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
+    if((ehTabelaPersonalizada || ehRelatorio) && pnlFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
     const widget = { id: pnlEditandoWidgetId || pnlGerarIdWidget(), tipo, titulo };
     const consultaId = pnlConsultaSelecionadaNoForm();
     if(consultaId) widget.consultaId = consultaId;
@@ -17292,7 +17444,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       const altura = document.getElementById('pnlNovoWidgetAltura').value || 'padrao';
       if(altura !== 'padrao') widget.altura = altura;
     }
-    if(ehTabelaPersonalizada){
+    if(ehRelatorio){
+      widget.colunas = pnlFormColunasAtual.slice();
+      if(pnlFormLinksAtual.length) widget.links = pnlFormLinksAtual.slice();
+      if(pnlFormSubdetalhesAtual.length) widget.subdetalhes = JSON.parse(JSON.stringify(pnlFormSubdetalhesAtual));
+      const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
+      const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
+      if(filtroFixoCampo && filtroFixoValor){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoValor = filtroFixoValor; }
+    }else if(ehTabelaPersonalizada){
       widget.fonte = fonte;
       widget.colunas = pnlFormColunasAtual.slice();
       if(fonte==='agrupado'){

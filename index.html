@@ -876,6 +876,13 @@
   .valores-table{width:100%;border-collapse:collapse;font-size:12.5px;}
   .valores-table th{text-align:left;color:var(--muted);font-weight:600;padding:6px 4px;border-bottom:1px solid var(--line);font-size:10.5px;text-transform:uppercase;}
   .valores-table td{padding:8px 4px;border-bottom:1px solid var(--line);}
+  .pnl-relatorio-tabela tr.pnl-relat-detalhe td{background:var(--panel-2);font-weight:700;border-top:1px solid var(--line);}
+  .pnl-relatorio-tabela tr.pnl-relat-sub-wrap td{padding:0 0 10px 0;border-bottom:none;}
+  .pnl-relat-sub-label{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);margin:6px 0 2px 20px;}
+  .pnl-relat-sub-tabela{width:calc(100% - 20px);margin-left:20px;border-collapse:collapse;font-size:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .pnl-relat-sub-tabela th{text-align:left;color:var(--muted);font-weight:600;padding:5px 8px;border-bottom:1px solid var(--line);font-size:10px;text-transform:uppercase;}
+  .pnl-relat-sub-tabela td{padding:5px 8px;border-bottom:1px solid var(--line);}
+  .pnl-relat-sub-tabela tr:last-child td{border-bottom:none;}
   .perfil-badge{font-size:10px;padding:2px 7px;border-radius:6px;font-weight:700;}
   .perfil-badge.ADMIN{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .perfil-badge.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
@@ -2711,6 +2718,7 @@
               <option value="linha">Gráfico de linha</option>
               <option value="donut">Gráfico de pizza (donut)</option>
               <option value="tabela">Tabela (colunas à sua escolha)</option>
+              <option value="relatorio">Relatório (mestre + detalhe)</option>
             </select>
           </div>
           <div class="field"><label>Título</label><input type="text" id="pnlNovoWidgetTitulo" placeholder="Ex: Total por mês"></div>
@@ -2780,6 +2788,25 @@
           <label id="pnlNovoWidgetLabelColunas">Colunas</label>
           <div id="pnlNovoWidgetColunasOrdem"></div>
           <div id="pnlNovoWidgetColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
+        </div>
+        <div class="field" id="pnlNovoWidgetCampoSubdetalhes" style="display:none;">
+          <label>Subdetalhes (listas aninhadas dentro de cada linha do Detalhe)</label>
+          <div id="pnlNovoWidgetSubdetalhesLista" style="margin-bottom:8px;"></div>
+          <div style="border:1px dashed var(--line);border-radius:8px;padding:10px;">
+            <div class="row">
+              <div class="field"><label style="font-size:11px;">Título da seção</label><input type="text" id="pnlNovoWidgetSubdetalheTitulo" placeholder="Ex: Itens"></div>
+              <div class="field"><label style="font-size:11px;">Consulta</label><select id="pnlNovoWidgetSubdetalheConsulta"></select></div>
+            </div>
+            <div class="row">
+              <div class="field"><label style="font-size:11px;">Campo no Detalhe</label><select id="pnlNovoWidgetSubdetalheCampoPrincipal"></select></div>
+              <div class="field"><label style="font-size:11px;">= Campo no Subdetalhe</label><select id="pnlNovoWidgetSubdetalheCampoLink"></select></div>
+            </div>
+            <div class="field">
+              <label style="font-size:11px;">Colunas deste subdetalhe</label>
+              <div id="pnlNovoWidgetSubdetalheColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
+            </div>
+            <button type="button" class="ghost" id="btnPnlAdicionarSubdetalhe" style="width:auto;">+ Adicionar subdetalhe</button>
+          </div>
         </div>
         <div id="pnlNovoWidgetCampoGrafico" style="display:none;">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0;cursor:pointer;">
