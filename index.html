@@ -884,6 +884,10 @@
   .pnl-relat-sub-tabela th{text-align:left;color:var(--muted);font-weight:600;padding:5px 8px;border-bottom:1px solid var(--line);font-size:10px;text-transform:uppercase;}
   .pnl-relat-sub-tabela td{padding:5px 8px;border-bottom:1px solid var(--line);}
   .pnl-relat-sub-tabela tr:last-child td{border-bottom:none;}
+  .pnl-relatorio-tabela tr.pnl-relat-detalhe.pnl-relat-zebra-impar td{background:var(--panel);}
+  .pnl-relatorio-tabela tr.pnl-relat-subtotal td{background:color-mix(in oklch, var(--accent) 10%, transparent);font-weight:700;border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+  .pnl-relat-toggle{background:none;border:1px solid var(--line);border-radius:4px;color:var(--muted);cursor:pointer;font-size:11px;line-height:1;width:16px;height:16px;padding:0;margin-right:6px;vertical-align:middle;}
+  .valores-table.pnl-tabela-zebrada tbody tr:nth-child(even){background:var(--panel-2);}
   .perfil-badge{font-size:10px;padding:2px 7px;border-radius:6px;font-weight:700;}
   .perfil-badge.ADMIN{background:color-mix(in oklch, var(--bad) 13%, transparent);border:1px solid color-mix(in oklch, var(--bad) 32%, transparent);color:var(--bad);}
   .perfil-badge.ATENDENTE{background:var(--accent-dim);color:var(--accent);}
@@ -2799,6 +2803,9 @@
             <div class="field"><label style="font-size:11px;">Direção</label><select id="pnlNovoWidgetOrdenacaoDirecao"><option value="asc">Crescente</option><option value="desc">Decrescente</option></select></div>
             <button type="button" class="ghost" id="btnPnlAdicionarOrdenacao" style="width:auto;white-space:nowrap;">+ Adicionar critério</button>
           </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin:6px 0 0;cursor:pointer;">
+            <input type="checkbox" id="pnlNovoWidgetOrdenacaoQuebra" style="width:auto;"> Quebra (gera subtotal sempre que esse campo mudar)
+          </label>
         </div>
         <div class="field" id="pnlNovoWidgetCampoSubdetalhes" style="display:none;">
           <label>Subdetalhes (listas aninhadas dentro de cada linha do Detalhe)</label>
@@ -2817,6 +2824,10 @@
               <div id="pnlNovoWidgetSubdetalheColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
             </div>
             <div class="field">
+              <label style="font-size:11px;">Nomes das colunas (opcional)</label>
+              <div id="pnlNovoWidgetSubdetalheApelidosLista" style="display:flex;flex-direction:column;gap:4px;"></div>
+            </div>
+            <div class="field">
               <label style="font-size:11px;">Ordenar subdetalhe por (opcional)</label>
               <div id="pnlNovoWidgetSubdetalheOrdenacaoLista" style="margin-bottom:6px;"></div>
               <div class="row" style="align-items:flex-end;gap:6px;">
@@ -2831,6 +2842,11 @@
             </div>
             <button type="button" class="ghost" id="btnPnlAdicionarSubdetalhe" style="width:auto;">+ Adicionar subdetalhe</button>
           </div>
+        </div>
+        <div class="field" id="pnlNovoWidgetCampoZebrado" style="display:none;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0;cursor:pointer;">
+            <input type="checkbox" id="pnlNovoWidgetZebrado" style="width:auto;"> Linhas zebradas
+          </label>
         </div>
         <div id="pnlNovoWidgetCampoGrafico" style="display:none;">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0;cursor:pointer;">
