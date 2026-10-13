@@ -15059,9 +15059,9 @@ function pnlIndiceConsultaLinkadaMultiplo(consultaId, campoLink){
 // linha de total/subtotal reaproveitada tanto pro rodapé geral quanto
 // pros subtotais de quebra — 1ª coluna vira o rótulo, as outras somam
 // (quando dá) os valores cru das linhas desse grupo
-function pnlLinhaTotalColunas(grupoLinhas, colunas, indicesLinks, rotulo){
+function pnlLinhaTotalColunas(grupoLinhas, colunas, indicesLinks, rotulo, prefixoHtml){
   return colunas.map((c,i)=>{
-    if(i===0) return `<td><b>${escaparHtml(rotulo)}</b></td>`;
+    if(i===0) return `<td><b>${prefixoHtml||''}${escaparHtml(rotulo)}</b></td>`;
     const vals = grupoLinhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
     return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
   }).join('');
@@ -15090,14 +15090,25 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   const acumuladores = niveisQuebra.map(()=>[]);
   let valoresAnteriores = null;
   const partes = [];
+  // id do grupo "aberto" em cada nível de quebra (null = ainda não começou
+  // um grupo novo) — cada grupo vira alvo de um botão +/- próprio, e os
+  // níveis mais internos carregam o(s) id(s) dos níveis mais externos que
+  // os contêm, pra colapsar o de fora também esconder o de dentro
+  let grupoContador = 0;
+  const grupoIds = niveisQuebra.map(()=>null);
+  const assegurarGrupoId = i => { if(grupoIds[i]===null) grupoIds[i] = `${widget.id}-q${i}-${grupoContador++}`; return grupoIds[i]; };
   const emitirSubtotais = (ateONivel)=>{
     for(let i=niveisQuebra.length-1; i>=ateONivel; i--){
       if(acumuladores[i].length){
         const rotuloCampo = pnlLabelColuna(niveisQuebra[i].campo, catalogo, widget.colunasApelidos);
         const rotuloValor = pnlFormatarValorColuna(valoresAnteriores[i]);
-        partes.push(`<tr class="pnl-relat-subtotal">${pnlLinhaTotalColunas(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`)}</tr>`);
+        const idGrupo = grupoIds[i];
+        const gruposAncestrais = grupoIds.slice(0,i).filter(Boolean).join(' ');
+        const toggle = idGrupo ? `<button type="button" class="pnl-relat-toggle" data-relatquebra="${idGrupo}" title="Expandir/colapsar grupo">−</button>` : '';
+        partes.push(`<tr class="pnl-relat-subtotal"${gruposAncestrais?` data-quebragrupos="${gruposAncestrais}"`:''}>${pnlLinhaTotalColunas(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`, toggle)}</tr>`);
       }
       acumuladores[i] = [];
+      grupoIds[i] = null;
     }
   };
   linhas.forEach((o, idx)=>{
@@ -15112,6 +15123,9 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
       }
       valoresAnteriores = valoresAtuais;
     }
+    niveisQuebra.forEach((_,i)=>assegurarGrupoId(i));
+    const gruposDaLinha = grupoIds.filter(Boolean).join(' ');
+    const atribQuebra = gruposDaLinha ? ` data-quebragrupos="${gruposDaLinha}"` : '';
     const idLinha = `${widget.id}-${idx}`;
     const blocosSub = subdetalhes.map(sd=>{
       const chave = pnlValorFiltro(o, sd.campoPrincipal);
@@ -15127,7 +15141,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
         const vals = filhos.map(f=>pnlCoagirNumero(f[c])).filter(v=>typeof v==='number');
         return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
       }).join('') : '';
-      return `<tr class="pnl-relat-sub-wrap" data-detpai="${idLinha}"><td colspan="${colunas.length}">
+      return `<tr class="pnl-relat-sub-wrap" data-detpai="${idLinha}"${atribQuebra}><td colspan="${colunas.length}">
         <div class="pnl-relat-sub-label">${escaparHtml(sd.titulo || 'Detalhes')}</div>
         <table class="pnl-relat-sub-tabela"><thead><tr>${cabSub.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
         <tbody>${linhasSub}</tbody>${totaisSub ? `<tfoot><tr>${totaisSub}</tr></tfoot>` : ''}</table>
@@ -15135,7 +15149,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
     }).join('');
     const temSubdetalhe = subdetalhes.some(sd=>(sd.indice[pnlValorFiltro(o, sd.campoPrincipal)]||[]).length);
     const classeZebra = (widget.zebrado && idx%2===1) ? ' pnl-relat-zebra-impar' : '';
-    const linhaDetalhe = `<tr class="pnl-relat-detalhe${classeZebra}">${colunas.map((c,i)=>{
+    const linhaDetalhe = `<tr class="pnl-relat-detalhe${classeZebra}"${atribQuebra}>${colunas.map((c,i)=>{
       const raw = pnlValorColunaLinha(o, c, indicesLinks);
       const toggle = (i===0 && temSubdetalhe) ? `<button type="button" class="pnl-relat-toggle" data-relattoggle="${idLinha}" title="Expandir/colapsar subdetalhes">−</button>` : '';
       return `<td${ehNumAlinhavel(raw)?' class="num"':''}>${toggle}${escaparHtml(pnlFormatarValorColuna(raw))}</td>`;
@@ -17756,6 +17770,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       const expandido = relatToggle.textContent.trim() === '−';
       document.querySelectorAll(`[data-detpai="${id}"]`).forEach(tr=>{ tr.style.display = expandido ? 'none' : ''; });
       relatToggle.textContent = expandido ? '+' : '−';
+      return;
+    }
+    const quebraToggle = e.target.closest('[data-relatquebra]');
+    if(quebraToggle){
+      const id = quebraToggle.dataset.relatquebra;
+      const expandido = quebraToggle.textContent.trim() === '−';
+      document.querySelectorAll('[data-quebragrupos]').forEach(tr=>{
+        if(tr.dataset.quebragrupos.split(' ').includes(id)) tr.style.display = expandido ? 'none' : '';
+      });
+      quebraToggle.textContent = expandido ? '+' : '−';
       return;
     }
   });
