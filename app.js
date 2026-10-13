@@ -14283,6 +14283,7 @@ let pnlFormLinksAtual = [];
 // subdetalhes já adicionados no form do widget "relatorio" — cada um
 // {titulo, consultaId, campoPrincipal, campoLink, colunas}
 let pnlFormSubdetalhesAtual = [];
+let pnlEditandoSubdetalheIndex = null;
 // colunas marcadas no picker do subdetalhe que ainda está sendo montado
 // (antes de clicar em "+ Adicionar subdetalhe")
 let pnlFormSubdetalheColunasAtual = [];
@@ -15158,8 +15159,9 @@ function pnlRenderSubdetalhesLista(){
   const cont = document.getElementById('pnlNovoWidgetSubdetalhesLista');
   if(!cont) return;
   cont.innerHTML = pnlFormSubdetalhesAtual.length ? pnlFormSubdetalhesAtual.map((sd,i)=>`
-    <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--line);">
+    <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--line);${pnlEditandoSubdetalheIndex===i?'background:var(--highlight,#fff3cd);':''}">
       <span style="flex:1;"><b>${escaparHtml(sd.titulo||'(sem título)')}</b> · ${escaparHtml(pnlNomeConsulta(sd.consultaId))} · ${escaparHtml(sd.campoPrincipal)} = ${escaparHtml(sd.campoLink)} · ${sd.colunas.length} coluna${sd.colunas.length===1?'':'s'}</span>
+      <button type="button" data-editarsubdetalhe="${i}" title="Editar subdetalhe" style="background:none;border:none;color:var(--accent,#2563eb);cursor:pointer;font-size:14px;line-height:1;padding:2px;">✎</button>
       <button type="button" data-removersubdetalhe="${i}" title="Remover subdetalhe" style="background:none;border:none;color:var(--bad);cursor:pointer;font-size:14px;line-height:1;padding:2px;">✕</button>
     </div>`).join('') : `<div class="empty" style="padding:2px 0;font-size:12px;">Nenhum subdetalhe adicionado ainda.</div>`;
 }
@@ -15466,6 +15468,8 @@ function pnlResetFormNovoWidget(){
   pnlFormLinksAtual = [];
   pnlFormSubdetalhesAtual = [];
   pnlFormSubdetalheColunasAtual = [];
+  pnlEditandoSubdetalheIndex = null;
+  document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
@@ -15502,6 +15506,8 @@ function pnlWidgetEditar(id){
   pnlFormLinksAtual = w.links ? JSON.parse(JSON.stringify(w.links)) : [];
   pnlFormSubdetalhesAtual = w.subdetalhes ? JSON.parse(JSON.stringify(w.subdetalhes)) : [];
   pnlFormSubdetalheColunasAtual = [];
+  pnlEditandoSubdetalheIndex = null;
+  document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   pnlAtualizarCamposNovoWidget();
@@ -17402,15 +17408,45 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const campoLink = document.getElementById('pnlNovoWidgetSubdetalheCampoLink').value;
     if(!consultaId || !campoPrincipal || !campoLink){ toast('Escolha a consulta e os dois campos pra ligar.'); return; }
     if(!pnlFormSubdetalheColunasAtual.length){ toast('Escolha pelo menos uma coluna pro subdetalhe.'); return; }
-    pnlFormSubdetalhesAtual.push({ titulo: titulo || 'Detalhes', consultaId, campoPrincipal, campoLink, colunas: pnlFormSubdetalheColunasAtual.slice() });
+    const item = { titulo: titulo || 'Detalhes', consultaId, campoPrincipal, campoLink, colunas: pnlFormSubdetalheColunasAtual.slice() };
+    if(pnlEditandoSubdetalheIndex !== null && pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex]){
+      pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex] = item;
+    } else {
+      pnlFormSubdetalhesAtual.push(item);
+    }
+    pnlEditandoSubdetalheIndex = null;
+    document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
     document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = '';
     pnlFormSubdetalheColunasAtual = [];
     pnlRenderSubdetalhesLista();
     pnlRenderSubdetalheColunasPicker(document.getElementById('pnlNovoWidgetSubdetalheConsulta').value);
   });
   document.getElementById('pnlNovoWidgetSubdetalhesLista').addEventListener('click', e=>{
+    const btnEditar = e.target.closest('[data-editarsubdetalhe]');
+    if(btnEditar){
+      const i = Number(btnEditar.dataset.editarsubdetalhe);
+      const sd = pnlFormSubdetalhesAtual[i];
+      if(!sd) return;
+      pnlEditandoSubdetalheIndex = i;
+      pnlFormSubdetalheColunasAtual = sd.colunas.slice();
+      document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = sd.titulo || '';
+      document.getElementById('pnlNovoWidgetSubdetalheConsulta').value = sd.consultaId;
+      pnlAtualizarCamposSubdetalhe();
+      document.getElementById('pnlNovoWidgetSubdetalheCampoPrincipal').value = sd.campoPrincipal;
+      document.getElementById('pnlNovoWidgetSubdetalheCampoLink').value = sd.campoLink;
+      document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Salvar subdetalhe';
+      pnlRenderSubdetalhesLista();
+      return;
+    }
     const btn = e.target.closest('[data-removersubdetalhe]'); if(!btn) return;
-    pnlFormSubdetalhesAtual.splice(Number(btn.dataset.removersubdetalhe), 1);
+    const i = Number(btn.dataset.removersubdetalhe);
+    pnlFormSubdetalhesAtual.splice(i, 1);
+    if(pnlEditandoSubdetalheIndex === i){
+      pnlEditandoSubdetalheIndex = null;
+      document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
+    } else if(pnlEditandoSubdetalheIndex !== null && i < pnlEditandoSubdetalheIndex){
+      pnlEditandoSubdetalheIndex--;
+    }
     pnlRenderSubdetalhesLista();
   });
   document.getElementById('pnlNovoWidgetMedida').addEventListener('change', pnlRenderMedidasExtrasPicker);
