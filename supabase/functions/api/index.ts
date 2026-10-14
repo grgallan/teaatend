@@ -1826,6 +1826,29 @@ async function podeAgir(contaId: string, menu: string, campo: 'visualizar' | 'ed
   const { data: permissoes } = await db.from('perfil_acesso_permissoes').select('*').in('perfil_id', perfilIds).eq('menu', menu);
   return (permissoes || []).some((p: any) => !!p[campo]);
 }
+// mesma regra do painelAcessivel() do app.js: admin sempre pode; senão é a
+// união dos painéis liberados DIRETO pra conta (conta_paineis) com os
+// liberados por algum perfil vinculado (perfil_acesso_paineis) — união
+// vazia = sem restrição nenhuma configurada ainda, mantém compatível com
+// quem nunca usou essa liberação (mostra tudo, igual sempre foi)
+async function painelAcessivel(contaId: string, painelId: string): Promise<boolean> {
+  const { data: conta } = await db.from('contas').select('perfil,eh_administrador').eq('id', contaId).maybeSingle();
+  if (ehAdminEfetivo(conta)) return true;
+  const [{ data: direto }, { data: vinculos }] = await Promise.all([
+    db.from('conta_paineis').select('painel_id').eq('conta_id', contaId),
+    db.from('conta_perfis_acesso').select('perfil_id').eq('conta_id', contaId),
+  ]);
+  const idsConta = (direto || []).map((d: any) => d.painel_id);
+  const perfilIds = (vinculos || []).map((v: any) => v.perfil_id);
+  let idsPerfis: string[] = [];
+  if (perfilIds.length > 0) {
+    const { data: viaPerfil } = await db.from('perfil_acesso_paineis').select('painel_id').in('perfil_id', perfilIds);
+    idsPerfis = (viaPerfil || []).map((v: any) => v.painel_id);
+  }
+  const todos = [...idsConta, ...idsPerfis];
+  if (todos.length === 0) return true;
+  return todos.includes(painelId);
+}
 
 // "YYYY-MM-DD" -> "MM/AAAA", mesmo formato usado em atendimentos.mes
 function mesFromDataIso(dataIso: string): string {
@@ -4002,7 +4025,16 @@ function rmUrlConsulta(c: { url: string; sentenca: string; coligada: string; sis
   return u;
 }
 async function acaoExecutarRmRelatorioGerencial(req: any) {
-  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.painelrecebiveis', 'visualizar'))) return { ok: false, erro: 'Você não tem permissão para ver esse relatório.' };
+  // painel especial (Painel de Recebíveis) continua checando a permissão de
+  // sempre; um painel genérico é liberado pela allowlist (perfil/conta),
+  // igual a lista já filtra na tela — NÃO pela permissão genérica de menu,
+  // que é só quem pode editar/cadastrar, não quem pode ver
+  const { data: painel } = req.painelId ? await db.from('rm_paineis').select('tipo').eq('id', req.painelId).maybeSingle() : { data: null };
+  if (!painel || painel.tipo === 'especial') {
+    if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.painelrecebiveis', 'visualizar'))) return { ok: false, erro: 'Você não tem permissão para ver esse relatório.' };
+  } else if (!(await painelAcessivel(req.contaId, req.painelId))) {
+    return { ok: false, erro: 'Você não tem permissão para ver esse painel.' };
+  }
   if (!req.clienteId) return { ok: false, erro: 'Escolha um cliente.' };
   // um USUARIO só pode ver o painel do PRÓPRIO cliente — a tela já esconde
   // os outros no seletor, mas confere de novo aqui pra não dar pra pedir
