@@ -13079,7 +13079,8 @@ async function recebAtualizarDoRm(){
   if(recebCarregando) return;
   recebClienteId = document.getElementById('receb_cliente').value;
   if(!recebClienteId){ toast('Escolha um cliente com conexão RM cadastrada.'); return; }
-  const relatorioId = pnlConsultaIdParaCliente(rmPaineis.find(p=>p.slug==='painel-recebiveis'), recebClienteId);
+  const painelRecebiveis = rmPaineis.find(p=>p.slug==='painel-recebiveis');
+  const relatorioId = pnlConsultaIdParaCliente(painelRecebiveis, recebClienteId);
   if(!relatorioId){ document.getElementById('recebStatus').textContent = 'Esse cliente não está vinculado ao Painel de Recebíveis — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
   const consultaRm = rmRelatoriosGerenciais.find(x=>String(x.id)===String(relatorioId));
   const valoresParametros = await rmValoresParametrosDeConsultas(consultaRm ? [consultaRm] : []);
@@ -13089,7 +13090,7 @@ async function recebAtualizarDoRm(){
   btn.disabled = true; btn.textContent = 'Consultando o RM…';
   document.getElementById('recebStatus').textContent = '';
   try{
-    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, relatorioId, valoresParametros });
+    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, relatorioId, painelId: painelRecebiveis ? painelRecebiveis.id : null, valoresParametros });
     if(!r.ok){ document.getElementById('recebStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
     recebLinhas = recebNormalizar(r.linhas || []);
     // calcula situação/saldo já aqui (não só no render) — o filtro por
@@ -14863,7 +14864,7 @@ async function pnlAtualizarDoRm(){
   btn.disabled = true; btn.textContent = 'Consultando o RM…';
   document.getElementById('pnlStatus').textContent = '';
   try{
-    const resultados = await Promise.all(consultas.map(c=>api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id, valoresParametros })));
+    const resultados = await Promise.all(consultas.map(c=>api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id, painelId: pnlPainelAtual.id, valoresParametros })));
     const falha = resultados.find(r=>!r.ok);
     if(falha){ document.getElementById('pnlStatus').textContent = falha.erro || 'Não foi possível atualizar.'; return; }
     pnlDadosPorConsulta = {};
