@@ -3984,6 +3984,17 @@ async function acaoRemoverRmRelatorioGerencial(req: any) {
 // monta a URL de consulta igual o painel standalone fazia (RealizaConsulta
 // da API de Consultas SQL do RM), mas a chamada em si agora é feita AQUI
 // no backend — usuário/senha do RM nunca mais trafegam pro navegador
+// troca {nomeDoParametro} pelo valor informado na hora de "Atualizar do RM"
+// (o front detecta os nomes e manda um valor pra cada); nome sem valor
+// informado vira string vazia, nunca vai literal "{...}" pro RM
+function rmSubstituirParametros(parametros: string, valores: any): string {
+  if (!parametros) return parametros;
+  const mapa = valores && typeof valores === 'object' ? valores : {};
+  return parametros.replace(/\{([^{}]+)\}/g, (_m, nome) => {
+    const v = mapa[String(nome).trim()];
+    return v === undefined || v === null ? '' : String(v);
+  });
+}
 function rmUrlConsulta(c: { url: string; sentenca: string; coligada: string; sistema: string; parametros?: string }): string {
   const base = String(c.url || '').trim().replace(/\/+$/, '');
   let u = `${base}/api/framework/v1/consultaSQLServer/RealizaConsulta/${encodeURIComponent(c.sentenca)}/${encodeURIComponent(c.coligada)}/${encodeURIComponent(c.sistema)}`;
@@ -4019,7 +4030,8 @@ async function acaoExecutarRmRelatorioGerencial(req: any) {
   } catch (_e) {
     return { ok: false, erro: 'Não foi possível decifrar a senha salva do RM. Configure a senha de novo em Cadastros → Clientes.' };
   }
-  const url = rmUrlConsulta({ url: cliente.rm_url, sentenca: relatorio.codigo_sentenca, coligada: relatorio.coligada, sistema: relatorio.sistema, parametros: relatorio.parametros });
+  const parametros = rmSubstituirParametros(relatorio.parametros || '', req.valoresParametros);
+  const url = rmUrlConsulta({ url: cliente.rm_url, sentenca: relatorio.codigo_sentenca, coligada: relatorio.coligada, sistema: relatorio.sistema, parametros });
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 120000);
   try {

@@ -13036,18 +13036,60 @@ function recebAbrir(){
   document.getElementById('btnRecebEditarPainel').style.display = (ehAdminEfetivo(conta) || !perm || perm.editar) ? '' : 'none';
   recebRender();
 }
+// consultas que precisam de um valor por execução marcam o lugar do valor
+// como {nomeDoParametro} dentro do campo "Parâmetros" cadastrado — aqui a
+// gente só detecta esses nomes (pra saber se precisa perguntar algo antes
+// de disparar o "Atualizar do RM"); a substituição de verdade é feita no
+// backend (acaoExecutarRmRelatorioGerencial), que é quem tem o texto real
+function rmDetectarParametros(parametros){
+  const achados = String(parametros || '').match(/\{([^{}]+)\}/g) || [];
+  return [...new Set(achados.map(x=>x.slice(1,-1).trim()).filter(Boolean))];
+}
+let rmParametrosResolve = null;
+// mostra um campo de texto pra cada nome de parâmetro encontrado e devolve
+// um Promise com { nome: valor } (ou null se o usuário cancelar) — usado
+// tanto pelo painel genérico quanto pelo Painel de Recebíveis antes de
+// chamar o RM
+function rmPedirValoresParametros(nomes){
+  return new Promise(resolve=>{
+    rmParametrosResolve = resolve;
+    document.getElementById('rmParametrosCampos').innerHTML = nomes.map(n=>`
+      <div class="field"><label>${escaparHtml(n)}</label><input type="text" data-paramnome="${escaparHtml(n)}"></div>
+    `).join('');
+    document.getElementById('rmParametrosModal').classList.add('show');
+    const primeiro = document.querySelector('#rmParametrosCampos input');
+    if(primeiro) primeiro.focus();
+  });
+}
+function rmFecharModalParametros(valores){
+  document.getElementById('rmParametrosModal').classList.remove('show');
+  if(rmParametrosResolve){ const resolve = rmParametrosResolve; rmParametrosResolve = null; resolve(valores); }
+}
+// pede os valores de todos os parâmetros das consultas passadas (unificando
+// nomes repetidos entre consultas do mesmo painel) — devolve null se não
+// houver nenhum parâmetro pra pedir (segue direto, sem interromper) ou se
+// o usuário cancelar o modal
+async function rmValoresParametrosDeConsultas(consultas){
+  const nomes = [...new Set(consultas.flatMap(c=>rmDetectarParametros(c.parametros)))];
+  if(!nomes.length) return {};
+  const valores = await rmPedirValoresParametros(nomes);
+  return valores;
+}
 async function recebAtualizarDoRm(){
   if(recebCarregando) return;
   recebClienteId = document.getElementById('receb_cliente').value;
   if(!recebClienteId){ toast('Escolha um cliente com conexão RM cadastrada.'); return; }
+  const relatorioId = pnlConsultaIdParaCliente(rmPaineis.find(p=>p.slug==='painel-recebiveis'), recebClienteId);
+  if(!relatorioId){ document.getElementById('recebStatus').textContent = 'Esse cliente não está vinculado ao Painel de Recebíveis — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
+  const consultaRm = rmRelatoriosGerenciais.find(x=>String(x.id)===String(relatorioId));
+  const valoresParametros = await rmValoresParametrosDeConsultas(consultaRm ? [consultaRm] : []);
+  if(!valoresParametros) return;
   recebCarregando = true;
   const btn = document.getElementById('btnRecebAtualizar');
   btn.disabled = true; btn.textContent = 'Consultando o RM…';
   document.getElementById('recebStatus').textContent = '';
   try{
-    const relatorioId = pnlConsultaIdParaCliente(rmPaineis.find(p=>p.slug==='painel-recebiveis'), recebClienteId);
-    if(!relatorioId){ document.getElementById('recebStatus').textContent = 'Esse cliente não está vinculado ao Painel de Recebíveis — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
-    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, relatorioId });
+    const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: recebClienteId, relatorioId, valoresParametros });
     if(!r.ok){ document.getElementById('recebStatus').textContent = r.erro || 'Não foi possível atualizar.'; return; }
     recebLinhas = recebNormalizar(r.linhas || []);
     // calcula situação/saldo já aqui (não só no render) — o filtro por
@@ -14809,17 +14851,19 @@ async function pnlAtualizarDoRm(){
   if(pnlCarregando || !pnlPainelAtual) return;
   pnlClienteId = document.getElementById('pnl_cliente').value;
   if(!pnlClienteId){ toast('Escolha um cliente com conexão RM cadastrada.'); return; }
+  // busca TODAS as consultas vinculadas ao painel que pertencem a esse
+  // cliente de uma vez só (pode ser 1, pode ser várias — ex: Vendas +
+  // Compras da mesma CORAL)
+  const consultas = pnlConsultasDoCliente(pnlPainelAtual, pnlClienteId);
+  if(!consultas.length){ document.getElementById('pnlStatus').textContent = 'Esse cliente não está vinculado a esse painel — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
+  const valoresParametros = await rmValoresParametrosDeConsultas(consultas);
+  if(!valoresParametros) return;
   pnlCarregando = true;
   const btn = document.getElementById('btnPnlAtualizar');
   btn.disabled = true; btn.textContent = 'Consultando o RM…';
   document.getElementById('pnlStatus').textContent = '';
   try{
-    // busca TODAS as consultas vinculadas ao painel que pertencem a esse
-    // cliente de uma vez só (pode ser 1, pode ser várias — ex: Vendas +
-    // Compras da mesma CORAL)
-    const consultas = pnlConsultasDoCliente(pnlPainelAtual, pnlClienteId);
-    if(!consultas.length){ document.getElementById('pnlStatus').textContent = 'Esse cliente não está vinculado a esse painel — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
-    const resultados = await Promise.all(consultas.map(c=>api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id })));
+    const resultados = await Promise.all(consultas.map(c=>api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id, valoresParametros })));
     const falha = resultados.find(r=>!r.ok);
     if(falha){ document.getElementById('pnlStatus').textContent = falha.erro || 'Não foi possível atualizar.'; return; }
     pnlDadosPorConsulta = {};
@@ -18476,6 +18520,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnNotificacoes').addEventListener('click', alternarNotificacoes);
   document.getElementById('senhaCancelar').addEventListener('click', fecharModalSenha);
   document.getElementById('senhaConfirmar').addEventListener('click', salvarNovaSenha);
+  document.getElementById('rmParametrosCancelar').addEventListener('click', ()=>rmFecharModalParametros(null));
+  document.getElementById('rmParametrosConfirmar').addEventListener('click', ()=>{
+    const valores = {};
+    document.querySelectorAll('#rmParametrosCampos input[data-paramnome]').forEach(inp=>{ valores[inp.dataset.paramnome] = inp.value; });
+    rmFecharModalParametros(valores);
+  });
 
   document.getElementById('btnFecharChat').addEventListener('click', fecharChat);
 
