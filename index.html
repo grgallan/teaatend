@@ -2658,6 +2658,7 @@
           <div class="field"><label>Sistema (aplicação)</label><input type="text" id="rgrm_sistema" value="G" maxlength="2"></div>
           <div class="field"><label>Parâmetros (opcional)</label><input type="text" id="rgrm_parametros" placeholder="Ex: DATAINI_D=2025-01-01"></div>
         </div>
+        <p style="color:var(--muted);font-size:12px;margin:-6px 0 10px;">Pra pedir o valor antes de cada "Atualizar do RM", use <b>{nome}</b> no lugar do valor. Ex: <code>DATAINI_D={dataIni};DATAFIM_D={dataFim}</code></p>
         <button class="primary" id="btnAddRmRelatorio">Adicionar consulta</button>
         <button class="ghost" id="btnCancelarEdicaoRmRelatorio" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
@@ -3669,6 +3670,18 @@
     <div class="modal-actions" style="margin-top:14px;">
       <button class="cancel" id="senhaCancelar">Cancelar</button>
       <button class="confirm neutro" id="senhaConfirmar">Salvar nova senha</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="rmParametrosModal">
+  <div class="modal">
+    <h3>Parâmetros da consulta</h3>
+    <p style="color:var(--muted);font-size:13px;margin:4px 0 16px;">Preencha os valores antes de atualizar o painel com o RM.</p>
+    <div id="rmParametrosCampos"></div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="rmParametrosCancelar">Cancelar</button>
+      <button class="confirm neutro" id="rmParametrosConfirmar">Atualizar</button>
     </div>
   </div>
 </div>
