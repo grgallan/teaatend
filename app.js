@@ -14994,6 +14994,39 @@ function pnlAgruparMultiplasDimensoes(linhas, camposChaves, colunas){
   });
   return resultado;
 }
+// igual pnlAgruparMultiplasDimensoes, mas devolve o valor CRU (não já
+// formatado em string) nas colunas de campo — usado pelo Detalhe agrupado
+// do widget Relatório, que precisa do valor cru pra aplicar o formato por
+// coluna (Automático/Texto/Número/Moeda) igual já faz no modo "por
+// registro" (campo linkado continua pré-formatado, mesma limitação que já
+// existe na Tabela agrupada — caso raro, fora do escopo desse ajuste)
+function pnlAgruparColunasCruRelatorio(linhas, camposChaves, colunas){
+  const grupos = {};
+  linhas.forEach(o=>{
+    const chaves = camposChaves.map(c=>pnlValorFiltro(o, c));
+    const chaveComposta = chaves.join('␟');
+    if(!grupos[chaveComposta]) grupos[chaveComposta] = { chaves, itens:[] };
+    grupos[chaveComposta].itens.push(o);
+  });
+  const resultado = Object.values(grupos).map(g=>{
+    const linha = {};
+    camposChaves.forEach((c,i)=>{ linha[c] = g.chaves[i]; });
+    colunas.forEach(c=>{
+      if(pnlMedidaPorId(c)) linha[c] = pnlValorMedida(c, {campos:camposChaves, valores:g.chaves});
+      else if(pnlEhCampoLinkado(c)) linha[c] = pnlValorCampoLinkadoAgrupado(c, camposChaves, g.chaves);
+      else linha[c] = g.itens[0][c];
+    });
+    return linha;
+  });
+  const primeiraMedida = colunas.find(c=>pnlMedidaPorId(c));
+  resultado.sort((a,b)=>{
+    let d = primeiraMedida ? (b[primeiraMedida]||0)-(a[primeiraMedida]||0) : String(a[camposChaves[0]]).localeCompare(String(b[camposChaves[0]]),'pt',{numeric:true});
+    if(d) return d;
+    for(let i=1;i<camposChaves.length;i++){ d = String(a[camposChaves[i]]).localeCompare(String(b[camposChaves[i]]),'pt',{numeric:true}); if(d) return d; }
+    return 0;
+  });
+  return resultado;
+}
 // agrupa por UM campo só, pra gráficos (barra/linha/donut) — "medida" pode
 // ser uma medida de verdade (soma/média/...) ou, sem nenhuma configurada
 // ainda, cai em "contar linhas" (sempre existe pelo menos essa leitura)
@@ -15388,36 +15421,63 @@ function pnlIndiceConsultaLinkadaMultiplo(consultaId, campoLink){
 // linha de total/subtotal reaproveitada tanto pro rodapé geral quanto
 // pros subtotais de quebra — 1ª coluna vira o rótulo, as outras somam
 // (quando dá) os valores cru das linhas desse grupo
-function pnlLinhaTotalColunas(grupoLinhas, colunas, indicesLinks, rotulo, prefixoHtml, colunasFormatos){
+function pnlLinhaTotalColunas(grupoLinhas, colunas, indicesLinks, rotulo, prefixoHtml, colunasFormatos, valorFn){
+  const obterValor = valorFn || ((o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
   return colunas.map((c,i)=>{
     if(i===0) return `<td><b>${prefixoHtml||''}${escaparHtml(rotulo)}</b></td>`;
+    // medida (Detalhe agrupado) já é uma agregação por grupo — somar de
+    // novo no rodapé só é correto pra "soma"; pra média/mín/máx/etc dá um
+    // número sem sentido, então não soma medida nenhuma aqui
+    if(pnlMedidaPorId(c)) return '<td></td>';
     const formato = pnlFormatoColuna(c, colunasFormatos);
     if(formato==='texto') return '<td></td>';
-    const vals = grupoLinhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
+    const vals = grupoLinhas.map(o=>pnlCoagirNumero(obterValor(o,c))).filter(v=>typeof v==='number');
     return vals.length ? `<td class="num"><b>${pnlFormatarTotalColunaComFormato(vals.reduce((s,v)=>s+v,0), formato)}</b></td>` : '<td></td>';
   }).join('');
 }
 function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   const el = document.getElementById(containerId); if(!el) return;
   const consultaId = widget.consultaId || pnlConsultaPadrao();
-  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
   const catalogo = pnlColunasTabelaDisponiveis(consultaId);
   linhas = pnlAplicarFiltroFixo(linhas, widget);
+  const ehAgrupado = widget.fonte === 'agrupado';
+  if(widget.filtroRapido){
+    pnlRenderOpcoesFiltroRapido(widget, linhas);
+    const seg = pnlFiltroRapidoPorWidget[widget.id];
+    if(seg && seg!=='todas') linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroRapido)===seg);
+  }
+  let colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
   const indicesLinks = pnlIndicesLinksWidget(widget);
+  // Detalhe agrupado: cada "linha" vira um grupo sintético (chaves de
+  // dimensão + medidas/campos agregados) — Subdetalhes não se aplicam (não
+  // existe mais 1 registro por linha pra ligar filhos)
+  let subdetalhes = [];
+  if(ehAgrupado){
+    const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
+    linhas = pnlAgruparColunasCruRelatorio(linhas, dimensoes, colunas);
+    colunas = [...dimensoes, ...colunas];
+  }else{
+    subdetalhes = (widget.subdetalhes||[]).map(sd=>({
+      ...sd,
+      indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
+      catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
+    }));
+  }
+  // valor cru de uma coluna numa "linha" — em modo agrupado a linha já é o
+  // objeto sintético acima (lê a chave direto), senão resolve campo normal
+  // ou linkado da consulta principal (fonte 'linhas', registro de verdade)
+  const valorColuna = ehAgrupado ? ((o,c)=>o[c]) : ((o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
   // ordenação "ao vivo" (clique no cabeçalho) substitui a configurada — e,
   // como a quebra/subtotal depende da ordem configurada pra agrupar certo,
-  // fica desligada enquanto uma ordenação ao vivo estiver ativa
+  // fica desligada enquanto uma ordenação ao vivo estiver ativa (a
+  // ordenação CONFIGURADA nem existe em modo agrupado — a própria
+  // agregação já define a ordem padrão, por medida ou alfabética)
   const ordenacaoRuntime = pnlOrdenacaoRuntimePorWidget[widget.id];
   if(ordenacaoRuntime){
-    linhas = pnlOrdenarPorCriterios(linhas, [{campo:ordenacaoRuntime.campo, direcao:ordenacaoRuntime.direcao}], (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
-  }else if(widget.ordenacao && widget.ordenacao.length){
-    linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
+    linhas = pnlOrdenarPorCriterios(linhas, [{campo:ordenacaoRuntime.campo, direcao:ordenacaoRuntime.direcao}], valorColuna);
+  }else if(!ehAgrupado && widget.ordenacao && widget.ordenacao.length){
+    linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, valorColuna);
   }
-  const subdetalhes = (widget.subdetalhes||[]).map(sd=>({
-    ...sd,
-    indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
-    catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
-  }));
   const cab = colunas.map(c=>{
     const label = pnlLabelColuna(c, catalogo, widget.colunasApelidos);
     const seta = ordenacaoRuntime && ordenacaoRuntime.campo===c ? (ordenacaoRuntime.direcao==='asc' ? ' ▲' : ' ▼') : '';
@@ -15426,7 +15486,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   // níveis de quebra — ordem do array de ordenação = ordem de quebra (do
   // mais externo pro mais interno); só entram os critérios marcados —
   // nenhum nível enquanto a ordenação ao vivo estiver ativa (ver acima)
-  const niveisQuebra = ordenacaoRuntime ? [] : (widget.ordenacao||[]).filter(cr=>cr.quebra);
+  const niveisQuebra = (ehAgrupado || ordenacaoRuntime) ? [] : (widget.ordenacao||[]).filter(cr=>cr.quebra);
   const acumuladores = niveisQuebra.map(()=>[]);
   let valoresAnteriores = null;
   const partes = [];
@@ -15445,7 +15505,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
         const idGrupo = grupoIds[i];
         const gruposAncestrais = grupoIds.slice(0,i).filter(Boolean).join(' ');
         const toggle = idGrupo ? `<button type="button" class="pnl-relat-toggle" data-relatquebra="${idGrupo}" title="Expandir/colapsar grupo">−</button>` : '';
-        partes.push(`<tr class="pnl-relat-subtotal"${gruposAncestrais?` data-quebragrupos="${gruposAncestrais}"`:''}>${pnlLinhaTotalColunas(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`, toggle, widget.colunasFormatos)}</tr>`);
+        partes.push(`<tr class="pnl-relat-subtotal"${gruposAncestrais?` data-quebragrupos="${gruposAncestrais}"`:''}>${pnlLinhaTotalColunas(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`, toggle, widget.colunasFormatos, valorColuna)}</tr>`);
       }
       acumuladores[i] = [];
       grupoIds[i] = null;
@@ -15453,7 +15513,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   };
   linhas.forEach((o, idx)=>{
     if(niveisQuebra.length){
-      const valoresAtuais = niveisQuebra.map(cr=>pnlValorColunaLinha(o, cr.campo, indicesLinks));
+      const valoresAtuais = niveisQuebra.map(cr=>valorColuna(o, cr.campo));
       if(idx>0){
         let nivelQueMudou = -1;
         for(let i=0;i<niveisQuebra.length;i++){
@@ -15490,9 +15550,14 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
     const temSubdetalhe = subdetalhes.some(sd=>(sd.indice[pnlValorFiltro(o, sd.campoPrincipal)]||[]).length);
     const classeZebra = (widget.zebrado && idx%2===1) ? ' pnl-relat-zebra-impar' : '';
     const linhaDetalhe = `<tr class="pnl-relat-detalhe${classeZebra}"${atribQuebra}>${colunas.map((c,i)=>{
-      const raw = pnlValorColunaLinha(o, c, indicesLinks);
-      const formato = pnlFormatoColuna(c, widget.colunasFormatos);
+      const raw = valorColuna(o, c);
       const toggle = (i===0 && temSubdetalhe) ? `<button type="button" class="pnl-relat-toggle" data-relattoggle="${idLinha}" title="Expandir/colapsar subdetalhes">−</button>` : '';
+      // coluna de medida (só existe no Detalhe agrupado) usa o formato
+      // próprio da medida (fmt:money/pct/dias), igual já faz o Tabela
+      // agrupado — o formato por coluna (colunasFormatos) é só pra campo cru
+      const medida = pnlMedidaPorId(c);
+      if(medida) return `<td class="num">${toggle}${escaparHtml(pnlFormatarMedida(raw, c))}</td>`;
+      const formato = pnlFormatoColuna(c, widget.colunasFormatos);
       return `<td${pnlColunaEhNumerica(raw, formato)?' class="num"':''}>${toggle}${escaparHtml(pnlFormatarValorColunaComFormato(raw, formato))}</td>`;
     }).join('')}</tr>`;
     partes.push(linhaDetalhe + blocosSub);
@@ -15500,7 +15565,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   });
   if(niveisQuebra.length) emitirSubtotais(0);
   const corpo = partes.join('');
-  const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`, '', widget.colunasFormatos);
+  const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`, '', widget.colunasFormatos, valorColuna);
   el.innerHTML = `<table class="valores-table pnl-relatorio-tabela">
     <thead><tr>${cab.join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
@@ -15753,8 +15818,10 @@ function pnlHtmlWidget(w, i, total){
     </div>`;
   }
   if(w.tipo === 'relatorio'){
+    const filtroRapidoHtml = (w.fonte !== 'agrupado' && w.filtroRapido) ? `<div class="filters" id="pnl-${w.id}-filtrorapido"></div>` : '';
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
       <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      ${filtroRapidoHtml}
       <div style="overflow-x:auto;${estiloAltura}" id="pnl-${w.id}-conteudo"></div>
     </div>`;
   }
@@ -15977,23 +16044,32 @@ function pnlLinhaTotalColunasAoa(grupoLinhas, colunas, indicesLinks, rotulo){
 }
 function pnlExportAoaWidgetRelatorio(widget){
   const consultaId = widget.consultaId || pnlConsultaPadrao();
-  const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
   const catalogo = pnlColunasTabelaDisponiveis(consultaId);
+  const ehAgrupado = widget.fonte === 'agrupado';
+  let colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
   let linhas = pnlUltimoLinhasFiltradasPorWidget[widget.id] || [];
   linhas = pnlAplicarFiltroFixo(linhas, widget);
   const indicesLinks = pnlIndicesLinksWidget(widget);
-  if(widget.ordenacao && widget.ordenacao.length){
-    linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
+  let subdetalhes = [];
+  if(ehAgrupado){
+    const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
+    linhas = pnlAgruparColunasCruRelatorio(linhas, dimensoes, colunas);
+    colunas = [...dimensoes, ...colunas];
+  }else{
+    subdetalhes = (widget.subdetalhes||[]).map(sd=>({
+      ...sd,
+      indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
+      catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
+    }));
   }
-  const subdetalhes = (widget.subdetalhes||[]).map(sd=>({
-    ...sd,
-    indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
-    catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
-  }));
+  const valorColuna = ehAgrupado ? ((o,c)=>o[c]) : ((o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
+  if(!ehAgrupado && widget.ordenacao && widget.ordenacao.length){
+    linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, valorColuna);
+  }
   const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
   const aoa = [cab];
   const headerStyles = [{ row:0, cols:cab.length, offset:0 }];
-  const niveisQuebra = (widget.ordenacao||[]).filter(cr=>cr.quebra);
+  const niveisQuebra = ehAgrupado ? [] : (widget.ordenacao||[]).filter(cr=>cr.quebra);
   const acumuladores = niveisQuebra.map(()=>[]);
   let valoresAnteriores = null;
   const emitirSubtotais = (ateONivel)=>{
@@ -16008,7 +16084,7 @@ function pnlExportAoaWidgetRelatorio(widget){
   };
   linhas.forEach((o, idx)=>{
     if(niveisQuebra.length){
-      const valoresAtuais = niveisQuebra.map(cr=>pnlValorColunaLinha(o, cr.campo, indicesLinks));
+      const valoresAtuais = niveisQuebra.map(cr=>valorColuna(o, cr.campo));
       if(idx>0){
         let nivelQueMudou = -1;
         for(let i=0;i<niveisQuebra.length;i++){
@@ -16018,7 +16094,7 @@ function pnlExportAoaWidgetRelatorio(widget){
       }
       valoresAnteriores = valoresAtuais;
     }
-    aoa.push(colunas.map(c=>pnlExportValorCelula(pnlValorColunaLinha(o, c, indicesLinks))));
+    aoa.push(colunas.map(c=>pnlExportValorCelula(valorColuna(o, c))));
     subdetalhes.forEach(sd=>{
       const chave = pnlValorFiltro(o, sd.campoPrincipal);
       let filhos = sd.indice[chave] || [];
@@ -16194,7 +16270,10 @@ function pnlAtualizarCamposNovoWidget(){
   const semDado = ehTitulo || ehContainer;
   const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
   const precisaMedida = !ehTabelaPersonalizada && !ehRelatorio && !semDado;
-  const precisaDimensao = !ehKpi && !ehRelatorio && !semDado && (!ehTabelaPersonalizada || fonte==='agrupado');
+  // Relatório também ganha "Agrupar por" quando a fonte é 'agrupado' — igual
+  // à Tabela, o Detalhe vira 1 linha por valor (ou combinação de até 3
+  // campos) com medidas somadas, em vez de 1 linha por registro
+  const precisaDimensao = !ehKpi && !semDado && ((!ehTabelaPersonalizada && !ehRelatorio) || fonte==='agrupado');
   const selConsulta = document.getElementById('pnlNovoWidgetConsulta');
   document.getElementById('pnlNovoWidgetCampoConsulta').style.display = (pnlConsultasCarregadas.length > 1 && !semDado) ? '' : 'none';
   if(pnlConsultasCarregadas.length){
@@ -16216,9 +16295,10 @@ function pnlAtualizarCamposNovoWidget(){
   const existemContainers = pnlPainelWidgets.some(w=>w.tipo==='container' && w.id!==pnlEditandoWidgetId);
   document.getElementById('pnlNovoWidgetCampoDentroContainer').style.display = existemContainers ? '' : 'none';
   if(existemContainers) pnlPopularSelectContainerPai();
-  document.getElementById('pnlNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
-  document.getElementById('pnlNovoWidgetCampoFiltroRapido').style.display = (ehTabelaPersonalizada && fonte==='linhas') ? '' : 'none';
-  if(ehTabelaPersonalizada && fonte==='linhas'){
+  document.getElementById('pnlNovoWidgetCampoFonte').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
+  const mostraFiltroRapido = (ehTabelaPersonalizada || ehRelatorio) && fonte==='linhas';
+  document.getElementById('pnlNovoWidgetCampoFiltroRapido').style.display = mostraFiltroRapido ? '' : 'none';
+  if(mostraFiltroRapido){
     const selFR = document.getElementById('pnlNovoWidgetFiltroRapido');
     const atualFR = selFR.value;
     selFR.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
@@ -16227,11 +16307,14 @@ function pnlAtualizarCamposNovoWidget(){
   document.getElementById('pnlNovoWidgetCampoColunas').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
   document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = (ehTabelaPersonalizada || ehRelatorio || ehKpi) ? '' : 'none';
-  const mostraLinks = ((ehTabelaPersonalizada && fonte==='linhas') || ehRelatorio) && pnlConsultasCarregadas.length > 1;
+  // Links e Subdetalhes são por REGISTRO — não fazem sentido quando o
+  // Detalhe já vem agrupado (igual a Tabela: Links some em fonte 'agrupado')
+  const mostraLinks = ((ehTabelaPersonalizada || ehRelatorio) && fonte==='linhas') && pnlConsultasCarregadas.length > 1;
   document.getElementById('pnlNovoWidgetCampoLinks').style.display = mostraLinks ? '' : 'none';
   if(mostraLinks){ pnlPopularFormNovoLink(consultaId); pnlRenderLinksLista(); }
-  document.getElementById('pnlNovoWidgetCampoSubdetalhes').style.display = ehRelatorio ? '' : 'none';
-  if(ehRelatorio){ pnlPopularFormNovoSubdetalhe(); pnlRenderSubdetalhesLista(); }
+  const mostraSubdetalhes = ehRelatorio && fonte==='linhas';
+  document.getElementById('pnlNovoWidgetCampoSubdetalhes').style.display = mostraSubdetalhes ? '' : 'none';
+  if(mostraSubdetalhes){ pnlPopularFormNovoSubdetalhe(); pnlRenderSubdetalhesLista(); }
   if(ehTabelaPersonalizada || ehRelatorio || ehKpi){
     const selFF = document.getElementById('pnlNovoWidgetFiltroFixoCampo');
     const atualFF = selFF.value;
@@ -16245,7 +16328,7 @@ function pnlAtualizarCamposNovoWidget(){
   const colunas = pnlColunasDisponiveis(consultaId);
   const dimSel = document.getElementById('pnlNovoWidgetDimensao');
   dimSel.innerHTML = colunas.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
-  const multi = ehTabelaPersonalizada && fonte==='agrupado';
+  const multi = (ehTabelaPersonalizada || ehRelatorio) && fonte==='agrupado';
   document.getElementById('pnlNovoWidgetCampoDimensao2').style.display = multi ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoDimensao3').style.display = multi ? '' : 'none';
   if(multi){
@@ -16255,11 +16338,14 @@ function pnlAtualizarCamposNovoWidget(){
   }
   if(ehTabelaPersonalizada) pnlRenderColunasPicker(fonte, consultaId);
   else if(ehRelatorio){
-    pnlRenderColunasPicker('linhas', consultaId);
-    document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas do Detalhe';
+    pnlRenderColunasPicker(fonte, consultaId);
+    if(fonte!=='agrupado') document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas do Detalhe';
   }
-  document.getElementById('pnlNovoWidgetCampoOrdenacao').style.display = ehRelatorio ? '' : 'none';
-  if(ehRelatorio){
+  // Ordenação/Quebra (subtotal) assume linhas por registro — não faz
+  // sentido sobre linhas já agregadas por grupo
+  const mostraOrdenacao = ehRelatorio && fonte==='linhas';
+  document.getElementById('pnlNovoWidgetCampoOrdenacao').style.display = mostraOrdenacao ? '' : 'none';
+  if(mostraOrdenacao){
     const selOrdenacao = document.getElementById('pnlNovoWidgetOrdenacaoCampo');
     const atualOrdenacao = selOrdenacao.value;
     selOrdenacao.innerHTML = colunas.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
@@ -18283,7 +18369,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       pnlFiltroRapidoPorWidget[wid] = filtroRapido.dataset.wfiltrorapido;
       document.querySelectorAll(`[data-wfiltrorapido][data-wid="${wid}"]`).forEach(c=>c.classList.toggle('on', c===filtroRapido));
       const w = pnlPainelWidgets.find(x=>x.id===wid);
-      if(w) pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradasPorWidget[wid]);
+      if(w && w.tipo==='relatorio') pnlRenderWidgetRelatorio(`pnl-${wid}-conteudo`, w, pnlUltimoLinhasFiltradasPorWidget[wid]);
+      else if(w) pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradasPorWidget[wid]);
       return;
     }
     const relatToggle = e.target.closest('[data-relattoggle]');
@@ -18567,7 +18654,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(ehTitulo && !titulo){ toast('Informe o texto do título.'); return; }
     if(!ehTabelaPersonalizada && !ehRelatorio && !semDado && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     if(!ehTabelaPersonalizada && !ehRelatorio && !semDado && !medida){ toast('Escolha uma medida ou um campo da consulta.'); return; }
-    if(ehTabelaPersonalizada && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    if((ehTabelaPersonalizada || ehRelatorio) && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     if((ehTabelaPersonalizada || ehRelatorio) && pnlFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
     const widget = { id: pnlEditandoWidgetId || pnlGerarIdWidget(), tipo, titulo };
     const consultaId = pnlConsultaSelecionadaNoForm();
@@ -18582,12 +18669,21 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(document.getElementById('pnlNovoWidgetZebrado').checked) widget.zebrado = true;
     }
     if(ehRelatorio){
+      widget.fonte = fonte;
       widget.colunas = pnlFormColunasAtual.slice();
       if(Object.keys(pnlFormColunasApelidos).length) widget.colunasApelidos = {...pnlFormColunasApelidos};
       if(Object.keys(pnlFormColunasFormatos).length) widget.colunasFormatos = {...pnlFormColunasFormatos};
-      if(pnlFormLinksAtual.length) widget.links = pnlFormLinksAtual.slice();
-      if(pnlFormSubdetalhesAtual.length) widget.subdetalhes = JSON.parse(JSON.stringify(pnlFormSubdetalhesAtual));
-      if(pnlFormOrdenacaoAtual.length) widget.ordenacao = pnlFormOrdenacaoAtual.slice();
+      if(fonte==='agrupado'){
+        widget.dimensao = dimensao;
+        if(dimensao2) widget.dimensao2 = dimensao2;
+        if(dimensao3 && dimensao2) widget.dimensao3 = dimensao3;
+      }else{
+        if(pnlFormLinksAtual.length) widget.links = pnlFormLinksAtual.slice();
+        if(pnlFormSubdetalhesAtual.length) widget.subdetalhes = JSON.parse(JSON.stringify(pnlFormSubdetalhesAtual));
+        if(pnlFormOrdenacaoAtual.length) widget.ordenacao = pnlFormOrdenacaoAtual.slice();
+        const filtroRapido = document.getElementById('pnlNovoWidgetFiltroRapido').value;
+        if(filtroRapido) widget.filtroRapido = filtroRapido;
+      }
       const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
       const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
       const filtroFixoValor = pnlLerFiltroFixoValorForm(filtroFixoOperador);
