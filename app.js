@@ -14513,6 +14513,16 @@ let pnlUltimoLinhasFiltradasPorWidget = {};
 // filtro rápido (chips clicáveis) de um widget Tabela — só desse widget,
 // nunca mexe no filtro geral do painel. 'todas' (ou ausente) = sem filtro.
 let pnlFiltroRapidoPorWidget = {};
+// ordenação "ao vivo" do Detalhe do widget Relatório, por clique no
+// cabeçalho — por id do widget; NÃO é salva no painel (reseta ao
+// atualizar do RM), diferente da ordenação configurada no cadastro do
+// widget. Enquanto ativa, desliga a quebra/subtotal (que depende da
+// ordenação configurada) e mostra só o total geral no rodapé.
+let pnlOrdenacaoRuntimePorWidget = {};
+// coluna "pega" (mousedown, ainda sem soltar) pra reordenar arrastando o
+// cabeçalho do Detalhe — só funciona em modo de edição do painel; guarda
+// {widgetId, campo} do cabeçalho de origem
+let pnlRelatDragOrigem = null;
 // primeira consulta carregada — usado como "consulta padrão" de um widget
 // que ainda não tem consultaId salvo (widget criado antes dessa função
 // existir, ou painel com 1 consulta só, onde não faz sentido perguntar)
@@ -15356,7 +15366,13 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   const catalogo = pnlColunasTabelaDisponiveis(consultaId);
   linhas = pnlAplicarFiltroFixo(linhas, widget);
   const indicesLinks = pnlIndicesLinksWidget(widget);
-  if(widget.ordenacao && widget.ordenacao.length){
+  // ordenação "ao vivo" (clique no cabeçalho) substitui a configurada — e,
+  // como a quebra/subtotal depende da ordem configurada pra agrupar certo,
+  // fica desligada enquanto uma ordenação ao vivo estiver ativa
+  const ordenacaoRuntime = pnlOrdenacaoRuntimePorWidget[widget.id];
+  if(ordenacaoRuntime){
+    linhas = pnlOrdenarPorCriterios(linhas, [{campo:ordenacaoRuntime.campo, direcao:ordenacaoRuntime.direcao}], (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
+  }else if(widget.ordenacao && widget.ordenacao.length){
     linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
   }
   const subdetalhes = (widget.subdetalhes||[]).map(sd=>({
@@ -15364,10 +15380,15 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
     indice: pnlIndiceConsultaLinkadaMultiplo(sd.consultaId, sd.campoLink),
     catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
   }));
-  const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
+  const cab = colunas.map(c=>{
+    const label = pnlLabelColuna(c, catalogo, widget.colunasApelidos);
+    const seta = ordenacaoRuntime && ordenacaoRuntime.campo===c ? (ordenacaoRuntime.direcao==='asc' ? ' ▲' : ' ▼') : '';
+    return `<th data-relatsort="${widget.id}::${escaparHtml(c)}" data-relatcoluna="${widget.id}::${escaparHtml(c)}" draggable="true" style="cursor:pointer;user-select:none;" title="Clique pra ordenar · arraste pra reordenar (modo de edição)">${escaparHtml(label)}${seta}</th>`;
+  });
   // níveis de quebra — ordem do array de ordenação = ordem de quebra (do
-  // mais externo pro mais interno); só entram os critérios marcados
-  const niveisQuebra = (widget.ordenacao||[]).filter(cr=>cr.quebra);
+  // mais externo pro mais interno); só entram os critérios marcados —
+  // nenhum nível enquanto a ordenação ao vivo estiver ativa (ver acima)
+  const niveisQuebra = ordenacaoRuntime ? [] : (widget.ordenacao||[]).filter(cr=>cr.quebra);
   const acumuladores = niveisQuebra.map(()=>[]);
   let valoresAnteriores = null;
   const partes = [];
@@ -15442,7 +15463,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   const corpo = partes.join('');
   const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`);
   el.innerHTML = `<table class="valores-table pnl-relatorio-tabela">
-    <thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+    <thead><tr>${cab.join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
     ${linhas.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}
   </table>`;
@@ -18237,6 +18258,19 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       quebraToggle.textContent = expandido ? '+' : '−';
       return;
     }
+    const sortTh = e.target.closest('[data-relatsort]');
+    if(sortTh){
+      const raw = sortTh.dataset.relatsort;
+      const i = raw.indexOf('::');
+      const wid = raw.slice(0, i), campo = raw.slice(i+2);
+      const atual = pnlOrdenacaoRuntimePorWidget[wid];
+      if(atual && atual.campo===campo && atual.direcao==='asc') pnlOrdenacaoRuntimePorWidget[wid] = { campo, direcao:'desc' };
+      else if(atual && atual.campo===campo && atual.direcao==='desc') delete pnlOrdenacaoRuntimePorWidget[wid];
+      else pnlOrdenacaoRuntimePorWidget[wid] = { campo, direcao:'asc' };
+      const w = pnlPainelWidgets.find(x=>x.id===wid);
+      if(w) pnlRenderWidgetRelatorio(`pnl-${wid}-conteudo`, w, pnlUltimoLinhasFiltradasPorWidget[wid]);
+      return;
+    }
   });
   document.getElementById('pnlGradeWidgets').addEventListener('input', e=>{
     const busca = e.target.closest('[data-wbusca]'); if(!busca) return;
@@ -18244,6 +18278,42 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(!w) return;
     pnlRenderWidgetTabelaPersonalizada(w, pnlUltimoLinhasFiltradasPorWidget[w.id]);
   });
+  // arrastar o cabeçalho do Detalhe (widget Relatório) reordena
+  // widget.colunas — só funciona em modo de edição do painel (igual
+  // mover/editar/remover widget), pra não deixar quem só está vendo o
+  // painel mudar a configuração de todo mundo sem querer
+  document.getElementById('pnlGradeWidgets').addEventListener('dragstart', e=>{
+    const th = e.target.closest('[data-relatcoluna]');
+    if(!th || !pnlModoEdicao){ if(th) e.preventDefault(); return; }
+    const raw = th.dataset.relatcoluna;
+    const i = raw.indexOf('::');
+    pnlRelatDragOrigem = { widgetId: raw.slice(0,i), campo: raw.slice(i+2) };
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  document.getElementById('pnlGradeWidgets').addEventListener('dragover', e=>{
+    if(!pnlRelatDragOrigem) return;
+    if(!e.target.closest('[data-relatcoluna]')) return;
+    e.preventDefault();
+  });
+  document.getElementById('pnlGradeWidgets').addEventListener('drop', e=>{
+    if(!pnlRelatDragOrigem) return;
+    const th = e.target.closest('[data-relatcoluna]');
+    const origem = pnlRelatDragOrigem;
+    pnlRelatDragOrigem = null;
+    if(!th) return;
+    e.preventDefault();
+    const raw = th.dataset.relatcoluna;
+    const i = raw.indexOf('::');
+    const destino = { widgetId: raw.slice(0,i), campo: raw.slice(i+2) };
+    if(origem.widgetId !== destino.widgetId || origem.campo === destino.campo) return;
+    const w = pnlPainelWidgets.find(x=>x.id===origem.widgetId);
+    if(!w || !w.colunas) return;
+    const iOrigem = w.colunas.indexOf(origem.campo), iDestino = w.colunas.indexOf(destino.campo);
+    if(iOrigem<0 || iDestino<0) return;
+    w.colunas.splice(iDestino, 0, w.colunas.splice(iOrigem,1)[0]);
+    pnlRenderWidgetRelatorio(`pnl-${w.id}-conteudo`, w, pnlUltimoLinhasFiltradasPorWidget[w.id]);
+  });
+  document.getElementById('pnlGradeWidgets').addEventListener('dragend', ()=>{ pnlRelatDragOrigem = null; });
   document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
   document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
