@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [], rmPaineis = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [], rmPaineis = [], setores = [];
 let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
@@ -817,6 +817,7 @@ async function carregarTudo(){
   rmRelatoriosGerenciais = r.rmRelatoriosGerenciais||[];
   rmPainelLayouts = r.rmPainelLayouts||[];
   rmPaineis = r.rmPaineis||[];
+  setores = r.setores||[];
   atualizarBadgeAtendimentos();
   vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
@@ -8090,6 +8091,9 @@ function editarCliente(id){
   document.getElementById('cl_rm_senha_aviso').textContent = c.temSenhaRm ? 'Já tem uma senha salva — deixe em branco pra manter a atual.' : '';
   document.getElementById('btnAddCliente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoCliente').style.display = '';
+  document.getElementById('campoClienteSetores').style.display = '';
+  document.getElementById('cl_novo_setor').value = '';
+  renderListSetoresCliente(id);
   document.getElementById('cl_nome').scrollIntoView({ behavior:'smooth', block:'center' });
 }
 function cancelarEdicaoCliente(){
@@ -8106,6 +8110,37 @@ function cancelarEdicaoCliente(){
   document.getElementById('cl_rm_senha_aviso').textContent = '';
   document.getElementById('btnAddCliente').textContent = 'Adicionar cliente';
   document.getElementById('btnCancelarEdicaoCliente').style.display = 'none';
+  document.getElementById('campoClienteSetores').style.display = 'none';
+}
+// Setores de um cliente (ex: Financeiro, Contabilidade, Fiscal) — só
+// aparecem no form depois de salvar o cliente (precisam do id dele);
+// cada Adicionar/Remover já chama a API na hora, sem precisar "Salvar"
+// o cliente de novo (igual outras listas simples do app: Tipos/Segmentos)
+function renderListSetoresCliente(clienteId){
+  const el = document.getElementById('listSetoresCliente');
+  const doCliente = setores.filter(s=>String(s.clienteId)===String(clienteId));
+  el.innerHTML = doCliente.length === 0
+    ? `<p style="color:var(--muted);font-size:12px;margin:0;">Nenhum setor cadastrado ainda.</p>`
+    : doCliente.map(s=>`<span class="lookup-tag">${escaparHtml(s.nome)}<button type="button" onclick="removerSetorCliente('${s.id}')">×</button></span>`).join(' ');
+}
+async function addSetorCliente(){
+  if(!editandoClienteId){ toast('Salve o cliente primeiro.'); return; }
+  const nome = document.getElementById('cl_novo_setor').value.trim();
+  if(!nome){ toast('Informe o nome do setor.'); return; }
+  const r = await api('addSetor', { contaId: contaAtual().id, clienteId: editandoClienteId, nome });
+  if(!r.ok){ toast(r.erro || 'Não foi possível adicionar o setor.'); return; }
+  setores.push(r.registro);
+  document.getElementById('cl_novo_setor').value = '';
+  renderListSetoresCliente(editandoClienteId);
+  toast('Setor adicionado');
+}
+async function removerSetorCliente(id){
+  const r = await api('removerSetor', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover o setor.'); return; }
+  setores = setores.filter(s=>s.id!==id);
+  rmPaineis.forEach(p=>{ if(p.setorId===id) p.setorId = ''; });
+  renderListSetoresCliente(editandoClienteId);
+  toast('Setor removido');
 }
 async function removerCliente(id){
   const r = await api('removerCliente', { contaId: contaAtual().id, id });
@@ -12704,10 +12739,28 @@ function renderConsultasPickerPainel(consultasMarcadas){
 function consultasMarcadasPainel(){
   return [...document.querySelectorAll('#pnl_consultasLista input[data-pnlconsulta]:checked')].map(el=>el.dataset.pnlconsulta);
 }
+// select "Setor" do form de cadastro de painel — lista TODOS os setores de
+// TODOS os clientes (um painel não pertence a um cliente só; "nome (cliente)"
+// desambigua setores do mesmo nome em clientes diferentes)
+function renderSetorSelectPainel(valorAtual){
+  const sel = document.getElementById('pnl_setor');
+  if(!sel) return;
+  sel.innerHTML = `<option value="">(Geral — sem setor)</option>` +
+    setores.map(s=>`<option value="${escaparHtml(s.id)}">${escaparHtml(s.nome)} (${escaparHtml(rgrmNomeCliente(s.clienteId))})</option>`).join('');
+  sel.value = (valorAtual && setores.some(s=>s.id===valorAtual)) ? valorAtual : '';
+}
+// guia de Setor selecionada na tela de Painéis — 'geral' é a fixa (painel
+// sem setor_id), as outras são o próprio id do setor
+let pnlPaineisGuiaAtual = 'geral';
+function pnlPaineisGoSetorTab(chave){
+  pnlPaineisGuiaAtual = chave;
+  renderListRmPaineis();
+}
 function renderListRmPaineis(){
   const el = document.getElementById('listRmPaineis');
   if(!el) return;
   renderConsultasPickerPainel(editandoRmPainelId ? (rmPaineis.find(p=>p.id===editandoRmPainelId)||{}).consultas : []);
+  renderSetorSelectPainel(editandoRmPainelId ? (rmPaineis.find(p=>p.id===editandoRmPainelId)||{}).setorId : '');
   const conta = contaAtual();
   const souUsuario = conta && conta.perfil === 'USUARIO';
   // cada painel usa um menu diferente pro editar/excluir — o especial
@@ -12719,7 +12772,30 @@ function renderListRmPaineis(){
 
   let visiveis = rmPaineis.filter(p=>painelAcessivel(conta, p.id));
   if(souUsuario) visiveis = visiveis.filter(p=>painelTemConsultaDoCliente(p, conta.clienteId));
-  if(visiveis.length===0){ el.innerHTML = `<div class="empty">${souUsuario ? 'Nenhum painel liberado pro seu cliente ainda.' : 'Nenhum painel cadastrado.'}</div>`; return; }
+
+  // guias por Setor — só aparecem quando há pelo menos 1 painel visível com
+  // setor definido; "Geral" sempre entra, pros sem setor (ou setor removido)
+  const tabsEl = document.getElementById('pnlPaineisSetorTabs');
+  const setorIdsEmUso = [...new Set(visiveis.map(p=>p.setorId).filter(Boolean))];
+  if(tabsEl){
+    if(setorIdsEmUso.length === 0){
+      tabsEl.style.display = 'none';
+    }else{
+      tabsEl.style.display = '';
+      const guias = [
+        { chave:'geral', label:'Geral' },
+        ...setorIdsEmUso.map(id=>{
+          const s = setores.find(x=>x.id===id);
+          return { chave:id, label: s ? s.nome : '(setor removido)' };
+        }),
+      ];
+      if(!guias.some(g=>g.chave===pnlPaineisGuiaAtual)) pnlPaineisGuiaAtual = 'geral';
+      tabsEl.innerHTML = guias.map(g=>`<div class="subtab ${g.chave===pnlPaineisGuiaAtual?'active':''}" data-pnlsetortab="${escaparHtml(g.chave)}">${escaparHtml(g.label)}</div>`).join('');
+      visiveis = visiveis.filter(p=> pnlPaineisGuiaAtual==='geral' ? !p.setorId : p.setorId===pnlPaineisGuiaAtual);
+    }
+  }
+
+  if(visiveis.length===0){ el.innerHTML = `<div class="empty">${souUsuario ? 'Nenhum painel liberado pro seu cliente ainda.' : 'Nenhum painel cadastrado nessa guia.'}</div>`; return; }
   el.innerHTML = visiveis.map(p=>{
     const nomesConsultas = (p.consultas||[]).map(id=>{
       const r = rmRelatoriosGerenciais.find(x=>String(x.id)===String(id));
@@ -12753,6 +12829,7 @@ function editarRmPainel(id){
   editandoRmPainelId = id;
   document.getElementById('pnl_nome').value = p.nome;
   renderConsultasPickerPainel(p.consultas);
+  renderSetorSelectPainel(p.setorId);
   document.getElementById('pnl_tituloForm').textContent = 'Editar painel';
   document.getElementById('btnAddRmPainel').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmPainel').style.display = '';
@@ -12762,6 +12839,7 @@ function cancelarEdicaoRmPainel(){
   editandoRmPainelId = null;
   document.getElementById('pnl_nome').value = '';
   renderConsultasPickerPainel([]);
+  renderSetorSelectPainel('');
   document.getElementById('pnl_tituloForm').textContent = 'Novo painel';
   document.getElementById('btnAddRmPainel').textContent = 'Adicionar painel';
   document.getElementById('btnCancelarEdicaoRmPainel').style.display = 'none';
@@ -14416,6 +14494,11 @@ let pnlFormOrdenacaoAtual = [];
 // sendo montado (antes de clicar em "+ Adicionar subdetalhe")
 let pnlFormSubdetalheOrdenacaoAtual = [];
 let pnlFormSubdetalheTotaisAtual = [];
+// guias já adicionadas no form do widget "container" (antes de salvar)
+let pnlFormGuiasContainerAtual = [];
+// guia ativa (selecionada na tela) de cada container, por id do widget —
+// só estado visual, não é salvo no painel
+let pnlContainerGuiaAtiva = {};
 let pnlPainelWidgets = [];
 let pnlPainelWidgetsSalvos = [];
 let pnlPainelMedidas = [];
@@ -15327,6 +15410,8 @@ function pnlWidgetTitulo(w){
   if(w.titulo) return w.titulo;
   if(w.tipo==='tabela') return 'Tabela';
   if(w.tipo==='relatorio') return 'Relatório';
+  if(w.tipo==='titulo') return 'Título';
+  if(w.tipo==='container') return 'Container';
   return (pnlMedidaPorId(w.medida)||{}).label || w.medida || '(sem título)';
 }
 // opções (chave->label) da última renderização do picker de colunas —
@@ -15568,6 +15653,29 @@ function pnlHtmlWidget(w, i, total){
   if(w.tipo === 'kpi'){
     return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="pnl-${w.id}-conteudo"></div></div>`;
   }
+  if(w.tipo === 'titulo'){
+    const icone = w.icone ? `<span class="pnl-container-icone">${escaparHtml(w.icone)}</span>` : '';
+    const sub = w.subtitulo ? `<div class="sub">${escaparHtml(w.subtitulo)}</div>` : '';
+    return `<div class="pnl-container-titulo recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+      ${icone}<div class="pnl-container-textos"><h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>${sub}</div>
+    </div>`;
+  }
+  if(w.tipo === 'container'){
+    const guias = (w.guias && w.guias.length) ? w.guias : [{ id:'_unica', titulo:'' }];
+    const guiaAtiva = (pnlContainerGuiaAtiva[w.id] && guias.some(g=>g.id===pnlContainerGuiaAtiva[w.id])) ? pnlContainerGuiaAtiva[w.id] : guias[0].id;
+    const tabsHtml = guias.length > 1 ? `<div class="subtabs" data-containertabs="${w.id}">${guias.map(g=>`<div class="subtab ${g.id===guiaAtiva?'active':''}" data-containerguia="${w.id}::${g.id}">${escaparHtml(g.titulo)}</div>`).join('')}</div>` : '';
+    const filhos = pnlPainelWidgets.filter(c=>c.containerId===w.id);
+    const corposGuias = guias.map(g=>{
+      const filhosDaGuia = filhos.filter(f=>(f.guiaId||guias[0].id)===g.id);
+      const corpo = pnlMontarGradeHtml(filhosDaGuia) || `<div class="empty" style="padding:12px 0;">Nenhum widget nessa guia ainda.</div>`;
+      return `<div class="pnl-grade-wrap" data-containerguiaconteudo="${w.id}::${g.id}" style="${g.id===guiaAtiva?'':'display:none;'}">${corpo}</div>`;
+    }).join('');
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+      <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      ${tabsHtml}
+      ${corposGuias}
+    </div>`;
+  }
   // barra-h ignora o "height" do dashBarChart (altura sempre nasce do
   // número de linhas) — "Altura" vira um teto com rolagem, igual na tabela
   const estiloAlturaRanking = w.tipo==='barra-h' ? estiloAltura : '';
@@ -15576,9 +15684,10 @@ function pnlHtmlWidget(w, i, total){
     <div id="pnl-${w.id}-conteudo" style="margin-top:8px;${estiloAlturaRanking}"></div>
   </div>`;
 }
-function pnlRenderEsqueleto(){
-  const grade = document.getElementById('pnlGradeWidgets');
-  const ws = pnlPainelWidgets;
+// monta o HTML de uma grade (nível principal do painel, ou a guia de um
+// Container) — mesma regra em qualquer nível: KPIs seguidos agrupam numa
+// única linha "summary", os demais widgets respeitam a Largura escolhida
+function pnlMontarGradeHtml(ws){
   let html = '', i = 0;
   while(i < ws.length){
     if(ws[i].tipo === 'kpi'){
@@ -15592,7 +15701,16 @@ function pnlRenderEsqueleto(){
       i++;
     }
   }
-  grade.innerHTML = html || `<div class="empty">Nenhum widget nesse painel ainda. Clique em "⚙ Configurar painel" pra adicionar.</div>`;
+  return html;
+}
+function pnlRenderEsqueleto(){
+  const grade = document.getElementById('pnlGradeWidgets');
+  // só os widgets de "nível principal" — quem tem containerId resolvendo
+  // pra um container de verdade é desenhado DENTRO dele (ver pnlHtmlWidget
+  // tipo 'container'); se o container foi removido, cai de volta pro nível
+  // principal em vez de simplesmente sumir
+  const topo = pnlPainelWidgets.filter(w=>!w.containerId || !pnlPainelWidgets.some(c=>c.id===w.containerId && c.tipo==='container'));
+  grade.innerHTML = pnlMontarGradeHtml(topo) || `<div class="empty">Nenhum widget nesse painel ainda. Clique em "⚙ Configurar painel" pra adicionar.</div>`;
 }
 // cada widget lê de UMA consulta (widget.consultaId — ou a 1ª carregada,
 // pra widget salvo antes dessa configuração existir); por isso cada um
@@ -15600,6 +15718,9 @@ function pnlRenderEsqueleto(){
 // mesma "linhas" de antes
 function pnlRenderConteudo(){
   pnlPainelWidgets.forEach(w=>{
+    // Título/Container não têm dado pra buscar nem um "pnl-{id}-conteudo"
+    // próprio — já saem inteiros do esqueleto (pnlHtmlWidget)
+    if(w.tipo==='titulo' || w.tipo==='container') return;
     const consultaId = w.consultaId || pnlConsultaPadrao();
     const linhas = pnlFiltrados(consultaId);
     pnlUltimoLinhasFiltradasPorWidget[w.id] = linhas;
@@ -15893,6 +16014,59 @@ async function pnlExportarPainelMontado(){
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
 function pnlGerarIdWidget(){ return 'w'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+// guias do widget "container" que ainda está sendo montado — mesmo padrão
+// simples de adicionar/remover (sem reordenar) já usado pros Setores do
+// Cliente; cada guia é só {id, titulo}
+function pnlRenderGuiasContainerLista(){
+  const cont = document.getElementById('listGuiasContainer');
+  if(!cont) return;
+  cont.innerHTML = pnlFormGuiasContainerAtual.length === 0
+    ? `<p style="color:var(--muted);font-size:12px;margin:0;">Nenhuma guia ainda — sem guia, o container vira um bloco único.</p>`
+    : pnlFormGuiasContainerAtual.map(g=>`<span class="lookup-tag">${escaparHtml(g.titulo)}<button type="button" data-removerguiacontainer="${g.id}">×</button></span>`).join(' ');
+}
+function pnlAdicionarGuiaContainer(){
+  const input = document.getElementById('pnlNovaGuiaContainer');
+  const titulo = input.value.trim();
+  if(!titulo){ toast('Informe o nome da guia.'); return; }
+  pnlFormGuiasContainerAtual.push({ id: pnlGerarIdWidget(), titulo });
+  input.value = '';
+  pnlRenderGuiasContainerLista();
+}
+function pnlRemoverGuiaContainer(id){
+  pnlFormGuiasContainerAtual = pnlFormGuiasContainerAtual.filter(g=>g.id!==id);
+  pnlRenderGuiasContainerLista();
+}
+// true se "candidatoId" é o próprio widget em edição OU um descendente dele
+// (já está dentro dele, direto ou aninhado) — impede um container de virar
+// filho de si mesmo ou de um dos seus próprios netos
+function pnlEhDescendenteOuProprio(candidatoId, raizId){
+  if(candidatoId === raizId) return true;
+  const w = pnlPainelWidgets.find(x=>x.id===candidatoId);
+  if(!w || !w.containerId) return false;
+  return pnlEhDescendenteOuProprio(w.containerId, raizId);
+}
+// select "Dentro do Container" — lista todo CONTAINER já salvo no painel,
+// exceto o próprio widget em edição e qualquer container aninhado dentro
+// dele (evitaria um ciclo)
+function pnlPopularSelectContainerPai(valorAtual, guiaValorAtual){
+  const sel = document.getElementById('pnlNovoWidgetContainerPai');
+  if(!sel) return;
+  const excluirId = pnlEditandoWidgetId;
+  const containers = pnlPainelWidgets.filter(w=>w.tipo==='container' && (!excluirId || !pnlEhDescendenteOuProprio(w.id, excluirId)));
+  sel.innerHTML = `<option value="">(nível principal)</option>` + containers.map(w=>`<option value="${escaparHtml(w.id)}">${escaparHtml(pnlWidgetTitulo(w))}</option>`).join('');
+  sel.value = (valorAtual && containers.some(w=>w.id===valorAtual)) ? valorAtual : '';
+  pnlAtualizarSelectContainerGuia(guiaValorAtual);
+}
+function pnlAtualizarSelectContainerGuia(valorAtual){
+  const containerId = document.getElementById('pnlNovoWidgetContainerPai').value;
+  const campo = document.getElementById('pnlNovoWidgetCampoContainerGuia');
+  const sel = document.getElementById('pnlNovoWidgetContainerGuia');
+  const container = pnlPainelWidgets.find(w=>w.id===containerId);
+  const guias = (container && container.guias) || [];
+  campo.style.display = guias.length ? '' : 'none';
+  sel.innerHTML = guias.map(g=>`<option value="${escaparHtml(g.id)}">${escaparHtml(g.titulo)}</option>`).join('');
+  if(valorAtual && guias.some(g=>g.id===valorAtual)) sel.value = valorAtual;
+}
 // qual consulta o formulário de widget está usando agora — o seletor só
 // aparece quando o painel carregou mais de 1 consulta pro cliente atual;
 // com 1 só, nem precisa perguntar (resolve sozinho)
@@ -15906,11 +16080,15 @@ function pnlAtualizarCamposNovoWidget(){
   const ehRelatorio = tipo==='relatorio';
   const ehKpi = tipo==='kpi';
   const ehLinha = tipo==='linha';
+  const ehTitulo = tipo==='titulo';
+  const ehContainer = tipo==='container';
+  // Título/Container não têm dado próprio — não usam Consulta/Medida/Dimensão
+  const semDado = ehTitulo || ehContainer;
   const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
-  const precisaMedida = !ehTabelaPersonalizada && !ehRelatorio;
-  const precisaDimensao = !ehKpi && !ehRelatorio && (!ehTabelaPersonalizada || fonte==='agrupado');
+  const precisaMedida = !ehTabelaPersonalizada && !ehRelatorio && !semDado;
+  const precisaDimensao = !ehKpi && !ehRelatorio && !semDado && (!ehTabelaPersonalizada || fonte==='agrupado');
   const selConsulta = document.getElementById('pnlNovoWidgetConsulta');
-  document.getElementById('pnlNovoWidgetCampoConsulta').style.display = pnlConsultasCarregadas.length > 1 ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoConsulta').style.display = (pnlConsultasCarregadas.length > 1 && !semDado) ? '' : 'none';
   if(pnlConsultasCarregadas.length){
     const atualConsulta = selConsulta.value;
     selConsulta.innerHTML = pnlConsultasCarregadas.map(c=>`<option value="${escaparHtml(c.id)}">${escaparHtml(c.nome)}</option>`).join('');
@@ -15923,7 +16101,13 @@ function pnlAtualizarCamposNovoWidget(){
   document.getElementById('pnlNovoWidgetCampoDimensao').style.display = precisaDimensao ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra') ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoMedidas2').style.display = (ehLinha || tipo==='barra') ? '' : 'none';
-  document.getElementById('pnlNovoWidgetCampoSubtitulo').style.display = ehKpi ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoSubtitulo').style.display = (ehKpi || ehTitulo) ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoIcone').style.display = ehTitulo ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoGuias').style.display = ehContainer ? '' : 'none';
+  if(ehContainer) pnlRenderGuiasContainerLista();
+  const existemContainers = pnlPainelWidgets.some(w=>w.tipo==='container' && w.id!==pnlEditandoWidgetId);
+  document.getElementById('pnlNovoWidgetCampoDentroContainer').style.display = existemContainers ? '' : 'none';
+  if(existemContainers) pnlPopularSelectContainerPai();
   document.getElementById('pnlNovoWidgetCampoFonte').style.display = ehTabelaPersonalizada ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoFiltroRapido').style.display = (ehTabelaPersonalizada && fonte==='linhas') ? '' : 'none';
   if(ehTabelaPersonalizada && fonte==='linhas'){
@@ -16060,17 +16244,29 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
   document.getElementById('pnlNovoWidgetSubtitulo').value = '';
+  document.getElementById('pnlNovoWidgetIcone').value = '';
+  pnlFormGuiasContainerAtual = [];
   pnlAtualizarCamposNovoWidget();
+  document.getElementById('pnlNovoWidgetContainerPai').value = '';
+  pnlAtualizarSelectContainerGuia();
   document.getElementById('pnlNovoWidgetDimensao2').value = '';
   document.getElementById('pnlNovoWidgetDimensao3').value = '';
   document.getElementById('btnPnlAdicionarWidget').textContent = 'Adicionar ao painel';
 }
+// move um widget dentro do seu próprio grupo (nível principal, ou a mesma
+// guia do mesmo container) — nunca mistura posição com widgets de outro
+// grupo, mesmo os dois estando no mesmo array pnlPainelWidgets por baixo
 function pnlWidgetMover(id, dir){
-  const i = pnlPainelWidgets.findIndex(w=>w.id===id);
-  if(i<0) return;
-  const j = dir==='up' ? i-1 : i+1;
-  if(j<0 || j>=pnlPainelWidgets.length) return;
-  [pnlPainelWidgets[i], pnlPainelWidgets[j]] = [pnlPainelWidgets[j], pnlPainelWidgets[i]];
+  const w = pnlPainelWidgets.find(x=>x.id===id);
+  if(!w) return;
+  const irmaos = pnlPainelWidgets.filter(x=>(x.containerId||'')===(w.containerId||'') && (x.guiaId||'')===(w.guiaId||''));
+  const pos = irmaos.findIndex(x=>x.id===id);
+  const alvoPos = dir==='up' ? pos-1 : pos+1;
+  if(alvoPos<0 || alvoPos>=irmaos.length) return;
+  const alvo = irmaos[alvoPos];
+  const iReal = pnlPainelWidgets.findIndex(x=>x.id===w.id);
+  const jReal = pnlPainelWidgets.findIndex(x=>x.id===alvo.id);
+  [pnlPainelWidgets[iReal], pnlPainelWidgets[jReal]] = [pnlPainelWidgets[jReal], pnlPainelWidgets[iReal]];
   pnlRender();
 }
 function pnlWidgetRemover(id){
@@ -16097,11 +16293,13 @@ function pnlWidgetEditar(id){
   pnlFormSubdetalheOrdenacaoAtual = [];
   pnlFormSubdetalheTotaisAtual = [];
   pnlFormSubdetalheColunasApelidos = {};
+  pnlFormGuiasContainerAtual = w.guias ? JSON.parse(JSON.stringify(w.guias)) : [];
   document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   document.getElementById('pnlNovoWidgetZebrado').checked = !!w.zebrado;
   pnlAtualizarCamposNovoWidget();
+  pnlPopularSelectContainerPai(w.containerId || '', w.guiaId || '');
   document.getElementById('pnlNovoWidgetFiltroRapido').value = w.filtroRapido || '';
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = w.filtroFixoCampo || '';
   document.getElementById('pnlNovoWidgetFiltroFixoOperador').value = w.filtroFixoOperador || '=';
@@ -16118,6 +16316,8 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetLegenda').checked = !!w.mostrarLegenda;
   document.getElementById('pnlNovoWidgetRotulos').checked = !!w.mostrarRotulos;
   document.getElementById('pnlNovoWidgetSubtitulo').value = w.subtitulo || '';
+  document.getElementById('pnlNovoWidgetIcone').value = w.icone || '';
+  if(w.tipo==='container') pnlRenderGuiasContainerLista();
   document.getElementById('btnPnlAdicionarWidget').textContent = 'Salvar alterações no widget';
   document.getElementById('pnlCardAddWidget').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -17623,11 +17823,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const nome = document.getElementById('pnl_nome').value.trim();
     if(!nome){ toast('Informe o nome do painel'); return; }
     const consultas = consultasMarcadasPainel();
+    const setorId = document.getElementById('pnl_setor').value;
     const editando = !!editandoRmPainelId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmPainel', { contaId, id: editandoRmPainelId, nome: nome.toUpperCase(), consultas })
-      : await api('addRmPainel', { contaId, nome: nome.toUpperCase(), consultas });
+      ? await api('atualizarRmPainel', { contaId, id: editandoRmPainelId, nome: nome.toUpperCase(), consultas, setorId })
+      : await api('addRmPainel', { contaId, nome: nome.toUpperCase(), consultas, setorId });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmPainel();
     await carregarTudo();
@@ -17635,6 +17836,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast(editando ? 'Painel atualizado' : 'Painel adicionado');
   });
   document.getElementById('btnCancelarEdicaoRmPainel').addEventListener('click', cancelarEdicaoRmPainel);
+  document.getElementById('pnlPaineisSetorTabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    pnlPaineisGoSetorTab(tab.dataset.pnlsetortab);
+  });
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
   document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
   document.getElementById('btnRecebExportarCsv').addEventListener('click', recebExportarCsv);
@@ -17842,6 +18047,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     recebRender();
   });
   document.getElementById('btnPnlVoltar').addEventListener('click', ()=>goRgrmSub('paineis'));
+  document.getElementById('btnRecebVoltar').addEventListener('click', ()=>goRgrmSub('paineis'));
   document.getElementById('btnPnlAtualizar').addEventListener('click', pnlAtualizarDoRm);
   document.getElementById('btnPnlExportarExcel').addEventListener('click', pnlExportarExcel);
   document.getElementById('btnPnlExportarCsv').addEventListener('click', pnlExportarCsv);
@@ -17932,6 +18138,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       else if(acao==='remover') pedirConfirmacao('Remover widget?','Isso só tira do painel — não mexe em nenhum dado.', ()=>pnlWidgetRemover(id));
       return;
     }
+    const guiaTab = e.target.closest('[data-containerguia]');
+    if(guiaTab){
+      const [containerId, guiaId] = guiaTab.dataset.containerguia.split('::');
+      pnlContainerGuiaAtiva[containerId] = guiaId;
+      document.querySelectorAll(`[data-containertabs="${containerId}"] .subtab`).forEach(t=>t.classList.toggle('active', t.dataset.containerguia===`${containerId}::${guiaId}`));
+      document.querySelectorAll(`[data-containerguiaconteudo^="${containerId}::"]`).forEach(c=>{ c.style.display = (c.dataset.containerguiaconteudo===`${containerId}::${guiaId}`) ? '' : 'none'; });
+      return;
+    }
     const filtroRapido = e.target.closest('[data-wfiltrorapido]');
     if(filtroRapido){
       const wid = filtroRapido.dataset.wid;
@@ -17977,6 +18191,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').addEventListener('change', pnlAtualizarFiltroFixoValor);
   document.getElementById('pnlNovoWidgetFiltroFixoOperador').addEventListener('change', pnlAtualizarFiltroFixoValor);
+  document.getElementById('btnAddGuiaContainer').addEventListener('click', pnlAdicionarGuiaContainer);
+  document.getElementById('listGuiasContainer').addEventListener('click', e=>{
+    const btn = e.target.closest('[data-removerguiacontainer]'); if(!btn) return;
+    pnlRemoverGuiaContainer(btn.dataset.removerguiacontainer);
+  });
+  document.getElementById('pnlNovoWidgetContainerPai').addEventListener('change', ()=>pnlAtualizarSelectContainerGuia());
   document.getElementById('pnlNovoWidgetColunasLista').addEventListener('change', e=>{
     const cb = e.target.closest('[data-wcoluna]'); if(!cb) return;
     const k = cb.value;
@@ -18148,6 +18368,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const tipo = document.getElementById('pnlNovoWidgetTipo').value;
     const ehTabelaPersonalizada = tipo==='tabela';
     const ehRelatorio = tipo==='relatorio';
+    const ehTitulo = tipo==='titulo';
+    const ehContainer = tipo==='container';
+    const semDado = ehTitulo || ehContainer;
     const titulo = document.getElementById('pnlNovoWidgetTitulo').value.trim();
     const medida = document.getElementById('pnlNovoWidgetMedida').value;
     const dimensao = document.getElementById('pnlNovoWidgetDimensao').value;
@@ -18155,13 +18378,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dimensao3 = document.getElementById('pnlNovoWidgetDimensao3').value;
     const top = document.getElementById('pnlNovoWidgetTop').value;
     const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
-    if(!ehTabelaPersonalizada && !ehRelatorio && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
-    if(!ehTabelaPersonalizada && !ehRelatorio && !medida){ toast('Escolha uma medida ou um campo da consulta.'); return; }
+    if(ehTitulo && !titulo){ toast('Informe o texto do título.'); return; }
+    if(!ehTabelaPersonalizada && !ehRelatorio && !semDado && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
+    if(!ehTabelaPersonalizada && !ehRelatorio && !semDado && !medida){ toast('Escolha uma medida ou um campo da consulta.'); return; }
     if(ehTabelaPersonalizada && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     if((ehTabelaPersonalizada || ehRelatorio) && pnlFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
     const widget = { id: pnlEditandoWidgetId || pnlGerarIdWidget(), tipo, titulo };
     const consultaId = pnlConsultaSelecionadaNoForm();
-    if(consultaId) widget.consultaId = consultaId;
+    if(consultaId && !semDado) widget.consultaId = consultaId;
     if(tipo !== 'kpi'){
       const largura = document.getElementById('pnlNovoWidgetLargura').value || 'completa';
       if(largura !== 'completa') widget.largura = largura;
@@ -18198,6 +18422,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
       const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
       if(filtroFixoCampo && (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL' || filtroFixoValor)){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoOperador = filtroFixoOperador; widget.filtroFixoValor = (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL') ? '' : filtroFixoValor; }
+    }else if(ehTitulo){
+      const subtituloTitulo = document.getElementById('pnlNovoWidgetSubtitulo').value.trim();
+      if(subtituloTitulo) widget.subtitulo = subtituloTitulo;
+      const icone = document.getElementById('pnlNovoWidgetIcone').value.trim();
+      if(icone) widget.icone = icone;
+    }else if(ehContainer){
+      if(pnlFormGuiasContainerAtual.length) widget.guias = JSON.parse(JSON.stringify(pnlFormGuiasContainerAtual));
     }else{
       widget.medida = medida;
       if(tipo==='kpi'){
@@ -18214,6 +18445,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         widget.mostrarLegenda = document.getElementById('pnlNovoWidgetLegenda').checked;
         widget.mostrarRotulos = document.getElementById('pnlNovoWidgetRotulos').checked;
       }
+    }
+    // "Dentro do Container" vale pra qualquer tipo de widget, inclusive
+    // outro container (aninhado) — nunca deixa um container virar filho
+    // dele mesmo ou de um dos seus próprios descendentes
+    const containerPaiId = document.getElementById('pnlNovoWidgetContainerPai').value;
+    if(containerPaiId){
+      if(pnlEhDescendenteOuProprio(containerPaiId, widget.id)){ toast('Não é possível colocar um container dentro dele mesmo.'); return; }
+      widget.containerId = containerPaiId;
+      const guiaId = document.getElementById('pnlNovoWidgetContainerGuia').value;
+      if(guiaId) widget.guiaId = guiaId;
     }
     if(pnlEditandoWidgetId){
       const i = pnlPainelWidgets.findIndex(w=>w.id===pnlEditandoWidgetId);
@@ -18916,6 +19157,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast(editando ? 'Cliente atualizado' : 'Cliente adicionado');
   });
   document.getElementById('btnCancelarEdicaoCliente').addEventListener('click', cancelarEdicaoCliente);
+  document.getElementById('btnAddSetor').addEventListener('click', addSetorCliente);
 
   document.getElementById('btnAddTipo').addEventListener('click', async ()=>{
     const nome = document.getElementById('tp_nome').value.trim();

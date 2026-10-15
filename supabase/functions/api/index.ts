@@ -286,7 +286,10 @@ function rmRelatorioGerencialParaApi(r: any) {
   return { id: r.id, slug: r.slug || '', nome: r.nome, codigoSentenca: r.codigo_sentenca, coligada: r.coligada || '1', sistema: r.sistema || 'G', parametros: r.parametros || '', empresaId: r.empresa_id || '', clienteId: r.cliente_id || '' };
 }
 function rmPainelParaApi(p: any) {
-  return { id: p.id, slug: p.slug, nome: p.nome, tipo: p.tipo || 'generico', consultas: p.consultas || [] };
+  return { id: p.id, slug: p.slug, nome: p.nome, tipo: p.tipo || 'generico', consultas: p.consultas || [], setorId: p.setor_id || '' };
+}
+function setorParaApi(s: any) {
+  return { id: s.id, nome: s.nome, clienteId: s.cliente_id };
 }
 function categoriaFinanceiraParaApi(c: any) {
   return { id: c.id, nome: c.nome, tipo: c.tipo || 'DESPESA', empresaId: c.empresa_id || '' };
@@ -388,6 +391,8 @@ async function rotear(req: any): Promise<any> {
     case 'addRmPainel': return acaoAddRmPainel(req);
     case 'atualizarRmPainel': return acaoAtualizarRmPainel(req);
     case 'removerRmPainel': return acaoRemoverRmPainel(req);
+    case 'addSetor': return acaoAddSetor(req);
+    case 'removerSetor': return acaoRemoverSetor(req);
     case 'addCategoriaFinanceira': return acaoAddCategoriaFinanceira(req);
     case 'atualizarCategoriaFinanceira': return acaoAtualizarCategoriaFinanceira(req);
     case 'removerCategoriaFinanceira': return acaoRemoverCategoriaFinanceira(req);
@@ -544,7 +549,7 @@ async function acaoDados(req: any) {
   if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
   let rmRelatoriosQuery = db.from('rm_relatorios_gerenciais').select('*').order('nome');
   if (empresaId) rmRelatoriosQuery = rmRelatoriosQuery.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }, { data: perfilPaineisRaw }, { data: contaPaineisRaw }] = await Promise.all([
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }, { data: perfilPaineisRaw }, { data: contaPaineisRaw }, { data: setoresRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -563,6 +568,7 @@ async function acaoDados(req: any) {
     db.from('rm_paineis').select('*').order('nome'),
     db.from('perfil_acesso_paineis').select('*'),
     db.from('conta_paineis').select('*'),
+    db.from('setores').select('*').order('nome'),
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
@@ -732,6 +738,7 @@ async function acaoDados(req: any) {
     rmRelatoriosGerenciais: (rmRelatoriosRaw || []).map(rmRelatorioGerencialParaApi),
     rmPainelLayouts: (rmPainelLayoutsRaw || []).map((p: any) => ({ slug: p.slug, widgets: p.widgets || [], filtros: p.filtros || [], medidas: p.medidas || [] })),
     rmPaineis: (rmPaineisRaw || []).map(rmPainelParaApi),
+    setores: (setoresRaw || []).map(setorParaApi),
   };
 }
 
@@ -4117,7 +4124,7 @@ async function acaoAddRmPainel(req: any) {
   if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.paineis', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar painéis.' };
   if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome do painel.' };
   const consultas = Array.isArray(req.consultas) ? req.consultas.map(String) : [];
-  const registro = { id: gerarId(), slug: gerarSlugPainel(req.nome), nome: req.nome, tipo: 'generico', consultas };
+  const registro = { id: gerarId(), slug: gerarSlugPainel(req.nome), nome: req.nome, tipo: 'generico', consultas, setor_id: req.setorId || null };
   const { error } = await db.from('rm_paineis').insert(registro);
   if (error) return { ok: false, erro: error.message };
   return { ok: true, registro: rmPainelParaApi(registro) };
@@ -4128,6 +4135,7 @@ async function acaoAtualizarRmPainel(req: any) {
   const atualizado: any = {};
   if (req.nome !== undefined && String(req.nome).trim()) atualizado.nome = req.nome;
   if (req.consultas !== undefined) atualizado.consultas = Array.isArray(req.consultas) ? req.consultas.map(String) : [];
+  if (req.setorId !== undefined) atualizado.setor_id = req.setorId || null;
   const { error } = await db.from('rm_paineis').update(atualizado).eq('id', req.id);
   if (error) return { ok: false, erro: error.message };
   return { ok: true };
@@ -4137,6 +4145,24 @@ async function acaoRemoverRmPainel(req: any) {
   const { data: painel } = await db.from('rm_paineis').select('tipo').eq('id', req.id).maybeSingle();
   if (painel?.tipo === 'especial') return { ok: false, erro: 'O Painel de Recebíveis não pode ser removido — ele é fixo no sistema.' };
   await db.from('rm_paineis').delete().eq('id', req.id);
+  return { ok: true };
+}
+// Setores — cadastrados dentro do form do Cliente (Cadastros → Clientes),
+// usados só pra agrupar Painéis em guias (ver setorParaApi/rm_paineis.setor_id)
+async function acaoAddSetor(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar clientes.' };
+  if (!req.clienteId) return { ok: false, erro: 'Cliente não informado.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome do setor.' };
+  const registro = { id: gerarId(), nome: req.nome.trim(), cliente_id: req.clienteId };
+  const { error } = await db.from('setores').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: setorParaApi(registro) };
+}
+async function acaoRemoverSetor(req: any) {
+  if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar clientes.' };
+  if (!req.id) return { ok: false, erro: 'Setor não informado.' };
+  await db.from('rm_paineis').update({ setor_id: null }).eq('setor_id', req.id);
+  await db.from('setores').delete().eq('id', req.id);
   return { ok: true };
 }
 
