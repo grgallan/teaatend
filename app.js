@@ -14540,7 +14540,23 @@ function pnlLinhasParaOpcoes(campoExcluir){
 
 /* ---------- medidas (sempre campo+função — não existe medida "de sistema" num painel genérico) ---------- */
 function pnlGerarIdMedida(){ return 'medida'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
-function pnlMedidaPorId(id){ return pnlPainelMedidas.find(m=>m.id===id); }
+// campo cru usado DIRETO como "medida" de um widget (KPI/gráfico), sem
+// precisar cadastrar uma Medida antes — codificado como "#consultaId::campo"
+// (mesma ideia do campo linkado, prefixo diferente pra nunca colidir com
+// id de medida de verdade, que é gerado por pnlGerarIdWidget). Função
+// sempre soma — pra outras agregações, ainda cadastra uma Medida normal.
+function pnlEhCampoCruMedida(c){ return typeof c === 'string' && c.charAt(0)==='#' && c.includes('::'); }
+function pnlCodificarCampoCruMedida(consultaId, campo){ return `#${consultaId}::${campo}`; }
+function pnlParseCampoCruMedida(c){ const i = c.indexOf('::'); return { consultaId: c.slice(1, i), campo: c.slice(i+2) }; }
+function pnlMedidaPorId(id){
+  const def = pnlPainelMedidas.find(m=>m.id===id);
+  if(def) return def;
+  if(pnlEhCampoCruMedida(id)){
+    const { consultaId, campo } = pnlParseCampoCruMedida(id);
+    return { id, label: campo, consultaId, campo, funcao: 'soma' };
+  }
+  return undefined;
+}
 const RECEB_FUNCOES_MEDIDA_REF = { soma:'Soma', media:'Média', contagem:'Contagem', contagemDistinta:'Contagem distinta', min:'Mínimo', max:'Máximo', percentualDoTotal:'% do total geral' };
 function pnlLabelFuncaoMedida(funcao){ return RECEB_FUNCOES_MEDIDA_REF[funcao] || funcao || ''; }
 function pnlCalcularMedida(linhas, medidaId){
@@ -14723,19 +14739,22 @@ function pnlValorCampoLinkadoAgrupado(c, camposChaves, valoresChaves){
 // grupo=null é o painel inteiro (KPI), ou {campos,valores} é um grupo
 // específico (tabela agrupada / gráficos por dimensão). "pilha" evita
 // loop infinito quando fórmulas se referenciam em ciclo
-function pnlValorMedida(medidaId, grupo, pilha){
+// filtroFixo é {campo,valor} — usado pelo filtro fixo DESSE widget (ex: KPI),
+// aplicado por cima do filtro geral do painel, nunca mexe nos outros widgets
+function pnlValorMedida(medidaId, grupo, pilha, filtroFixo){
   const def = pnlMedidaPorId(medidaId);
   if(!def) return 0;
   pilha = pilha || new Set();
   if(pilha.has(medidaId)) return 0;
   if(def.formula){
     pilha.add(medidaId);
-    const v = pnlAvaliarFormulaMedida(def.formula, id => pnlValorMedida(id, grupo, pilha));
+    const v = pnlAvaliarFormulaMedida(def.formula, id => pnlValorMedida(id, grupo, pilha, filtroFixo));
     pilha.delete(medidaId);
     return v;
   }
-  const linhas = pnlLinhasConsultaNoContexto(def.consultaId, grupo);
+  let linhas = pnlLinhasConsultaNoContexto(def.consultaId, grupo);
   if(linhas === null) return 0;
+  if(filtroFixo && filtroFixo.campo && filtroFixo.valor) linhas = linhas.filter(o=>pnlValorFiltro(o, filtroFixo.campo)===filtroFixo.valor);
   return pnlCalcularMedida(linhas, medidaId);
 }
 function pnlFormatarMedida(valor, medidaId){
@@ -14985,7 +15004,8 @@ function pnlMoverFiltro(campo, dir){
 /* ---------- render de cada tipo de widget ---------- */
 function pnlRenderWidgetKpi(containerId, widget, linhas){
   const el = document.getElementById(containerId); if(!el) return;
-  const valor = pnlValorMedida(widget.medida, null);
+  const filtroFixo = (widget.filtroFixoCampo && widget.filtroFixoValor) ? { campo: widget.filtroFixoCampo, valor: widget.filtroFixoValor } : null;
+  const valor = pnlValorMedida(widget.medida, null, undefined, filtroFixo);
   const def = pnlMedidaPorId(widget.medida) || {};
   const sub = widget.subtitulo || '';
   el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}</div>`;
@@ -15893,13 +15913,13 @@ function pnlAtualizarCamposNovoWidget(){
   }
   document.getElementById('pnlNovoWidgetCampoColunas').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut') ? '' : 'none';
-  document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
+  document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = (ehTabelaPersonalizada || ehRelatorio || ehKpi) ? '' : 'none';
   const mostraLinks = ((ehTabelaPersonalizada && fonte==='linhas') || ehRelatorio) && pnlConsultasCarregadas.length > 1;
   document.getElementById('pnlNovoWidgetCampoLinks').style.display = mostraLinks ? '' : 'none';
   if(mostraLinks){ pnlPopularFormNovoLink(consultaId); pnlRenderLinksLista(); }
   document.getElementById('pnlNovoWidgetCampoSubdetalhes').style.display = ehRelatorio ? '' : 'none';
   if(ehRelatorio){ pnlPopularFormNovoSubdetalhe(); pnlRenderSubdetalhesLista(); }
-  if(ehTabelaPersonalizada || ehRelatorio){
+  if(ehTabelaPersonalizada || ehRelatorio || ehKpi){
     const selFF = document.getElementById('pnlNovoWidgetFiltroFixoCampo');
     const atualFF = selFF.value;
     selFF.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
@@ -15968,7 +15988,19 @@ function pnlPopularSelectsMedidaWidget(){
   // qualquer medida vale em qualquer widget, independente da Consulta
   // escolhida nele — ver comentário equivalente em pnlRenderColunasPicker
   const medidaSel = document.getElementById('pnlNovoWidgetMedida');
-  if(medidaSel) medidaSel.innerHTML = pnlPainelMedidas.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('') || `<option value="">(nenhuma medida criada ainda)</option>`;
+  if(medidaSel){
+    const atual = medidaSel.value;
+    const consultaId = pnlConsultaSelecionadaNoForm();
+    const opcoesMedidas = pnlPainelMedidas.map(m=>`<option value="${escaparHtml(m.id)}">${escaparHtml(m.label)}</option>`).join('');
+    // campos crus da consulta deste widget — dá pra usar DIRETO como
+    // medida (soma), sem precisar cadastrar uma Medida só pra isso
+    const campos = consultaId ? pnlColunasDisponiveis(consultaId) : [];
+    const opcoesCampos = campos.map(c=>`<option value="${escaparHtml(pnlCodificarCampoCruMedida(consultaId, c))}">${escaparHtml(c)}</option>`).join('');
+    medidaSel.innerHTML = (opcoesMedidas ? `<optgroup label="Medidas">${opcoesMedidas}</optgroup>` : '')
+      + (opcoesCampos ? `<optgroup label="Campos da consulta (soma)">${opcoesCampos}</optgroup>` : '')
+      || `<option value="">(nenhuma medida ou campo disponível)</option>`;
+    if([...medidaSel.options].some(o=>o.value===atual)) medidaSel.value = atual;
+  }
   pnlRenderMedidasExtrasPicker();
 }
 function pnlResetFormNovoWidget(){
@@ -18093,7 +18125,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const top = document.getElementById('pnlNovoWidgetTop').value;
     const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
     if(!ehTabelaPersonalizada && !ehRelatorio && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
-    if(!ehTabelaPersonalizada && !ehRelatorio && !medida){ toast('Crie uma medida primeiro, no card "Medidas".'); return; }
+    if(!ehTabelaPersonalizada && !ehRelatorio && !medida){ toast('Escolha uma medida ou um campo da consulta.'); return; }
     if(ehTabelaPersonalizada && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     if((ehTabelaPersonalizada || ehRelatorio) && pnlFormColunasAtual.length===0){ toast('Escolha pelo menos uma coluna.'); return; }
     const widget = { id: pnlEditandoWidgetId || pnlGerarIdWidget(), tipo, titulo };
@@ -18138,6 +18170,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(tipo==='kpi'){
         const subtitulo = document.getElementById('pnlNovoWidgetSubtitulo').value.trim();
         if(subtitulo) widget.subtitulo = subtitulo;
+        const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
+        const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
+        if(filtroFixoCampo && filtroFixoValor){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoValor = filtroFixoValor; }
       }
       else if(tipo==='linha'){ widget.dimensao = dimensao; if(pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
       else { widget.dimensao = dimensao; if(top) widget.top = Number(top); if(tipo==='barra' && pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
