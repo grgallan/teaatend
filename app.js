@@ -14712,7 +14712,7 @@ function pnlMedidaPorId(id){
   }
   return undefined;
 }
-const RECEB_FUNCOES_MEDIDA_REF = { soma:'Soma', media:'Média', contagem:'Contagem', contagemDistinta:'Contagem distinta', min:'Mínimo', max:'Máximo', percentualDoTotal:'% do total geral' };
+const RECEB_FUNCOES_MEDIDA_REF = { soma:'Soma', media:'Média', contagem:'Contagem', contagemDistinta:'Contagem distinta', min:'Mínimo', max:'Máximo', ultimoValor:'Último valor', percentualDoTotal:'% do total geral' };
 function pnlLabelFuncaoMedida(funcao){ return RECEB_FUNCOES_MEDIDA_REF[funcao] || funcao || ''; }
 function pnlCalcularMedida(linhas, medidaId){
   const def = pnlMedidaPorId(medidaId);
@@ -14729,6 +14729,14 @@ function pnlCalcularMedida(linhas, medidaId){
     case 'media': return vals.length ? vals.reduce((s,v)=>s+v,0)/vals.length : 0;
     case 'min': return vals.length ? Math.min(...vals) : 0;
     case 'max': return vals.length ? Math.max(...vals) : 0;
+    // valor do campo na linha "mais recente" do grupo, segundo o campo de
+    // ordem escolhido (ex: DATA) — nunca passa por pnlLinhasConsultaNoContexto
+    // de propósito, já recebe "linhas" já escopado ao grupo/contexto certo
+    case 'ultimoValor': {
+      if(!linhas.length) return 0;
+      const ordenadas = linhas.slice().sort((a,b)=>pnlCompararValorOrdenacao(a[def.campoOrdem], b[def.campoOrdem]));
+      return pnlNum(ordenadas[ordenadas.length-1][def.campo]);
+    }
     case 'percentualDoTotal': {
       const todasLinhas = pnlDadosPorConsulta[def.consultaId] || linhas;
       const totalGeral = todasLinhas.reduce((s,o)=>s+pnlNum(o[def.campo]),0);
@@ -16669,8 +16677,9 @@ function pnlRenderListaMedidas(){
   const cont = document.getElementById('pnlListaMedidas');
   if(!cont) return;
   cont.innerHTML = pnlPainelMedidas.map(def=>{
+    const detalheOrdem = (def.funcao==='ultimoValor' && def.campoOrdem) ? ` (ordenado por ${escaparHtml(def.campoOrdem)})` : '';
     const detalhe = def.formula ? ` · Fórmula: ${escaparHtml(pnlFormulaParaExibicao(def.formula))}`
-      : (def.funcao==='contagem' ? ` · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}` : ` · ${escaparHtml(def.campo||'')} · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}`);
+      : (def.funcao==='contagem' ? ` · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}` : ` · ${escaparHtml(def.campo||'')} · ${escaparHtml(pnlLabelFuncaoMedida(def.funcao))}${detalheOrdem}`);
     const casas = Number.isInteger(def.casas) ? def.casas : (def.fmt==='pct' ? 1 : 0);
     const detalheFormato = def.fmt==='money' ? '' : ` · ${casas>0 ? casas+' casa'+(casas>1?'s':'')+' decimal'+(casas>1?'is':'') : 'inteiro'}`;
     const consulta = (!def.formula && pnlConsultasCarregadas.length > 1) ? pnlConsultasCarregadas.find(c=>c.id===def.consultaId) : null;
@@ -16700,8 +16709,15 @@ function pnlPopularSelectCampoMedida(){
     if(pnlConsultasCarregadas.some(c=>c.id===atualConsulta)) selConsulta.value = atualConsulta;
   }
   const atual = sel.value;
-  sel.innerHTML = pnlColunasDisponiveis(pnlConsultaSelecionadaNoFormMedida()).map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  const opcoesCampos = pnlColunasDisponiveis(pnlConsultaSelecionadaNoFormMedida()).map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  sel.innerHTML = opcoesCampos;
   if([...sel.options].some(o=>o.value===atual)) sel.value = atual;
+  const selOrdem = document.getElementById('pnlMedidaOrdem');
+  if(selOrdem){
+    const atualOrdem = selOrdem.value;
+    selOrdem.innerHTML = opcoesCampos;
+    if([...selOrdem.options].some(o=>o.value===atualOrdem)) selOrdem.value = atualOrdem;
+  }
 }
 // paleta de botões (medidas existentes + operadores) pra montar a
 // fórmula sem precisar decorar/digitar o id de cada medida na mão
@@ -16736,6 +16752,7 @@ function pnlAtualizarCamposFormMedida(){
   const formato = document.getElementById('pnlMedidaFormato').value;
   const tipoNumero = document.getElementById('pnlMedidaTipoNumero').value;
   document.getElementById('pnlMedidaCampoCampo').style.display = (ehFormula || funcao==='contagem') ? 'none' : '';
+  document.getElementById('pnlMedidaCampoOrdem').style.display = (!ehFormula && funcao==='ultimoValor') ? '' : 'none';
   document.getElementById('pnlMedidaLinhaCasas').style.display = formato!=='money' ? 'flex' : 'none';
   document.getElementById('pnlMedidaCampoCasas').style.display = (formato!=='money' && tipoNumero==='decimal') ? '' : 'none';
 }
@@ -16771,6 +16788,7 @@ function pnlEditarMedida(id){
   document.getElementById('pnlMedidaCasas').value = casasAtuais>0 ? casasAtuais : 2;
   pnlAtualizarCamposFormMedida();
   if(def.campo) document.getElementById('pnlMedidaCampo').value = def.campo;
+  if(def.campoOrdem) document.getElementById('pnlMedidaOrdem').value = def.campoOrdem;
   document.getElementById('btnPnlAdicionarMedida').textContent = 'Salvar alterações na medida';
   document.getElementById('pnlCardMedidas').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -18439,8 +18457,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       const funcao = document.getElementById('pnlMedidaFuncao').value;
       const campo = document.getElementById('pnlMedidaCampo').value;
       if(funcao!=='contagem' && !campo){ toast('Escolha o campo que a medida vai agregar.'); return; }
+      const campoOrdem = document.getElementById('pnlMedidaOrdem').value;
+      if(funcao==='ultimoValor' && !campoOrdem){ toast('Escolha o campo de ordem que define qual linha é a "última".'); return; }
       entrada = { id, label: nome, fmt, funcao };
       if(funcao!=='contagem') entrada.campo = campo;
+      if(funcao==='ultimoValor') entrada.campoOrdem = campoOrdem;
       const consultaIdMedida = pnlConsultaSelecionadaNoFormMedida();
       if(consultaIdMedida) entrada.consultaId = consultaIdMedida;
     }
