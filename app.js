@@ -14475,6 +14475,12 @@ let pnlFiltroColunaAberta = null;
 let pnlFormColunasAtual = [];
 // apelidos (nomes customizados) das colunas do Detalhe/Tabela — {campo: texto}
 let pnlFormColunasApelidos = {};
+// formato forçado por coluna do Detalhe/Tabela — {campo: 'texto'|'numero'|'moeda'}
+// (sem entrada = automático: só mostra casas decimais quando o valor cru já
+// vem com elas, que é a causa do "924" aparecer sem ",00" ao lado de um
+// "2.761,92" na mesma coluna — um número cru não carrega metadado de que é
+// um valor financeiro, diferente de uma Medida que tem fmt:'money')
+let pnlFormColunasFormatos = {};
 let pnlFormMedidasExtrasAtual = [];
 // links configurados no form (fonte 'linhas') pra puxar campos de OUTRAS
 // consultas numa tabela não-agrupada — {consultaId, campoPrincipal, campoLink}
@@ -14929,6 +14935,33 @@ function pnlValorColunaNumerico(o, campo){
   const n = pnlCoagirNumero(o[campo]);
   return typeof n === 'number' ? n : null;
 }
+// formato explícito escolhido no cadastro do widget pra uma coluna — undefined
+// (ou qualquer valor fora da lista) cai no comportamento automático de sempre
+function pnlFormatoColuna(campo, colunasFormatos){
+  const f = (colunasFormatos||{})[campo];
+  return (f==='texto' || f==='numero' || f==='moeda') ? f : 'auto';
+}
+// true = alinha à direita (é número); 'texto' força false mesmo se o valor
+// cru parecer numérico, 'numero'/'moeda' forçam true mesmo com string vazia
+function pnlColunaEhNumerica(valor, formato){
+  if(formato==='texto') return false;
+  if(formato==='numero' || formato==='moeda') return true;
+  return ehNumAlinhavel(valor);
+}
+function pnlFormatarValorColunaComFormato(v, formato){
+  if(formato==='texto') return (v==null || v==='') ? '' : String(v);
+  if(v == null || v === '') return '';
+  const n = pnlCoagirNumero(v);
+  if(typeof n !== 'number') return String(v);
+  if(formato==='numero') return n.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+  if(formato==='moeda') return n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return Number.isInteger(n) ? n.toLocaleString('pt-BR') : n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function pnlFormatarTotalColunaComFormato(soma, formato){
+  if(formato==='numero') return soma.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0});
+  if(formato==='moeda') return soma.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return Number.isInteger(soma) ? soma.toLocaleString('pt-BR') : soma.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 function pnlFormatarTotalColuna(soma){
   return Number.isInteger(soma) ? soma.toLocaleString('pt-BR') : soma.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
@@ -15320,12 +15353,15 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
   const corpo = itens.map(o=>`<tr>${colunas.map(c=>{
     const raw = pnlValorColunaLinha(o, c, indicesLinks);
-    return `<td${ehNumAlinhavel(raw)?' class="num"':''}>${escaparHtml(pnlFormatarValorColuna(raw))}</td>`;
+    const formato = pnlFormatoColuna(c, widget.colunasFormatos);
+    return `<td${pnlColunaEhNumerica(raw, formato)?' class="num"':''}>${escaparHtml(pnlFormatarValorColunaComFormato(raw, formato))}</td>`;
   }).join('')}</tr>`).join('');
   const totais = colunas.map((c,i)=>{
     if(i===0) return `<td><b>${itens.length} linha${itens.length===1?'':'s'}</b></td>`;
+    const formato = pnlFormatoColuna(c, widget.colunasFormatos);
+    if(formato==='texto') return '<td></td>';
     const vals = itens.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
-    return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
+    return vals.length ? `<td class="num"><b>${pnlFormatarTotalColunaComFormato(vals.reduce((s,v)=>s+v,0), formato)}</b></td>` : '<td></td>';
   }).join('');
   tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhuma linha com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
@@ -15352,11 +15388,13 @@ function pnlIndiceConsultaLinkadaMultiplo(consultaId, campoLink){
 // linha de total/subtotal reaproveitada tanto pro rodapé geral quanto
 // pros subtotais de quebra — 1ª coluna vira o rótulo, as outras somam
 // (quando dá) os valores cru das linhas desse grupo
-function pnlLinhaTotalColunas(grupoLinhas, colunas, indicesLinks, rotulo, prefixoHtml){
+function pnlLinhaTotalColunas(grupoLinhas, colunas, indicesLinks, rotulo, prefixoHtml, colunasFormatos){
   return colunas.map((c,i)=>{
     if(i===0) return `<td><b>${prefixoHtml||''}${escaparHtml(rotulo)}</b></td>`;
+    const formato = pnlFormatoColuna(c, colunasFormatos);
+    if(formato==='texto') return '<td></td>';
     const vals = grupoLinhas.map(o=>pnlCoagirNumero(pnlValorColunaLinha(o,c,indicesLinks))).filter(v=>typeof v==='number');
-    return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
+    return vals.length ? `<td class="num"><b>${pnlFormatarTotalColunaComFormato(vals.reduce((s,v)=>s+v,0), formato)}</b></td>` : '<td></td>';
   }).join('');
 }
 function pnlRenderWidgetRelatorio(containerId, widget, linhas){
@@ -15403,11 +15441,11 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
     for(let i=niveisQuebra.length-1; i>=ateONivel; i--){
       if(acumuladores[i].length){
         const rotuloCampo = pnlLabelColuna(niveisQuebra[i].campo, catalogo, widget.colunasApelidos);
-        const rotuloValor = pnlFormatarValorColuna(valoresAnteriores[i]);
+        const rotuloValor = pnlFormatarValorColunaComFormato(valoresAnteriores[i], pnlFormatoColuna(niveisQuebra[i].campo, widget.colunasFormatos));
         const idGrupo = grupoIds[i];
         const gruposAncestrais = grupoIds.slice(0,i).filter(Boolean).join(' ');
         const toggle = idGrupo ? `<button type="button" class="pnl-relat-toggle" data-relatquebra="${idGrupo}" title="Expandir/colapsar grupo">−</button>` : '';
-        partes.push(`<tr class="pnl-relat-subtotal"${gruposAncestrais?` data-quebragrupos="${gruposAncestrais}"`:''}>${pnlLinhaTotalColunas(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`, toggle)}</tr>`);
+        partes.push(`<tr class="pnl-relat-subtotal"${gruposAncestrais?` data-quebragrupos="${gruposAncestrais}"`:''}>${pnlLinhaTotalColunas(acumuladores[i], colunas, indicesLinks, `Subtotal — ${rotuloCampo}: ${rotuloValor}`, toggle, widget.colunasFormatos)}</tr>`);
       }
       acumuladores[i] = [];
       grupoIds[i] = null;
@@ -15453,15 +15491,16 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
     const classeZebra = (widget.zebrado && idx%2===1) ? ' pnl-relat-zebra-impar' : '';
     const linhaDetalhe = `<tr class="pnl-relat-detalhe${classeZebra}"${atribQuebra}>${colunas.map((c,i)=>{
       const raw = pnlValorColunaLinha(o, c, indicesLinks);
+      const formato = pnlFormatoColuna(c, widget.colunasFormatos);
       const toggle = (i===0 && temSubdetalhe) ? `<button type="button" class="pnl-relat-toggle" data-relattoggle="${idLinha}" title="Expandir/colapsar subdetalhes">−</button>` : '';
-      return `<td${ehNumAlinhavel(raw)?' class="num"':''}>${toggle}${escaparHtml(pnlFormatarValorColuna(raw))}</td>`;
+      return `<td${pnlColunaEhNumerica(raw, formato)?' class="num"':''}>${toggle}${escaparHtml(pnlFormatarValorColunaComFormato(raw, formato))}</td>`;
     }).join('')}</tr>`;
     partes.push(linhaDetalhe + blocosSub);
     niveisQuebra.forEach((_,i)=>acumuladores[i].push(o));
   });
   if(niveisQuebra.length) emitirSubtotais(0);
   const corpo = partes.join('');
-  const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`);
+  const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`, '', widget.colunasFormatos);
   el.innerHTML = `<table class="valores-table pnl-relatorio-tabela">
     <thead><tr>${cab.join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
@@ -15487,15 +15526,20 @@ function pnlRenderColunasOrdem(opcoes){
   const cont = document.getElementById('pnlNovoWidgetColunasOrdem');
   if(!cont) return;
   if(!pnlFormColunasAtual.length){ cont.innerHTML = ''; return; }
-  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Ordem das colunas (use ↑/↓) — o campo de texto troca o nome exibido</div>` +
+  const opcoesFormato = { auto:'Automático', texto:'Texto', numero:'Número (sem casas)', moeda:'Moeda (2 casas)' };
+  cont.innerHTML = `<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Ordem das colunas (use ↑/↓) — o campo de texto troca o nome exibido, o formato força como o valor aparece</div>` +
     pnlFormColunasAtual.map((c,i)=>{
       const v = opcoes[c];
       const label = typeof v === 'string' ? v : (v ? v.label : c);
-      return `<div style="display:flex;align-items:center;gap:4px;padding:2px 0;">
+      const formatoAtual = pnlFormatoColuna(c, pnlFormColunasFormatos);
+      return `<div style="display:flex;align-items:center;gap:4px;padding:2px 0;flex-wrap:wrap;">
         <button type="button" data-movercoluna="up" data-coluna="${escaparHtml(c)}" ${i===0?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↑</button>
         <button type="button" data-movercoluna="down" data-coluna="${escaparHtml(c)}" ${i===pnlFormColunasAtual.length-1?'disabled':''} style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↓</button>
         <span style="font-size:13px;flex:0 0 auto;min-width:110px;">${escaparHtml(label)}</span>
-        <input type="text" data-apelidocoluna="${escaparHtml(c)}" value="${escaparHtml(pnlFormColunasApelidos[c]||'')}" placeholder="${escaparHtml(label)}" style="flex:1;font-size:12px;padding:3px 6px;">
+        <input type="text" data-apelidocoluna="${escaparHtml(c)}" value="${escaparHtml(pnlFormColunasApelidos[c]||'')}" placeholder="${escaparHtml(label)}" style="flex:1 1 120px;font-size:12px;padding:3px 6px;">
+        <select data-formatocoluna="${escaparHtml(c)}" style="flex:0 0 auto;font-size:12px;padding:3px 4px;">
+          ${Object.entries(opcoesFormato).map(([k,lbl])=>`<option value="${k}" ${formatoAtual===k?'selected':''}>${lbl}</option>`).join('')}
+        </select>
       </div>`;
     }).join('');
 }
@@ -16311,6 +16355,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetComparacao').checked = false;
   pnlFormColunasAtual = [];
   pnlFormColunasApelidos = {};
+  pnlFormColunasFormatos = {};
   pnlFormMedidasExtrasAtual = [];
   pnlFormLinksAtual = [];
   pnlFormSubdetalhesAtual = [];
@@ -16367,6 +16412,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetConsulta').value = w.consultaId || pnlConsultaPadrao() || '';
   pnlFormColunasAtual = w.colunas ? w.colunas.slice() : [];
   pnlFormColunasApelidos = w.colunasApelidos ? JSON.parse(JSON.stringify(w.colunasApelidos)) : {};
+  pnlFormColunasFormatos = w.colunasFormatos ? JSON.parse(JSON.stringify(w.colunasFormatos)) : {};
   pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
   pnlFormLinksAtual = w.links ? JSON.parse(JSON.stringify(w.links)) : [];
   pnlFormSubdetalhesAtual = w.subdetalhes ? JSON.parse(JSON.stringify(w.subdetalhes)) : [];
@@ -18349,6 +18395,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(valor) pnlFormColunasApelidos[campo] = valor;
     else delete pnlFormColunasApelidos[campo];
   });
+  document.getElementById('pnlNovoWidgetColunasOrdem').addEventListener('change', e=>{
+    const sel = e.target.closest('[data-formatocoluna]'); if(!sel) return;
+    const campo = sel.dataset.formatocoluna;
+    if(sel.value==='auto') delete pnlFormColunasFormatos[campo];
+    else pnlFormColunasFormatos[campo] = sel.value;
+  });
   document.getElementById('pnlNovoWidgetLinkConsulta').addEventListener('change', pnlAtualizarCampoLinkSecundario);
   document.getElementById('btnPnlAdicionarLink').addEventListener('click', ()=>{
     const consultaId = document.getElementById('pnlNovoWidgetLinkConsulta').value;
@@ -18532,6 +18584,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(ehRelatorio){
       widget.colunas = pnlFormColunasAtual.slice();
       if(Object.keys(pnlFormColunasApelidos).length) widget.colunasApelidos = {...pnlFormColunasApelidos};
+      if(Object.keys(pnlFormColunasFormatos).length) widget.colunasFormatos = {...pnlFormColunasFormatos};
       if(pnlFormLinksAtual.length) widget.links = pnlFormLinksAtual.slice();
       if(pnlFormSubdetalhesAtual.length) widget.subdetalhes = JSON.parse(JSON.stringify(pnlFormSubdetalhesAtual));
       if(pnlFormOrdenacaoAtual.length) widget.ordenacao = pnlFormOrdenacaoAtual.slice();
@@ -18543,6 +18596,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       widget.fonte = fonte;
       widget.colunas = pnlFormColunasAtual.slice();
       if(Object.keys(pnlFormColunasApelidos).length) widget.colunasApelidos = {...pnlFormColunasApelidos};
+      if(Object.keys(pnlFormColunasFormatos).length) widget.colunasFormatos = {...pnlFormColunasFormatos};
       if(fonte==='agrupado'){
         widget.dimensao = dimensao;
         if(dimensao2) widget.dimensao2 = dimensao2;
