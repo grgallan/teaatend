@@ -14497,6 +14497,35 @@ function pnlColunasDisponiveis(consultaId){
   return colunas;
 }
 function pnlValorFiltro(o, campo){ const v = o[campo]; return v==null ? '' : String(v); }
+/* ---------- "filtro fixo" de widget (campo+operador+valor, além do filtro geral do painel) ---------- */
+const PNL_OPERADORES_FILTRO_FIXO = { '=':'Igual a (=)', '<>':'Diferente de (≠)', '>':'Maior que (>)', '<':'Menor que (<)', '>=':'Maior ou igual (≥)', '<=':'Menor ou igual (≤)', 'NULL':'Vazio (NULL)', 'NOTNULL':'Não vazio (NOT NULL)' };
+function pnlValorEhVazio(v){ return v===null || v===undefined || v===''; }
+// compara UMA linha contra o filtro fixo de um widget — >,<,>=,<= reusam a
+// mesma coerção numérica/texto já usada na ordenação (pnlCompararValorOrdenacao),
+// então funciona tanto pra número quanto (melhor esforço) pra texto/data
+function pnlLinhaPassaFiltroFixo(o, campo, operador, valor){
+  const v = o[campo];
+  switch(operador){
+    case 'NULL': return pnlValorEhVazio(v);
+    case 'NOTNULL': return !pnlValorEhVazio(v);
+    case '<>': return pnlValorFiltro(o, campo) !== valor;
+    case '>': return pnlCompararValorOrdenacao(v, valor) > 0;
+    case '<': return pnlCompararValorOrdenacao(v, valor) < 0;
+    case '>=': return pnlCompararValorOrdenacao(v, valor) >= 0;
+    case '<=': return pnlCompararValorOrdenacao(v, valor) <= 0;
+    default: return pnlValorFiltro(o, campo) === valor; // '='
+  }
+}
+// aplica o filtro fixo de um widget (se configurado) num array de linhas —
+// NULL/NOT NULL não precisam de valor; os demais operadores, sem valor
+// escolhido ainda, o filtro fica desligado (widget se comporta como se não
+// tivesse filtro fixo nenhum), igual já era o comportamento de sempre
+function pnlAplicarFiltroFixo(linhas, widget){
+  if(!widget || !widget.filtroFixoCampo) return linhas;
+  const operador = widget.filtroFixoOperador || '=';
+  if(operador!=='NULL' && operador!=='NOTNULL' && !widget.filtroFixoValor) return linhas;
+  return linhas.filter(o=>pnlLinhaPassaFiltroFixo(o, widget.filtroFixoCampo, operador, widget.filtroFixoValor));
+}
 // catálogo pro seletor "Adicionar filtro" — união das colunas de TODAS as
 // consultas já carregadas (um filtro "Mês" pode valer pra mais de uma, se
 // o nome da coluna bater; ver pnlFiltrados)
@@ -14739,22 +14768,23 @@ function pnlValorCampoLinkadoAgrupado(c, camposChaves, valoresChaves){
 // grupo=null é o painel inteiro (KPI), ou {campos,valores} é um grupo
 // específico (tabela agrupada / gráficos por dimensão). "pilha" evita
 // loop infinito quando fórmulas se referenciam em ciclo
-// filtroFixo é {campo,valor} — usado pelo filtro fixo DESSE widget (ex: KPI),
-// aplicado por cima do filtro geral do painel, nunca mexe nos outros widgets
-function pnlValorMedida(medidaId, grupo, pilha, filtroFixo){
+// filtroFixoWidget é o WIDGET (kpi) dono do filtro fixo — usado pra
+// restringir a própria medida, aplicado por cima do filtro geral do
+// painel, nunca mexe nos outros widgets (ver pnlAplicarFiltroFixo)
+function pnlValorMedida(medidaId, grupo, pilha, filtroFixoWidget){
   const def = pnlMedidaPorId(medidaId);
   if(!def) return 0;
   pilha = pilha || new Set();
   if(pilha.has(medidaId)) return 0;
   if(def.formula){
     pilha.add(medidaId);
-    const v = pnlAvaliarFormulaMedida(def.formula, id => pnlValorMedida(id, grupo, pilha, filtroFixo));
+    const v = pnlAvaliarFormulaMedida(def.formula, id => pnlValorMedida(id, grupo, pilha, filtroFixoWidget));
     pilha.delete(medidaId);
     return v;
   }
   let linhas = pnlLinhasConsultaNoContexto(def.consultaId, grupo);
   if(linhas === null) return 0;
-  if(filtroFixo && filtroFixo.campo && filtroFixo.valor) linhas = linhas.filter(o=>pnlValorFiltro(o, filtroFixo.campo)===filtroFixo.valor);
+  linhas = pnlAplicarFiltroFixo(linhas, filtroFixoWidget);
   return pnlCalcularMedida(linhas, medidaId);
 }
 function pnlFormatarMedida(valor, medidaId){
@@ -15004,8 +15034,7 @@ function pnlMoverFiltro(campo, dir){
 /* ---------- render de cada tipo de widget ---------- */
 function pnlRenderWidgetKpi(containerId, widget, linhas){
   const el = document.getElementById(containerId); if(!el) return;
-  const filtroFixo = (widget.filtroFixoCampo && widget.filtroFixoValor) ? { campo: widget.filtroFixoCampo, valor: widget.filtroFixoValor } : null;
-  const valor = pnlValorMedida(widget.medida, null, undefined, filtroFixo);
+  const valor = pnlValorMedida(widget.medida, null, undefined, widget);
   const def = pnlMedidaPorId(widget.medida) || {};
   const sub = widget.subtitulo || '';
   el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}</div>`;
@@ -15122,9 +15151,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   // filtro fixo do widget — restrição permanente (ex: só o cliente X),
   // independente do filtro geral e do filtro rápido; vale pras duas
   // fontes (linhas e agrupado)
-  if(widget.filtroFixoCampo && widget.filtroFixoValor){
-    linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroFixoCampo)===widget.filtroFixoValor);
-  }
+  linhas = pnlAplicarFiltroFixo(linhas, widget);
   if(widget.fonte === 'agrupado'){
     const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
     const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
@@ -15201,9 +15228,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   const consultaId = widget.consultaId || pnlConsultaPadrao();
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
   const catalogo = pnlColunasTabelaDisponiveis(consultaId);
-  if(widget.filtroFixoCampo && widget.filtroFixoValor){
-    linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroFixoCampo)===widget.filtroFixoValor);
-  }
+  linhas = pnlAplicarFiltroFixo(linhas, widget);
   const indicesLinks = pnlIndicesLinksWidget(widget);
   if(widget.ordenacao && widget.ordenacao.length){
     linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
@@ -15689,9 +15714,7 @@ function pnlExportDadosWidgetTabela(widget){
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,8);
   const catalogo = pnlColunasTabelaDisponiveis(consultaId);
   let linhas = pnlUltimoLinhasFiltradasPorWidget[widget.id] || [];
-  if(widget.filtroFixoCampo && widget.filtroFixoValor){
-    linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroFixoCampo)===widget.filtroFixoValor);
-  }
+  linhas = pnlAplicarFiltroFixo(linhas, widget);
   if(widget.fonte === 'agrupado'){
     const dimensoes = [widget.dimensao, widget.dimensao2, widget.dimensao3].filter(Boolean);
     const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
@@ -15728,9 +15751,7 @@ function pnlExportAoaWidgetRelatorio(widget){
   const colunas = (widget.colunas && widget.colunas.length) ? widget.colunas : pnlColunasDisponiveis(consultaId).slice(0,4);
   const catalogo = pnlColunasTabelaDisponiveis(consultaId);
   let linhas = pnlUltimoLinhasFiltradasPorWidget[widget.id] || [];
-  if(widget.filtroFixoCampo && widget.filtroFixoValor){
-    linhas = linhas.filter(o=>pnlValorFiltro(o, widget.filtroFixoCampo)===widget.filtroFixoValor);
-  }
+  linhas = pnlAplicarFiltroFixo(linhas, widget);
   const indicesLinks = pnlIndicesLinksWidget(widget);
   if(widget.ordenacao && widget.ordenacao.length){
     linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, (o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
@@ -15924,6 +15945,8 @@ function pnlAtualizarCamposNovoWidget(){
     const atualFF = selFF.value;
     selFF.innerHTML = `<option value="">(nenhum)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
     if([...selFF.options].some(o=>o.value===atualFF)) selFF.value = atualFF;
+    const selOp = document.getElementById('pnlNovoWidgetFiltroFixoOperador');
+    if(!selOp.options.length) selOp.innerHTML = Object.entries(PNL_OPERADORES_FILTRO_FIXO).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
     pnlAtualizarFiltroFixoValor();
   }
   pnlPopularSelectsMedidaWidget();
@@ -15957,10 +15980,15 @@ function pnlAtualizarCamposNovoWidget(){
 // escolhido no select ao lado
 function pnlAtualizarFiltroFixoValor(){
   const campo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
+  const operador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
+  const campoOperador = document.getElementById('pnlNovoWidgetCampoFiltroFixoOperador');
   const campoValor = document.getElementById('pnlNovoWidgetCampoFiltroFixoValor');
   const selValor = document.getElementById('pnlNovoWidgetFiltroFixoValor');
-  campoValor.style.display = campo ? '' : 'none';
-  if(!campo) return;
+  campoOperador.style.display = campo ? '' : 'none';
+  // NULL/NOT NULL não precisam de valor nenhum pra comparar
+  const precisaValor = campo && operador!=='NULL' && operador!=='NOTNULL';
+  campoValor.style.display = precisaValor ? '' : 'none';
+  if(!precisaValor) return;
   const atual = selValor.value;
   const valores = pnlValoresDistintosColuna(campo, pnlConsultaSelecionadaNoForm());
   selValor.innerHTML = valores.map(v=>`<option value="${escaparHtml(v)}">${escaparHtml(v)}</option>`).join('') || `<option value="">(sem valores carregados)</option>`;
@@ -16012,6 +16040,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetFonte').value = 'linhas';
   document.getElementById('pnlNovoWidgetFiltroRapido').value = '';
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = '';
+  document.getElementById('pnlNovoWidgetFiltroFixoOperador').value = '=';
   document.getElementById('pnlNovoWidgetFiltroFixoValor').innerHTML = '';
   pnlFormColunasAtual = [];
   pnlFormColunasApelidos = {};
@@ -16075,6 +16104,7 @@ function pnlWidgetEditar(id){
   pnlAtualizarCamposNovoWidget();
   document.getElementById('pnlNovoWidgetFiltroRapido').value = w.filtroRapido || '';
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = w.filtroFixoCampo || '';
+  document.getElementById('pnlNovoWidgetFiltroFixoOperador').value = w.filtroFixoOperador || '=';
   pnlAtualizarFiltroFixoValor();
   document.getElementById('pnlNovoWidgetFiltroFixoValor').value = w.filtroFixoValor || '';
   document.getElementById('pnlNovoWidgetTitulo').value = w.titulo || '';
@@ -17946,6 +17976,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlAtualizarCamposNovoWidget();
   });
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').addEventListener('change', pnlAtualizarFiltroFixoValor);
+  document.getElementById('pnlNovoWidgetFiltroFixoOperador').addEventListener('change', pnlAtualizarFiltroFixoValor);
   document.getElementById('pnlNovoWidgetColunasLista').addEventListener('change', e=>{
     const cb = e.target.closest('[data-wcoluna]'); if(!cb) return;
     const k = cb.value;
@@ -18147,8 +18178,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(pnlFormSubdetalhesAtual.length) widget.subdetalhes = JSON.parse(JSON.stringify(pnlFormSubdetalhesAtual));
       if(pnlFormOrdenacaoAtual.length) widget.ordenacao = pnlFormOrdenacaoAtual.slice();
       const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
+      const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
       const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
-      if(filtroFixoCampo && filtroFixoValor){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoValor = filtroFixoValor; }
+      if(filtroFixoCampo && (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL' || filtroFixoValor)){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoOperador = filtroFixoOperador; widget.filtroFixoValor = (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL') ? '' : filtroFixoValor; }
     }else if(ehTabelaPersonalizada){
       widget.fonte = fonte;
       widget.colunas = pnlFormColunasAtual.slice();
@@ -18163,16 +18195,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         if(pnlFormLinksAtual.length) widget.links = pnlFormLinksAtual.slice();
       }
       const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
+      const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
       const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
-      if(filtroFixoCampo && filtroFixoValor){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoValor = filtroFixoValor; }
+      if(filtroFixoCampo && (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL' || filtroFixoValor)){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoOperador = filtroFixoOperador; widget.filtroFixoValor = (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL') ? '' : filtroFixoValor; }
     }else{
       widget.medida = medida;
       if(tipo==='kpi'){
         const subtitulo = document.getElementById('pnlNovoWidgetSubtitulo').value.trim();
         if(subtitulo) widget.subtitulo = subtitulo;
         const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
+        const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
         const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
-        if(filtroFixoCampo && filtroFixoValor){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoValor = filtroFixoValor; }
+        if(filtroFixoCampo && (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL' || filtroFixoValor)){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoOperador = filtroFixoOperador; widget.filtroFixoValor = (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL') ? '' : filtroFixoValor; }
       }
       else if(tipo==='linha'){ widget.dimensao = dimensao; if(pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
       else { widget.dimensao = dimensao; if(top) widget.top = Number(top); if(tipo==='barra' && pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
