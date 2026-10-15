@@ -14581,8 +14581,22 @@ function pnlColunasDisponiveis(consultaId){
 }
 function pnlValorFiltro(o, campo){ const v = o[campo]; return v==null ? '' : String(v); }
 /* ---------- "filtro fixo" de widget (campo+operador+valor, além do filtro geral do painel) ---------- */
-const PNL_OPERADORES_FILTRO_FIXO = { '=':'Igual a (=)', '<>':'Diferente de (≠)', '>':'Maior que (>)', '<':'Menor que (<)', '>=':'Maior ou igual (≥)', '<=':'Menor ou igual (≤)', 'NULL':'Vazio (NULL)', 'NOTNULL':'Não vazio (NOT NULL)' };
+const PNL_OPERADORES_FILTRO_FIXO = { '=':'Igual a (=)', '<>':'Diferente de (≠)', '>':'Maior que (>)', '<':'Menor que (<)', '>=':'Maior ou igual (≥)', '<=':'Menor ou igual (≤)', 'NULL':'Vazio (NULL)', 'NOTNULL':'Não vazio (NOT NULL)', 'ULTIMOSMESES':'Nos últimos N meses (valor = N)', 'MESESANTERIORES':'Nos N meses anteriores a esses (valor = N)' };
 function pnlValorEhVazio(v){ return v===null || v===undefined || v===''; }
+// extrai um "índice de mês" (ano*12+mês, sempre crescente) de uma data em
+// qualquer formato comum nesse app: "YYYY-MM", "YYYY-MM-DDT..." (ISO),
+// "DD/MM/YYYY" ou "MM/YYYY" — usado pelos operadores de janela móvel
+// (ULTIMOSMESES/MESESANTERIORES); formato não reconhecido = null (linha
+// nunca passa no filtro, mais seguro que incluir por engano)
+function pnlIndiceMes(v){
+  const s = String(v||'').trim();
+  let m;
+  if((m = s.match(/^(\d{4})-(\d{2})/))) return Number(m[1])*12 + Number(m[2]);
+  if((m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/))) return Number(m[3])*12 + Number(m[2]);
+  if((m = s.match(/^(\d{2})\/(\d{4})$/))) return Number(m[2])*12 + Number(m[1]);
+  return null;
+}
+function pnlMesAtualIndice(){ const h = new Date(); return h.getFullYear()*12 + (h.getMonth()+1); }
 // compara UMA linha contra o filtro fixo de um widget — >,<,>=,<= reusam a
 // mesma coerção numérica/texto já usada na ordenação (pnlCompararValorOrdenacao),
 // então funciona tanto pra número quanto (melhor esforço) pra texto/data
@@ -14596,6 +14610,19 @@ function pnlLinhaPassaFiltroFixo(o, campo, operador, valor){
     case '<': return pnlCompararValorOrdenacao(v, valor) < 0;
     case '>=': return pnlCompararValorOrdenacao(v, valor) >= 0;
     case '<=': return pnlCompararValorOrdenacao(v, valor) <= 0;
+    case 'ULTIMOSMESES': {
+      const idx = pnlIndiceMes(v); if(idx===null) return false;
+      const n = parseInt(valor, 10) || 1;
+      const fim = pnlMesAtualIndice(), ini = fim - (n-1);
+      return idx>=ini && idx<=fim;
+    }
+    case 'MESESANTERIORES': {
+      const idx = pnlIndiceMes(v); if(idx===null) return false;
+      const n = parseInt(valor, 10) || 1;
+      const fimJanelaAtual = pnlMesAtualIndice(), iniJanelaAtual = fimJanelaAtual - (n-1);
+      const fim = iniJanelaAtual - 1, ini = fim - (n-1);
+      return idx>=ini && idx<=fim;
+    }
     default: return pnlValorFiltro(o, campo) === valor; // '='
   }
 }
@@ -15120,7 +15147,23 @@ function pnlRenderWidgetKpi(containerId, widget, linhas){
   const valor = pnlValorMedida(widget.medida, null, undefined, widget);
   const def = pnlMedidaPorId(widget.medida) || {};
   const sub = widget.subtitulo || '';
-  el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}</div>`;
+  // "Comparar com os N meses anteriores" — só faz sentido com o filtro
+  // fixo "Nos últimos N meses" (ULTIMOSMESES); reaproveita o MESMO campo e
+  // N, só trocando o operador pra MESESANTERIORES (mesmo truque usado por
+  // pnlAplicarFiltroFixo, que só olha esses 3 campos do objeto)
+  let comparacaoHtml = '';
+  if(widget.compararPeriodoAnterior && widget.filtroFixoCampo && widget.filtroFixoOperador==='ULTIMOSMESES' && widget.filtroFixoValor){
+    const filtroAnterior = { filtroFixoCampo: widget.filtroFixoCampo, filtroFixoOperador: 'MESESANTERIORES', filtroFixoValor: widget.filtroFixoValor };
+    const valorAnterior = pnlValorMedida(widget.medida, null, undefined, filtroAnterior);
+    const variacao = valorAnterior ? ((valor - valorAnterior) / Math.abs(valorAnterior) * 100) : null;
+    const cor = variacao===null ? 'var(--muted)' : (variacao>=0 ? 'var(--ok)' : 'var(--bad)');
+    const variacaoTxt = variacao===null ? '—' : `${variacao>=0?'+':''}${variacao.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})}%`;
+    comparacaoHtml = `<div class="x" style="font-size:11px;color:var(--muted);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;">
+      <span>Período anterior: ${escaparHtml(pnlFormatarMedida(valorAnterior, widget.medida))}</span>
+      <span style="color:${cor};font-weight:700;">Variação: ${variacaoTxt}</span>
+    </div>`;
+  }
+  el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}${comparacaoHtml}</div>`;
 }
 function pnlLigarCliqueBarras(container, grupos, campoFiltro){
   if(!pnlPainelFiltros.some(f=>f.campo===campoFiltro)) return;
@@ -16167,16 +16210,33 @@ function pnlAtualizarFiltroFixoValor(){
   const operador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
   const campoOperador = document.getElementById('pnlNovoWidgetCampoFiltroFixoOperador');
   const campoValor = document.getElementById('pnlNovoWidgetCampoFiltroFixoValor');
+  const campoMeses = document.getElementById('pnlNovoWidgetCampoFiltroFixoMeses');
   const selValor = document.getElementById('pnlNovoWidgetFiltroFixoValor');
   campoOperador.style.display = campo ? '' : 'none';
-  // NULL/NOT NULL não precisam de valor nenhum pra comparar
-  const precisaValor = campo && operador!=='NULL' && operador!=='NOTNULL';
+  // ULTIMOSMESES/MESESANTERIORES usam um número de meses (N), não um valor
+  // escolhido entre os distintos da coluna — NULL/NOT NULL não precisam de
+  // valor nenhum pra comparar
+  const ehJanelaMeses = operador==='ULTIMOSMESES' || operador==='MESESANTERIORES';
+  campoMeses.style.display = (campo && ehJanelaMeses) ? '' : 'none';
+  const precisaValor = campo && operador!=='NULL' && operador!=='NOTNULL' && !ehJanelaMeses;
   campoValor.style.display = precisaValor ? '' : 'none';
+  const tipo = document.getElementById('pnlNovoWidgetTipo').value;
+  const campoComparacao = document.getElementById('pnlNovoWidgetCampoComparacao');
+  const mostraComparacao = tipo==='kpi' && operador==='ULTIMOSMESES';
+  campoComparacao.style.display = mostraComparacao ? '' : 'none';
+  if(!mostraComparacao) document.getElementById('pnlNovoWidgetComparacao').checked = false;
   if(!precisaValor) return;
   const atual = selValor.value;
   const valores = pnlValoresDistintosColuna(campo, pnlConsultaSelecionadaNoForm());
   selValor.innerHTML = valores.map(v=>`<option value="${escaparHtml(v)}">${escaparHtml(v)}</option>`).join('') || `<option value="">(sem valores carregados)</option>`;
   if(valores.includes(atual)) selValor.value = atual;
+}
+// de onde vem o "Valor" do filtro fixo na hora de salvar — ULTIMOSMESES/
+// MESESANTERIORES usam o campo numérico de meses, os demais o select de
+// valores distintos de sempre
+function pnlLerFiltroFixoValorForm(operador){
+  if(operador==='ULTIMOSMESES' || operador==='MESESANTERIORES') return document.getElementById('pnlNovoWidgetFiltroFixoMeses').value.trim();
+  return document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
 }
 // checklist de "medidas adicionais" (comparar lado a lado, nos tipos
 // barra/linha) — exclui a medida já escolhida como principal, pra não
@@ -16226,6 +16286,8 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = '';
   document.getElementById('pnlNovoWidgetFiltroFixoOperador').value = '=';
   document.getElementById('pnlNovoWidgetFiltroFixoValor').innerHTML = '';
+  document.getElementById('pnlNovoWidgetFiltroFixoMeses').value = '';
+  document.getElementById('pnlNovoWidgetComparacao').checked = false;
   pnlFormColunasAtual = [];
   pnlFormColunasApelidos = {};
   pnlFormMedidasExtrasAtual = [];
@@ -16305,6 +16367,8 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetFiltroFixoOperador').value = w.filtroFixoOperador || '=';
   pnlAtualizarFiltroFixoValor();
   document.getElementById('pnlNovoWidgetFiltroFixoValor').value = w.filtroFixoValor || '';
+  document.getElementById('pnlNovoWidgetFiltroFixoMeses').value = w.filtroFixoValor || '';
+  document.getElementById('pnlNovoWidgetComparacao').checked = !!w.compararPeriodoAnterior;
   document.getElementById('pnlNovoWidgetTitulo').value = w.titulo || '';
   if(w.medida) document.getElementById('pnlNovoWidgetMedida').value = w.medida;
   if(w.dimensao) document.getElementById('pnlNovoWidgetDimensao').value = w.dimensao;
@@ -18403,7 +18467,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(pnlFormOrdenacaoAtual.length) widget.ordenacao = pnlFormOrdenacaoAtual.slice();
       const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
       const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
-      const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
+      const filtroFixoValor = pnlLerFiltroFixoValorForm(filtroFixoOperador);
       if(filtroFixoCampo && (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL' || filtroFixoValor)){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoOperador = filtroFixoOperador; widget.filtroFixoValor = (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL') ? '' : filtroFixoValor; }
     }else if(ehTabelaPersonalizada){
       widget.fonte = fonte;
@@ -18420,7 +18484,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       }
       const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
       const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
-      const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
+      const filtroFixoValor = pnlLerFiltroFixoValorForm(filtroFixoOperador);
       if(filtroFixoCampo && (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL' || filtroFixoValor)){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoOperador = filtroFixoOperador; widget.filtroFixoValor = (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL') ? '' : filtroFixoValor; }
     }else if(ehTitulo){
       const subtituloTitulo = document.getElementById('pnlNovoWidgetSubtitulo').value.trim();
@@ -18436,8 +18500,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         if(subtitulo) widget.subtitulo = subtitulo;
         const filtroFixoCampo = document.getElementById('pnlNovoWidgetFiltroFixoCampo').value;
         const filtroFixoOperador = document.getElementById('pnlNovoWidgetFiltroFixoOperador').value || '=';
-        const filtroFixoValor = document.getElementById('pnlNovoWidgetFiltroFixoValor').value;
+        const filtroFixoValor = pnlLerFiltroFixoValorForm(filtroFixoOperador);
         if(filtroFixoCampo && (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL' || filtroFixoValor)){ widget.filtroFixoCampo = filtroFixoCampo; widget.filtroFixoOperador = filtroFixoOperador; widget.filtroFixoValor = (filtroFixoOperador==='NULL' || filtroFixoOperador==='NOTNULL') ? '' : filtroFixoValor; }
+        if(widget.filtroFixoOperador==='ULTIMOSMESES' && document.getElementById('pnlNovoWidgetComparacao').checked) widget.compararPeriodoAnterior = true;
       }
       else if(tipo==='linha'){ widget.dimensao = dimensao; if(pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
       else { widget.dimensao = dimensao; if(top) widget.top = Number(top); if(tipo==='barra' && pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
