@@ -308,8 +308,13 @@
      "flex item" cuja largura vem de widget.largura (completa/metade/
      terço); com flex-wrap, dois widgets "metade" colados ficam lado a
      lado, e min-width garante que empilha de volta em telas estreitas */
-  #recebGradeWidgets,#pnlGradeWidgets{display:flex;flex-wrap:wrap;gap:14px;}
-  #recebGradeWidgets > div > .card,#pnlGradeWidgets > div > .card{margin-bottom:0;}
+  #recebGradeWidgets,#pnlGradeWidgets,.pnl-grade-wrap{display:flex;flex-wrap:wrap;gap:14px;}
+  #recebGradeWidgets > div > .card,#pnlGradeWidgets > div > .card,.pnl-grade-wrap > div > .card{margin-bottom:0;}
+  .pnl-container-titulo{display:flex;align-items:center;gap:10px;padding:16px 18px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line);border-left:4px solid var(--accent);}
+  .pnl-container-titulo .pnl-container-icone{font-size:26px;line-height:1;}
+  .pnl-container-titulo .pnl-container-textos{display:flex;flex-direction:column;gap:2px;}
+  .pnl-container-titulo h2{margin:0;font-size:18px;}
+  .pnl-container-titulo .sub{color:var(--muted);font-size:12.5px;}
   .dash-tooltip{position:fixed;pointer-events:none;background:var(--text);color:var(--panel);font-size:11.5px;font-weight:600;padding:6px 9px;border-radius:8px;z-index:99;opacity:0;transform:translate(-50%,-100%);transition:opacity .08s;white-space:nowrap;}
   .dash-tooltip.show{opacity:1;}
   .dash-empty{font-size:12.5px;color:var(--muted);padding:6px 0;}
@@ -2315,6 +2320,15 @@
           <div class="field"><label>Senha RM</label><input type="password" id="cl_rm_senha" autocomplete="new-password" placeholder="Digite pra definir/trocar"></div>
         </div>
         <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;" id="cl_rm_senha_aviso"></p>
+        <div class="field" id="campoClienteSetores" style="display:none;">
+          <label>Setores (opcional)</label>
+          <p style="color:var(--muted);font-size:11.5px;margin:0 0 8px;">Usados pra agrupar os Painéis desse cliente em guias, em Relatórios Gerenciais TOTVS RM → Painéis.</p>
+          <div id="listSetoresCliente" style="margin-bottom:8px;"></div>
+          <div class="row">
+            <div class="field"><input type="text" id="cl_novo_setor" placeholder="Ex: Financeiro"></div>
+            <div class="field"><button type="button" class="ghost" id="btnAddSetor" style="width:100%;">Adicionar setor</button></div>
+          </div>
+        </div>
         <button class="primary" id="btnAddCliente">Adicionar cliente</button>
         <button class="ghost" id="btnCancelarEdicaoCliente" style="display:none;width:100%;margin-top:8px;">Cancelar edição</button>
       </div>
@@ -2641,7 +2655,6 @@
     <div class="subtabs" id="rgrmSubtabs">
       <div class="subtab active" data-rgrmsub="cadastro">Consultas SQL</div>
       <div class="subtab" data-rgrmsub="paineis">Painéis</div>
-      <div class="subtab" data-rgrmsub="painelrecebiveis">Painel de Recebíveis</div>
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-cadastro">
@@ -2674,9 +2687,11 @@
           <label>Consultas SQL vinculadas</label>
           <div id="pnl_consultasLista" style="display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
         </div>
+        <div class="field"><label>Setor (opcional)</label><select id="pnl_setor"><option value="">(Geral — sem setor)</option></select></div>
         <button class="primary" id="btnAddRmPainel">Adicionar painel</button>
         <button class="ghost" id="btnCancelarEdicaoRmPainel" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
+      <div class="subtabs" id="pnlPaineisSetorTabs" style="display:none;"></div>
       <div id="listRmPaineis"></div>
     </div>
 
@@ -2738,6 +2753,8 @@
               <option value="donut">Gráfico de pizza (donut)</option>
               <option value="tabela">Tabela (colunas à sua escolha)</option>
               <option value="relatorio">Relatório (mestre + detalhe)</option>
+              <option value="titulo">Título</option>
+              <option value="container">Container (com guias)</option>
             </select>
           </div>
           <div class="field"><label>Título</label><input type="text" id="pnlNovoWidgetTitulo" placeholder="Ex: Total por mês"></div>
@@ -2773,6 +2790,27 @@
           <div id="pnlNovoWidgetMedidasExtras" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
         </div>
         <div class="field" id="pnlNovoWidgetCampoSubtitulo" style="display:none;"><label>Subtítulo (opcional)</label><input type="text" id="pnlNovoWidgetSubtitulo" placeholder="Ex: Meta do mês: R$ 10.000,00"></div>
+        <div class="row" id="pnlNovoWidgetCampoIcone" style="display:none;">
+          <div class="field"><label>Ícone (opcional)</label><input type="text" id="pnlNovoWidgetIcone" placeholder="Ex: 📊" maxlength="4" style="width:80px;"></div>
+        </div>
+        <div class="field" id="pnlNovoWidgetCampoGuias" style="display:none;">
+          <label>Guias do Container</label>
+          <p style="color:var(--muted);font-size:11.5px;margin:0 0 8px;">Cada guia vira uma aba dentro do container — depois de salvar, escolha "Dentro do Container" nos outros widgets pra colocar eles numa guia.</p>
+          <div id="listGuiasContainer" style="margin-bottom:8px;"></div>
+          <div class="row">
+            <div class="field"><input type="text" id="pnlNovaGuiaContainer" placeholder="Ex: Resultado"></div>
+            <div class="field"><button type="button" class="ghost" id="btnAddGuiaContainer" style="width:100%;">Adicionar guia</button></div>
+          </div>
+        </div>
+        <div class="row" id="pnlNovoWidgetCampoDentroContainer" style="display:none;">
+          <div class="field"><label>Dentro do Container (opcional)</label>
+            <select id="pnlNovoWidgetContainerPai"><option value="">(nível principal)</option></select>
+          </div>
+          <div class="field" id="pnlNovoWidgetCampoContainerGuia" style="display:none;">
+            <label>Guia</label>
+            <select id="pnlNovoWidgetContainerGuia"></select>
+          </div>
+        </div>
         <div class="field" id="pnlNovoWidgetCampoFonte" style="display:none;">
           <label>De onde vêm as linhas da tabela</label>
           <select id="pnlNovoWidgetFonte">
@@ -2941,6 +2979,7 @@
 
     <div class="rgrm-sub-view" id="rgrm-sub-painelrecebiveis" style="display:none;">
       <div class="card">
+        <button type="button" class="ghost" id="btnRecebVoltar" style="width:auto;padding:8px 14px;margin-bottom:10px;">← Painéis</button>
         <h2>Painel de Recebíveis</h2>
         <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Busca direto da API do TOTVS RM, usando a conexão cadastrada no cliente (Cadastros → Clientes).</p>
         <div class="row">

@@ -1450,3 +1450,19 @@ alter table conta_paineis drop constraint if exists conta_paineis_unico;
 alter table conta_paineis add constraint conta_paineis_unico unique (conta_id, painel_id);
 create index if not exists idx_conta_paineis_conta on conta_paineis (conta_id);
 create index if not exists idx_conta_paineis_painel on conta_paineis (painel_id);
+
+-- setores de UM cliente (ex: Financeiro, Contabilidade, Fiscal) — cadastrados
+-- dentro do próprio formulário do Cliente (Cadastros → Clientes). Usado pra
+-- agrupar os Painéis em guias na tela de Relatórios Gerenciais RM → Painéis;
+-- um painel sem setor_id cai na guia "Geral" (ver pnlAbrirPainel/guias no
+-- app.js)
+create table if not exists setores (
+  id text primary key,
+  nome text not null,
+  cliente_id text not null references clientes(id) on delete cascade,
+  criado_em timestamptz default now()
+);
+alter table setores enable row level security;
+create index if not exists idx_setores_cliente on setores (cliente_id);
+
+alter table rm_paineis add column if not exists setor_id text references setores(id) on delete set null;
