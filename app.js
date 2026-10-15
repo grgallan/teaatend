@@ -14840,14 +14840,27 @@ function pnlEhCampoLinkado(c){ return typeof c === 'string' && c.charAt(0)==='@'
 function pnlCodificarCampoLinkado(consultaId, campo){ return `@${consultaId}::${campo}`; }
 function pnlParseCampoLinkado(c){ const i = c.indexOf('::'); return { consultaId: c.slice(1, i), campo: c.slice(i+2) }; }
 function pnlNomeConsulta(consultaId){ return (pnlConsultasCarregadas.find(c=>c.id===consultaId)||{}).nome || consultaId; }
-// rótulo de exibição de QUALQUER coluna (medida, campo linkado ou campo
-// cru da consulta principal) — centraliza a lógica usada no cabeçalho
-// da tabela e no picker de Colunas
+// pseudo-id de "coluna calculada a partir de um Subdetalhe" — soma de um
+// campo (ou contagem de itens) dos filhos daquele Subdetalhe, escopados
+// ao registro pai (igual pnlAgruparSubdetalhe); referencia o Subdetalhe
+// pelo ID ESTÁVEL dele (não pela posição no array), pra não quebrar se
+// outro Subdetalhe for removido/reordenado
+function pnlGerarIdSubdetalhe(){ return 'sd'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function pnlEhCampoSubdetalhe(c){ return typeof c === 'string' && c.charAt(0)==='%' && /::(soma|contagem)$/.test(c); }
+function pnlCodificarCampoSubdetalhe(subId, campo, funcao){ return `%${subId}::${campo}::${funcao}`; }
+function pnlParseCampoSubdetalhe(c){
+  const i = c.indexOf('::'), j = c.lastIndexOf('::');
+  return { subId: c.slice(1, i), campo: c.slice(i+2, j), funcao: c.slice(j+2) };
+}
+// rótulo de exibição de QUALQUER coluna (medida, campo linkado, campo
+// calculado de subdetalhe ou campo cru da consulta principal) —
+// centraliza a lógica usada no cabeçalho da tabela e no picker de Colunas
 function pnlLabelColuna(c, catalogoPrincipal, apelidos){
   if(apelidos && apelidos[c]) return apelidos[c];
   const medida = pnlMedidaPorId(c);
   if(medida) return medida.label;
   if(pnlEhCampoLinkado(c)){ const { consultaId, campo } = pnlParseCampoLinkado(c); return `${campo} (${pnlNomeConsulta(consultaId)})`; }
+  if(pnlEhCampoSubdetalhe(c)){ const { campo, funcao } = pnlParseCampoSubdetalhe(c); return funcao==='contagem' ? 'Quantidade de itens' : `${campo} (soma)`; }
   return (catalogoPrincipal && catalogoPrincipal[c]) || c;
 }
 // índice (valor do campo de ligação -> 1ª linha com esse valor) de uma
@@ -15060,6 +15073,18 @@ function pnlAgruparSubdetalhe(filhos, camposChaves, colunas){
     return 0;
   });
   return resultado;
+}
+// valor de uma "coluna calculada de subdetalhe" (soma de um campo, ou
+// contagem de itens) pro registro "o" do Detalhe — igual pnlAgruparSubdetalhe
+// em espírito (nunca passa pelo sistema de Medida, que calcularia contra a
+// consulta inteira), só que devolve 1 valor, não agrupado por dimensão
+function pnlValorCampoSubdetalhe(o, subId, campo, funcao, subdetalhesResolvidos){
+  const sd = (subdetalhesResolvidos||[]).find(s=>s.id===subId);
+  if(!sd) return 0;
+  const chave = pnlValorFiltro(o, sd.campoPrincipal);
+  const filhos = sd.indice[chave] || [];
+  if(funcao === 'contagem') return filhos.length;
+  return filhos.reduce((s,f)=>s+pnlNum(f[campo]), 0);
 }
 // agrupa por UM campo só, pra gráficos (barra/linha/donut) — "medida" pode
 // ser uma medida de verdade (soma/média/...) ou, sem nenhuma configurada
@@ -15498,9 +15523,17 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
     }));
   }
   // valor cru de uma coluna numa "linha" — em modo agrupado a linha já é o
-  // objeto sintético acima (lê a chave direto), senão resolve campo normal
-  // ou linkado da consulta principal (fonte 'linhas', registro de verdade)
-  const valorColuna = ehAgrupado ? ((o,c)=>o[c]) : ((o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
+  // objeto sintético acima (lê a chave direto); senão, uma coluna "%subId::
+  // campo::funcao" é calculada a partir de um Subdetalhe (soma/contagem
+  // escopada ao registro pai), e qualquer outra resolve campo normal ou
+  // linkado da consulta principal (fonte 'linhas', registro de verdade)
+  const valorColuna = ehAgrupado ? ((o,c)=>o[c]) : ((o,c)=>{
+    if(pnlEhCampoSubdetalhe(c)){
+      const p = pnlParseCampoSubdetalhe(c);
+      return pnlValorCampoSubdetalhe(o, p.subId, p.campo, p.funcao, subdetalhes);
+    }
+    return pnlValorColunaLinha(o,c,indicesLinks);
+  });
   // ordenação "ao vivo" (clique no cabeçalho) substitui a configurada — e,
   // como a quebra/subtotal depende da ordem configurada pra agrupar certo,
   // fica desligada enquanto uma ordenação ao vivo estiver ativa (a
@@ -15656,7 +15689,7 @@ function pnlMoverColuna(campo, dir){
   [pnlFormColunasAtual[i], pnlFormColunasAtual[j]] = [pnlFormColunasAtual[j], pnlFormColunasAtual[i]];
   pnlRenderColunasOrdem(pnlColunasOrdemOpcoes);
 }
-function pnlRenderColunasPicker(fonte, consultaId){
+function pnlRenderColunasPicker(fonte, consultaId, subdetalhesForm){
   const marcadas = new Set(pnlFormColunasAtual);
   const montaItens = opcoes => Object.entries(opcoes).map(([k,v])=>{
     const label = typeof v === 'string' ? v : v.label;
@@ -15693,10 +15726,23 @@ function pnlRenderColunasPicker(fonte, consultaId){
     pnlFormLinksAtual.forEach(l=>{
       pnlColunasDisponiveis(l.consultaId).forEach(campo=>{ camposLinkados[pnlCodificarCampoLinkado(l.consultaId, campo)] = `${campo} (${pnlNomeConsulta(l.consultaId)})`; });
     });
-    opcoesCombinadas = { ...campos, ...camposLinkados };
+    // "coluna calculada" a partir de um Subdetalhe (soma de um campo, ou
+    // contagem de itens) — escopada ao registro pai, só faz sentido no
+    // Detalhe (widget Relatório) em fonte 'linhas', nunca na Tabela
+    const camposSubdetalhe = {};
+    (subdetalhesForm||[]).forEach(sd=>{
+      if(!sd.id) return;
+      camposSubdetalhe[pnlCodificarCampoSubdetalhe(sd.id, '', 'contagem')] = `Quantidade de itens (${sd.titulo||'Detalhes'})`;
+      const catalogoSub = pnlColunasTabelaDisponiveis(sd.consultaId);
+      Object.entries(catalogoSub).forEach(([campo,label])=>{
+        camposSubdetalhe[pnlCodificarCampoSubdetalhe(sd.id, campo, 'soma')] = `${label} — soma (${sd.titulo||'Detalhes'})`;
+      });
+    });
+    opcoesCombinadas = { ...campos, ...camposLinkados, ...camposSubdetalhe };
     document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas';
     document.getElementById('pnlNovoWidgetColunasLista').innerHTML = montaItens(campos) +
-      (Object.keys(camposLinkados).length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS LINKADOS</div>${montaItens(camposLinkados)}` : '');
+      (Object.keys(camposLinkados).length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CAMPOS LINKADOS</div>${montaItens(camposLinkados)}` : '') +
+      (Object.keys(camposSubdetalhe).length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CALCULADO A PARTIR DO SUBDETALHE</div>${montaItens(camposSubdetalhe)}` : '');
   }
   pnlRenderColunasOrdem(opcoesCombinadas);
 }
@@ -16123,7 +16169,13 @@ function pnlExportAoaWidgetRelatorio(widget){
       catalogo: pnlColunasTabelaDisponiveis(sd.consultaId),
     }));
   }
-  const valorColuna = ehAgrupado ? ((o,c)=>o[c]) : ((o,c)=>pnlValorColunaLinha(o,c,indicesLinks));
+  const valorColuna = ehAgrupado ? ((o,c)=>o[c]) : ((o,c)=>{
+    if(pnlEhCampoSubdetalhe(c)){
+      const p = pnlParseCampoSubdetalhe(c);
+      return pnlValorCampoSubdetalhe(o, p.subId, p.campo, p.funcao, subdetalhes);
+    }
+    return pnlValorColunaLinha(o,c,indicesLinks);
+  });
   if(!ehAgrupado && widget.ordenacao && widget.ordenacao.length){
     linhas = pnlOrdenarPorCriterios(linhas, widget.ordenacao, valorColuna);
   }
@@ -16405,7 +16457,7 @@ function pnlAtualizarCamposNovoWidget(){
   }
   if(ehTabelaPersonalizada) pnlRenderColunasPicker(fonte, consultaId);
   else if(ehRelatorio){
-    pnlRenderColunasPicker(fonte, consultaId);
+    pnlRenderColunasPicker(fonte, consultaId, fonte==='linhas' ? pnlFormSubdetalhesAtual : null);
     if(fonte!=='agrupado') document.getElementById('pnlNovoWidgetLabelColunas').textContent = 'Colunas do Detalhe';
   }
   // Ordenação/Quebra (subtotal) assume linhas por registro — não faz
@@ -16570,6 +16622,11 @@ function pnlWidgetEditar(id){
   pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
   pnlFormLinksAtual = w.links ? JSON.parse(JSON.stringify(w.links)) : [];
   pnlFormSubdetalhesAtual = w.subdetalhes ? JSON.parse(JSON.stringify(w.subdetalhes)) : [];
+  // subdetalhe salvo antes dessa funcionalidade existir não tem id —
+  // preenche agora, pra já poder ser referenciado por uma "coluna
+  // calculada" do Detalhe (só persiste de verdade quando o widget for
+  // salvo de novo)
+  pnlFormSubdetalhesAtual.forEach(sd=>{ if(!sd.id) sd.id = pnlGerarIdSubdetalhe(); });
   pnlFormSubdetalheColunasAtual = [];
   pnlEditandoSubdetalheIndex = null;
   pnlFormOrdenacaoAtual = w.ordenacao ? JSON.parse(JSON.stringify(w.ordenacao)) : [];
@@ -18637,7 +18694,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(!consultaId || !campoPrincipal || !campoLink){ toast('Escolha a consulta e os dois campos pra ligar.'); return; }
     if(fonteSub==='agrupado' && !dimensaoSub){ toast('Escolha o agrupamento (Agrupar por) do subdetalhe.'); return; }
     if(!pnlFormSubdetalheColunasAtual.length){ toast('Escolha pelo menos uma coluna pro subdetalhe.'); return; }
-    const item = { titulo: titulo || 'Detalhes', consultaId, campoPrincipal, campoLink, colunas: pnlFormSubdetalheColunasAtual.slice() };
+    // id estável (não muda ao editar) — usado pra referenciar esse
+    // Subdetalhe de uma "coluna calculada" no Detalhe principal, sem
+    // quebrar se outro Subdetalhe for removido/reordenado depois
+    const idExistente = (pnlEditandoSubdetalheIndex !== null && pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex]) ? pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex].id : null;
+    const item = { id: idExistente || pnlGerarIdSubdetalhe(), titulo: titulo || 'Detalhes', consultaId, campoPrincipal, campoLink, colunas: pnlFormSubdetalheColunasAtual.slice() };
     if(fonteSub==='agrupado'){
       item.fonte = 'agrupado';
       item.dimensao = dimensaoSub;
@@ -18661,7 +18722,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlFormSubdetalheTotaisAtual = [];
     pnlFormSubdetalheColunasApelidos = {};
     pnlRenderSubdetalhesLista();
-    pnlAtualizarCamposSubdetalhe();
+    // atualiza tanto o sub-form quanto o picker de Colunas do Detalhe
+    // (que agora pode oferecer soma/contagem desse Subdetalhe)
+    pnlAtualizarCamposNovoWidget();
   });
   document.getElementById('pnlNovoWidgetSubdetalhesLista').addEventListener('click', e=>{
     const btnEditar = e.target.closest('[data-editarsubdetalhe]');
@@ -18689,7 +18752,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
     const btn = e.target.closest('[data-removersubdetalhe]'); if(!btn) return;
     const i = Number(btn.dataset.removersubdetalhe);
+    const removido = pnlFormSubdetalhesAtual[i];
     pnlFormSubdetalhesAtual.splice(i, 1);
+    // remove do Detalhe qualquer "coluna calculada" que dependia desse
+    // Subdetalhe — senão ficaria uma referência órfã, calculando 0 à toa
+    if(removido && removido.id){
+      pnlFormColunasAtual = pnlFormColunasAtual.filter(c=>!(pnlEhCampoSubdetalhe(c) && pnlParseCampoSubdetalhe(c).subId===removido.id));
+    }
     if(pnlEditandoSubdetalheIndex === i){
       pnlEditandoSubdetalheIndex = null;
       document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
@@ -18697,6 +18766,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       pnlEditandoSubdetalheIndex--;
     }
     pnlRenderSubdetalhesLista();
+    pnlAtualizarCamposNovoWidget();
   });
   document.getElementById('btnPnlAdicionarOrdenacao').addEventListener('click', ()=>{
     const campo = document.getElementById('pnlNovoWidgetOrdenacaoCampo').value;
