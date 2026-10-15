@@ -2883,8 +2883,21 @@
               <div class="field"><label style="font-size:11px;">Campo no Detalhe</label><select id="pnlNovoWidgetSubdetalheCampoPrincipal"></select></div>
               <div class="field"><label style="font-size:11px;">= Campo no Subdetalhe</label><select id="pnlNovoWidgetSubdetalheCampoLink"></select></div>
             </div>
+            <div class="row">
+              <div class="field"><label style="font-size:11px;">De onde vêm as linhas</label>
+                <select id="pnlNovoWidgetSubdetalheFonte">
+                  <option value="linhas">Linhas (uma linha por registro)</option>
+                  <option value="agrupado">Agrupado por uma dimensão (uma linha por valor)</option>
+                </select>
+              </div>
+              <div class="field" id="pnlNovoWidgetSubdetalheCampoDimensao" style="display:none;"><label style="font-size:11px;">Agrupar por</label><select id="pnlNovoWidgetSubdetalheDimensao"></select></div>
+            </div>
+            <div class="row">
+              <div class="field" id="pnlNovoWidgetSubdetalheCampoDimensao2" style="display:none;"><label style="font-size:11px;">Depois por (nível 2, opcional)</label><select id="pnlNovoWidgetSubdetalheDimensao2"></select></div>
+              <div class="field" id="pnlNovoWidgetSubdetalheCampoDimensao3" style="display:none;"><label style="font-size:11px;">Depois por (nível 3, opcional)</label><select id="pnlNovoWidgetSubdetalheDimensao3"></select></div>
+            </div>
             <div class="field">
-              <label style="font-size:11px;">Colunas deste subdetalhe</label>
+              <label id="pnlNovoWidgetSubdetalheLabelColunas" style="font-size:11px;">Colunas deste subdetalhe</label>
               <div id="pnlNovoWidgetSubdetalheColunasLista" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
             </div>
             <div class="field">

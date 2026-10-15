@@ -15027,6 +15027,40 @@ function pnlAgruparColunasCruRelatorio(linhas, camposChaves, colunas){
   });
   return resultado;
 }
+// agrupa os FILHOS de um Subdetalhe (já escopados ao registro pai, via
+// campoPrincipal/campoLink) por até 3 campos — diferente do agrupamento
+// do Detalhe principal, aqui NÃO entra o sistema de Medida: uma Medida é
+// calculada contra a consulta INTEIRA (pnlValorMedida → pnlLinhasConsultaNoContexto),
+// sem jeito de restringir só aos filhos desse pai, o que somaria errado
+// (ex: todos os itens daquele PRODUTO em TODAS as notas, não só dessa).
+// Em vez disso, soma automaticamente qualquer coluna selecionada cujos
+// valores sejam todos numéricos dentro do grupo — senão mostra o valor da
+// 1ª linha, igual o Tabela/Relatório já fazem com campo cru
+function pnlAgruparSubdetalhe(filhos, camposChaves, colunas){
+  const grupos = {};
+  filhos.forEach(f=>{
+    const chaves = camposChaves.map(c=>pnlValorFiltro(f, c));
+    const chaveComposta = chaves.join('␟');
+    if(!grupos[chaveComposta]) grupos[chaveComposta] = { chaves, itens:[] };
+    grupos[chaveComposta].itens.push(f);
+  });
+  const resultado = Object.values(grupos).map(g=>{
+    const linha = {};
+    camposChaves.forEach((c,i)=>{ linha[c] = g.chaves[i]; });
+    colunas.forEach(c=>{
+      const vals = g.itens.map(f=>pnlCoagirNumero(f[c])).filter(v=>typeof v==='number');
+      linha[c] = (vals.length && vals.length===g.itens.length) ? vals.reduce((s,v)=>s+v,0) : g.itens[0][c];
+    });
+    return linha;
+  });
+  resultado.sort((a,b)=>{
+    let d = String(a[camposChaves[0]]).localeCompare(String(b[camposChaves[0]]),'pt',{numeric:true});
+    if(d) return d;
+    for(let i=1;i<camposChaves.length;i++){ d = String(a[camposChaves[i]]).localeCompare(String(b[camposChaves[i]]),'pt',{numeric:true}); if(d) return d; }
+    return 0;
+  });
+  return resultado;
+}
 // agrupa por UM campo só, pra gráficos (barra/linha/donut) — "medida" pode
 // ser uma medida de verdade (soma/média/...) ou, sem nenhuma configurada
 // ainda, cai em "contar linhas" (sempre existe pelo menos essa leitura)
@@ -15531,12 +15565,18 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
       const chave = pnlValorFiltro(o, sd.campoPrincipal);
       let filhos = sd.indice[chave] || [];
       if(!filhos.length) return '';
+      let colunasSub = sd.colunas;
+      if(sd.fonte === 'agrupado'){
+        const dimensoesSub = [sd.dimensao, sd.dimensao2, sd.dimensao3].filter(Boolean);
+        filhos = pnlAgruparSubdetalhe(filhos, dimensoesSub, sd.colunas);
+        colunasSub = [...dimensoesSub, ...sd.colunas];
+      }
       if(sd.ordenacao && sd.ordenacao.length){
         filhos = pnlOrdenarPorCriterios(filhos, sd.ordenacao, (f,c)=>f[c]);
       }
-      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo, sd.colunasApelidos));
-      const linhasSub = filhos.map(f=>`<tr>${sd.colunas.map(c=>`<td${ehNumAlinhavel(f[c])?' class="num"':''}>${escaparHtml(pnlFormatarValorColuna(f[c]))}</td>`).join('')}</tr>`).join('');
-      const totaisSub = (sd.colunasTotais && sd.colunasTotais.length) ? sd.colunas.map(c=>{
+      const cabSub = colunasSub.map(c=>pnlLabelColuna(c, sd.catalogo, sd.colunasApelidos));
+      const linhasSub = filhos.map(f=>`<tr>${colunasSub.map(c=>`<td${ehNumAlinhavel(f[c])?' class="num"':''}>${escaparHtml(pnlFormatarValorColuna(f[c]))}</td>`).join('')}</tr>`).join('');
+      const totaisSub = (sd.colunasTotais && sd.colunasTotais.length) ? colunasSub.map(c=>{
         if(!sd.colunasTotais.includes(c)) return '<td></td>';
         const vals = filhos.map(f=>pnlCoagirNumero(f[c])).filter(v=>typeof v==='number');
         return vals.length ? `<td class="num"><b>${pnlFormatarTotalColuna(vals.reduce((s,v)=>s+v,0))}</b></td>` : '<td></td>';
@@ -15702,7 +15742,7 @@ function pnlRenderSubdetalhesLista(){
   if(!cont) return;
   cont.innerHTML = pnlFormSubdetalhesAtual.length ? pnlFormSubdetalhesAtual.map((sd,i)=>`
     <div style="display:flex;align-items:center;gap:6px;font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--line);${pnlEditandoSubdetalheIndex===i?'background:var(--highlight,#fff3cd);':''}">
-      <span style="flex:1;"><b>${escaparHtml(sd.titulo||'(sem título)')}</b> · ${escaparHtml(pnlNomeConsulta(sd.consultaId))} · ${escaparHtml(sd.campoPrincipal)} = ${escaparHtml(sd.campoLink)} · ${sd.colunas.length} coluna${sd.colunas.length===1?'':'s'}</span>
+      <span style="flex:1;"><b>${escaparHtml(sd.titulo||'(sem título)')}</b> · ${escaparHtml(pnlNomeConsulta(sd.consultaId))} · ${escaparHtml(sd.campoPrincipal)} = ${escaparHtml(sd.campoLink)} · ${sd.colunas.length} coluna${sd.colunas.length===1?'':'s'}${sd.fonte==='agrupado'?` · agrupado por ${escaparHtml(sd.dimensao)}`:''}</span>
       <button type="button" data-editarsubdetalhe="${i}" title="Editar subdetalhe" style="background:none;border:none;color:var(--accent,#2563eb);cursor:pointer;font-size:14px;line-height:1;padding:2px;">✎</button>
       <button type="button" data-removersubdetalhe="${i}" title="Remover subdetalhe" style="background:none;border:none;color:var(--bad);cursor:pointer;font-size:14px;line-height:1;padding:2px;">✕</button>
     </div>`).join('') : `<div class="empty" style="padding:2px 0;font-size:12px;">Nenhum subdetalhe adicionado ainda.</div>`;
@@ -15779,6 +15819,27 @@ function pnlAtualizarCamposSubdetalhe(){
   const selCampoLink = document.getElementById('pnlNovoWidgetSubdetalheCampoLink');
   const camposSub = consultaSub ? pnlColunasDisponiveis(consultaSub) : [];
   selCampoLink.innerHTML = camposSub.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+  const fonteSub = document.getElementById('pnlNovoWidgetSubdetalheFonte').value || 'linhas';
+  const ehSubAgrupado = fonteSub === 'agrupado';
+  document.getElementById('pnlNovoWidgetSubdetalheCampoDimensao').style.display = ehSubAgrupado ? '' : 'none';
+  document.getElementById('pnlNovoWidgetSubdetalheCampoDimensao2').style.display = ehSubAgrupado ? '' : 'none';
+  document.getElementById('pnlNovoWidgetSubdetalheCampoDimensao3').style.display = ehSubAgrupado ? '' : 'none';
+  if(ehSubAgrupado){
+    const selDim = document.getElementById('pnlNovoWidgetSubdetalheDimensao');
+    const atualDim = selDim.value;
+    selDim.innerHTML = camposSub.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+    if(camposSub.includes(atualDim)) selDim.value = atualDim;
+    const selDim2 = document.getElementById('pnlNovoWidgetSubdetalheDimensao2');
+    const selDim3 = document.getElementById('pnlNovoWidgetSubdetalheDimensao3');
+    const atualDim2 = selDim2.value, atualDim3 = selDim3.value;
+    const opcoesExtra = `<option value="">(nenhum)</option>` + camposSub.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+    selDim2.innerHTML = opcoesExtra;
+    selDim3.innerHTML = opcoesExtra;
+    if(camposSub.includes(atualDim2)) selDim2.value = atualDim2;
+    if(camposSub.includes(atualDim3)) selDim3.value = atualDim3;
+  }
+  const labelColunasSub = document.getElementById('pnlNovoWidgetSubdetalheLabelColunas');
+  if(labelColunasSub) labelColunasSub.textContent = ehSubAgrupado ? 'Colunas (soma automática quando numéricas)' : 'Colunas deste subdetalhe';
   pnlRenderSubdetalheColunasPicker(consultaSub);
   const selOrdenacaoSub = document.getElementById('pnlNovoWidgetSubdetalheOrdenacaoCampo');
   if(selOrdenacaoSub) selOrdenacaoSub.innerHTML = camposSub.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
@@ -16099,18 +16160,24 @@ function pnlExportAoaWidgetRelatorio(widget){
       const chave = pnlValorFiltro(o, sd.campoPrincipal);
       let filhos = sd.indice[chave] || [];
       if(!filhos.length) return;
+      let colunasSub = sd.colunas;
+      if(sd.fonte === 'agrupado'){
+        const dimensoesSub = [sd.dimensao, sd.dimensao2, sd.dimensao3].filter(Boolean);
+        filhos = pnlAgruparSubdetalhe(filhos, dimensoesSub, sd.colunas);
+        colunasSub = [...dimensoesSub, ...sd.colunas];
+      }
       if(sd.ordenacao && sd.ordenacao.length){
         filhos = pnlOrdenarPorCriterios(filhos, sd.ordenacao, (f,c)=>f[c]);
       }
       aoa.push(['', `↳ ${sd.titulo || 'Detalhes'}`]);
-      const cabSub = sd.colunas.map(c=>pnlLabelColuna(c, sd.catalogo, sd.colunasApelidos));
+      const cabSub = colunasSub.map(c=>pnlLabelColuna(c, sd.catalogo, sd.colunasApelidos));
       aoa.push(['', ...cabSub]);
       headerStyles.push({ row:aoa.length-1, cols:cabSub.length, offset:1 });
       filhos.forEach(f=>{
-        aoa.push(['', ...sd.colunas.map(c=>pnlExportValorCelula(f[c]))]);
+        aoa.push(['', ...colunasSub.map(c=>pnlExportValorCelula(f[c]))]);
       });
       if(sd.colunasTotais && sd.colunasTotais.length){
-        aoa.push(['', ...sd.colunas.map(c=>{
+        aoa.push(['', ...colunasSub.map(c=>{
           if(!sd.colunasTotais.includes(c)) return '';
           const vals = filhos.map(f=>pnlCoagirNumero(f[c])).filter(v=>typeof v==='number');
           return vals.length ? vals.reduce((s,v)=>s+v,0) : '';
@@ -16452,6 +16519,7 @@ function pnlResetFormNovoWidget(){
   pnlFormSubdetalheTotaisAtual = [];
   pnlFormSubdetalheColunasApelidos = {};
   document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
+  document.getElementById('pnlNovoWidgetSubdetalheFonte').value = 'linhas';
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetZebrado').checked = false;
@@ -18515,6 +18583,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlFormSubdetalheColunasApelidos = {};
     pnlAtualizarCamposSubdetalhe();
   });
+  document.getElementById('pnlNovoWidgetSubdetalheFonte').addEventListener('change', ()=>{
+    pnlFormSubdetalheColunasAtual = [];
+    pnlAtualizarCamposSubdetalhe();
+  });
   document.getElementById('pnlNovoWidgetSubdetalheColunasLista').addEventListener('change', e=>{
     const cb = e.target.closest('[data-wsubcoluna]'); if(!cb) return;
     const k = cb.value;
@@ -18558,9 +18630,20 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const consultaId = document.getElementById('pnlNovoWidgetSubdetalheConsulta').value;
     const campoPrincipal = document.getElementById('pnlNovoWidgetSubdetalheCampoPrincipal').value;
     const campoLink = document.getElementById('pnlNovoWidgetSubdetalheCampoLink').value;
+    const fonteSub = document.getElementById('pnlNovoWidgetSubdetalheFonte').value || 'linhas';
+    const dimensaoSub = document.getElementById('pnlNovoWidgetSubdetalheDimensao').value;
+    const dimensaoSub2 = document.getElementById('pnlNovoWidgetSubdetalheDimensao2').value;
+    const dimensaoSub3 = document.getElementById('pnlNovoWidgetSubdetalheDimensao3').value;
     if(!consultaId || !campoPrincipal || !campoLink){ toast('Escolha a consulta e os dois campos pra ligar.'); return; }
+    if(fonteSub==='agrupado' && !dimensaoSub){ toast('Escolha o agrupamento (Agrupar por) do subdetalhe.'); return; }
     if(!pnlFormSubdetalheColunasAtual.length){ toast('Escolha pelo menos uma coluna pro subdetalhe.'); return; }
     const item = { titulo: titulo || 'Detalhes', consultaId, campoPrincipal, campoLink, colunas: pnlFormSubdetalheColunasAtual.slice() };
+    if(fonteSub==='agrupado'){
+      item.fonte = 'agrupado';
+      item.dimensao = dimensaoSub;
+      if(dimensaoSub2) item.dimensao2 = dimensaoSub2;
+      if(dimensaoSub3 && dimensaoSub2) item.dimensao3 = dimensaoSub3;
+    }
     if(pnlFormSubdetalheOrdenacaoAtual.length) item.ordenacao = pnlFormSubdetalheOrdenacaoAtual.slice();
     if(pnlFormSubdetalheTotaisAtual.length) item.colunasTotais = pnlFormSubdetalheTotaisAtual.slice();
     if(Object.keys(pnlFormSubdetalheColunasApelidos).length) item.colunasApelidos = {...pnlFormSubdetalheColunasApelidos};
@@ -18572,15 +18655,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlEditandoSubdetalheIndex = null;
     document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
     document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = '';
+    document.getElementById('pnlNovoWidgetSubdetalheFonte').value = 'linhas';
     pnlFormSubdetalheColunasAtual = [];
     pnlFormSubdetalheOrdenacaoAtual = [];
     pnlFormSubdetalheTotaisAtual = [];
     pnlFormSubdetalheColunasApelidos = {};
     pnlRenderSubdetalhesLista();
-    pnlRenderSubdetalheColunasPicker(document.getElementById('pnlNovoWidgetSubdetalheConsulta').value);
-    pnlRenderSubdetalheOrdenacaoLista();
-    pnlRenderSubdetalheTotaisPicker();
-    pnlRenderSubdetalheApelidosPicker();
+    pnlAtualizarCamposSubdetalhe();
   });
   document.getElementById('pnlNovoWidgetSubdetalhesLista').addEventListener('click', e=>{
     const btnEditar = e.target.closest('[data-editarsubdetalhe]');
@@ -18595,9 +18676,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       pnlFormSubdetalheColunasApelidos = sd.colunasApelidos ? {...sd.colunasApelidos} : {};
       document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = sd.titulo || '';
       document.getElementById('pnlNovoWidgetSubdetalheConsulta').value = sd.consultaId;
+      document.getElementById('pnlNovoWidgetSubdetalheFonte').value = sd.fonte || 'linhas';
       pnlAtualizarCamposSubdetalhe();
       document.getElementById('pnlNovoWidgetSubdetalheCampoPrincipal').value = sd.campoPrincipal;
       document.getElementById('pnlNovoWidgetSubdetalheCampoLink').value = sd.campoLink;
+      if(sd.dimensao) document.getElementById('pnlNovoWidgetSubdetalheDimensao').value = sd.dimensao;
+      document.getElementById('pnlNovoWidgetSubdetalheDimensao2').value = sd.dimensao2 || '';
+      document.getElementById('pnlNovoWidgetSubdetalheDimensao3').value = sd.dimensao3 || '';
       document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Salvar subdetalhe';
       pnlRenderSubdetalhesLista();
       return;
