@@ -15169,10 +15169,13 @@ async function pnlAtualizarDoRm(){
   if(!valoresParametros) return;
   pnlCarregando = true;
   const btn = document.getElementById('btnPnlAtualizar');
-  btn.disabled = true; btn.textContent = 'Consultando o RM…';
+  const total = consultas.length;
+  let concluidas = 0;
+  const atualizarProgressoBtn = () => { btn.textContent = total > 1 ? `Consultando o RM… (${concluidas} de ${total})` : 'Consultando o RM…'; };
+  btn.disabled = true; atualizarProgressoBtn();
   document.getElementById('pnlStatus').textContent = '';
   try{
-    const resultados = await Promise.all(consultas.map(c=>api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id, painelId: pnlPainelAtual.id, valoresParametros })));
+    const resultados = await Promise.all(consultas.map(c=>api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id, painelId: pnlPainelAtual.id, valoresParametros }).then(r=>{ concluidas++; atualizarProgressoBtn(); return r; })));
     const falha = resultados.find(r=>!r.ok);
     if(falha){ document.getElementById('pnlStatus').textContent = falha.erro || 'Não foi possível atualizar.'; return; }
     pnlDadosPorConsulta = {};
