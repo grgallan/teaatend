@@ -543,6 +543,15 @@ async function acaoEmpresaPadrao(_req: any) {
 async function acaoDados(req: any) {
   const contaId = req.contaId;
   const empresaId = req.empresaId || null;
+  // atendimentos é de longe o payload mais pesado desta ação (histórico
+  // inteiro de chamados, sem paginação) — a maioria das 30+ telas de
+  // cadastro (Tipos, Segmentos, Clientes, Status, etc.) chama acaoDados()
+  // só pra atualizar contas/clientes/tipos/etc. depois de salvar algo que
+  // não tem nada a ver com atendimentos, então reenviar esse histórico
+  // de novo a cada clique era o maior consumidor de Egress do projeto.
+  // Default true preserva o comportamento de sempre pra quem não manda o
+  // parâmetro (nenhum chamador existente quebra).
+  const comAtendimentos = req.comAtendimentos !== false;
   let clientesQuery = db.from('clientes').select('*').order('nome');
   if (empresaId) clientesQuery = clientesQuery.eq('empresa_id', empresaId);
   let categoriasFinanceirasQuery = db.from('categorias_financeiras').select('*').order('nome');
@@ -613,24 +622,6 @@ async function acaoDados(req: any) {
     return true;
   });
 
-  let atendimentosQuery = db.from('atendimentos').select('*').order('data', { ascending: false });
-  if (empresaId) atendimentosQuery = atendimentosQuery.eq('empresa_id', empresaId);
-  if (contaAtual && contaAtual.perfil === 'USUARIO') {
-    // usuário marcado como "administrador do cliente" vê TODOS os
-    // atendimentos daquele cliente, não só os que ele mesmo abriu
-    if (contaAtual.admin_cliente && contaAtual.cliente_id) {
-      const clienteDoUsuario = (clientes || []).find((c: any) => String(c.id) === String(contaAtual.cliente_id));
-      if (clienteDoUsuario) {
-        atendimentosQuery = atendimentosQuery.eq('cliente', clienteDoUsuario.nome);
-      } else {
-        atendimentosQuery = atendimentosQuery.eq('usuario', contaAtual.nome);
-      }
-    } else {
-      atendimentosQuery = atendimentosQuery.eq('usuario', contaAtual.nome);
-    }
-  }
-  const { data: atendimentosRaw } = await atendimentosQuery;
-
   let valores: any[] = [];
   if (isAdmin) {
     let valoresQuery = db.from('valores').select('*');
@@ -639,68 +630,93 @@ async function acaoDados(req: any) {
     valores = (data || []).map(valorParaApi);
   }
 
-  // vínculos entre chamados — traz tudo de uma vez (em vez de uma consulta
-  // por card) pro app conseguir montar a árvore de vínculos na lista/Kanban
-  // sem chamada extra nenhuma; só os que apontam pra atendimentos que essa
-  // conta já pode ver (os outros ficariam "soltos", sem card correspondente)
-  const idsVisiveis = new Set((atendimentosRaw || []).map((a: any) => a.id));
-  const { data: vinculosRaw } = await db.from('vinculos').select('id,atendimento_a,atendimento_b');
-  const vinculos = (vinculosRaw || [])
-    .filter((v: any) => idsVisiveis.has(v.atendimento_a) && idsVisiveis.has(v.atendimento_b))
-    .map((v: any) => ({ id: v.id, atendimentoA: v.atendimento_a, atendimentoB: v.atendimento_b }));
-
-  // bolinha de "movimentação não lida" (estilo notificação de app): compara
-  // a última movimentação de cada atendimento com a última vez que ESSA
-  // conta olhou as movimentações dele — sem registro de visita, ou visita
-  // mais antiga que a movimentação, conta como não lida
-  const vistoPorAtendimento: Record<string, string> = {};
-  if (contaId && idsVisiveis.size > 0) {
-    const { data: vistoRaw } = await db.from('atendimento_visto')
-      .select('atendimento_id,visto_em').eq('conta_id', contaId).in('atendimento_id', [...idsVisiveis]);
-    (vistoRaw || []).forEach((v: any) => { vistoPorAtendimento[v.atendimento_id] = v.visto_em; });
-  }
-
-  // anexos de cada atendimento (inicial + os adicionados depois, inclusive
-  // os deixados numa movimentação) — traz tudo de uma vez, igual aos
-  // vínculos acima, pro 📎 da lista/tabela e a prévia ao passar o mouse não
-  // precisarem de uma chamada extra por card
-  const anexosPorAtendimento: Record<string, { id: string; nome: string; url: string }[]> = {};
-  if (idsVisiveis.size > 0) {
-    const { data: anexosRaw } = await db.from('anexos').select('id,atendimento_id,nome,url').in('atendimento_id', [...idsVisiveis]);
-    (anexosRaw || []).forEach((an: any) => {
-      if (!anexosPorAtendimento[an.atendimento_id]) anexosPorAtendimento[an.atendimento_id] = [];
-      anexosPorAtendimento[an.atendimento_id].push({ id: an.id, nome: an.nome, url: an.url });
-    });
-  }
-
-  let atendimentos = (atendimentosRaw || []).map((a: any) => {
-    const visto = vistoPorAtendimento[a.id];
-    const naoLidas = !!a.ultima_movimentacao_em && (!visto || new Date(visto) < new Date(a.ultima_movimentacao_em));
-    // o anexo inicial (anexo_url) já é gravado também na tabela "anexos" ao
-    // criar o atendimento (ver acaoSalvarAtendimento) — só usa o anexo_url
-    // aqui pros atendimentos antigos que nunca ganharam essa linha na
-    // tabela, senão o mesmo arquivo aparece duplicado na prévia
-    const anexosTabela = anexosPorAtendimento[a.id] || [];
-    const jaTemNaTabela = a.anexo_url && anexosTabela.some((an: any) => an.url === a.anexo_url);
-    const anexos = [
-      ...(a.anexo_url && !jaTemNaTabela ? [{ id: 'legado-' + a.id, nome: a.anexo_nome || 'anexo', url: a.anexo_url }] : []),
-      ...anexosTabela,
-    ];
-    return { ...atendimentoParaApi(a), naoLidas, anexos };
-  });
-  // Valor Real (cobrado do cliente) é do admin, e também do usuário
-  // marcado como "administrador do cliente" (vê o valor cobrado do
-  // próprio cliente dele, mas não o valor que o atendente ganha).
-  // Valor Atendente (antes chamado "Ananda") o próprio atendente também vê —
-  // é o quanto ele ganha, faz sentido pra ele acompanhar no resumo dele.
-  if (contaAtual && contaAtual.perfil === 'USUARIO') {
-    if (contaAtual.admin_cliente) {
-      atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '' }));
-    } else {
-      atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '', vhr: '', totalReal: '' }));
+  // todo o bloco de atendimentos (de longe o payload mais pesado desta
+  // ação) só roda quando comAtendimentos=true — ver comentário no topo
+  // desta função
+  let atendimentos: any[] = [];
+  let vinculos: any[] = [];
+  if (comAtendimentos) {
+    let atendimentosQuery = db.from('atendimentos').select('*').order('data', { ascending: false });
+    if (empresaId) atendimentosQuery = atendimentosQuery.eq('empresa_id', empresaId);
+    if (contaAtual && contaAtual.perfil === 'USUARIO') {
+      // usuário marcado como "administrador do cliente" vê TODOS os
+      // atendimentos daquele cliente, não só os que ele mesmo abriu
+      if (contaAtual.admin_cliente && contaAtual.cliente_id) {
+        const clienteDoUsuario = (clientes || []).find((c: any) => String(c.id) === String(contaAtual.cliente_id));
+        if (clienteDoUsuario) {
+          atendimentosQuery = atendimentosQuery.eq('cliente', clienteDoUsuario.nome);
+        } else {
+          atendimentosQuery = atendimentosQuery.eq('usuario', contaAtual.nome);
+        }
+      } else {
+        atendimentosQuery = atendimentosQuery.eq('usuario', contaAtual.nome);
+      }
     }
-  } else if (contaAtual && contaAtual.perfil === 'ATENDENTE' && !isAdmin) {
-    atendimentos = atendimentos.map((a: any) => ({ ...a, vhr: '', totalReal: '' }));
+    const { data: atendimentosRaw } = await atendimentosQuery;
+
+    // vínculos entre chamados — traz tudo de uma vez (em vez de uma consulta
+    // por card) pro app conseguir montar a árvore de vínculos na lista/Kanban
+    // sem chamada extra nenhuma; só os que apontam pra atendimentos que essa
+    // conta já pode ver (os outros ficariam "soltos", sem card correspondente)
+    const idsVisiveis = new Set((atendimentosRaw || []).map((a: any) => a.id));
+    const { data: vinculosRaw } = await db.from('vinculos').select('id,atendimento_a,atendimento_b');
+    vinculos = (vinculosRaw || [])
+      .filter((v: any) => idsVisiveis.has(v.atendimento_a) && idsVisiveis.has(v.atendimento_b))
+      .map((v: any) => ({ id: v.id, atendimentoA: v.atendimento_a, atendimentoB: v.atendimento_b }));
+
+    // bolinha de "movimentação não lida" (estilo notificação de app): compara
+    // a última movimentação de cada atendimento com a última vez que ESSA
+    // conta olhou as movimentações dele — sem registro de visita, ou visita
+    // mais antiga que a movimentação, conta como não lida
+    const vistoPorAtendimento: Record<string, string> = {};
+    if (contaId && idsVisiveis.size > 0) {
+      const { data: vistoRaw } = await db.from('atendimento_visto')
+        .select('atendimento_id,visto_em').eq('conta_id', contaId).in('atendimento_id', [...idsVisiveis]);
+      (vistoRaw || []).forEach((v: any) => { vistoPorAtendimento[v.atendimento_id] = v.visto_em; });
+    }
+
+    // anexos de cada atendimento (inicial + os adicionados depois, inclusive
+    // os deixados numa movimentação) — traz tudo de uma vez, igual aos
+    // vínculos acima, pro 📎 da lista/tabela e a prévia ao passar o mouse não
+    // precisarem de uma chamada extra por card
+    const anexosPorAtendimento: Record<string, { id: string; nome: string; url: string }[]> = {};
+    if (idsVisiveis.size > 0) {
+      const { data: anexosRaw } = await db.from('anexos').select('id,atendimento_id,nome,url').in('atendimento_id', [...idsVisiveis]);
+      (anexosRaw || []).forEach((an: any) => {
+        if (!anexosPorAtendimento[an.atendimento_id]) anexosPorAtendimento[an.atendimento_id] = [];
+        anexosPorAtendimento[an.atendimento_id].push({ id: an.id, nome: an.nome, url: an.url });
+      });
+    }
+
+    atendimentos = (atendimentosRaw || []).map((a: any) => {
+      const visto = vistoPorAtendimento[a.id];
+      const naoLidas = !!a.ultima_movimentacao_em && (!visto || new Date(visto) < new Date(a.ultima_movimentacao_em));
+      // o anexo inicial (anexo_url) já é gravado também na tabela "anexos" ao
+      // criar o atendimento (ver acaoSalvarAtendimento) — só usa o anexo_url
+      // aqui pros atendimentos antigos que nunca ganharam essa linha na
+      // tabela, senão o mesmo arquivo aparece duplicado na prévia
+      const anexosTabela = anexosPorAtendimento[a.id] || [];
+      const jaTemNaTabela = a.anexo_url && anexosTabela.some((an: any) => an.url === a.anexo_url);
+      const anexos = [
+        ...(a.anexo_url && !jaTemNaTabela ? [{ id: 'legado-' + a.id, nome: a.anexo_nome || 'anexo', url: a.anexo_url }] : []),
+        ...anexosTabela,
+      ];
+      return { ...atendimentoParaApi(a), naoLidas, anexos };
+    });
+    // Valor Real (cobrado do cliente) é do admin, e também do usuário
+    // marcado como "administrador do cliente" (vê o valor cobrado do
+    // próprio cliente dele, mas não o valor que o atendente ganha).
+    // Valor Atendente (antes chamado "Ananda") o próprio atendente também vê —
+    // é o quanto ele ganha, faz sentido pra ele acompanhar no resumo dele.
+    if (contaAtual && contaAtual.perfil === 'USUARIO') {
+      if (contaAtual.admin_cliente) {
+        atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '' }));
+      } else {
+        atendimentos = atendimentos.map((a: any) => ({ ...a, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '', vhr: '', totalReal: '' }));
+      }
+    } else if (contaAtual && contaAtual.perfil === 'ATENDENTE' && !isAdmin) {
+      atendimentos = atendimentos.map((a: any) => ({ ...a, vhr: '', totalReal: '' }));
+    }
   }
 
   let tomticketErros: any[] = [];
@@ -725,8 +741,10 @@ async function acaoDados(req: any) {
     submodulos: (submodulos || []).map(submoduloParaApi),
     statusList: (statusList || []).map(simplesParaApi),
     valores,
-    atendimentos,
-    vinculos,
+    // omite as duas chaves (em vez de mandar [] vazio) quando
+    // comAtendimentos=false — o front distingue "sem nenhum atendimento" de
+    // "nem buscou", e preserva o que já tinha em memória nesse caso
+    ...(comAtendimentos ? { atendimentos, vinculos } : {}),
     perfisAcesso,
     // gerenciar a lista de empresas (criar/editar/remover) é coisa de
     // ADMIN "de verdade" — um ATENDENTE administrador não gerencia isso,

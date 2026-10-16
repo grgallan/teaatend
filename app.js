@@ -807,19 +807,26 @@ function mostrarCarregando(mostrar){
   document.getElementById('loadingOverlay').style.display = mostrar ? 'flex' : 'none';
 }
 
-async function carregarTudo(){
+async function carregarTudo(opcoes={}){
   const contaId = sessaoConta ? sessaoConta.id : '';
   const empresaId = empresaAtual ? empresaAtual.id : '';
-  const r = await api('dados', { contaId, empresaId });
+  // comAtendimentos=false pula o maior payload desta chamada (histórico
+  // inteiro de chamados) nas ações que não têm nada a ver com atendimentos
+  // (salvar um Tipo, Segmento, Cliente, etc.) — grande fonte de Egress
+  // desnecessário no Supabase. O backend então nem manda essas 2 chaves de
+  // volta, e aqui a gente preserva o que já tava em memória.
+  const comAtendimentos = opcoes.comAtendimentos !== false;
+  const r = await api('dados', { contaId, empresaId, comAtendimentos });
   if(!r.ok) return false;
-  contas = r.contas; clientes = r.clientes; tipos = r.tipos; segmentos = r.segmentos||[]; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores; atendimentos = r.atendimentos;
+  contas = r.contas; clientes = r.clientes; tipos = r.tipos; segmentos = r.segmentos||[]; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores;
+  if(r.atendimentos !== undefined) atendimentos = r.atendimentos;
+  if(r.vinculos !== undefined) vinculos = r.vinculos;
   categoriasFinanceiras = r.categoriasFinanceiras||[];
   rmRelatoriosGerenciais = r.rmRelatoriosGerenciais||[];
   rmPainelLayouts = r.rmPainelLayouts||[];
   rmPaineis = r.rmPaineis||[];
   setores = r.setores||[];
   atualizarBadgeAtendimentos();
-  vinculos = r.vinculos||[];
   perfisAcesso = r.perfisAcesso||[];
   empresas = r.empresas||[];
   tomticketErros = r.tomticketErros||[];
@@ -3953,7 +3960,7 @@ async function salvarConfigTomticket(){
       tipoAtendimento: document.getElementById('tt_tipo_atendimento').value.trim(),
     });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar as configurações.'); return; }
-    await carregarTudo();
+    await carregarTudo({ comAtendimentos: false });
     renderConfigTomticket();
     toast('Configurações do TomTicket salvas');
   }catch(e){
@@ -3978,7 +3985,7 @@ async function removerTomticketErroUi(id){
   const conta = contaAtual();
   const r = await api('removerTomticketErro', { contaId: conta.id, id });
   if(!r.ok) return;
-  await carregarTudo();
+  await carregarTudo({ comAtendimentos: false });
   renderUtilTomticketLista();
   toast('Removido');
 }
@@ -7859,7 +7866,7 @@ async function removerPerfilAcessoUi(id){
   const r = await api('removerPerfilAcesso', { contaId: conta.id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   if(editandoPerfilAcessoId === id) limparFormPerfilAcesso();
-  await carregarTudo();
+  await carregarTudo({ comAtendimentos: false });
   renderListPerfisAcesso();
   renderPerfisAcessoCheckboxes('at_perfis_acesso', editandoAtendenteId ? (contas.find(c=>String(c.id)===String(editandoAtendenteId))?.perfisAcessoIds||[]) : []);
   renderPerfisAcessoCheckboxes('us_perfis_acesso', editandoUsuarioId ? (contas.find(c=>String(c.id)===String(editandoUsuarioId))?.perfisAcessoIds||[]) : []);
@@ -7969,7 +7976,7 @@ async function removerEmpresaUi(id){
   const r = await api('removerEmpresa', { contaId: conta.id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   if(editandoEmpresaId === id) limparFormEmpresa();
-  await carregarTudo();
+  await carregarTudo({ comAtendimentos: false });
   renderCadastrosTudo();
   toast('Empresa removida');
 }
@@ -8040,7 +8047,7 @@ async function removerConta(id){
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   if(editandoAtendenteId === id) cancelarEdicaoAtendente();
   if(editandoUsuarioId === id) cancelarEdicaoUsuario();
-  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
   toast('Removido');
 }
 
@@ -8145,7 +8152,7 @@ async function removerSetorCliente(id){
 async function removerCliente(id){
   const r = await api('removerCliente', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo(); renderCadastrosTudo(); popularSelects(); renderFiltros();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects(); renderFiltros();
   toast('Cliente removido');
 }
 
@@ -9329,7 +9336,7 @@ function renderListTipos(){
 async function removerTipo(id){
   const r = await api('removerTipo', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
   toast('Tipo removido');
 }
 
@@ -9343,7 +9350,7 @@ function renderListSegmentos(){
 async function removerSegmento(id){
   const r = await api('removerSegmento', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
   toast('Segmento removido');
 }
 
@@ -9358,7 +9365,7 @@ function renderListCategoriasFinanceiras(){
 async function removerCategoriaFinanceira(id){
   const r = await api('removerCategoriaFinanceira', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
   toast('Categoria removida');
 }
 
@@ -9403,7 +9410,7 @@ async function removerModulo(id){
   const r = await api('removerModulo', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   if(String(editandoModuloId)===String(id)) cancelarEdicaoModulo();
-  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
   toast('Módulo removido');
 }
 
@@ -9448,7 +9455,7 @@ async function removerSubModulo(id){
   const r = await api('removerSubModulo', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
   if(String(editandoSubmoduloId)===String(id)) cancelarEdicaoSubModulo();
-  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
   toast('Rotina removida');
 }
 
@@ -9478,14 +9485,14 @@ async function moverStatus(id, direcao){
   const conta = contaAtual();
   const r = await api('reordenarStatus', { contaId: conta.id, ids: novaOrdem.map(s=>s.id) });
   if(!r.ok){ toast(r.erro || 'Não foi possível reordenar.'); await carregarTudo(); renderListStatus(); return; }
-  await carregarTudo();
+  await carregarTudo({ comAtendimentos: false });
   renderCadastrosTudo();
   renderFiltrosStatus();
 }
 async function removerStatus(id){
   const r = await api('removerStatus', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo(); renderCadastrosTudo(); popularSelects();
+  await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
   toast('Status removido');
 }
 
@@ -12716,7 +12723,7 @@ function cancelarEdicaoRmRelatorio(){
 async function removerRmRelatorio(id){
   const r = await api('removerRmRelatorioGerencial', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo();
+  await carregarTudo({ comAtendimentos: false });
   renderListRmRelatorios();
   toast('Consulta removida');
 }
@@ -12847,7 +12854,7 @@ function cancelarEdicaoRmPainel(){
 async function removerRmPainel(id){
   const r = await api('removerRmPainel', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo();
+  await carregarTudo({ comAtendimentos: false });
   renderListRmPaineis();
   toast('Painel removido');
 }
@@ -16976,7 +16983,7 @@ function renderTabelaValores(){
 async function removerValor(id){
   const r = await api('removerValor', { contaId: contaAtual().id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
-  await carregarTudo(); renderTabelaValores();
+  await carregarTudo({ comAtendimentos: false }); renderTabelaValores();
   toast('Valor removido');
 }
 
@@ -18273,7 +18280,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       : await api('addRmRelatorioGerencial', { contaId, clienteId, nome: nome.toUpperCase(), codigoSentenca, coligada, sistema, parametros });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmRelatorio();
-    await carregarTudo();
+    await carregarTudo({ comAtendimentos: false });
     renderListRmRelatorios();
     toast(editando ? 'Consulta atualizada' : 'Consulta adicionada');
   });
@@ -18290,7 +18297,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       : await api('addRmPainel', { contaId, nome: nome.toUpperCase(), consultas, setorId });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmPainel();
-    await carregarTudo();
+    await carregarTudo({ comAtendimentos: false });
     renderListRmPaineis();
     toast(editando ? 'Painel atualizado' : 'Painel adicionado');
   });
@@ -19477,7 +19484,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     await api('vincularPaineisConta', { contaId: conta.id, contaAlvoId, painelIds: paineisMarcados });
     await api('vincularEmpresasConta', { contaId: conta.id, contaAlvoId, empresaIds: empresasMarcadas });
     cancelarEdicaoAtendente();
-    await carregarTudo(); renderListAtendentes(); popularSelects();
+    await carregarTudo({ comAtendimentos: false }); renderListAtendentes(); popularSelects();
     toast(editando ? 'Atendente atualizado' : 'Atendente adicionado');
   });
   document.getElementById('btnCancelarEdicaoAtendente').addEventListener('click', cancelarEdicaoAtendente);
@@ -19520,7 +19527,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api('salvarEmpresa', payload);
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     limparFormEmpresa();
-    await carregarTudo();
+    await carregarTudo({ comAtendimentos: false });
     renderCadastrosTudo();
     toast(editando ? 'Empresa atualizada' : 'Empresa adicionada');
   });
@@ -19735,7 +19742,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
-    await carregarTudo(); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
+    await carregarTudo({ comAtendimentos: false }); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
     toast(editando ? 'Cliente atualizado' : 'Cliente adicionado');
   });
   document.getElementById('btnCancelarEdicaoCliente').addEventListener('click', cancelarEdicaoCliente);
@@ -19747,7 +19754,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api('addTipo', { contaId: contaAtual().id, nome: nome.toUpperCase() });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('tp_nome').value='';
-    await carregarTudo(); renderListTipos(); popularSelects(); renderValoresForm();
+    await carregarTudo({ comAtendimentos: false }); renderListTipos(); popularSelects(); renderValoresForm();
     toast('Tipo adicionado');
   });
 
@@ -19757,7 +19764,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api('addSegmento', { contaId: contaAtual().id, nome });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('sg_nome').value='';
-    await carregarTudo(); renderListSegmentos(); popularSelects();
+    await carregarTudo({ comAtendimentos: false }); renderListSegmentos(); popularSelects();
     toast('Segmento adicionado');
   });
 
@@ -19768,7 +19775,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api('addCategoriaFinanceira', { contaId: contaAtual().id, nome, tipo, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('cf_nome').value='';
-    await carregarTudo(); renderListCategoriasFinanceiras();
+    await carregarTudo({ comAtendimentos: false }); renderListCategoriasFinanceiras();
     toast('Categoria adicionada');
   });
 
@@ -19781,7 +19788,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api(acao, payload);
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoModulo();
-    await carregarTudo(); renderCadastrosTudo(); popularSelects();
+    await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
     toast(editandoModuloId ? 'Módulo atualizado' : 'Módulo adicionado');
   });
   document.getElementById('btnCancelarEdicaoModulo').addEventListener('click', cancelarEdicaoModulo);
@@ -19795,7 +19802,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api(acao, payload);
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoSubModulo();
-    await carregarTudo(); renderCadastrosTudo(); popularSelects();
+    await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo(); popularSelects();
     toast(editandoSubmoduloId ? 'Rotina atualizada' : 'Rotina adicionada');
   });
   document.getElementById('btnCancelarEdicaoSubModulo').addEventListener('click', cancelarEdicaoSubModulo);
@@ -19806,7 +19813,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api('addStatus', { contaId: contaAtual().id, nome: nome.toUpperCase() });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('st_nome').value='';
-    await carregarTudo(); renderListStatus(); popularSelects();
+    await carregarTudo({ comAtendimentos: false }); renderListStatus(); popularSelects();
     toast('Status adicionado');
   });
 
@@ -19822,7 +19829,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api('salvarValor', { contaId: contaAtual().id, atendenteId, clienteId, tipoId, real, ananda, valorSegundoAtend, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     document.getElementById('vl_real').value=''; document.getElementById('vl_ananda').value=''; document.getElementById('vl_valor_segundo_atend').value='';
-    await carregarTudo(); renderTabelaValores();
+    await carregarTudo({ comAtendimentos: false }); renderTabelaValores();
     toast('Valores salvos');
   });
 
@@ -19871,7 +19878,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     await api('vincularPerfisConta', { contaId: conta.id, contaAlvoId, perfilIds: perfisMarcados });
     await api('vincularPaineisConta', { contaId: conta.id, contaAlvoId, painelIds: paineisMarcados });
     cancelarEdicaoUsuario();
-    await carregarTudo(); renderListUsuarios(); popularSelects();
+    await carregarTudo({ comAtendimentos: false }); renderListUsuarios(); popularSelects();
     toast(editando ? 'Usuário atualizado' : 'Usuário adicionado');
   });
   document.getElementById('btnCancelarEdicaoUsuario').addEventListener('click', cancelarEdicaoUsuario);
@@ -19887,7 +19894,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const r = await api('salvarPerfilAcesso', { contaId: conta.id, id: editandoPerfilAcessoId, nome, permissoes, painelIds });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     limparFormPerfilAcesso();
-    await carregarTudo(); renderCadastrosTudo();
+    await carregarTudo({ comAtendimentos: false }); renderCadastrosTudo();
     toast(editando ? 'Perfil atualizado' : 'Perfil criado');
   });
   document.getElementById('btnCancelarEdicaoPerfilAcesso').addEventListener('click', limparFormPerfilAcesso);
