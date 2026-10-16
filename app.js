@@ -15171,7 +15171,13 @@ async function pnlAtualizarDoRm(){
   const btn = document.getElementById('btnPnlAtualizar');
   const total = consultas.length;
   let concluidas = 0;
-  const atualizarProgressoBtn = () => { btn.textContent = total > 1 ? `Consultando o RM… (${concluidas} de ${total})` : 'Consultando o RM…'; };
+  const inicioConsulta = Date.now();
+  const atualizarProgressoBtn = () => {
+    const seg = Math.max(0, Math.round((Date.now()-inicioConsulta)/1000));
+    const contagem = total > 1 ? `${concluidas} de ${total} — ` : '';
+    btn.textContent = `Consultando o RM… (${contagem}${seg}s)`;
+  };
+  const intervaloProgresso = setInterval(atualizarProgressoBtn, 1000);
   btn.disabled = true; atualizarProgressoBtn();
   document.getElementById('pnlStatus').textContent = '';
   try{
@@ -15187,6 +15193,7 @@ async function pnlAtualizarDoRm(){
     toast(`Painel atualizado com ${totalLinhas} linha${totalLinhas===1?'':'s'} do RM (${consultas.length} consulta${consultas.length===1?'':'s'}).`);
     pnlRender();
   } finally {
+    clearInterval(intervaloProgresso);
     pnlCarregando = false;
     btn.disabled = false; btn.textContent = 'Atualizar do RM';
   }
