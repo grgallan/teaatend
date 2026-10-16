@@ -14733,9 +14733,12 @@ function pnlCalcularMedida(linhas, medidaId){
     // ordem escolhido (ex: DATA) — nunca passa por pnlLinhasConsultaNoContexto
     // de propósito, já recebe "linhas" já escopado ao grupo/contexto certo
     case 'ultimoValor': {
-      if(!linhas.length) return 0;
+      if(!linhas.length) return def.fmt==='data' ? '' : 0;
       const ordenadas = linhas.slice().sort((a,b)=>pnlCompararValorOrdenacao(a[def.campoOrdem], b[def.campoOrdem]));
-      return pnlNum(ordenadas[ordenadas.length-1][def.campo]);
+      const bruto = ordenadas[ordenadas.length-1][def.campo];
+      // formato "Data" mostra o valor cru (ex: "13/10/2026"), sem forçar
+      // pra número — útil quando o próprio CAMPO é uma data, não um valor
+      return def.fmt==='data' ? bruto : pnlNum(bruto);
     }
     case 'percentualDoTotal': {
       const todasLinhas = pnlDadosPorConsulta[def.consultaId] || linhas;
@@ -14938,6 +14941,9 @@ function pnlFormatarMedida(valor, medidaId){
   const def = pnlMedidaPorId(medidaId) || {};
   const fmt = def.fmt;
   if(fmt==='money') return fmtMoeda(valor);
+  // valor cru (ex: "13/10/2026"), sem tentar reformatar — o próprio campo
+  // escolhido já vem no formato de data do relatório de origem
+  if(fmt==='data') return (valor==null || valor==='') ? '' : String(valor);
   const casas = Number.isInteger(def.casas) ? def.casas : (fmt==='pct' ? 1 : 0);
   if(fmt==='pct') return (valor*100).toLocaleString('pt-BR',{minimumFractionDigits:casas,maximumFractionDigits:casas})+'%';
   const numFmt = valor.toLocaleString('pt-BR',{minimumFractionDigits:casas,maximumFractionDigits:casas});
@@ -16753,7 +16759,7 @@ function pnlAtualizarCamposFormMedida(){
   const tipoNumero = document.getElementById('pnlMedidaTipoNumero').value;
   document.getElementById('pnlMedidaCampoCampo').style.display = (ehFormula || funcao==='contagem') ? 'none' : '';
   document.getElementById('pnlMedidaCampoOrdem').style.display = (!ehFormula && funcao==='ultimoValor') ? '' : 'none';
-  document.getElementById('pnlMedidaLinhaCasas').style.display = formato!=='money' ? 'flex' : 'none';
+  document.getElementById('pnlMedidaLinhaCasas').style.display = (formato!=='money' && formato!=='data') ? 'flex' : 'none';
   document.getElementById('pnlMedidaCampoCasas').style.display = (formato!=='money' && tipoNumero==='decimal') ? '' : 'none';
 }
 function pnlResetFormMedida(){
