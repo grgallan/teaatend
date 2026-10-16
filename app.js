@@ -13229,16 +13229,65 @@ function recebToggleFiltroColuna(campo, spanEl){
   const set = recebFiltros[campo] || new Set();
   const opcoes = recebOpcoesPorCampo(campo);
   const itensDropdown = opcoes.length
-    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="${escaparHtml(o.value)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
+    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="${escaparHtml(o.value)}" data-label="${escaparHtml(o.label)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
     : `<div class="lista-filtro-coluna-item" style="color:var(--muted);cursor:default;">Nenhuma opção disponível</div>`;
   portal.innerHTML = `
+    <div style="padding:6px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);">
+      <input type="text" class="lista-filtro-coluna-busca" placeholder="Buscar…" autocomplete="off" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12.5px;background:var(--bg);color:inherit;">
+    </div>
     <div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
     ${itensDropdown}
   `;
+  // busca filtra a lista sem fechar o dropdown — clicar múltiplos itens
+  // marca um a um sem precisar reabrir (ver recebRedesenharChecksPortal)
+  const busca = portal.querySelector('.lista-filtro-coluna-busca');
+  if(busca){
+    busca.addEventListener('keydown', e=>e.stopPropagation());
+    busca.addEventListener('input', ()=>{
+      const t = busca.value.trim().toLowerCase();
+      portal.querySelectorAll('.lista-filtro-coluna-item[data-label]').forEach(it=>{
+        it.style.display = (!t || it.dataset.label.toLowerCase().includes(t)) ? '' : 'none';
+      });
+    });
+  }
   const r = spanEl.getBoundingClientRect();
   portal.style.left = `${r.left}px`;
   portal.style.top = `${r.bottom + 4}px`;
   portal.classList.add('show');
+  if(busca) busca.focus();
+}
+function recebRedesenharChecksPortal(portal, set){
+  portal.querySelectorAll('.lista-filtro-coluna-item[data-label]').forEach(it=>{
+    it.textContent = (set.has(it.dataset.valor) ? '✓ ' : '') + it.dataset.label;
+  });
+}
+function recebResumoFiltroConteudoHtml(campo){
+  const set = recebFiltros[campo] || new Set();
+  if(!set.size) return 'Todos';
+  return [...set].map(v=>`<span class="chip on" data-chipfiltro="${escaparHtml(campo)}" data-chipvalor="${escaparHtml(v)}" style="padding:2px 6px 2px 9px;font-size:11px;margin:1px 3px 1px 0;display:inline-flex;align-items:center;gap:4px;">${escaparHtml(recebLabelValorFiltro(campo,v))}<b style="cursor:pointer;font-weight:900;">×</b></span>`).join('');
+}
+function recebAtualizarResumoFiltro(campo){
+  const el = document.querySelector(`#recebGradeFiltros [data-resumo-filtro="${CSS.escape(campo)}"]`);
+  if(el) el.innerHTML = recebResumoFiltroConteudoHtml(campo);
+  const trig = document.querySelector(`#recebGradeFiltros [data-rfiltro="${CSS.escape(campo)}"]`);
+  if(trig) trig.style.color = (recebFiltros[campo]||new Set()).size > 0 ? 'var(--accent)' : '';
+}
+// recebOpcoesPorCampo já traduz valor->label pros campos especiais (mes,
+// situacao, contrato); reaproveita a mesma tradução nos chips, senão o
+// chip mostraria o valor cru (ex: "2026-03" em vez de "Março/2026")
+function recebLabelValorFiltro(campo, valor){
+  const opcao = recebOpcoesPorCampo(campo).find(o=>o.value===valor);
+  return opcao ? opcao.label : valor;
+}
+// recalcula e redesenha só os widgets (sem tocar na grade de filtros,
+// que fecharia o dropdown recém-clicado) — mesmo cálculo de linhas do
+// recebRender(), só sem o toggle de cards/filtros
+function recebAtualizarWidgetsFiltrados(){
+  recebRenderEsqueleto();
+  const hoje = recebHoje();
+  const linhas = recebFiltrados().map(o=>({ ...o, situacao: recebSit(o, hoje) }));
+  linhas.forEach(o=>{ o.saldo = (o.situacao==='Recebida'||o.situacao==='Cancelada') ? 0 : recebSaldo(o); });
+  recebRenderConteudo(linhas);
 }
 // monta as LINHAS de filtro (uma por campo configurado) — refeito a cada
 // render porque em modo edição cada linha ganha botões de mover/remover e
@@ -13261,7 +13310,7 @@ function recebRenderGradeFiltros(){
     return `<div class="field" style="flex:1;min-width:150px;position:relative;">
       ${botoesEdicao}
       <label for="_">${labelHtml} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
-      <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">Todos</div>
+      <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">${recebResumoFiltroConteudoHtml(campo)}</div>
     </div>`;
   }).join('') : `<div class="empty" style="padding:4px 0;">Nenhum filtro configurado${recebModoEdicao ? ' — escolha um campo abaixo e clique em "+ Adicionar".' : '.'}</div>`;
 }
@@ -13269,8 +13318,7 @@ function recebRenderFiltros(){
   if(recebFiltroColunaAberta) recebFecharFiltroColuna();
   recebRenderGradeFiltros();
   document.querySelectorAll('#recebGradeFiltros [data-resumo-filtro]').forEach(el=>{
-    const n = (recebFiltros[el.dataset.resumoFiltro] || new Set()).size;
-    el.textContent = n === 0 ? 'Todos' : `${n} selecionado${n===1?'':'s'}`;
+    el.innerHTML = recebResumoFiltroConteudoHtml(el.dataset.resumoFiltro);
   });
   document.querySelectorAll('#recebGradeFiltros [data-rfiltro]').forEach(el=>{
     const n = (recebFiltros[el.dataset.rfiltro] || new Set()).size;
@@ -15221,16 +15269,52 @@ function pnlToggleFiltroColuna(campo, spanEl){
   const set = pnlFiltros[campo] || new Set();
   const opcoes = pnlOpcoesPorCampo(campo);
   const itensDropdown = opcoes.length
-    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="${escaparHtml(o.value)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
+    ? opcoes.map(o=>`<div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="${escaparHtml(o.value)}" data-label="${escaparHtml(o.label)}">${set.has(o.value) ? '✓ ' : ''}${escaparHtml(o.label)}</div>`).join('')
     : `<div class="lista-filtro-coluna-item" style="color:var(--muted);cursor:default;">Nenhuma opção disponível</div>`;
   portal.innerHTML = `
+    <div style="padding:6px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);">
+      <input type="text" class="lista-filtro-coluna-busca" placeholder="Buscar…" autocomplete="off" style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12.5px;background:var(--bg);color:inherit;">
+    </div>
     <div class="lista-filtro-coluna-item" data-chave="${escaparHtml(campo)}" data-valor="" style="font-weight:700;border-bottom:1px solid var(--line);">Selecionar todos</div>
     ${itensDropdown}
   `;
+  // busca filtra a lista sem fechar o dropdown — clicar múltiplos itens
+  // marca um a um sem precisar reabrir (ver pnlRedesenharChecksPortal)
+  const busca = portal.querySelector('.lista-filtro-coluna-busca');
+  if(busca){
+    busca.addEventListener('keydown', e=>e.stopPropagation());
+    busca.addEventListener('input', ()=>{
+      const t = busca.value.trim().toLowerCase();
+      portal.querySelectorAll('.lista-filtro-coluna-item[data-label]').forEach(it=>{
+        it.style.display = (!t || it.dataset.label.toLowerCase().includes(t)) ? '' : 'none';
+      });
+    });
+  }
   const r = spanEl.getBoundingClientRect();
   portal.style.left = `${r.left}px`;
   portal.style.top = `${r.bottom + 4}px`;
   portal.classList.add('show');
+  if(busca) busca.focus();
+}
+function pnlRedesenharChecksPortal(portal, set){
+  portal.querySelectorAll('.lista-filtro-coluna-item[data-label]').forEach(it=>{
+    it.textContent = (set.has(it.dataset.valor) ? '✓ ' : '') + it.dataset.label;
+  });
+}
+// chips removíveis (× por valor) no lugar do antigo texto "N selecionados"
+function pnlResumoFiltroConteudoHtml(campo){
+  const set = pnlFiltros[campo] || new Set();
+  if(!set.size) return 'Todos';
+  return [...set].map(v=>`<span class="chip on" data-chipfiltro="${escaparHtml(campo)}" data-chipvalor="${escaparHtml(v)}" style="padding:2px 6px 2px 9px;font-size:11px;margin:1px 3px 1px 0;display:inline-flex;align-items:center;gap:4px;">${escaparHtml(v)}<b style="cursor:pointer;font-weight:900;">×</b></span>`).join('');
+}
+// atualiza só o resumo/chips e a cor do ▾ de UM campo — usado depois de
+// marcar/desmarcar um valor, sem refazer a grade inteira de filtros (o
+// que fecharia o dropdown que acabou de ser clicado)
+function pnlAtualizarResumoFiltro(campo){
+  const el = document.querySelector(`#pnlGradeFiltros [data-resumo-filtro="${CSS.escape(campo)}"]`);
+  if(el) el.innerHTML = pnlResumoFiltroConteudoHtml(campo);
+  const trig = document.querySelector(`#pnlGradeFiltros [data-rfiltro="${CSS.escape(campo)}"]`);
+  if(trig) trig.style.color = (pnlFiltros[campo]||new Set()).size > 0 ? 'var(--accent)' : '';
 }
 function pnlRenderGradeFiltros(){
   const cont = document.getElementById('pnlGradeFiltros');
@@ -15249,7 +15333,7 @@ function pnlRenderGradeFiltros(){
     return `<div class="field" style="flex:1;min-width:150px;position:relative;">
       ${botoesEdicao}
       <label for="_">${labelHtml} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
-      <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">Todos</div>
+      <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">${pnlResumoFiltroConteudoHtml(campo)}</div>
     </div>`;
   }).join('') : `<div class="empty" style="padding:4px 0;">Nenhum filtro configurado${pnlModoEdicao ? ' — escolha um campo abaixo e clique em "+ Adicionar".' : '.'}</div>`;
 }
@@ -15257,8 +15341,7 @@ function pnlRenderFiltros(){
   if(pnlFiltroColunaAberta) pnlFecharFiltroColuna();
   pnlRenderGradeFiltros();
   document.querySelectorAll('#pnlGradeFiltros [data-resumo-filtro]').forEach(el=>{
-    const n = (pnlFiltros[el.dataset.resumoFiltro] || new Set()).size;
-    el.textContent = n === 0 ? 'Todos' : `${n} selecionado${n===1?'':'s'}`;
+    el.innerHTML = pnlResumoFiltroConteudoHtml(el.dataset.resumoFiltro);
   });
   document.querySelectorAll('#pnlGradeFiltros [data-rfiltro]').forEach(el=>{
     const n = (pnlFiltros[el.dataset.rfiltro] || new Set()).size;
@@ -18220,6 +18303,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
   document.getElementById('btnRecebExportarCsv').addEventListener('click', recebExportarCsv);
   document.getElementById('recebCardFiltros').addEventListener('click', e=>{
+    const chipX = e.target.closest('[data-chipfiltro]');
+    if(chipX){
+      const set = recebFiltros[chipX.dataset.chipfiltro];
+      if(set) set.delete(chipX.dataset.chipvalor);
+      recebAtualizarResumoFiltro(chipX.dataset.chipfiltro);
+      recebAtualizarWidgetsFiltrados();
+      return;
+    }
     const remover = e.target.closest('[data-removerfiltro]');
     if(remover){ recebRemoverFiltro(remover.dataset.removerfiltro); return; }
     const mover = e.target.closest('[data-moverfiltro]');
@@ -18282,8 +18373,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const set = recebFiltros[chave];
     if(valor === '') set.clear();
     else if(set.has(valor)) set.delete(valor); else set.add(valor);
-    recebFecharFiltroColuna();
-    recebRender();
+    // não fecha o dropdown — deixa marcar vários valores seguidos
+    recebRedesenharChecksPortal(e.currentTarget, set);
+    recebAtualizarResumoFiltro(chave);
+    recebAtualizarWidgetsFiltrados();
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('[data-rfiltro]') && !e.target.closest('#recebFiltroColunaPortal')) recebFecharFiltroColuna(); });
   document.getElementById('btnRecebLimparFiltros').addEventListener('click', ()=>{
@@ -18429,6 +18522,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlExportarCsv').addEventListener('click', pnlExportarCsv);
   document.getElementById('btnPnlExportarMontado').addEventListener('click', pnlExportarPainelMontado);
   document.getElementById('pnlCardFiltros').addEventListener('click', e=>{
+    const chipX = e.target.closest('[data-chipfiltro]');
+    if(chipX){
+      const set = pnlFiltros[chipX.dataset.chipfiltro];
+      if(set) set.delete(chipX.dataset.chipvalor);
+      pnlAtualizarResumoFiltro(chipX.dataset.chipfiltro);
+      pnlRenderEsqueleto();
+      pnlRenderConteudo();
+      return;
+    }
     const remover = e.target.closest('[data-removerfiltro]');
     if(remover){ pnlRemoverFiltro(remover.dataset.removerfiltro); return; }
     const mover = e.target.closest('[data-moverfiltro]');
@@ -18500,8 +18602,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const set = pnlFiltros[chave];
     if(valor === '') set.clear();
     else if(set.has(valor)) set.delete(valor); else set.add(valor);
-    pnlFecharFiltroColuna();
-    pnlRender();
+    // não fecha o dropdown — deixa marcar vários valores seguidos
+    pnlRedesenharChecksPortal(e.currentTarget, set);
+    pnlAtualizarResumoFiltro(chave);
+    pnlRenderEsqueleto();
+    pnlRenderConteudo();
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('[data-rfiltro]') && !e.target.closest('#pnlFiltroColunaPortal')) pnlFecharFiltroColuna(); });
   document.getElementById('btnPnlLimparFiltros').addEventListener('click', ()=>{
