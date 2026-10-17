@@ -13117,6 +13117,10 @@ function recebAbrir(){
   else document.getElementById('recebStatus').textContent = '';
   if(recebClienteId && disponiveis.some(c=>String(c.id)===String(recebClienteId))) sel.value = recebClienteId;
   else recebClienteId = sel.value || '';
+  // painel recém-aberto (ou sessão nova) sem nada em memória ainda — tenta
+  // usar o último resultado salvo localmente antes de obrigar o usuário a
+  // clicar em "Atualizar do RM" só pra ver o que já tinha
+  if(recebClienteId && !recebLinhas.length) recebCarregarCache(recebClienteId);
   const perm = permissaoMenu(conta, 'relatoriosgerenciaisrm.painelrecebiveis');
   document.getElementById('btnRecebEditarPainel').style.display = (ehAdminEfetivo(conta) || !perm || perm.editar) ? '' : 'none';
   recebRender();
@@ -13160,6 +13164,29 @@ async function rmValoresParametrosDeConsultas(consultas){
   const valores = await rmPedirValoresParametros(nomes);
   return valores;
 }
+// mesmo cache local do Painel genérico (ver pnlChaveCache/pnlSalvarCache/
+// pnlCarregarCache), só que pro Painel de Recebíveis — que é sempre o
+// mesmo painel fixo, então a chave é só por cliente
+function recebChaveCache(clienteId){ return `recebCache::${clienteId}`; }
+function recebSalvarCache(){
+  if(!recebClienteId || !recebLinhas.length) return;
+  try{
+    localStorage.setItem(recebChaveCache(recebClienteId), JSON.stringify({ linhas: recebLinhas, info: recebInfo }));
+  }catch(e){ /* quota cheia, modo privado, etc. — sem cache dessa vez, sem travar o resto */ }
+}
+function recebCarregarCache(clienteId){
+  if(!clienteId) return false;
+  try{
+    const bruto = localStorage.getItem(recebChaveCache(clienteId));
+    if(!bruto) return false;
+    const cache = JSON.parse(bruto);
+    if(!cache || !Array.isArray(cache.linhas) || !cache.info) return false;
+    recebLinhas = cache.linhas;
+    recebInfo = cache.info;
+    recebFiltros = Object.fromEntries(recebPainelFiltros.map(f=>[f.campo, new Set()]));
+    return true;
+  }catch(e){ return false; }
+}
 async function recebAtualizarDoRm(){
   if(recebCarregando) return;
   recebClienteId = document.getElementById('receb_cliente').value;
@@ -13186,6 +13213,7 @@ async function recebAtualizarDoRm(){
     recebInfo = { quando: new Date().toISOString(), nomeRelatorio: r.nomeRelatorio || 'Painel de Recebíveis' };
     recebFiltros = Object.fromEntries(recebPainelFiltros.map(f=>[f.campo, new Set()]));
     toast(`Painel atualizado com ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'} do RM.`);
+    recebSalvarCache();
     recebRender();
   } finally {
     recebCarregando = false;
@@ -15262,9 +15290,42 @@ function pnlAbrir(){
   else document.getElementById('pnlStatus').textContent = '';
   if(pnlClienteId && disponiveis.some(c=>String(c.id)===String(pnlClienteId))) sel.value = pnlClienteId;
   else pnlClienteId = sel.value || '';
+  // painel recém-aberto (ou sessão nova) sem nada em memória ainda — tenta
+  // usar o último resultado salvo localmente antes de obrigar o usuário a
+  // clicar em "Atualizar do RM" só pra ver o que já tinha
+  if(pnlClienteId && !pnlConsultasCarregadas.length) pnlCarregarCache(pnlClienteId);
   const perm = permissaoMenu(conta, 'relatoriosgerenciaisrm.paineis');
   document.getElementById('btnPnlEditarPainel').style.display = (ehAdminEfetivo(conta) || !perm || perm.editar) ? '' : 'none';
   pnlRender();
+}
+// cache local (localStorage) do último resultado de "Atualizar do RM" por
+// painel+cliente — abrir o painel de novo (sessão nova, ou trocar de volta
+// pra ele) já mostra o que tinha antes, sem precisar clicar em "Atualizar
+// do RM" só pra ver o que já existia; o botão continua lá pra quem quiser
+// dados mais recentes de verdade. Puramente no navegador — nunca passa
+// pelo Supabase, então não pesa em nada no Egress.
+function pnlChaveCache(painelSlug, clienteId){ return `pnlCache::${painelSlug}::${clienteId}`; }
+function pnlSalvarCache(){
+  if(!pnlPainelAtual || !pnlClienteId || !pnlConsultasCarregadas.length) return;
+  try{
+    localStorage.setItem(pnlChaveCache(pnlPainelAtual.slug, pnlClienteId), JSON.stringify({
+      dadosPorConsulta: pnlDadosPorConsulta, consultasCarregadas: pnlConsultasCarregadas, info: pnlInfo,
+    }));
+  }catch(e){ /* quota cheia, modo privado, etc. — sem cache dessa vez, sem travar o resto */ }
+}
+function pnlCarregarCache(clienteId){
+  if(!pnlPainelAtual || !clienteId) return false;
+  try{
+    const bruto = localStorage.getItem(pnlChaveCache(pnlPainelAtual.slug, clienteId));
+    if(!bruto) return false;
+    const cache = JSON.parse(bruto);
+    if(!cache || !cache.dadosPorConsulta || !cache.info) return false;
+    pnlDadosPorConsulta = cache.dadosPorConsulta;
+    pnlConsultasCarregadas = cache.consultasCarregadas || [];
+    pnlInfo = cache.info;
+    pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(f=>[f.campo, new Set()]));
+    return true;
+  }catch(e){ return false; }
 }
 async function pnlAtualizarDoRm(){
   if(pnlCarregando || !pnlPainelAtual) return;
@@ -15301,6 +15362,7 @@ async function pnlAtualizarDoRm(){
     pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(f=>[f.campo, new Set()]));
     const totalLinhas = consultas.reduce((s,c)=>s+(pnlDadosPorConsulta[c.id]||[]).length, 0);
     toast(`Painel atualizado com ${totalLinhas} linha${totalLinhas===1?'':'s'} do RM (${consultas.length} consulta${consultas.length===1?'':'s'}).`);
+    pnlSalvarCache();
     pnlRender();
   } finally {
     clearInterval(intervaloProgresso);
@@ -18364,6 +18426,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlPaineisGoSetorTab(tab.dataset.pnlsetortab);
   });
   document.getElementById('btnRecebAtualizar').addEventListener('click', recebAtualizarDoRm);
+  // trocar de cliente (sem clicar em "Atualizar do RM") já busca o cache
+  // local desse cliente, se tiver — mesma ideia de abrir o painel já com
+  // dados, só que pra quando o usuário troca o cliente depois de já estar
+  // na tela
+  document.getElementById('receb_cliente').addEventListener('change', ()=>{
+    recebClienteId = document.getElementById('receb_cliente').value;
+    recebLinhas = []; recebInfo = null;
+    if(recebClienteId) recebCarregarCache(recebClienteId);
+    recebRender();
+  });
   document.getElementById('btnRecebExportarExcel').addEventListener('click', recebExportarExcel);
   document.getElementById('btnRecebExportarCsv').addEventListener('click', recebExportarCsv);
   document.getElementById('recebCardFiltros').addEventListener('click', e=>{
@@ -18582,6 +18654,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlVoltar').addEventListener('click', ()=>goRgrmSub('paineis'));
   document.getElementById('btnRecebVoltar').addEventListener('click', ()=>goRgrmSub('paineis'));
   document.getElementById('btnPnlAtualizar').addEventListener('click', pnlAtualizarDoRm);
+  // trocar de cliente (sem clicar em "Atualizar do RM") já busca o cache
+  // local desse cliente nesse painel, se tiver — mesma ideia de abrir o
+  // painel já com dados, só que pra quando o usuário troca o cliente
+  // depois de já estar na tela
+  document.getElementById('pnl_cliente').addEventListener('change', ()=>{
+    pnlClienteId = document.getElementById('pnl_cliente').value;
+    pnlDadosPorConsulta = {}; pnlConsultasCarregadas = []; pnlInfo = null;
+    if(pnlClienteId) pnlCarregarCache(pnlClienteId);
+    pnlRender();
+  });
   document.getElementById('btnPnlExportarExcel').addEventListener('click', pnlExportarExcel);
   document.getElementById('btnPnlExportarCsv').addEventListener('click', pnlExportarCsv);
   document.getElementById('btnPnlExportarMontado').addEventListener('click', pnlExportarPainelMontado);
