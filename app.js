@@ -13360,9 +13360,16 @@ function recebRenderFiltros(){
     el.style.color = n > 0 ? 'var(--accent)' : '';
   });
 }
+// clique num gráfico/ranking pode filtrar por um campo que ainda não é
+// "filtro geral" do painel — nesse caso registra ele na hora (igual
+// recebAdicionarFiltro faria manualmente), pra aparecer como chip removível
+// na grade de filtros, em vez de simplesmente não fazer nada
 function recebToggleFiltro(campo, valor){
-  const set = recebFiltros[campo];
-  if(!set) return;
+  if(!recebPainelFiltros.some(f=>f.campo===campo)){
+    recebPainelFiltros.push({campo});
+    recebPopularSelectNovoFiltro();
+  }
+  const set = recebFiltros[campo] = recebFiltros[campo] || new Set();
   if(set.has(valor)) set.delete(valor); else set.add(valor);
   recebRender();
 }
@@ -13551,9 +13558,11 @@ const RECEB_DIMENSOES = {
   situacao: { label:'Situação', chave:o=>o.situacao, fmtLabel:v=>v, ordenar:'valor' },
 };
 const RECEB_DIMENSOES_TODAS = { ...Object.fromEntries(Object.entries(RECEB_DIMENSOES).map(([k,v])=>[k,v.label])), faixaVencimento:'Faixa de vencimento' };
-// só estas dimensões batem com os 4 filtros do painel — clicar numa
-// barra/fatia delas filtra o painel; situação/faixa não são filtráveis
-const RECEB_DIMENSOES_FILTRAVEIS = new Set(['mes','cliente','municipio','contrato']);
+// faixaVencimento é a única dimensão sem valor "cru" por linha (é um
+// bucket calculado por data, ver recebAgruparPorDimensao/RECEB_FAIXAS_VENCIMENTO)
+// — recebValorFiltro não sabe recalculá-lo, então é a única que não pode
+// virar filtro de clique; todas as outras podem
+function recebDimensaoFiltravel(dimensao){ return dimensao !== 'faixaVencimento'; }
 const RECEB_FAIXAS_VENCIMENTO = [
   { nome:'Vencido há mais de 30d', teste:(o,hoje)=>o.v!=null && (hoje-o.v)>30 },
   { nome:'Vencido 15–30d', teste:(o,hoje)=>o.v!=null && (hoje-o.v)>=15 && (hoje-o.v)<=30 },
@@ -13600,7 +13609,7 @@ function recebRenderWidgetRankingSituacao(containerId, widget, linhas){
   if(!grupos.length){ cont.innerHTML = '<div class="dash-empty">Sem dados no período.</div>'; return; }
   const max = Math.max(...grupos.map(g=>g.t), 1);
   const w = x => (x/max*100).toFixed(2)+'%';
-  const filtravel = RECEB_DIMENSOES_FILTRAVEIS.has(widget.dimensao);
+  const filtravel = recebDimensaoFiltravel(widget.dimensao);
   cont.innerHTML = grupos.map(g=>{
     const outro = Math.max(0, g.t - g.r - g.v - g.f);
     const nome = filtravel
@@ -13679,7 +13688,7 @@ function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
   const data = grupos.map(g=>({ label:g.rotulo, value:g.valor, tok:'--blue' }));
   const horizontal = tipo==='barra-h';
   dashBarChart(cont, { data, horizontal, rotateLabels: tipo==='barra', unit, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
-  if(RECEB_DIMENSOES_FILTRAVEIS.has(widget.dimensao)) recebLigarCliqueBarras(cont, grupos, widget.dimensao, horizontal);
+  if(recebDimensaoFiltravel(widget.dimensao)) recebLigarCliqueBarras(cont, grupos, widget.dimensao, horizontal);
 }
 function recebRenderWidgetAbertas(widget, linhas){
   const hoje = recebHoje();
@@ -15475,9 +15484,16 @@ function pnlRenderFiltros(){
     el.style.color = n > 0 ? 'var(--accent)' : '';
   });
 }
+// clique num gráfico/tabela pode filtrar por um campo que ainda não é
+// "filtro geral" do painel — nesse caso registra ele na hora (igual
+// pnlAdicionarFiltro faria manualmente), pra aparecer como chip removível
+// na grade de filtros, em vez de simplesmente não fazer nada
 function pnlToggleFiltro(campo, valor){
-  const set = pnlFiltros[campo];
-  if(!set) return;
+  if(!pnlPainelFiltros.some(f=>f.campo===campo)){
+    pnlPainelFiltros.push({campo});
+    pnlPopularSelectNovoFiltro();
+  }
+  const set = pnlFiltros[campo] = pnlFiltros[campo] || new Set();
   if(set.has(valor)) set.delete(valor); else set.add(valor);
   pnlRender();
 }
@@ -15535,7 +15551,6 @@ function pnlRenderWidgetKpi(containerId, widget, linhas){
   el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}${comparacaoHtml}</div>`;
 }
 function pnlLigarCliqueBarras(container, grupos, campoFiltro){
-  if(!pnlPainelFiltros.some(f=>f.campo===campoFiltro)) return;
   const rects = container.querySelectorAll('rect');
   grupos.forEach((g,i)=>{
     const bar = rects[i]; // dashBarChart vertical: 1 <rect> por barra; horizontal teria 2 (trilho+barra) — ver recebLigarCliqueBarras
@@ -15601,10 +15616,8 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
   if(horizontal){
     // horizontal desenha 2 <rect> por linha (trilho + barra) — reaproveita
     // a mesma convenção de índice ímpar do recebLigarCliqueBarras
-    if(pnlPainelFiltros.some(f=>f.campo===widget.dimensao)){
-      const rects = cont.querySelectorAll('rect');
-      grupos.forEach((g,i)=>{ const bar = rects[i*2+1]; if(!bar) return; bar.style.cursor='pointer'; bar.addEventListener('click', ()=>pnlToggleFiltro(widget.dimensao, g.chave)); });
-    }
+    const rects = cont.querySelectorAll('rect');
+    grupos.forEach((g,i)=>{ const bar = rects[i*2+1]; if(!bar) return; bar.style.cursor='pointer'; bar.addEventListener('click', ()=>pnlToggleFiltro(widget.dimensao, g.chave)); });
   } else {
     pnlLigarCliqueBarras(cont, grupos, widget.dimensao);
   }
