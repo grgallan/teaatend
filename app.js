@@ -13635,6 +13635,29 @@ function recebLigarCliqueBarras(container, grupos, chaveFiltro, horizontal){
     bar.addEventListener('click', ()=>recebToggleFiltro(chaveFiltro, g.chave));
   });
 }
+// dashDonut desenha 1 <path> por fatia, na mesma ordem dos dados passados
+function recebLigarCliqueDonut(container, grupos, chaveFiltro){
+  const paths = container.querySelectorAll('path');
+  grupos.forEach((g,i)=>{
+    const fatia = paths[i];
+    if(!fatia) return;
+    fatia.style.cursor = 'pointer';
+    fatia.addEventListener('click', ()=>recebToggleFiltro(chaveFiltro, g.chave));
+  });
+}
+// dashLineChart desenha 2 <circle> por ponto (visível + invisível de r:9,
+// esse último já usado pra tooltip) — ver pnlLigarCliqueLinha, mesma convenção
+function recebLigarCliqueLinha(container, chaves, chaveFiltro, numSeries){
+  const circles = container.querySelectorAll('circle');
+  const totalPontos = chaves.length * numSeries;
+  for(let i=0;i<totalPontos;i++){
+    const alvo = circles[i*2+1];
+    if(!alvo) continue;
+    const chave = chaves[i % chaves.length];
+    alvo.style.cursor = 'pointer';
+    alvo.addEventListener('click', ()=>recebToggleFiltro(chaveFiltro, chave));
+  }
+}
 const RECEB_PILL_COR = { 'Atrasada':'var(--bad)', 'Próximos dias':'var(--warn)', 'A vencer':'var(--muted)' };
 const RECEB_PILL_TXT = { 'Atrasada':'Vencida', 'Próximos dias':'Próx. 7 dias', 'A vencer':'A vencer' };
 
@@ -13666,9 +13689,8 @@ function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
       const porChave = {}; porMedida[i].forEach(g=>{ porChave[g.chave]=g.valor; });
       return { label:(RECEB_MEDIDAS[m]||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0) };
     });
-    // dashLineChart não desenha <rect> por ponto (só <path>/<circle>) — por
-    // isso, diferente da barra/ranking, a linha não tem clique-pra-filtrar
     dashLineChart(cont, { labels: chaves.map(fmtLabel), series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
+    if(recebDimensaoFiltravel(dimensao)) recebLigarCliqueLinha(cont, chaves, dimensao, medidas.length);
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
     return;
   }
@@ -13678,6 +13700,7 @@ function recebRenderWidgetGrafico(containerId, widget, linhas, tipo){
     const cores = ['--blue','--ok','--bad','--warn','--purple','--yellow'];
     const total = grupos.reduce((s,g)=>s+g.valor,0);
     dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })), altura ? {size:altura} : undefined);
+    if(recebDimensaoFiltravel(widget.dimensao)) recebLigarCliqueDonut(cont, grupos, widget.dimensao);
     if(widget.mostrarLegenda){
       const itens = grupos.map((g,i)=>({ label: widget.mostrarRotulos && total ? `${g.rotulo} (${Math.round(g.valor/total*100)}%)` : g.rotulo, cor:dashCss(cores[i%cores.length]) }));
       cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(itens)}</div>`);
@@ -13901,17 +13924,28 @@ function recebRenderWidgetTabelaPersonalizada(widget, linhas){
     const cabDim = dimensoes.map(d=>RECEB_DIMENSOES_TODAS[d] || d);
     const cab = [...cabDim, ...colunas.map(c=>(RECEB_MEDIDAS[c]||{}).label || catalogoCampos[c] || c)];
     const corpo = grupos.map(g=>{
-      const celulasDim = g.rotulos.map(v=>({ html:String(v), numerico:ehNumAlinhavel(v) }));
-      const celulasVal = colunas.map(c=>{
+      // célula de dimensão clicável filtra só por ELA (campo+valor daquela
+      // coluna), não pela linha inteira — evita ambiguidade quando a tabela
+      // agrupa por mais de uma dimensão (2º/3º nível); faixaVencimento fica
+      // de fora (ver recebDimensaoFiltravel)
+      const celulasDimHtml = g.rotulos.map((v,i)=>{
+        const campo = dimensoes[i];
+        const atributos = recebDimensaoFiltravel(campo) ? ` style="cursor:pointer;" data-tcampo="${escaparHtml(campo)}" data-tvalor="${escaparHtml(g.chaves[i])}" title="Filtrar por ${escaparHtml(String(v))}"` : '';
+        return `<td${ehNumAlinhavel(v)?' class="num"':''}${atributos}>${escaparHtml(String(v))}</td>`;
+      }).join('');
+      const celulasValHtml = colunas.map(c=>{
         const ehMedida = !!RECEB_MEDIDAS[c];
-        return ehMedida
-          ? { html:recebFormatarMedida(g.valores[c], c), numerico:true }
-          : { html:String(g.valores[c]), numerico:ehNumAlinhavel(g.valores[c]) };
-      });
-      return `<tr>${[...celulasDim, ...celulasVal].map(cel=>`<td${cel.numerico?' class="num"':''}>${escaparHtml(cel.html)}</td>`).join('')}</tr>`;
+        const html = ehMedida ? recebFormatarMedida(g.valores[c], c) : String(g.valores[c]);
+        const numerico = ehMedida ? true : ehNumAlinhavel(g.valores[c]);
+        return `<td${numerico?' class="num"':''}>${escaparHtml(html)}</td>`;
+      }).join('');
+      return `<tr>${celulasDimHtml}${celulasValHtml}</tr>`;
     }).join('');
     tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
       <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${recebLinhas.length ? 'Nenhum grupo com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+    tab.querySelectorAll('tbody [data-tcampo]').forEach(td=>{
+      td.addEventListener('click', ()=>recebToggleFiltro(td.dataset.tcampo, td.dataset.tvalor));
+    });
     return;
   }
   // fonte 'notas' — uma linha por nota, com busca própria do widget
@@ -15239,7 +15273,7 @@ function pnlRenderWidgetCurvaAbc(containerId, widget, linhas){
   }).join('');
   const labelMedida = (pnlMedidaPorId(widget.medida)||{}).label || widget.medida;
   const topN = widget.top ? Number(widget.top) : 15;
-  const linhasTabela = classificados.map(g=>`<tr>
+  const linhasTabela = classificados.map(g=>`<tr style="cursor:pointer;" data-abclinha="${escaparHtml(g.chave)}" title="Filtrar por ${escaparHtml(g.rotulo)}">
     <td>${escaparHtml(g.rotulo)}</td>
     <td class="num">${escaparHtml(pnlFormatarMedida(g.valor, widget.medida))}</td>
     <td class="num">${pnlFormatarPct1Casa(g.pctFat)}</td>
@@ -15257,8 +15291,16 @@ function pnlRenderWidgetCurvaAbc(containerId, widget, linhas){
       </table>
     </div>
   `;
-  const dataBar = classificados.slice(0, topN).map(g=>({ label:g.rotulo, value:g.valor, tok:corClasse[g.classe] }));
+  el.querySelectorAll('tbody [data-abclinha]').forEach(tr=>{
+    tr.addEventListener('click', ()=>pnlToggleFiltro(widget.dimensao, tr.dataset.abclinha));
+  });
+  const classificadosTop = classificados.slice(0, topN);
+  const dataBar = classificadosTop.map(g=>({ label:g.rotulo, value:g.valor, tok:corClasse[g.classe] }));
   dashBarChart(el.querySelector('.pnl-abc-grafico'), { data:dataBar, horizontal:true, fmtFn: v=>pnlFormatarMedida(v, widget.medida) });
+  // horizontal desenha 2 <rect> por linha (trilho + barra) — mesma
+  // convenção de índice ímpar das outras barras horizontais
+  const rectsAbc = el.querySelectorAll('.pnl-abc-grafico rect');
+  classificadosTop.forEach((g,i)=>{ const bar = rectsAbc[i*2+1]; if(!bar) return; bar.style.cursor='pointer'; bar.addEventListener('click', ()=>pnlToggleFiltro(widget.dimensao, g.chave)); });
 }
 
 /* ---------- carregar/abrir o painel ---------- */
@@ -15559,6 +15601,45 @@ function pnlLigarCliqueBarras(container, grupos, campoFiltro){
     bar.addEventListener('click', ()=>pnlToggleFiltro(campoFiltro, g.chave));
   });
 }
+// dashDonut desenha 1 <path> por fatia, na mesma ordem dos dados passados
+function pnlLigarCliqueDonut(container, grupos, campoFiltro){
+  const paths = container.querySelectorAll('path');
+  grupos.forEach((g,i)=>{
+    const fatia = paths[i];
+    if(!fatia) return;
+    fatia.style.cursor = 'pointer';
+    fatia.addEventListener('click', ()=>pnlToggleFiltro(campoFiltro, g.chave));
+  });
+}
+// dashLineChart desenha 2 <circle> por ponto (um visível + um invisível de
+// r:9 só pra tooltip/clique) — nessa ordem, repetidos série após série na
+// mesma ordem de "chaves"; por isso o índice ímpar módulo chaves.length
+// recupera a chave certa (igual índice ímpar nas barras horizontais)
+function pnlLigarCliqueLinha(container, chaves, campoFiltro, numSeries){
+  const circles = container.querySelectorAll('circle');
+  const totalPontos = chaves.length * numSeries;
+  for(let i=0;i<totalPontos;i++){
+    const alvo = circles[i*2+1];
+    if(!alvo) continue;
+    const chave = chaves[i % chaves.length];
+    alvo.style.cursor = 'pointer';
+    alvo.addEventListener('click', ()=>pnlToggleFiltro(campoFiltro, chave));
+  }
+}
+// dashGroupedBarChart desenha 1 <rect> por combinação (chave, série),
+// agrupadas por chave — clicar em qualquer série do cluster filtra pela
+// mesma chave (a categoria do eixo X), não por qual medida foi clicada
+function pnlLigarCliqueBarrasAgrupadas(container, chaves, numSeries, campoFiltro){
+  const rects = container.querySelectorAll('rect');
+  chaves.forEach((chave,i)=>{
+    for(let si=0; si<numSeries; si++){
+      const bar = rects[i*numSeries+si];
+      if(!bar) continue;
+      bar.style.cursor = 'pointer';
+      bar.addEventListener('click', ()=>pnlToggleFiltro(campoFiltro, chave));
+    }
+  });
+}
 // medidas adicionais de um widget barra/linha — novo campo
 // "medidasExtras" (array), com fallback pro antigo "medida2" (1 só),
 // salvo por widgets criados antes dessa opção existir
@@ -15580,6 +15661,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
       return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0), fmtFn: v=>pnlFormatarMedida(v, m) };
     });
     dashLineChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
+    pnlLigarCliqueLinha(cont, chaves, dimensao, medidas.length);
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
     return;
   }
@@ -15596,6 +15678,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
       return { label:(pnlMedidaPorId(m)||{}).label||m, tok:cores[i%cores.length], data: chaves.map(c=>porChave[c]||0), fmtFn: v=>pnlFormatarMedida(v, m) };
     });
     dashGroupedBarChart(cont, { labels: chaves, series, mostrarRotulos: !!widget.mostrarRotulos, ...(altura ? {height:altura} : {}) });
+    pnlLigarCliqueBarrasAgrupadas(cont, chaves, medidas.length, widget.dimensao);
     if(widget.mostrarLegenda) cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(series.map(s=>({label:s.label, cor:dashCss(s.tok)})))}</div>`);
     return;
   }
@@ -15604,6 +15687,7 @@ function pnlRenderWidgetGrafico(containerId, widget, linhas, tipo){
   if(tipo==='donut'){
     const total = grupos.reduce((s,g)=>s+g.valor,0);
     dashDonut(cont, grupos.map((g,i)=>({ label:g.rotulo, value:g.valor, cor:dashCss(cores[i%cores.length]) })), { fmtFn: v=>pnlFormatarMedida(v, widget.medida), ...(altura ? {size:altura} : {}) });
+    pnlLigarCliqueDonut(cont, grupos, widget.dimensao);
     if(widget.mostrarLegenda){
       const itens = grupos.map((g,i)=>({ label: widget.mostrarRotulos && total ? `${g.rotulo} (${Math.round(g.valor/total*100)}%)` : g.rotulo, cor:dashCss(cores[i%cores.length]) }));
       cont.insertAdjacentHTML('beforeend', `<div class="dash-legend">${dashLegendHtml(itens)}</div>`);
@@ -15665,17 +15749,23 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
     const grupos = pnlAgruparMultiplasDimensoes(linhas, dimensoes, colunas);
     const cab = [...dimensoes, ...colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos))];
     const corpo = grupos.map(g=>{
-      const celulasDim = g.rotulos.map(v=>({ raw:v, html:String(v), numerico:ehNumAlinhavel(v) }));
-      const celulasVal = colunas.map(c=>{
+      // célula de dimensão clicável filtra só por ELA (campo+valor daquela
+      // coluna), não pela linha inteira — evita ambiguidade quando a tabela
+      // agrupa por mais de uma dimensão (2º/3º nível)
+      const celulasDimHtml = g.rotulos.map((v,i)=>`<td${ehNumAlinhavel(v)?' class="num"':''} style="cursor:pointer;" data-tcampo="${escaparHtml(dimensoes[i])}" data-tvalor="${escaparHtml(g.chaves[i])}" title="Filtrar por ${escaparHtml(String(v))}">${escaparHtml(String(v))}</td>`).join('');
+      const celulasValHtml = colunas.map(c=>{
         const medida = pnlMedidaPorId(c);
-        return medida
-          ? { raw:g.valores[c], html:pnlFormatarMedida(g.valores[c], c), numerico:true }
-          : { raw:g.valores[c], html:String(g.valores[c]), numerico:ehNumAlinhavel(g.valores[c]) };
-      });
-      return `<tr>${[...celulasDim, ...celulasVal].map(cel=>`<td${cel.numerico?' class="num"':''}>${escaparHtml(cel.html)}</td>`).join('')}</tr>`;
+        const html = medida ? pnlFormatarMedida(g.valores[c], c) : String(g.valores[c]);
+        const numerico = medida ? true : ehNumAlinhavel(g.valores[c]);
+        return `<td${numerico?' class="num"':''}>${escaparHtml(html)}</td>`;
+      }).join('');
+      return `<tr>${celulasDimHtml}${celulasValHtml}</tr>`;
     }).join('');
     tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
       <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum grupo com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+    tab.querySelectorAll('tbody [data-tcampo]').forEach(td=>{
+      td.addEventListener('click', ()=>pnlToggleFiltro(td.dataset.tcampo, td.dataset.tvalor));
+    });
     return;
   }
   // fonte 'linhas' — uma linha por registro, com busca livre (qualquer coluna)
