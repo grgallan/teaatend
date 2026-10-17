@@ -15165,6 +15165,61 @@ function pnlAgruparPorCampo(linhas, campo, medidaId){
   arr.sort((a,b)=>b.valor-a.valor);
   return arr;
 }
+// Curva ABC (Pareto): recebe os grupos já ordenados DESC por valor (ver
+// pnlAgruparPorCampo) e calcula o % do total e o % acumulado de cada um,
+// classificando em A (acumulado até 80%), B (até 95%) ou C (o resto) —
+// mesma regra clássica 80/15/5 do módulo de referência em Python
+function pnlClassificarCurvaAbc(grupos){
+  const total = grupos.reduce((s,g)=>s+g.valor,0);
+  let acumulado = 0;
+  return grupos.map(g=>{
+    acumulado += g.valor;
+    const pctFat = total ? g.valor/total : 0;
+    const pctAcum = total ? acumulado/total : 0;
+    // pequena tolerância pra ponto flutuante não deixar 80.000000001% virar B à toa
+    const classe = pctAcum <= 0.8000001 ? 'A' : (pctAcum <= 0.9500001 ? 'B' : 'C');
+    return { ...g, pctFat, pctAcum, classe };
+  });
+}
+function pnlFormatarPct1Casa(fracao){
+  return (fracao*100).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+}
+function pnlRenderWidgetCurvaAbc(containerId, widget, linhas){
+  const el = document.getElementById(containerId); if(!el) return;
+  const grupos = pnlAgruparPorCampo(linhas, widget.dimensao, widget.medida);
+  const classificados = pnlClassificarCurvaAbc(grupos);
+  if(!classificados.length){ el.innerHTML = `<div class="dash-empty">Sem dados no período.</div>`; return; }
+  const corClasse = { A:'--blue', B:'--purple', C:'--yellow' };
+  const porClasse = { A:[], B:[], C:[] };
+  classificados.forEach(g=>porClasse[g.classe].push(g));
+  const cardsHtml = ['A','B','C'].map(cl=>{
+    const itens = porClasse[cl];
+    const pctSoma = itens.reduce((s,g)=>s+g.pctFat,0);
+    return `<div class="recebwidget"><div class="box"><div class="k">Classe ${cl}</div><div class="v">${itens.length} ${itens.length===1?'item':'itens'}</div><div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${pnlFormatarPct1Casa(pctSoma)} do total</div></div></div>`;
+  }).join('');
+  const labelMedida = (pnlMedidaPorId(widget.medida)||{}).label || widget.medida;
+  const topN = widget.top ? Number(widget.top) : 15;
+  const linhasTabela = classificados.map(g=>`<tr>
+    <td>${escaparHtml(g.rotulo)}</td>
+    <td class="num">${escaparHtml(pnlFormatarMedida(g.valor, widget.medida))}</td>
+    <td class="num">${pnlFormatarPct1Casa(g.pctFat)}</td>
+    <td class="num">${pnlFormatarPct1Casa(g.pctAcum)}</td>
+    <td>${escaparHtml(g.classe)}</td>
+  </tr>`).join('');
+  el.innerHTML = `
+    <div class="summary" style="margin-bottom:10px;">${cardsHtml}</div>
+    <p style="color:var(--muted);font-size:11.5px;margin:0 0 10px;">A = itens que somam até 80% do total de "${escaparHtml(labelMedida)}"; B = até 95%; C = o restante.</p>
+    <div class="pnl-abc-grafico" style="margin-bottom:14px;"></div>
+    <div style="overflow-x:auto;max-height:380px;overflow-y:auto;">
+      <table class="valores-table">
+        <thead><tr><th>${escaparHtml(widget.dimensao)}</th><th>${escaparHtml(labelMedida)}</th><th>% do total</th><th>% Acumulado</th><th>Classe</th></tr></thead>
+        <tbody>${linhasTabela}</tbody>
+      </table>
+    </div>
+  `;
+  const dataBar = classificados.slice(0, topN).map(g=>({ label:g.rotulo, value:g.valor, tok:corClasse[g.classe] }));
+  dashBarChart(el.querySelector('.pnl-abc-grafico'), { data:dataBar, horizontal:true, fmtFn: v=>pnlFormatarMedida(v, widget.medida) });
+}
 
 /* ---------- carregar/abrir o painel ---------- */
 function pnlCarregarLayoutPainel(){
@@ -15767,6 +15822,7 @@ function pnlWidgetTitulo(w){
   if(w.tipo==='relatorio') return 'Relatório';
   if(w.tipo==='titulo') return 'Título';
   if(w.tipo==='container') return 'Container';
+  if(w.tipo==='curvaabc') return 'Curva ABC';
   return (pnlMedidaPorId(w.medida)||{}).label || w.medida || '(sem título)';
 }
 // opções (chave->label) da última renderização do picker de colunas —
@@ -16123,6 +16179,7 @@ function pnlRenderConteudo(){
     if(w.tipo==='kpi') pnlRenderWidgetKpi(`pnl-${w.id}-conteudo`, w, linhas);
     else if(w.tipo==='tabela') pnlRenderWidgetTabelaPersonalizada(w, linhas);
     else if(w.tipo==='relatorio') pnlRenderWidgetRelatorio(`pnl-${w.id}-conteudo`, w, linhas);
+    else if(w.tipo==='curvaabc') pnlRenderWidgetCurvaAbc(`pnl-${w.id}-conteudo`, w, linhas);
     else pnlRenderWidgetGrafico(`pnl-${w.id}-conteudo`, w, linhas, w.tipo);
   });
 }
@@ -16519,7 +16576,7 @@ function pnlAtualizarCamposNovoWidget(){
   document.getElementById('pnlNovoWidgetLinhaMedida').style.display = (precisaMedida || precisaDimensao) ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoDimensao').style.display = precisaDimensao ? '' : 'none';
-  document.getElementById('pnlNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra') ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra'||tipo==='curvaabc') ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoMedidas2').style.display = (ehLinha || tipo==='barra') ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoSubtitulo').style.display = (ehKpi || ehTitulo) ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoIcone').style.display = ehTitulo ? '' : 'none';
