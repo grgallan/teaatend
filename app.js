@@ -14141,8 +14141,11 @@ function recebRender(){
   document.getElementById('btnRecebExportarExcel').style.display = temDados ? '' : 'none';
   document.getElementById('btnRecebExportarCsv').style.display = temDados ? '' : 'none';
   document.getElementById('recebBaseInfo').textContent = temDados
-    ? `${recebInfo.nomeRelatorio} · ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'}. Atualizado em ${new Date(recebInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`
+    ? `${recebInfo.nomeRelatorio} · ${recebLinhas.length} linha${recebLinhas.length===1?'':'s'}.`
     : 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
+  const recebUltimaAtualizacaoEl = document.getElementById('recebUltimaAtualizacao');
+  recebUltimaAtualizacaoEl.style.display = temDados ? '' : 'none';
+  if(temDados) recebUltimaAtualizacaoEl.querySelector('span').textContent = new Date(recebInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});
   if(!temDados){ document.getElementById('recebGradeWidgets').innerHTML = ''; return; }
   recebRenderFiltros();
   recebRenderEsqueleto();
@@ -16254,10 +16257,13 @@ function pnlRender(){
   document.getElementById('btnPnlExportarMontado').style.display = (temDados && pnlPainelWidgets.length>0) ? '' : 'none';
   if(temDados){
     const resumo = pnlConsultasCarregadas.map(c=>`${c.nome}: ${(pnlDadosPorConsulta[c.id]||[]).length} linha${(pnlDadosPorConsulta[c.id]||[]).length===1?'':'s'}`).join(' · ');
-    document.getElementById('pnlBaseInfo').textContent = `${resumo}. Atualizado em ${new Date(pnlInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}.`;
+    document.getElementById('pnlBaseInfo').textContent = `${resumo}.`;
   }else{
     document.getElementById('pnlBaseInfo').textContent = 'Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".';
   }
+  const pnlUltimaAtualizacaoEl = document.getElementById('pnlUltimaAtualizacao');
+  pnlUltimaAtualizacaoEl.style.display = temDados ? '' : 'none';
+  if(temDados) pnlUltimaAtualizacaoEl.querySelector('span').textContent = new Date(pnlInfo.quando).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'});
   if(!temDados){ document.getElementById('pnlGradeWidgets').innerHTML = ''; return; }
   pnlRenderFiltros();
   pnlRenderEsqueleto();
