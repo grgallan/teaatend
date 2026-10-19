@@ -16444,6 +16444,26 @@ function pnlCanvasMoverRedimensionar(e){
   w.canvas.h = Math.max(120, Math.round((info.startH+dy)/8)*8);
   pnlAtualizarPosicaoCanvasNaTela(w.id);
 }
+// no canvas livre, a barra lateral alterna entre a paleta de tipos (ponto
+// de partida) e o formulário de sempre (pra configurar o widget escolhido)
+// — fora do canvas, o formulário fica sempre visível, igual sempre foi
+function pnlCanvasMostrarPaleta(){
+  if(!pnlModoCanvas) return;
+  document.getElementById('pnlCanvasPaleta').style.display = '';
+  document.getElementById('pnlCardAddWidget').style.display = 'none';
+}
+function pnlCanvasMostrarForm(){
+  if(!pnlModoCanvas) return;
+  document.getElementById('pnlCanvasPaleta').style.display = 'none';
+  document.getElementById('pnlCardAddWidget').style.display = '';
+  document.getElementById('btnPnlCanvasVoltarPaleta').style.display = '';
+}
+function pnlCanvasEscolherTipoNaPaleta(tipo){
+  pnlResetFormNovoWidget();
+  document.getElementById('pnlNovoWidgetTipo').value = tipo;
+  pnlAtualizarCamposNovoWidget();
+  pnlCanvasMostrarForm();
+}
 function pnlAlternarModoCanvas(){
   if(!pnlModoCanvas) pnlGerarCanvasPadraoSeNecessario();
   pnlModoCanvas = !pnlModoCanvas;
@@ -16451,6 +16471,12 @@ function pnlAlternarModoCanvas(){
   document.getElementById('btnPnlModoCanvas').classList.toggle('on', pnlModoCanvas);
   document.getElementById('pnlCanvasLayoutWrap').classList.toggle('pnl-canvas-modo-ativo', pnlModoCanvas);
   document.getElementById('pnlCanvasPropriedades').style.display = pnlModoCanvas ? '' : 'none';
+  if(pnlModoCanvas) pnlCanvasMostrarPaleta();
+  else{
+    document.getElementById('pnlCanvasPaleta').style.display = 'none';
+    document.getElementById('pnlCardAddWidget').style.display = '';
+    document.getElementById('btnPnlCanvasVoltarPaleta').style.display = 'none';
+  }
   pnlAtualizarPainelPropriedadesCanvas();
   pnlRenderEsqueleto();
   pnlRenderConteudo();
@@ -17081,7 +17107,10 @@ function pnlWidgetMover(id, dir){
 }
 function pnlWidgetRemover(id){
   pnlPainelWidgets = pnlPainelWidgets.filter(w=>w.id!==id);
-  if(pnlEditandoWidgetId===id) pnlResetFormNovoWidget();
+  if(pnlEditandoWidgetId===id){
+    pnlResetFormNovoWidget();
+    if(pnlModoCanvas) pnlCanvasMostrarPaleta();
+  }
   pnlRender();
 }
 function pnlWidgetEditar(id){
@@ -17137,6 +17166,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetIcone').value = w.icone || '';
   if(w.tipo==='container') pnlRenderGuiasContainerLista();
   document.getElementById('btnPnlAdicionarWidget').textContent = 'Salvar alterações no widget';
+  pnlCanvasMostrarForm();
   document.getElementById('pnlCardAddWidget').scrollIntoView({ behavior:'smooth', block:'center' });
 }
 
@@ -17294,6 +17324,8 @@ function pnlSairModoEdicao(){
   document.getElementById('btnPnlModoCanvas').classList.remove('on');
   document.getElementById('pnlCanvasLayoutWrap').classList.remove('pnl-canvas-modo-ativo');
   document.getElementById('pnlCanvasPropriedades').style.display = 'none';
+  document.getElementById('pnlCanvasPaleta').style.display = 'none';
+  document.getElementById('btnPnlCanvasVoltarPaleta').style.display = 'none';
   document.getElementById('btnPnlSalvarPainel').style.display = 'none';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = 'none';
   document.getElementById('pnlCardAddWidget').style.display = 'none';
@@ -19146,6 +19178,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(resize){ e.preventDefault(); pnlCanvasIniciarRedimensionar(resize.dataset.wid, e); return; }
   });
   document.getElementById('btnPnlModoCanvas').addEventListener('click', pnlAlternarModoCanvas);
+  document.getElementById('pnlCanvasPaleta').addEventListener('click', e=>{
+    const item = e.target.closest('[data-canvaspaleta]'); if(!item) return;
+    pnlCanvasEscolherTipoNaPaleta(item.dataset.canvaspaleta);
+  });
+  document.getElementById('btnPnlCanvasVoltarPaleta').addEventListener('click', ()=>{
+    pnlResetFormNovoWidget();
+    pnlCanvasMostrarPaleta();
+  });
   document.getElementById('btnPnlCanvasPropEditar').addEventListener('click', ()=>{
     if(pnlCanvasSelecionadoId) pnlWidgetEditar(pnlCanvasSelecionadoId);
   });
@@ -19496,6 +19536,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     // outro até alguém arrastar
     if(pnlModoCanvas) pnlGerarCanvasPadraoSeNecessario();
     pnlResetFormNovoWidget();
+    if(pnlModoCanvas) pnlCanvasMostrarPaleta();
     pnlRender();
   });
   document.getElementById('verNota_fechar').addEventListener('click', ()=>{

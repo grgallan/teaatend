@@ -950,6 +950,9 @@
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCardAddWidget{flex:0 0 272px;max-height:calc(100vh - 140px);overflow-y:auto;position:sticky;top:16px;margin-bottom:0;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlGradeWidgets{flex:1 1 520px;min-width:0;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasPropriedades{flex:0 0 240px;position:sticky;top:16px;margin-bottom:0;}
+  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasPaleta{flex:0 0 272px;position:sticky;top:16px;margin-bottom:0;}
+  .pnl-canvaspaleta-item{display:flex;align-items:center;gap:9px;width:100%;font-weight:600;}
+  .pnl-canvaspaleta-item span{width:9px;height:9px;border-radius:2px;flex:none;display:inline-block;}
   .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;white-space:normal;}
   .rm-lookup-item:hover{background:var(--accent-dim);color:var(--accent);}
   .rm-lookup-item.on{background:var(--accent-dim);color:var(--accent);font-weight:600;}
@@ -2814,8 +2817,25 @@
       </div>
 
       <div id="pnlCanvasLayoutWrap">
+      <div class="card" id="pnlCanvasPaleta" style="display:none;">
+        <h2>Widgets</h2>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="kpi" style="justify-content:flex-start;"><span style="background:var(--blue);"></span>Indicador</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="barra" style="justify-content:flex-start;"><span style="background:var(--blue);"></span>Barra</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="barra-h" style="justify-content:flex-start;"><span style="background:var(--blue);"></span>Ranking (barras horizontais)</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="linha" style="justify-content:flex-start;"><span style="background:var(--purple);"></span>Linha</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="donut" style="justify-content:flex-start;"><span style="background:var(--yellow);"></span>Donut</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="curvaabc" style="justify-content:flex-start;"><span style="background:var(--warn);"></span>Curva ABC</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="tabela" style="justify-content:flex-start;"><span style="background:var(--ok);"></span>Tabela</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="relatorio" style="justify-content:flex-start;"><span style="background:var(--ok);"></span>Relatório (mestre + detalhe)</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="titulo" style="justify-content:flex-start;"><span style="background:var(--muted);"></span>Título</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="container" style="justify-content:flex-start;"><span style="background:var(--muted);"></span>Container (com guias)</button>
+        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:10px 0 0;">Clique pra escolher o tipo e configurar o widget.</p>
+      </div>
       <div class="card" id="pnlCardAddWidget" style="display:none;">
         <h2>Adicionar widget</h2>
+        <button type="button" class="ghost" id="btnPnlCanvasVoltarPaleta" style="display:none;width:auto;padding:6px 12px;margin-bottom:12px;">← Voltar pra lista de widgets</button>
         <div class="field" id="pnlNovoWidgetCampoConsulta" style="display:none;">
           <label>Consulta (fonte de dados)</label>
           <select id="pnlNovoWidgetConsulta"></select>
