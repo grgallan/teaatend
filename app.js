@@ -14642,6 +14642,12 @@ let pnlEditandoMedidaId = null;
 let pnlSlugCarregado = null; // qual slug de painel já está carregado em pnlPainelWidgets/Filtros/Medidas — muda ao abrir um painel diferente
 let pnlModoEdicao = false;
 let pnlEditandoWidgetId = null;
+// "Canvas livre" (posição/tamanho livres por widget, em pixels) — só pra
+// telas largas; no celular o painel sempre usa a grade de hoje (largura em
+// frações + ordem da lista), que já reflui sozinha. Ver pnlRenderEsqueleto.
+let pnlModoCanvas = false;
+let pnlCanvasArrastando = null; // {id, startMouseX, startMouseY, startX, startY}
+let pnlCanvasRedimensionando = null; // {id, startMouseX, startMouseY, startW, startH}
 // última lista de linhas (já filtrada) de cada widget — por id do widget,
 // já que agora cada widget pode vir de uma consulta/filtro diferente
 let pnlUltimoLinhasFiltradasPorWidget = {};
@@ -16241,9 +16247,12 @@ function pnlPopularFormNovoSubdetalhe(){
 }
 function pnlHtmlToolbar(w, i, total){
   if(!pnlModoEdicao) return '';
-  return `<div class="recebwidget-toolbar">
+  // no canvas livre a posição é por arrastar, não por ordem da lista — o
+  // cima/baixo não faz sentido ali (ver pnlMontarCanvasHtml pras alças)
+  const moverHtml = pnlModoCanvas ? '' : `
     <button type="button" data-wtoolbar="up" data-wid="${w.id}" ${i===0?'disabled':''} title="Mover pra cima">↑</button>
-    <button type="button" data-wtoolbar="down" data-wid="${w.id}" ${i===total-1?'disabled':''} title="Mover pra baixo">↓</button>
+    <button type="button" data-wtoolbar="down" data-wid="${w.id}" ${i===total-1?'disabled':''} title="Mover pra baixo">↓</button>`;
+  return `<div class="recebwidget-toolbar">${moverHtml}
     <button type="button" data-wtoolbar="editar" data-wid="${w.id}" title="Editar">✎</button>
     <button type="button" data-wtoolbar="remover" data-wid="${w.id}" title="Remover">✕</button>
   </div>`;
@@ -16323,6 +16332,97 @@ function pnlMontarGradeHtml(ws){
   }
   return html;
 }
+// só conta como "painel em canvas" quando TODO widget de nível principal já
+// tem uma posição válida — enquanto isso não acontecer (painel nunca editado
+// em canvas, ou widget novo ainda sem posição), cai pra grade de sempre
+function pnlWidgetTemCanvasValido(w){
+  return !!w.canvas && Number.isFinite(w.canvas.x) && Number.isFinite(w.canvas.y) && Number.isFinite(w.canvas.w) && Number.isFinite(w.canvas.h);
+}
+function pnlPainelUsaCanvas(topo){
+  return topo.length>0 && topo.every(pnlWidgetTemCanvasValido);
+}
+// canvas livre é só pra tela larga — no celular a grade de hoje já reflui
+// sozinha, então é sempre ela; a edição do canvas (pnlModoCanvas) é decisão
+// explícita do admin e vale mesmo se a tela ficar momentaneamente estreita
+function pnlTelaLargaParaCanvas(){
+  return window.matchMedia('(min-width: 900px)').matches;
+}
+// gera uma posição padrão (grade 2 colunas) só pros widgets que AINDA não
+// têm uma — os que já têm posição (de uma edição anterior) não são mexidos
+function pnlGerarCanvasPadraoSeNecessario(){
+  const topo = pnlPainelWidgets.filter(w=>!w.containerId || !pnlPainelWidgets.some(c=>c.id===w.containerId && c.tipo==='container'));
+  const colunas = 2, largura = 380, altura = 260, gap = 20;
+  topo.forEach((w,i)=>{
+    if(pnlWidgetTemCanvasValido(w)) return;
+    const col = i % colunas, lin = Math.floor(i / colunas);
+    w.canvas = { x: 20 + col*(largura+gap), y: 20 + lin*(altura+gap), w: largura, h: altura };
+  });
+}
+function pnlMontarCanvasHtml(ws){
+  if(!ws.length) return '';
+  let maxX = 600, maxY = 400;
+  ws.forEach(w=>{
+    const c = w.canvas || { x:20, y:20, w:360, h:240 };
+    maxX = Math.max(maxX, c.x + c.w + 20);
+    maxY = Math.max(maxY, c.y + c.h + 20);
+  });
+  const itensHtml = ws.map((w,i)=>{
+    const c = w.canvas || { x:20, y:20, w:360, h:240 };
+    const alcasHtml = pnlModoCanvas ? `
+      <div class="pnl-canvas-alca" data-canvasarrastar data-wid="${w.id}" title="Arrastar">⣿</div>
+      <div class="pnl-canvas-resize" data-canvasredimensionar data-wid="${w.id}" title="Redimensionar"></div>` : '';
+    return `<div class="pnl-canvas-item" data-canvasitem data-wid="${w.id}" style="left:${c.x}px;top:${c.y}px;width:${c.w}px;height:${c.h}px;">${pnlHtmlWidget(w, i, ws.length)}${alcasHtml}</div>`;
+  }).join('');
+  return `<div class="pnl-canvas-superficie${pnlModoCanvas?' editando':''}" style="width:${maxX}px;height:${maxY}px;">${itensHtml}</div>`;
+}
+// durante o arrastar/redimensionar, só muda o style do item na tela (não
+// refaz o HTML) — refazer o innerHTML a cada pixel destruiria os gráficos
+// SVG já desenhados e deixaria o arrastar com saltos
+function pnlAtualizarPosicaoCanvasNaTela(id){
+  const w = pnlPainelWidgets.find(x=>x.id===id);
+  if(!w || !w.canvas) return;
+  const el = document.querySelector(`#pnlGradeWidgets [data-canvasitem][data-wid="${CSS.escape(id)}"]`);
+  if(!el) return;
+  el.style.left = w.canvas.x+'px';
+  el.style.top = w.canvas.y+'px';
+  el.style.width = w.canvas.w+'px';
+  el.style.height = w.canvas.h+'px';
+}
+function pnlCanvasIniciarArraste(id, e){
+  const w = pnlPainelWidgets.find(x=>x.id===id);
+  if(!w || !pnlWidgetTemCanvasValido(w)) return;
+  pnlCanvasArrastando = { id, startMouseX:e.clientX, startMouseY:e.clientY, startX:w.canvas.x, startY:w.canvas.y };
+}
+function pnlCanvasIniciarRedimensionar(id, e){
+  const w = pnlPainelWidgets.find(x=>x.id===id);
+  if(!w || !pnlWidgetTemCanvasValido(w)) return;
+  pnlCanvasRedimensionando = { id, startMouseX:e.clientX, startMouseY:e.clientY, startW:w.canvas.w, startH:w.canvas.h };
+}
+function pnlCanvasMoverArraste(e){
+  const info = pnlCanvasArrastando;
+  const w = pnlPainelWidgets.find(x=>x.id===info.id);
+  if(!w) return;
+  const dx = e.clientX-info.startMouseX, dy = e.clientY-info.startMouseY;
+  w.canvas.x = Math.max(0, Math.round((info.startX+dx)/8)*8);
+  w.canvas.y = Math.max(0, Math.round((info.startY+dy)/8)*8);
+  pnlAtualizarPosicaoCanvasNaTela(w.id);
+}
+function pnlCanvasMoverRedimensionar(e){
+  const info = pnlCanvasRedimensionando;
+  const w = pnlPainelWidgets.find(x=>x.id===info.id);
+  if(!w) return;
+  const dx = e.clientX-info.startMouseX, dy = e.clientY-info.startMouseY;
+  w.canvas.w = Math.max(200, Math.round((info.startW+dx)/8)*8);
+  w.canvas.h = Math.max(120, Math.round((info.startH+dy)/8)*8);
+  pnlAtualizarPosicaoCanvasNaTela(w.id);
+}
+function pnlAlternarModoCanvas(){
+  if(!pnlModoCanvas) pnlGerarCanvasPadraoSeNecessario();
+  pnlModoCanvas = !pnlModoCanvas;
+  document.getElementById('btnPnlModoCanvas').classList.toggle('on', pnlModoCanvas);
+  pnlRenderEsqueleto();
+  pnlRenderConteudo();
+}
 function pnlRenderEsqueleto(){
   const grade = document.getElementById('pnlGradeWidgets');
   // só os widgets de "nível principal" — quem tem containerId resolvendo
@@ -16330,7 +16430,9 @@ function pnlRenderEsqueleto(){
   // tipo 'container'); se o container foi removido, cai de volta pro nível
   // principal em vez de simplesmente sumir
   const topo = pnlPainelWidgets.filter(w=>!w.containerId || !pnlPainelWidgets.some(c=>c.id===w.containerId && c.tipo==='container'));
-  grade.innerHTML = pnlMontarGradeHtml(topo) || `<div class="empty">Nenhum widget nesse painel ainda. Clique em "⚙ Configurar painel" pra adicionar.</div>`;
+  if(!topo.length){ grade.innerHTML = `<div class="empty">Nenhum widget nesse painel ainda. Clique em "⚙ Configurar painel" pra adicionar.</div>`; return; }
+  const usaCanvas = pnlModoCanvas || (pnlPainelUsaCanvas(topo) && pnlTelaLargaParaCanvas());
+  grade.innerHTML = usaCanvas ? pnlMontarCanvasHtml(topo) : pnlMontarGradeHtml(topo);
 }
 // cada widget lê de UMA consulta (widget.consultaId — ou a 1ª carregada,
 // pra widget salvo antes dessa configuração existir); por isso cada um
@@ -17139,6 +17241,7 @@ function pnlEntrarModoEdicao(){
   if(!ehAdminEfetivo(conta) && perm && !perm.editar){ toast('Seu perfil só tem acesso de visualização nesse painel.'); return; }
   pnlModoEdicao = true;
   document.getElementById('btnPnlEditarPainel').style.display = 'none';
+  document.getElementById('btnPnlModoCanvas').style.display = '';
   document.getElementById('btnPnlSalvarPainel').style.display = '';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = '';
   document.getElementById('pnlCardAddWidget').style.display = '';
@@ -17152,7 +17255,10 @@ function pnlEntrarModoEdicao(){
 }
 function pnlSairModoEdicao(){
   pnlModoEdicao = false;
+  pnlModoCanvas = false;
   document.getElementById('btnPnlEditarPainel').style.display = '';
+  document.getElementById('btnPnlModoCanvas').style.display = 'none';
+  document.getElementById('btnPnlModoCanvas').classList.remove('on');
   document.getElementById('btnPnlSalvarPainel').style.display = 'none';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = 'none';
   document.getElementById('pnlCardAddWidget').style.display = 'none';
@@ -17940,6 +18046,31 @@ document.addEventListener('click', (e)=>{
   if(rtImgSelecionada && e.target !== rtImgSelecionada && e.target !== rtImgHandle) rtDeselecionarImagem();
 });
 window.addEventListener('resize', rtPosicionarHandle);
+
+// canvas livre do Painel genérico — arrastar/redimensionar (ver
+// pnlCanvasIniciarArraste/Redimensionar, chamados no mousedown da alça,
+// delegado dentro de #pnlGradeWidgets). Globais e sempre ligados: são
+// no-op sempre que nada está sendo arrastado/redimensionado.
+window.addEventListener('mousemove', e=>{
+  if(pnlCanvasArrastando) pnlCanvasMoverArraste(e);
+  else if(pnlCanvasRedimensionando) pnlCanvasMoverRedimensionar(e);
+});
+window.addEventListener('mouseup', ()=>{
+  pnlCanvasArrastando = null;
+  pnlCanvasRedimensionando = null;
+});
+// troca de grade pra canvas (ou o contrário) ao cruzar o breakpoint de tela
+// larga — só fora do modo de edição do canvas, pra não brigar com o admin
+// enquanto ele está arrastando algo
+let pnlCanvasResizeTimer = null;
+window.addEventListener('resize', ()=>{
+  clearTimeout(pnlCanvasResizeTimer);
+  pnlCanvasResizeTimer = setTimeout(()=>{
+    if(pnlModoCanvas || !pnlPainelAtual || !pnlConsultasCarregadas.length) return;
+    pnlRenderEsqueleto();
+    pnlRenderConteudo();
+  }, 200);
+});
 
 // funciona pra qualquer editor de texto rico da tela (Detalhe, Solução...) —
 // cada toolbar sabe qual editor controla via data-editor no próprio toolbar
@@ -18969,6 +19100,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlRenderWidgetRelatorio(`pnl-${w.id}-conteudo`, w, pnlUltimoLinhasFiltradasPorWidget[w.id]);
   });
   document.getElementById('pnlGradeWidgets').addEventListener('dragend', ()=>{ pnlRelatDragOrigem = null; });
+  // arrastar/redimensionar no canvas livre — início pelo mousedown na alça
+  // (delegado, igual o resto da grade); o acompanhar do mouse é global (ver
+  // window.addEventListener('mousemove'/'mouseup') logo abaixo da IIFE)
+  document.getElementById('pnlGradeWidgets').addEventListener('mousedown', e=>{
+    if(!pnlModoCanvas) return;
+    const alca = e.target.closest('[data-canvasarrastar]');
+    if(alca){ e.preventDefault(); pnlCanvasIniciarArraste(alca.dataset.wid, e); return; }
+    const resize = e.target.closest('[data-canvasredimensionar]');
+    if(resize){ e.preventDefault(); pnlCanvasIniciarRedimensionar(resize.dataset.wid, e); return; }
+  });
+  document.getElementById('btnPnlModoCanvas').addEventListener('click', pnlAlternarModoCanvas);
   document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
   document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
@@ -19295,10 +19437,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
     if(pnlEditandoWidgetId){
       const i = pnlPainelWidgets.findIndex(w=>w.id===pnlEditandoWidgetId);
-      if(i>=0) pnlPainelWidgets[i] = widget;
+      if(i>=0){
+        if(pnlWidgetTemCanvasValido(pnlPainelWidgets[i])) widget.canvas = pnlPainelWidgets[i].canvas;
+        pnlPainelWidgets[i] = widget;
+      }
     }else{
       pnlPainelWidgets.push(widget);
     }
+    // widget novo (ou editado sem posição ainda) ganha um lugar na hora se
+    // o canvas livre já estiver ativo, senão ficaria empilhado em cima de
+    // outro até alguém arrastar
+    if(pnlModoCanvas) pnlGerarCanvasPadraoSeNecessario();
     pnlResetFormNovoWidget();
     pnlRender();
   });
