@@ -947,10 +947,9 @@
   .pnl-canvas-alca{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:grab;z-index:3;font-size:11px;line-height:1;}
   .pnl-canvas-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;z-index:3;background:linear-gradient(135deg, transparent 50%, var(--line) 50%);border-radius:0 0 11px 0;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;}
-  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCardAddWidget{flex:0 0 272px;max-height:calc(100vh - 140px);overflow-y:auto;position:sticky;top:16px;margin-bottom:0;}
+  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasColunaEsquerda{flex:0 0 272px;max-height:calc(100vh - 140px);overflow-y:auto;position:sticky;top:16px;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlGradeWidgets{flex:1 1 520px;min-width:0;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasPropriedades{flex:0 0 240px;position:sticky;top:16px;margin-bottom:0;}
-  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasPaleta{flex:0 0 272px;position:sticky;top:16px;margin-bottom:0;}
   .pnl-canvaspaleta-item{display:flex;align-items:center;gap:9px;width:100%;font-weight:600;}
   .pnl-canvaspaleta-item span{width:9px;height:9px;border-radius:2px;flex:none;display:inline-block;}
   .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;white-space:normal;}
@@ -2753,6 +2752,8 @@
         </div>
       </div>
 
+      <div id="pnlCanvasLayoutWrap">
+      <div id="pnlCanvasColunaEsquerda">
       <div class="card" id="pnlCardMedidas" style="display:none;">
         <h2>Medidas</h2>
         <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie medidas (um campo da consulta + uma função: soma, média, contagem...) ou medidas-fórmula (que combinam outras medidas, inclusive de consultas diferentes) pra usar nos widgets.</p>
@@ -2816,7 +2817,6 @@
         </div>
       </div>
 
-      <div id="pnlCanvasLayoutWrap">
       <div class="card" id="pnlCanvasPaleta" style="display:none;">
         <h2>Widgets</h2>
         <div style="display:flex;flex-direction:column;gap:6px;">
@@ -3032,6 +3032,7 @@
           </label>
         </div>
         <button class="primary" id="btnPnlAdicionarWidget" type="button">Adicionar ao painel</button>
+      </div>
       </div>
 
       <div id="pnlGradeWidgets"></div>
