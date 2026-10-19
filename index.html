@@ -946,6 +946,10 @@
   .pnl-canvas-item > *:not(.pnl-canvas-alca):not(.pnl-canvas-resize){height:100%;margin:0;box-sizing:border-box;overflow:auto;}
   .pnl-canvas-alca{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:grab;z-index:3;font-size:11px;line-height:1;}
   .pnl-canvas-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;z-index:3;background:linear-gradient(135deg, transparent 50%, var(--line) 50%);border-radius:0 0 11px 0;}
+  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;}
+  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCardAddWidget{flex:0 0 272px;max-height:calc(100vh - 140px);overflow-y:auto;position:sticky;top:16px;margin-bottom:0;}
+  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlGradeWidgets{flex:1 1 520px;min-width:0;}
+  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasPropriedades{flex:0 0 240px;position:sticky;top:16px;margin-bottom:0;}
   .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;white-space:normal;}
   .rm-lookup-item:hover{background:var(--accent-dim);color:var(--accent);}
   .rm-lookup-item.on{background:var(--accent-dim);color:var(--accent);font-weight:600;}
@@ -2746,6 +2750,70 @@
         </div>
       </div>
 
+      <div class="card" id="pnlCardMedidas" style="display:none;">
+        <h2>Medidas</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie medidas (um campo da consulta + uma função: soma, média, contagem...) ou medidas-fórmula (que combinam outras medidas, inclusive de consultas diferentes) pra usar nos widgets.</p>
+        <div id="pnlListaMedidas"></div>
+        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
+          <div class="field" id="pnlMedidaCampoTipo">
+            <label>Tipo de medida</label>
+            <select id="pnlMedidaTipo">
+              <option value="campo">Campo da consulta (soma, média...)</option>
+              <option value="formula">Fórmula (combina outras medidas, de qualquer consulta)</option>
+            </select>
+          </div>
+          <div class="field" id="pnlMedidaCampoConsulta" style="display:none;">
+            <label>Consulta (fonte de dados)</label>
+            <select id="pnlMedidaConsulta"></select>
+          </div>
+          <div class="row">
+            <div class="field"><label>Nome</label><input type="text" id="pnlMedidaNome" placeholder="Ex: Valor médio"></div>
+            <div class="field" id="pnlMedidaCampoCampo"><label>Campo</label><select id="pnlMedidaCampo"></select></div>
+          </div>
+          <div class="row">
+            <div class="field" id="pnlMedidaCampoFuncao"><label>Função</label>
+              <select id="pnlMedidaFuncao">
+                <option value="soma">Soma</option>
+                <option value="media">Média</option>
+                <option value="contagem">Contagem (quantidade de linhas)</option>
+                <option value="contagemDistinta">Contagem distinta</option>
+                <option value="min">Mínimo</option>
+                <option value="max">Máximo</option>
+                <option value="ultimoValor">Último valor</option>
+                <option value="percentualDoTotal">% do total geral</option>
+              </select>
+            </div>
+            <div class="field"><label>Formato</label>
+              <select id="pnlMedidaFormato">
+                <option value="money">Dinheiro (R$)</option>
+                <option value="pct">Percentual (%)</option>
+                <option value="int">Número</option>
+                <option value="dias">Dias</option>
+                <option value="data">Data</option>
+              </select>
+            </div>
+          </div>
+          <div class="field" id="pnlMedidaCampoOrdem" style="display:none;"><label>Campo de ordem (define qual linha é a "última")</label><select id="pnlMedidaOrdem"></select></div>
+          <div class="field" id="pnlMedidaCampoFormula" style="display:none;">
+            <label>Fórmula</label>
+            <input type="text" id="pnlMedidaFormula" placeholder="Ex: [medida1] - [medida2]">
+            <div style="font-size:11px;color:var(--muted);margin:4px 0 2px;">Clique pra inserir na fórmula:</div>
+            <div id="pnlMedidaPaletaFormula" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+          </div>
+          <div class="row" id="pnlMedidaLinhaCasas" style="display:none;">
+            <div class="field"><label>Tipo</label>
+              <select id="pnlMedidaTipoNumero">
+                <option value="inteiro">Inteiro</option>
+                <option value="decimal">Decimal</option>
+              </select>
+            </div>
+            <div class="field" id="pnlMedidaCampoCasas" style="display:none;"><label>Casas decimais</label><input type="number" id="pnlMedidaCasas" min="1" max="4" value="2"></div>
+          </div>
+          <button class="primary" id="btnPnlAdicionarMedida" type="button">Adicionar medida</button>
+        </div>
+      </div>
+
+      <div id="pnlCanvasLayoutWrap">
       <div class="card" id="pnlCardAddWidget" style="display:none;">
         <h2>Adicionar widget</h2>
         <div class="field" id="pnlNovoWidgetCampoConsulta" style="display:none;">
@@ -2946,70 +3014,24 @@
         <button class="primary" id="btnPnlAdicionarWidget" type="button">Adicionar ao painel</button>
       </div>
 
-      <div class="card" id="pnlCardMedidas" style="display:none;">
-        <h2>Medidas</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Crie medidas (um campo da consulta + uma função: soma, média, contagem...) ou medidas-fórmula (que combinam outras medidas, inclusive de consultas diferentes) pra usar nos widgets.</p>
-        <div id="pnlListaMedidas"></div>
-        <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px;">
-          <div class="field" id="pnlMedidaCampoTipo">
-            <label>Tipo de medida</label>
-            <select id="pnlMedidaTipo">
-              <option value="campo">Campo da consulta (soma, média...)</option>
-              <option value="formula">Fórmula (combina outras medidas, de qualquer consulta)</option>
-            </select>
+      <div id="pnlGradeWidgets"></div>
+
+      <div class="card" id="pnlCanvasPropriedades" style="display:none;">
+        <h2>Propriedades</h2>
+        <div id="pnlCanvasPropriedadesVazio" style="color:var(--muted);font-size:12.5px;">Clique na alça (⣿) de um widget no canvas pra ver a posição dele aqui.</div>
+        <div id="pnlCanvasPropriedadesConteudo" style="display:none;">
+          <div style="font-size:13px;font-weight:700;margin-bottom:14px;word-break:break-word;" id="pnlCanvasPropTitulo"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+            <div><label style="font-size:10.5px;margin-bottom:4px;">X</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropX"></div></div>
+            <div><label style="font-size:10.5px;margin-bottom:4px;">Y</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropY"></div></div>
+            <div><label style="font-size:10.5px;margin-bottom:4px;">Largura</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropW"></div></div>
+            <div><label style="font-size:10.5px;margin-bottom:4px;">Altura</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropH"></div></div>
           </div>
-          <div class="field" id="pnlMedidaCampoConsulta" style="display:none;">
-            <label>Consulta (fonte de dados)</label>
-            <select id="pnlMedidaConsulta"></select>
-          </div>
-          <div class="row">
-            <div class="field"><label>Nome</label><input type="text" id="pnlMedidaNome" placeholder="Ex: Valor médio"></div>
-            <div class="field" id="pnlMedidaCampoCampo"><label>Campo</label><select id="pnlMedidaCampo"></select></div>
-          </div>
-          <div class="row">
-            <div class="field" id="pnlMedidaCampoFuncao"><label>Função</label>
-              <select id="pnlMedidaFuncao">
-                <option value="soma">Soma</option>
-                <option value="media">Média</option>
-                <option value="contagem">Contagem (quantidade de linhas)</option>
-                <option value="contagemDistinta">Contagem distinta</option>
-                <option value="min">Mínimo</option>
-                <option value="max">Máximo</option>
-                <option value="ultimoValor">Último valor</option>
-                <option value="percentualDoTotal">% do total geral</option>
-              </select>
-            </div>
-            <div class="field"><label>Formato</label>
-              <select id="pnlMedidaFormato">
-                <option value="money">Dinheiro (R$)</option>
-                <option value="pct">Percentual (%)</option>
-                <option value="int">Número</option>
-                <option value="dias">Dias</option>
-                <option value="data">Data</option>
-              </select>
-            </div>
-          </div>
-          <div class="field" id="pnlMedidaCampoOrdem" style="display:none;"><label>Campo de ordem (define qual linha é a "última")</label><select id="pnlMedidaOrdem"></select></div>
-          <div class="field" id="pnlMedidaCampoFormula" style="display:none;">
-            <label>Fórmula</label>
-            <input type="text" id="pnlMedidaFormula" placeholder="Ex: [medida1] - [medida2]">
-            <div style="font-size:11px;color:var(--muted);margin:4px 0 2px;">Clique pra inserir na fórmula:</div>
-            <div id="pnlMedidaPaletaFormula" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
-          </div>
-          <div class="row" id="pnlMedidaLinhaCasas" style="display:none;">
-            <div class="field"><label>Tipo</label>
-              <select id="pnlMedidaTipoNumero">
-                <option value="inteiro">Inteiro</option>
-                <option value="decimal">Decimal</option>
-              </select>
-            </div>
-            <div class="field" id="pnlMedidaCampoCasas" style="display:none;"><label>Casas decimais</label><input type="number" id="pnlMedidaCasas" min="1" max="4" value="2"></div>
-          </div>
-          <button class="primary" id="btnPnlAdicionarMedida" type="button">Adicionar medida</button>
+          <button class="ghost" type="button" id="btnPnlCanvasPropEditar" style="width:100%;margin-bottom:8px;">✎ Editar widget</button>
+          <button class="danger" type="button" id="btnPnlCanvasPropRemover" style="width:100%;">Remover widget</button>
         </div>
       </div>
-
-      <div id="pnlGradeWidgets"></div>
+      </div>
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-painelrecebiveis" style="display:none;">

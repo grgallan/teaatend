@@ -14648,6 +14648,7 @@ let pnlEditandoWidgetId = null;
 let pnlModoCanvas = false;
 let pnlCanvasArrastando = null; // {id, startMouseX, startMouseY, startX, startY}
 let pnlCanvasRedimensionando = null; // {id, startMouseX, startMouseY, startW, startH}
+let pnlCanvasSelecionadoId = null; // widget com o painel de propriedades aberto
 // última lista de linhas (já filtrada) de cada widget — por id do widget,
 // já que agora cada widget pode vir de uma consulta/filtro diferente
 let pnlUltimoLinhasFiltradasPorWidget = {};
@@ -16382,21 +16383,48 @@ function pnlAtualizarPosicaoCanvasNaTela(id){
   const w = pnlPainelWidgets.find(x=>x.id===id);
   if(!w || !w.canvas) return;
   const el = document.querySelector(`#pnlGradeWidgets [data-canvasitem][data-wid="${CSS.escape(id)}"]`);
-  if(!el) return;
-  el.style.left = w.canvas.x+'px';
-  el.style.top = w.canvas.y+'px';
-  el.style.width = w.canvas.w+'px';
-  el.style.height = w.canvas.h+'px';
+  if(el){
+    el.style.left = w.canvas.x+'px';
+    el.style.top = w.canvas.y+'px';
+    el.style.width = w.canvas.w+'px';
+    el.style.height = w.canvas.h+'px';
+  }
+  if(id===pnlCanvasSelecionadoId) pnlAtualizarPainelPropriedadesCanvas();
+}
+// o painel de propriedades (lateral direita) mostra o widget que foi pego
+// pela alça/redimensionar por último — os valores acompanham ao vivo
+// durante o arrastar/redimensionar (chamado de pnlAtualizarPosicaoCanvasNaTela)
+function pnlAtualizarPainelPropriedadesCanvas(){
+  const vazio = document.getElementById('pnlCanvasPropriedadesVazio');
+  const conteudo = document.getElementById('pnlCanvasPropriedadesConteudo');
+  if(!vazio || !conteudo) return;
+  const w = pnlCanvasSelecionadoId ? pnlPainelWidgets.find(x=>x.id===pnlCanvasSelecionadoId) : null;
+  if(!pnlModoCanvas || !w || !pnlWidgetTemCanvasValido(w)){
+    vazio.style.display = '';
+    conteudo.style.display = 'none';
+    return;
+  }
+  vazio.style.display = 'none';
+  conteudo.style.display = '';
+  document.getElementById('pnlCanvasPropTitulo').textContent = pnlWidgetTitulo(w);
+  document.getElementById('pnlCanvasPropX').textContent = w.canvas.x;
+  document.getElementById('pnlCanvasPropY').textContent = w.canvas.y;
+  document.getElementById('pnlCanvasPropW').textContent = w.canvas.w;
+  document.getElementById('pnlCanvasPropH').textContent = w.canvas.h;
 }
 function pnlCanvasIniciarArraste(id, e){
   const w = pnlPainelWidgets.find(x=>x.id===id);
   if(!w || !pnlWidgetTemCanvasValido(w)) return;
   pnlCanvasArrastando = { id, startMouseX:e.clientX, startMouseY:e.clientY, startX:w.canvas.x, startY:w.canvas.y };
+  pnlCanvasSelecionadoId = id;
+  pnlAtualizarPainelPropriedadesCanvas();
 }
 function pnlCanvasIniciarRedimensionar(id, e){
   const w = pnlPainelWidgets.find(x=>x.id===id);
   if(!w || !pnlWidgetTemCanvasValido(w)) return;
   pnlCanvasRedimensionando = { id, startMouseX:e.clientX, startMouseY:e.clientY, startW:w.canvas.w, startH:w.canvas.h };
+  pnlCanvasSelecionadoId = id;
+  pnlAtualizarPainelPropriedadesCanvas();
 }
 function pnlCanvasMoverArraste(e){
   const info = pnlCanvasArrastando;
@@ -16419,7 +16447,11 @@ function pnlCanvasMoverRedimensionar(e){
 function pnlAlternarModoCanvas(){
   if(!pnlModoCanvas) pnlGerarCanvasPadraoSeNecessario();
   pnlModoCanvas = !pnlModoCanvas;
+  if(!pnlModoCanvas) pnlCanvasSelecionadoId = null;
   document.getElementById('btnPnlModoCanvas').classList.toggle('on', pnlModoCanvas);
+  document.getElementById('pnlCanvasLayoutWrap').classList.toggle('pnl-canvas-modo-ativo', pnlModoCanvas);
+  document.getElementById('pnlCanvasPropriedades').style.display = pnlModoCanvas ? '' : 'none';
+  pnlAtualizarPainelPropriedadesCanvas();
   pnlRenderEsqueleto();
   pnlRenderConteudo();
 }
@@ -17256,9 +17288,12 @@ function pnlEntrarModoEdicao(){
 function pnlSairModoEdicao(){
   pnlModoEdicao = false;
   pnlModoCanvas = false;
+  pnlCanvasSelecionadoId = null;
   document.getElementById('btnPnlEditarPainel').style.display = '';
   document.getElementById('btnPnlModoCanvas').style.display = 'none';
   document.getElementById('btnPnlModoCanvas').classList.remove('on');
+  document.getElementById('pnlCanvasLayoutWrap').classList.remove('pnl-canvas-modo-ativo');
+  document.getElementById('pnlCanvasPropriedades').style.display = 'none';
   document.getElementById('btnPnlSalvarPainel').style.display = 'none';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = 'none';
   document.getElementById('pnlCardAddWidget').style.display = 'none';
@@ -19111,6 +19146,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(resize){ e.preventDefault(); pnlCanvasIniciarRedimensionar(resize.dataset.wid, e); return; }
   });
   document.getElementById('btnPnlModoCanvas').addEventListener('click', pnlAlternarModoCanvas);
+  document.getElementById('btnPnlCanvasPropEditar').addEventListener('click', ()=>{
+    if(pnlCanvasSelecionadoId) pnlWidgetEditar(pnlCanvasSelecionadoId);
+  });
+  document.getElementById('btnPnlCanvasPropRemover').addEventListener('click', ()=>{
+    if(!pnlCanvasSelecionadoId) return;
+    const id = pnlCanvasSelecionadoId;
+    pedirConfirmacao('Remover widget?','Isso só tira do painel — não mexe em nenhum dado.', ()=>{
+      pnlWidgetRemover(id);
+      pnlCanvasSelecionadoId = null;
+      pnlAtualizarPainelPropriedadesCanvas();
+    });
+  });
   document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
   document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
