@@ -16449,6 +16449,7 @@ function pnlHtmlToolbar(w, i, total){
     <button type="button" data-wtoolbar="down" data-wid="${w.id}" ${i===total-1?'disabled':''} title="Mover pra baixo">↓</button>`;
   return `<div class="recebwidget-toolbar">${moverHtml}
     <button type="button" data-wtoolbar="editar" data-wid="${w.id}" title="Editar">✎</button>
+    <button type="button" data-wtoolbar="duplicar" data-wid="${w.id}" title="Duplicar">⧉</button>
     <button type="button" data-wtoolbar="remover" data-wid="${w.id}" title="Remover">✕</button>
   </div>`;
 }
@@ -16557,6 +16558,12 @@ function pnlMontarGradeHtml(ws){
 function pnlWidgetTemCanvasValido(w){
   return !!w.canvas && Number.isFinite(w.canvas.x) && Number.isFinite(w.canvas.y) && Number.isFinite(w.canvas.w) && Number.isFinite(w.canvas.h);
 }
+// Filtro/Indicador são só uma linha de texto (rótulo ou número) — não
+// precisam dos 120px de altura mínima que um gráfico/tabela exige pra
+// ficar legível, então ganham um mínimo bem mais baixo no canvas livre
+function pnlCanvasAlturaMinima(tipo){
+  return (tipo==='filtro' || tipo==='kpi') ? 60 : 120;
+}
 function pnlPainelUsaCanvas(topo){
   return topo.length>0 && topo.every(pnlWidgetTemCanvasValido);
 }
@@ -16633,7 +16640,7 @@ function pnlCanvasMoverRedimensionar(e){
   if(!w) return;
   const dx = e.clientX-info.startMouseX, dy = e.clientY-info.startMouseY;
   w.canvas.w = Math.max(200, Math.round((info.startW+dx)/8)*8);
-  w.canvas.h = Math.max(120, Math.round((info.startH+dy)/8)*8);
+  w.canvas.h = Math.max(pnlCanvasAlturaMinima(w.tipo), Math.round((info.startH+dy)/8)*8);
   pnlAtualizarPosicaoCanvasNaTela(w.id);
 }
 // retrair/expandir o corpo de um card (Medidas, Widgets, Propriedades) —
@@ -17120,6 +17127,7 @@ function pnlAtualizarCamposNovoWidget(){
   const mostraPosicaoCanvas = pnlModoCanvas && widgetEmEdicao && pnlWidgetTemCanvasValido(widgetEmEdicao);
   document.getElementById('pnlNovoWidgetCampoCanvasPos').style.display = mostraPosicaoCanvas ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoCanvasTamanho').style.display = mostraPosicaoCanvas ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCanvasH').min = pnlCanvasAlturaMinima(tipo);
   document.getElementById('pnlNovoWidgetCampoFiltroWidget').style.display = ehFiltro ? '' : 'none';
   if(ehFiltro){
     const selCampoFiltro = document.getElementById('pnlNovoWidgetFiltroWidgetCampo');
@@ -17348,6 +17356,26 @@ function pnlWidgetMover(id, dir){
   const iReal = pnlPainelWidgets.findIndex(x=>x.id===w.id);
   const jReal = pnlPainelWidgets.findIndex(x=>x.id===alvo.id);
   [pnlPainelWidgets[iReal], pnlPainelWidgets[jReal]] = [pnlPainelWidgets[jReal], pnlPainelWidgets[iReal]];
+  pnlRender();
+}
+// cópia exata do widget (mesmo tipo/medida/dimensão/aparência/etc.), com
+// um id novo, inserida logo depois do original — pra não ter que
+// reconfigurar um widget parecido do zero. Não duplica os "filhos" de um
+// Container (os widgets que apontam containerId pra ele), só o container
+// em si.
+function pnlWidgetDuplicar(id){
+  const w = pnlPainelWidgets.find(x=>x.id===id);
+  if(!w) return;
+  const copia = JSON.parse(JSON.stringify(w));
+  copia.id = pnlGerarIdWidget();
+  if(copia.titulo) copia.titulo += ' (cópia)';
+  // desloca um pouco no canvas livre, senão a cópia nasce exatamente em
+  // cima do original e parece que nada aconteceu
+  if(pnlWidgetTemCanvasValido(copia)){
+    copia.canvas = { x: copia.canvas.x+24, y: copia.canvas.y+24, w: copia.canvas.w, h: copia.canvas.h };
+  }
+  const posOriginal = pnlPainelWidgets.findIndex(x=>x.id===id);
+  pnlPainelWidgets.splice(posOriginal+1, 0, copia);
   pnlRender();
 }
 function pnlWidgetRemover(id){
@@ -19318,6 +19346,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       const id = toolbarBtn.dataset.wid, acao = toolbarBtn.dataset.wtoolbar;
       if(acao==='up' || acao==='down') pnlWidgetMover(id, acao);
       else if(acao==='editar') pnlWidgetEditar(id);
+      else if(acao==='duplicar') pnlWidgetDuplicar(id);
       else if(acao==='remover') pedirConfirmacao('Remover widget?','Isso só tira do painel — não mexe em nenhum dado.', ()=>pnlWidgetRemover(id));
       return;
     }
@@ -19807,7 +19836,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
             x: Math.max(0, Number(document.getElementById('pnlNovoWidgetCanvasX').value) || widget.canvas.x),
             y: Math.max(0, Number(document.getElementById('pnlNovoWidgetCanvasY').value) || widget.canvas.y),
             w: Math.max(200, Number(document.getElementById('pnlNovoWidgetCanvasW').value) || widget.canvas.w),
-            h: Math.max(120, Number(document.getElementById('pnlNovoWidgetCanvasH').value) || widget.canvas.h),
+            h: Math.max(pnlCanvasAlturaMinima(tipo), Number(document.getElementById('pnlNovoWidgetCanvasH').value) || widget.canvas.h),
           };
         }
         pnlPainelWidgets[i] = widget;
