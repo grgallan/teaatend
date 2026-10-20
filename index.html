@@ -318,6 +318,8 @@
   .dash-tooltip{position:fixed;pointer-events:none;background:var(--text);color:var(--panel);font-size:11.5px;font-weight:600;padding:6px 9px;border-radius:8px;z-index:99;opacity:0;transform:translate(-50%,-100%);transition:opacity .08s;white-space:nowrap;}
   .dash-tooltip.show{opacity:1;}
   .dash-empty{font-size:12.5px;color:var(--muted);padding:6px 0;}
+  .pnl-mapa-rotulo{background:var(--text);color:var(--panel);border:none;box-shadow:none;font-size:10.5px;font-weight:700;padding:1px 5px;}
+  .pnl-mapa-rotulo::before{display:none;}
   /* linha de vínculo — mesmas colunas do item normal, só mais leve e recuada,
      igual subtarefa numa ferramenta de projeto */
   .item.filho{background:var(--panel-2);border-style:dashed;position:relative;margin-left:26px;}
@@ -3844,6 +3846,10 @@
      texto) — a SheetJS "Community Edition" original só grava valores, sem
      estilo, na versão gratuita -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<!-- Leaflet: mapa de fundo real (tiles do OpenStreetMap) pro widget "Mapa"
+     do Painel genérico — só esse widget precisa de internet pra carregar -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
