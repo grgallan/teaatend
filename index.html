@@ -2824,7 +2824,9 @@
           <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="barra-h" style="justify-content:flex-start;"><span style="background:var(--blue);"></span>Ranking (barras horizontais)</button>
           <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="linha" style="justify-content:flex-start;"><span style="background:var(--purple);"></span>Linha</button>
           <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="donut" style="justify-content:flex-start;"><span style="background:var(--yellow);"></span>Donut</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="treemap" style="justify-content:flex-start;"><span style="background:var(--purple);"></span>Treemap</button>
           <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="curvaabc" style="justify-content:flex-start;"><span style="background:var(--warn);"></span>Curva ABC</button>
+          <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="mapa" style="justify-content:flex-start;"><span style="background:var(--ok);"></span>Mapa (Brasil por cidade)</button>
           <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="tabela" style="justify-content:flex-start;"><span style="background:var(--ok);"></span>Tabela</button>
           <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="relatorio" style="justify-content:flex-start;"><span style="background:var(--ok);"></span>Relatório (mestre + detalhe)</button>
           <button type="button" class="ghost pnl-canvaspaleta-item" data-canvaspaleta="titulo" style="justify-content:flex-start;"><span style="background:var(--muted);"></span>Título</button>
@@ -2849,7 +2851,9 @@
               <option value="barra-h">Ranking (barras horizontais)</option>
               <option value="linha">Gráfico de linha</option>
               <option value="donut">Gráfico de pizza (donut)</option>
+              <option value="treemap">Gráfico Treemap</option>
               <option value="curvaabc">Curva ABC (classificação A/B/C)</option>
+              <option value="mapa">Mapa (Brasil por cidade)</option>
               <option value="tabela">Tabela (colunas à sua escolha)</option>
               <option value="relatorio">Relatório (mestre + detalhe)</option>
               <option value="titulo">Título</option>
@@ -3057,6 +3061,21 @@
               <input type="checkbox" id="pnlNovoWidgetCorFundoAtiva" style="width:auto;"> Cor de fundo
             </label>
             <input type="color" id="pnlNovoWidgetCorFundo" value="#1b2430" disabled>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Estilo da borda</label>
+            <select id="pnlNovoWidgetBordaEstilo">
+              <option value="">Padrão</option>
+              <option value="reta">Reta (sem cantos arredondados)</option>
+              <option value="levemente">Levemente arredondada</option>
+              <option value="arredondada">Bem arredondada</option>
+            </select>
+          </div>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-top:24px;">
+              <input type="checkbox" id="pnlNovoWidgetFundoTransparente" style="width:auto;"> Fundo transparente
+            </label>
           </div>
         </div>
         <button class="primary" id="btnPnlAdicionarWidget" type="button">Adicionar ao painel</button>
