@@ -16176,7 +16176,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   if(niveisQuebra.length) emitirSubtotais(0);
   const corpo = partes.join('');
   const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`, '', widget.colunasFormatos, valorColuna);
-  el.innerHTML = `<table class="valores-table pnl-relatorio-tabela">
+  el.innerHTML = `<table class="valores-table pnl-relatorio-tabela"${pnlAtributoFonteLinhasTabela(widget)}>
     <thead><tr>${cab.join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
     ${linhas.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}
@@ -16485,6 +16485,13 @@ function pnlAtributoEstiloTexto(estilo){
   const css = pnlCssEstiloTexto(estilo);
   return css ? ` style="${css}"` : '';
 }
+// tamanho de fonte das linhas de tabela (widget Tabela/Relatório) — aplicado
+// no próprio <table>, não em cada <td>: o cabeçalho (th) tem font-size
+// próprio no CSS (.valores-table th) e continua do tamanho de sempre,
+// só o corpo (que herda da tabela) muda de tamanho
+function pnlAtributoFonteLinhasTabela(widget){
+  return widget && widget.tamanhoFonteLinhas ? ` style="font-size:${widget.tamanhoFonteLinhas}px;"` : '';
+}
 // formulário de estilo de texto: mesmos 5 campos (alinhamento/tamanho/
 // negrito/itálico/sublinhado) servem pro "Título" de qualquer widget e,
 // só no Indicador, também pro "Valor" — prefixo é 'Titulo' ou 'Valor'
@@ -16527,7 +16534,7 @@ function pnlHtmlWidget(w, i, total){
       <h2${pnlAtributoEstiloTexto(w.estiloTitulo)}>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${filtroRapidoHtml}
       ${buscaHtml}
-      <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="pnl-${w.id}-tabela"></table></div>
+      <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="pnl-${w.id}-tabela"${pnlAtributoFonteLinhasTabela(w)}></table></div>
     </div>`;
   }
   if(w.tipo === 'relatorio'){
@@ -17385,6 +17392,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetZebrado').checked = false;
+  document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value = '';
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
   document.getElementById('pnlNovoWidgetSubtitulo').value = '';
@@ -17491,6 +17499,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   document.getElementById('pnlNovoWidgetZebrado').checked = !!w.zebrado;
+  document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value = w.tamanhoFonteLinhas || '';
   pnlAtualizarCamposNovoWidget();
   if(pnlModoCanvas && pnlWidgetTemCanvasValido(w)){
     document.getElementById('pnlNovoWidgetCanvasX').value = w.canvas.x;
@@ -19813,6 +19822,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
     if(ehRelatorio || ehTabelaPersonalizada){
       if(document.getElementById('pnlNovoWidgetZebrado').checked) widget.zebrado = true;
+      const tamanhoFonteLinhas = Number(document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value);
+      if(tamanhoFonteLinhas > 0) widget.tamanhoFonteLinhas = tamanhoFonteLinhas;
     }
     if(ehRelatorio){
       widget.fonte = fonte;
