@@ -3349,6 +3349,83 @@ function pnlMapaCidadeParaXY(lat, lng){
     miny + (latN-lat)/(latN-latS)*(maxy-miny),
   ];
 }
+// zoom/pan do widget Mapa — scroll do mouse ou pinça (2 dedos) pra zoom,
+// arrastar (1 dedo/clique) pra mover; estado fica por widget (sobrevive a
+// um re-render por filtro cruzado, já que pnlRenderWidgetMapa redesenha o
+// SVG do zero a cada chamada)
+const PNL_MAPA_ZOOM_ESTADO = {};
+function pnlMapaZoomPadrao(){ return { scale:1, tx:0, ty:0 }; }
+function pnlAplicarZoomMapa(svg, estado){
+  svg.style.transform = `translate(${estado.tx}px,${estado.ty}px) scale(${estado.scale})`;
+  svg.style.transformOrigin = '0 0';
+}
+function pnlAtivarZoomPanMapa(cont, svg, widgetId){
+  const estado = PNL_MAPA_ZOOM_ESTADO[widgetId] || (PNL_MAPA_ZOOM_ESTADO[widgetId] = pnlMapaZoomPadrao());
+  pnlAplicarZoomMapa(svg, estado);
+  const ZOOM_MIN = 1, ZOOM_MAX = 14;
+  // mantém o ponto (cx,cy) — em pixels do container — fixo na tela
+  // enquanto muda a escala, senão o zoom "foge" do dedo/cursor
+  function zoomEm(fator, cx, cy){
+    const novo = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, estado.scale*fator));
+    const f = novo/estado.scale;
+    estado.tx = cx - (cx-estado.tx)*f;
+    estado.ty = cy - (cy-estado.ty)*f;
+    estado.scale = novo;
+    pnlAplicarZoomMapa(svg, estado);
+  }
+  cont.addEventListener('wheel', e=>{
+    e.preventDefault();
+    const r = cont.getBoundingClientRect();
+    zoomEm(e.deltaY<0 ? 1.15 : 1/1.15, e.clientX-r.left, e.clientY-r.top);
+  }, { passive:false });
+  const ponteiros = new Map();
+  let arraste = null, pinchDist = null, pinchMeio = null;
+  cont.addEventListener('pointerdown', e=>{
+    // bolha ou botão de zoom: deixa o clique deles seguir normal — capturar
+    // o ponteiro aqui atropelaria o clique (mouseup/click seriam
+    // redirecionados pro container, e a bolha/botão nunca receberiam o
+    // clique)
+    if(e.target.closest('circle,[data-mapazoom]')) return;
+    cont.setPointerCapture(e.pointerId);
+    ponteiros.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if(ponteiros.size===1){
+      arraste = { x:e.clientX, y:e.clientY, tx0:estado.tx, ty0:estado.ty };
+      cont.style.cursor = 'grabbing';
+    }else if(ponteiros.size===2){
+      arraste = null;
+      const [a,b] = [...ponteiros.values()];
+      pinchDist = Math.hypot(a.x-b.x, a.y-b.y);
+      const r = cont.getBoundingClientRect();
+      pinchMeio = { x:(a.x+b.x)/2-r.left, y:(a.y+b.y)/2-r.top };
+    }
+  });
+  cont.addEventListener('pointermove', e=>{
+    if(!ponteiros.has(e.pointerId)) return;
+    ponteiros.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if(ponteiros.size===1 && arraste){
+      estado.tx = arraste.tx0 + (e.clientX-arraste.x);
+      estado.ty = arraste.ty0 + (e.clientY-arraste.y);
+      pnlAplicarZoomMapa(svg, estado);
+    }else if(ponteiros.size===2){
+      const [a,b] = [...ponteiros.values()];
+      const dist = Math.hypot(a.x-b.x, a.y-b.y);
+      if(pinchDist) zoomEm(dist/pinchDist, pinchMeio.x, pinchMeio.y);
+      pinchDist = dist;
+    }
+  });
+  function soltar(e){
+    ponteiros.delete(e.pointerId);
+    if(ponteiros.size<2) pinchDist = null;
+    if(ponteiros.size===0){ arraste = null; cont.style.cursor = 'grab'; }
+  }
+  cont.addEventListener('pointerup', soltar);
+  cont.addEventListener('pointercancel', soltar);
+  return {
+    zoomIn: ()=>zoomEm(1.3, cont.clientWidth/2, cont.clientHeight/2),
+    zoomOut: ()=>zoomEm(1/1.3, cont.clientWidth/2, cont.clientHeight/2),
+    reset: ()=>{ Object.assign(estado, pnlMapaZoomPadrao()); pnlAplicarZoomMapa(svg, estado); },
+  };
+}
 function pnlRenderWidgetMapa(containerId, widget, linhas){
   const cont = document.getElementById(containerId); if(!cont) return;
   cont.innerHTML = '';
@@ -3387,7 +3464,21 @@ function pnlRenderWidgetMapa(containerId, widget, linhas){
       t.textContent = fmt(e.valor); svg.appendChild(t);
     }
   });
+  cont.style.position = 'relative';
+  cont.style.overflow = 'hidden';
+  cont.style.touchAction = 'none';
+  cont.style.cursor = 'grab';
   cont.appendChild(svg);
+  const controlesHtml = `<div style="position:absolute;top:6px;right:6px;display:flex;flex-direction:column;gap:4px;z-index:2;">
+    <button type="button" class="ghost" data-mapazoom="in" title="Mais zoom" style="width:28px;height:28px;padding:0;line-height:1;font-size:16px;">+</button>
+    <button type="button" class="ghost" data-mapazoom="out" title="Menos zoom" style="width:28px;height:28px;padding:0;line-height:1;font-size:16px;">−</button>
+    <button type="button" class="ghost" data-mapazoom="reset" title="Restaurar zoom" style="width:28px;height:28px;padding:0;line-height:1;font-size:12px;">⤢</button>
+  </div>`;
+  cont.insertAdjacentHTML('beforeend', controlesHtml);
+  const controles = pnlAtivarZoomPanMapa(cont, svg, widget.id);
+  cont.querySelector('[data-mapazoom="in"]').addEventListener('click', controles.zoomIn);
+  cont.querySelector('[data-mapazoom="out"]').addEventListener('click', controles.zoomOut);
+  cont.querySelector('[data-mapazoom="reset"]').addEventListener('click', controles.reset);
   if(widget.mostrarLegenda){
     cont.insertAdjacentHTML('beforeend', `<div style="font-size:11px;color:var(--muted);margin-top:6px;">Tamanho da bolha proporcional a "${escaparHtml((pnlMedidaPorId(widget.medida)||{}).label||widget.medida)}".</div>`);
   }
