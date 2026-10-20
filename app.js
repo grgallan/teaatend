@@ -14796,6 +14796,16 @@ function pnlCamposParaWidgetFiltro(){
   pnlConsultasCarregadas.forEach(c=>pnlColunasDisponiveis(c.id).forEach(col=>todasColunas.add(col)));
   return [...todasColunas].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
 }
+// catálogo do seletor "Campo a filtrar" do widget Filtro — diferente de
+// pnlCamposFiltroDisponiveis, NÃO exclui campos já configurados como
+// filtro geral (o widget pode ser só uma posição extra no canvas pra um
+// filtro que já existe), já que widget.campo referencia o MESMO estado
+// (pnlFiltros/pnlPainelFiltros) usado pela grade "Filtros" do topo
+function pnlCamposParaWidgetFiltro(){
+  const todasColunas = new Set();
+  pnlConsultasCarregadas.forEach(c=>pnlColunasDisponiveis(c.id).forEach(col=>todasColunas.add(col)));
+  return [...todasColunas].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+}
 // linhas de UMA consulta, já filtradas pelos filtros gerais do painel —
 // um filtro só se aplica se a coluna dele EXISTIR nessa consulta (mesmo
 // nome de campo pode filtrar Vendas e Compras ao mesmo tempo, se as duas
