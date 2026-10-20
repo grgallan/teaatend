@@ -16609,11 +16609,12 @@ function pnlMontarGradeHtml(ws){
 function pnlWidgetTemCanvasValido(w){
   return !!w.canvas && Number.isFinite(w.canvas.x) && Number.isFinite(w.canvas.y) && Number.isFinite(w.canvas.w) && Number.isFinite(w.canvas.h);
 }
-// Filtro/Indicador são só uma linha de texto (rótulo ou número) — não
-// precisam dos 120px de altura mínima que um gráfico/tabela exige pra
-// ficar legível, então ganham um mínimo bem mais baixo no canvas livre
+// Filtro/Indicador/Título são só uma ou duas linhas de texto (rótulo,
+// número ou título+subtítulo) — não precisam dos 120px de altura mínima
+// que um gráfico/tabela exige pra ficar legível, então ganham um mínimo
+// bem mais baixo no canvas livre
 function pnlCanvasAlturaMinima(tipo){
-  return (tipo==='filtro' || tipo==='kpi') ? 60 : 120;
+  return (tipo==='filtro' || tipo==='kpi' || tipo==='titulo') ? 60 : 120;
 }
 function pnlPainelUsaCanvas(topo){
   return topo.length>0 && topo.every(pnlWidgetTemCanvasValido);
@@ -16772,12 +16773,23 @@ function pnlRenderConteudo(){
     else pnlRenderWidgetGrafico(`pnl-${w.id}-conteudo`, w, linhas, w.tipo);
   });
 }
+// true se existe pelo menos 1 valor marcado em algum filtro (geral ou
+// registrado por clique-pra-filtrar) — usado só pra habilitar/desabilitar
+// o botão "Limpar filtros"
+function pnlTemAlgumFiltroAtivo(){
+  return Object.values(pnlFiltros).some(set=>set && set.size>0);
+}
+function pnlLimparTodosFiltros(){
+  pnlFiltros = {};
+  pnlRender();
+}
 function pnlRender(){
   const temDados = pnlConsultasCarregadas.length > 0;
   document.getElementById('pnlCardGradeTopo').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarExcel').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarCsv').style.display = (temDados && pnlConsultasCarregadas.length===1) ? '' : 'none';
   document.getElementById('btnPnlExportarMontado').style.display = (temDados && pnlPainelWidgets.length>0) ? '' : 'none';
+  document.getElementById('btnPnlLimparFiltros').disabled = !pnlTemAlgumFiltroAtivo();
   if(temDados){
     const resumo = pnlConsultasCarregadas.map(c=>`${c.nome}: ${(pnlDadosPorConsulta[c.id]||[]).length} linha${(pnlDadosPorConsulta[c.id]||[]).length===1?'':'s'}`).join(' · ');
     document.getElementById('pnlBaseInfo').textContent = `${resumo}.`;
@@ -19519,6 +19531,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlResetFormNovoWidget();
     pnlCanvasMostrarPaleta();
   });
+  document.getElementById('btnPnlLimparFiltros').addEventListener('click', pnlLimparTodosFiltros);
   document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
   document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
