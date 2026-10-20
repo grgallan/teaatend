@@ -14648,7 +14648,6 @@ let pnlEditandoWidgetId = null;
 let pnlModoCanvas = false;
 let pnlCanvasArrastando = null; // {id, startMouseX, startMouseY, startX, startY}
 let pnlCanvasRedimensionando = null; // {id, startMouseX, startMouseY, startW, startH}
-let pnlCanvasSelecionadoId = null; // widget com o painel de propriedades aberto
 // última lista de linhas (já filtrada) de cada widget — por id do widget,
 // já que agora cada widget pode vir de uma consulta/filtro diferente
 let pnlUltimoLinhasFiltradasPorWidget = {};
@@ -14788,20 +14787,10 @@ function pnlAplicarFiltroFixo(linhas, widget){
   if(operador!=='NULL' && operador!=='NOTNULL' && !widget.filtroFixoValor) return linhas;
   return linhas.filter(o=>pnlLinhaPassaFiltroFixo(o, widget.filtroFixoCampo, operador, widget.filtroFixoValor));
 }
-// catálogo pro seletor "Adicionar filtro" — união das colunas de TODAS as
-// consultas já carregadas (um filtro "Mês" pode valer pra mais de uma, se
-// o nome da coluna bater; ver pnlFiltrados)
-function pnlCamposFiltroDisponiveis(){
-  const jaConfigurados = new Set(pnlPainelFiltros.map(f=>f.campo));
-  const todasColunas = new Set();
-  pnlConsultasCarregadas.forEach(c=>pnlColunasDisponiveis(c.id).forEach(col=>todasColunas.add(col)));
-  return [...todasColunas].filter(c=>!jaConfigurados.has(c)).map(c=>({ campo:c, label:c }));
-}
-// catálogo do seletor "Campo a filtrar" do widget Filtro — diferente de
-// pnlCamposFiltroDisponiveis, NÃO exclui campos já configurados como
-// filtro geral (o widget pode ser só uma posição extra no canvas pra um
-// filtro que já existe), já que widget.campo referencia o MESMO estado
-// (pnlFiltros/pnlPainelFiltros) usado pela grade "Filtros" do topo
+// catálogo do seletor "Campo a filtrar" do widget Filtro — lista TODOS os
+// campos disponíveis, mesmo os que já são filtro geral de outro widget (dois
+// widgets Filtro podem apontar pro mesmo campo, já que os dois só são uma
+// posição no canvas pro MESMO estado pnlPainelFiltros/pnlFiltros)
 function pnlCamposParaWidgetFiltro(){
   const todasColunas = new Set();
   pnlConsultasCarregadas.forEach(c=>pnlColunasDisponiveis(c.id).forEach(col=>todasColunas.add(col)));
@@ -15512,78 +15501,22 @@ function pnlAtualizarResumoFiltro(campo){
   document.querySelectorAll(`[data-resumo-filtro="${CSS.escape(campo)}"]`).forEach(el=>{ el.innerHTML = pnlResumoFiltroConteudoHtml(campo); });
   document.querySelectorAll(`[data-rfiltro="${CSS.escape(campo)}"]`).forEach(trig=>{ trig.style.color = (pnlFiltros[campo]||new Set()).size > 0 ? 'var(--accent)' : ''; });
 }
-function pnlRenderGradeFiltros(){
-  const cont = document.getElementById('pnlGradeFiltros');
-  if(!cont) return;
-  cont.innerHTML = pnlPainelFiltros.length ? pnlPainelFiltros.map((f,i)=>{
-    const campo = f.campo;
-    const label = f.apelido || campo;
-    const botoesEdicao = pnlModoEdicao ? `<div style="position:absolute;top:0;right:0;display:flex;gap:2px;">
-        <button type="button" data-moverfiltro="up" data-campofiltro="${escaparHtml(campo)}" ${i===0?'disabled':''} title="Mover pra esquerda" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↑</button>
-        <button type="button" data-moverfiltro="down" data-campofiltro="${escaparHtml(campo)}" ${i===pnlPainelFiltros.length-1?'disabled':''} title="Mover pra direita" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px;">↓</button>
-        <button type="button" data-removerfiltro="${escaparHtml(campo)}" title="Remover filtro" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:2px;">✕</button>
-      </div>` : '';
-    const labelHtml = pnlModoEdicao
-      ? `<input type="text" data-apelidofiltro="${escaparHtml(campo)}" value="${escaparHtml(f.apelido||'')}" placeholder="${escaparHtml(campo)}" title="Apelido (em branco usa o nome do campo)" style="border:none;background:transparent;padding:0;font:inherit;font-weight:700;color:inherit;width:100%;max-width:110px;">`
-      : escaparHtml(label);
-    return `<div class="field" style="flex:1;min-width:150px;position:relative;">
-      ${botoesEdicao}
-      <label for="_">${labelHtml} <span class="lista-th-filtro-wrap" style="position:relative;display:inline-block;"><span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;" title="Filtrar ${escaparHtml(label)}">▾</span></span></label>
-      <div style="font-size:12.5px;color:var(--muted);" data-resumo-filtro="${escaparHtml(campo)}">${pnlResumoFiltroConteudoHtml(campo)}</div>
-    </div>`;
-  }).join('') : `<div class="empty" style="padding:4px 0;">Nenhum filtro configurado${pnlModoEdicao ? ' — escolha um campo abaixo e clique em "+ Adicionar".' : '.'}</div>`;
-}
+// não existe mais uma grade "Filtros" fixa pra re-renderizar — os únicos
+// controles de filtro são os widgets tipo "Filtro" (dentro de pnlGradeWidgets,
+// já recriados do zero a cada pnlRenderEsqueleto) — só falta fechar qualquer
+// dropdown de filtro que tenha ficado aberto antes de um render geral
 function pnlRenderFiltros(){
   if(pnlFiltroColunaAberta) pnlFecharFiltroColuna();
-  pnlRenderGradeFiltros();
-  document.querySelectorAll('#pnlGradeFiltros [data-resumo-filtro]').forEach(el=>{
-    el.innerHTML = pnlResumoFiltroConteudoHtml(el.dataset.resumoFiltro);
-  });
-  document.querySelectorAll('#pnlGradeFiltros [data-rfiltro]').forEach(el=>{
-    const n = (pnlFiltros[el.dataset.rfiltro] || new Set()).size;
-    el.style.color = n > 0 ? 'var(--accent)' : '';
-  });
 }
 // clique num gráfico/tabela pode filtrar por um campo que ainda não é
-// "filtro geral" do painel — nesse caso registra ele na hora (igual
-// pnlAdicionarFiltro faria manualmente), pra aparecer como chip removível
-// na grade de filtros, em vez de simplesmente não fazer nada
+// "filtro geral" do painel — nesse caso registra ele na hora, pra aparecer
+// como chip removível em qualquer widget Filtro desse campo (ou pra já
+// deixar o campo pronto caso um widget Filtro seja criado depois)
 function pnlToggleFiltro(campo, valor){
-  if(!pnlPainelFiltros.some(f=>f.campo===campo)){
-    pnlPainelFiltros.push({campo});
-    pnlPopularSelectNovoFiltro();
-  }
+  if(!pnlPainelFiltros.some(f=>f.campo===campo)) pnlPainelFiltros.push({campo});
   const set = pnlFiltros[campo] = pnlFiltros[campo] || new Set();
   if(set.has(valor)) set.delete(valor); else set.add(valor);
   pnlRender();
-}
-function pnlPopularSelectNovoFiltro(){
-  const sel = document.getElementById('pnlNovoFiltroCampo');
-  if(!sel) return;
-  const opcoes = pnlCamposFiltroDisponiveis();
-  sel.innerHTML = opcoes.length
-    ? opcoes.map(o=>`<option value="${escaparHtml(o.campo)}">${escaparHtml(o.label)}</option>`).join('')
-    : `<option value="">Nenhum campo disponível</option>`;
-}
-function pnlAdicionarFiltro(campo){
-  if(!campo || pnlPainelFiltros.some(f=>f.campo===campo)) return;
-  pnlPainelFiltros.push({campo});
-  if(!pnlFiltros[campo]) pnlFiltros[campo] = new Set();
-  pnlPopularSelectNovoFiltro();
-  pnlRender();
-}
-function pnlRemoverFiltro(campo){
-  pnlPainelFiltros = pnlPainelFiltros.filter(f=>f.campo!==campo);
-  pnlPopularSelectNovoFiltro();
-  pnlRender();
-}
-function pnlMoverFiltro(campo, dir){
-  const i = pnlPainelFiltros.findIndex(f=>f.campo===campo);
-  if(i<0) return;
-  const j = dir==='up' ? i-1 : i+1;
-  if(j<0 || j>=pnlPainelFiltros.length) return;
-  [pnlPainelFiltros[i], pnlPainelFiltros[j]] = [pnlPainelFiltros[j], pnlPainelFiltros[i]];
-  pnlRenderFiltros();
 }
 
 /* ---------- render de cada tipo de widget ---------- */
@@ -15608,7 +15541,7 @@ function pnlRenderWidgetKpi(containerId, widget, linhas){
       <span style="color:${cor};font-weight:700;">Variação: ${variacaoTxt}</span>
     </div>`;
   }
-  el.innerHTML = `<div class="box"><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}${comparacaoHtml}</div>`;
+  el.innerHTML = `<div class="box"${pnlEstiloCorWidget(widget)}><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}${comparacaoHtml}</div>`;
 }
 function pnlLigarCliqueBarras(container, grupos, campoFiltro){
   const rects = container.querySelectorAll('rect');
@@ -16270,6 +16203,16 @@ function pnlHtmlToolbar(w, i, total){
     <button type="button" data-wtoolbar="remover" data-wid="${w.id}" title="Remover">✕</button>
   </div>`;
 }
+// atributo style="..." (ou "") pra aplicar a cor de borda/fundo custom de um
+// widget, se configuradas (w.corBorda/w.corFundo) — mesmo helper serve pro
+// wrapper de qualquer tipo e pro .box do KPI (ver pnlRenderWidgetKpi), que é
+// quem de fato tem a aparência de "cartão" nesse tipo
+function pnlEstiloCorWidget(w, extraCss){
+  let css = extraCss || '';
+  if(w.corBorda) css += `border:2px solid ${w.corBorda};`;
+  if(w.corFundo) css += `background:${w.corFundo};`;
+  return css ? ` style="${css}"` : '';
+}
 function pnlHtmlWidget(w, i, total){
   const toolbar = pnlHtmlToolbar(w, i, total);
   const classeEdit = pnlModoEdicao ? ' editando' : '';
@@ -16277,7 +16220,7 @@ function pnlHtmlWidget(w, i, total){
   if(w.tipo === 'tabela'){
     const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar..." style="margin-bottom:10px;">` : '';
     const filtroRapidoHtml = (w.fonte !== 'agrupado' && w.filtroRapido) ? `<div class="filters" id="pnl-${w.id}-filtrorapido"></div>` : '';
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
       <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${filtroRapidoHtml}
       ${buscaHtml}
@@ -16286,7 +16229,7 @@ function pnlHtmlWidget(w, i, total){
   }
   if(w.tipo === 'relatorio'){
     const filtroRapidoHtml = (w.fonte !== 'agrupado' && w.filtroRapido) ? `<div class="filters" id="pnl-${w.id}-filtrorapido"></div>` : '';
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
       <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${filtroRapidoHtml}
       <div style="overflow-x:auto;${estiloAltura}" id="pnl-${w.id}-conteudo"></div>
@@ -16301,7 +16244,7 @@ function pnlHtmlWidget(w, i, total){
     // o gatilho ▾ fica colado no texto do título (não espalhado até a
     // borda direita do card) pra nunca ficar embaixo da toolbar de
     // edição, que é absoluta no canto superior direito (ver .recebwidget-toolbar)
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
       <h2 style="display:flex;align-items:center;gap:6px;">${escaparHtml(label)}<span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;font-weight:400;text-transform:none;font-size:14px;" title="Filtrar ${escaparHtml(label)}">▾</span></h2>
       <div style="font-size:12.5px;color:var(--muted);margin-top:8px;" data-resumo-filtro="${escaparHtml(campo)}">${pnlResumoFiltroConteudoHtml(campo)}</div>
     </div>`;
@@ -16309,7 +16252,7 @@ function pnlHtmlWidget(w, i, total){
   if(w.tipo === 'titulo'){
     const icone = w.icone ? `<span class="pnl-container-icone">${escaparHtml(w.icone)}</span>` : '';
     const sub = w.subtitulo ? `<div class="sub">${escaparHtml(w.subtitulo)}</div>` : '';
-    return `<div class="pnl-container-titulo recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+    return `<div class="pnl-container-titulo recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
       ${icone}<div class="pnl-container-textos"><h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>${sub}</div>
     </div>`;
   }
@@ -16323,7 +16266,7 @@ function pnlHtmlWidget(w, i, total){
       const corpo = pnlMontarGradeHtml(filhosDaGuia) || `<div class="empty" style="padding:12px 0;">Nenhum widget nessa guia ainda.</div>`;
       return `<div class="pnl-grade-wrap" data-containerguiaconteudo="${w.id}::${g.id}" style="${g.id===guiaAtiva?'':'display:none;'}">${corpo}</div>`;
     }).join('');
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
       <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${tabsHtml}
       ${corposGuias}
@@ -16332,7 +16275,7 @@ function pnlHtmlWidget(w, i, total){
   // barra-h ignora o "height" do dashBarChart (altura sempre nasce do
   // número de linhas) — "Altura" vira um teto com rolagem, igual na tabela
   const estiloAlturaRanking = w.tipo==='barra-h' ? estiloAltura : '';
-  return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${w.tipo==='linha'?' style="overflow-x:auto;"':''}>${toolbar}
+  return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w, w.tipo==='linha'?'overflow-x:auto;':'')}>${toolbar}
     <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
     <div id="pnl-${w.id}-conteudo" style="margin-top:8px;${estiloAlturaRanking}"></div>
   </div>`;
@@ -16412,42 +16355,16 @@ function pnlAtualizarPosicaoCanvasNaTela(id){
     el.style.width = w.canvas.w+'px';
     el.style.height = w.canvas.h+'px';
   }
-  if(id===pnlCanvasSelecionadoId) pnlAtualizarPainelPropriedadesCanvas();
-}
-// o painel de propriedades (lateral direita) mostra o widget que foi pego
-// pela alça/redimensionar por último — os valores acompanham ao vivo
-// durante o arrastar/redimensionar (chamado de pnlAtualizarPosicaoCanvasNaTela)
-function pnlAtualizarPainelPropriedadesCanvas(){
-  const vazio = document.getElementById('pnlCanvasPropriedadesVazio');
-  const conteudo = document.getElementById('pnlCanvasPropriedadesConteudo');
-  if(!vazio || !conteudo) return;
-  const w = pnlCanvasSelecionadoId ? pnlPainelWidgets.find(x=>x.id===pnlCanvasSelecionadoId) : null;
-  if(!pnlModoCanvas || !w || !pnlWidgetTemCanvasValido(w)){
-    vazio.style.display = '';
-    conteudo.style.display = 'none';
-    return;
-  }
-  vazio.style.display = 'none';
-  conteudo.style.display = '';
-  document.getElementById('pnlCanvasPropTitulo').textContent = pnlWidgetTitulo(w);
-  document.getElementById('pnlCanvasPropX').textContent = w.canvas.x;
-  document.getElementById('pnlCanvasPropY').textContent = w.canvas.y;
-  document.getElementById('pnlCanvasPropW').textContent = w.canvas.w;
-  document.getElementById('pnlCanvasPropH').textContent = w.canvas.h;
 }
 function pnlCanvasIniciarArraste(id, e){
   const w = pnlPainelWidgets.find(x=>x.id===id);
   if(!w || !pnlWidgetTemCanvasValido(w)) return;
   pnlCanvasArrastando = { id, startMouseX:e.clientX, startMouseY:e.clientY, startX:w.canvas.x, startY:w.canvas.y };
-  pnlCanvasSelecionadoId = id;
-  pnlAtualizarPainelPropriedadesCanvas();
 }
 function pnlCanvasIniciarRedimensionar(id, e){
   const w = pnlPainelWidgets.find(x=>x.id===id);
   if(!w || !pnlWidgetTemCanvasValido(w)) return;
   pnlCanvasRedimensionando = { id, startMouseX:e.clientX, startMouseY:e.clientY, startW:w.canvas.w, startH:w.canvas.h };
-  pnlCanvasSelecionadoId = id;
-  pnlAtualizarPainelPropriedadesCanvas();
 }
 function pnlCanvasMoverArraste(e){
   const info = pnlCanvasArrastando;
@@ -16502,17 +16419,15 @@ function pnlCanvasEscolherTipoNaPaleta(tipo){
 function pnlAlternarModoCanvas(){
   if(!pnlModoCanvas) pnlGerarCanvasPadraoSeNecessario();
   pnlModoCanvas = !pnlModoCanvas;
-  if(!pnlModoCanvas) pnlCanvasSelecionadoId = null;
   document.getElementById('btnPnlModoCanvas').classList.toggle('on', pnlModoCanvas);
   document.getElementById('pnlCanvasLayoutWrap').classList.toggle('pnl-canvas-modo-ativo', pnlModoCanvas);
-  document.getElementById('pnlCanvasPropriedades').style.display = pnlModoCanvas ? '' : 'none';
   if(pnlModoCanvas) pnlCanvasMostrarPaleta();
   else{
     document.getElementById('pnlCanvasPaleta').style.display = 'none';
     document.getElementById('pnlCardAddWidget').style.display = '';
     document.getElementById('btnPnlCanvasVoltarPaleta').style.display = 'none';
   }
-  pnlAtualizarPainelPropriedadesCanvas();
+  pnlAtualizarCamposNovoWidget();
   pnlRenderEsqueleto();
   pnlRenderConteudo();
 }
@@ -16549,7 +16464,6 @@ function pnlRenderConteudo(){
 function pnlRender(){
   const temDados = pnlConsultasCarregadas.length > 0;
   document.getElementById('pnlCardGradeTopo').style.display = temDados ? '' : 'none';
-  document.getElementById('pnlCardFiltros').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarExcel').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarCsv').style.display = (temDados && pnlConsultasCarregadas.length===1) ? '' : 'none';
   document.getElementById('btnPnlExportarMontado').style.display = (temDados && pnlPainelWidgets.length>0) ? '' : 'none';
@@ -16939,6 +16853,13 @@ function pnlAtualizarCamposNovoWidget(){
     if(pnlConsultasCarregadas.some(c=>c.id===atualConsulta)) selConsulta.value = atualConsulta;
   }
   const consultaId = pnlConsultaSelecionadaNoForm();
+  // posição/tamanho no canvas livre só fazem sentido editando um widget que
+  // JÁ tem uma posição válida (novo widget ainda não tem — ganha uma só ao
+  // salvar, ver pnlGerarCanvasPadraoSeNecessario; reabra pra editar depois)
+  const widgetEmEdicao = pnlEditandoWidgetId ? pnlPainelWidgets.find(w=>w.id===pnlEditandoWidgetId) : null;
+  const mostraPosicaoCanvas = pnlModoCanvas && widgetEmEdicao && pnlWidgetTemCanvasValido(widgetEmEdicao);
+  document.getElementById('pnlNovoWidgetCampoCanvasPos').style.display = mostraPosicaoCanvas ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoCanvasTamanho').style.display = mostraPosicaoCanvas ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoFiltroWidget').style.display = ehFiltro ? '' : 'none';
   if(ehFiltro){
     const selCampoFiltro = document.getElementById('pnlNovoWidgetFiltroWidgetCampo');
@@ -17125,6 +17046,16 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
   document.getElementById('pnlNovoWidgetSubtitulo').value = '';
   document.getElementById('pnlNovoWidgetIcone').value = '';
+  document.getElementById('pnlNovoWidgetCanvasX').value = '';
+  document.getElementById('pnlNovoWidgetCanvasY').value = '';
+  document.getElementById('pnlNovoWidgetCanvasW').value = '';
+  document.getElementById('pnlNovoWidgetCanvasH').value = '';
+  document.getElementById('pnlNovoWidgetCorBordaAtiva').checked = false;
+  document.getElementById('pnlNovoWidgetCorBorda').disabled = true;
+  document.getElementById('pnlNovoWidgetCorBorda').value = '#63c3d9';
+  document.getElementById('pnlNovoWidgetCorFundoAtiva').checked = false;
+  document.getElementById('pnlNovoWidgetCorFundo').disabled = true;
+  document.getElementById('pnlNovoWidgetCorFundo').value = '#1b2430';
   pnlFormGuiasContainerAtual = [];
   pnlAtualizarCamposNovoWidget();
   document.getElementById('pnlNovoWidgetContainerPai').value = '';
@@ -17188,6 +17119,18 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   document.getElementById('pnlNovoWidgetZebrado').checked = !!w.zebrado;
   pnlAtualizarCamposNovoWidget();
+  if(pnlModoCanvas && pnlWidgetTemCanvasValido(w)){
+    document.getElementById('pnlNovoWidgetCanvasX').value = w.canvas.x;
+    document.getElementById('pnlNovoWidgetCanvasY').value = w.canvas.y;
+    document.getElementById('pnlNovoWidgetCanvasW').value = w.canvas.w;
+    document.getElementById('pnlNovoWidgetCanvasH').value = w.canvas.h;
+  }
+  document.getElementById('pnlNovoWidgetCorBordaAtiva').checked = !!w.corBorda;
+  document.getElementById('pnlNovoWidgetCorBorda').disabled = !w.corBorda;
+  document.getElementById('pnlNovoWidgetCorBorda').value = w.corBorda || '#63c3d9';
+  document.getElementById('pnlNovoWidgetCorFundoAtiva').checked = !!w.corFundo;
+  document.getElementById('pnlNovoWidgetCorFundo').disabled = !w.corFundo;
+  document.getElementById('pnlNovoWidgetCorFundo').value = w.corFundo || '#1b2430';
   pnlPopularSelectContainerPai(w.containerId || '', w.guiaId || '');
   document.getElementById('pnlNovoWidgetFiltroRapido').value = w.filtroRapido || '';
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = w.filtroFixoCampo || '';
@@ -17352,9 +17295,7 @@ function pnlEntrarModoEdicao(){
   document.getElementById('btnPnlSalvarPainel').style.display = '';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = '';
   document.getElementById('pnlCardAddWidget').style.display = '';
-  document.getElementById('pnlLinhaAddFiltro').style.display = 'flex';
   document.getElementById('pnlCardMedidas').style.display = '';
-  pnlPopularSelectNovoFiltro();
   pnlResetFormNovoWidget();
   pnlResetFormMedida();
   pnlRenderListaMedidas();
@@ -17363,18 +17304,15 @@ function pnlEntrarModoEdicao(){
 function pnlSairModoEdicao(){
   pnlModoEdicao = false;
   pnlModoCanvas = false;
-  pnlCanvasSelecionadoId = null;
   document.getElementById('btnPnlEditarPainel').style.display = '';
   document.getElementById('btnPnlModoCanvas').style.display = 'none';
   document.getElementById('btnPnlModoCanvas').classList.remove('on');
   document.getElementById('pnlCanvasLayoutWrap').classList.remove('pnl-canvas-modo-ativo');
-  document.getElementById('pnlCanvasPropriedades').style.display = 'none';
   document.getElementById('pnlCanvasPaleta').style.display = 'none';
   document.getElementById('btnPnlCanvasVoltarPaleta').style.display = 'none';
   document.getElementById('btnPnlSalvarPainel').style.display = 'none';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = 'none';
   document.getElementById('pnlCardAddWidget').style.display = 'none';
-  document.getElementById('pnlLinhaAddFiltro').style.display = 'none';
   document.getElementById('pnlCardMedidas').style.display = 'none';
   pnlResetFormNovoWidget();
   pnlResetFormMedida();
@@ -19019,31 +18957,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlExportarExcel').addEventListener('click', pnlExportarExcel);
   document.getElementById('btnPnlExportarCsv').addEventListener('click', pnlExportarCsv);
   document.getElementById('btnPnlExportarMontado').addEventListener('click', pnlExportarPainelMontado);
-  document.getElementById('pnlCardFiltros').addEventListener('click', e=>{
-    const chipX = e.target.closest('[data-chipfiltro]');
-    if(chipX){
-      const set = pnlFiltros[chipX.dataset.chipfiltro];
-      if(set) set.delete(chipX.dataset.chipvalor);
-      pnlAtualizarResumoFiltro(chipX.dataset.chipfiltro);
-      pnlRenderEsqueleto();
-      pnlRenderConteudo();
-      return;
-    }
-    const remover = e.target.closest('[data-removerfiltro]');
-    if(remover){ pnlRemoverFiltro(remover.dataset.removerfiltro); return; }
-    const mover = e.target.closest('[data-moverfiltro]');
-    if(mover){ pnlMoverFiltro(mover.dataset.campofiltro, mover.dataset.moverfiltro); return; }
-    const trigger = e.target.closest('[data-rfiltro]'); if(!trigger) return;
-    pnlToggleFiltroColuna(trigger.dataset.rfiltro, trigger);
-  });
-  document.getElementById('pnlCardFiltros').addEventListener('input', e=>{
-    const apelidoEl = e.target.closest('[data-apelidofiltro]'); if(!apelidoEl) return;
-    const f = pnlPainelFiltros.find(x=>x.campo===apelidoEl.dataset.apelidofiltro);
-    if(f){ if(apelidoEl.value.trim()) f.apelido = apelidoEl.value.trim(); else delete f.apelido; }
-  });
-  document.getElementById('btnPnlAdicionarFiltro').addEventListener('click', ()=>{
-    pnlAdicionarFiltro(document.getElementById('pnlNovoFiltroCampo').value);
-  });
   document.getElementById('pnlMedidaConsulta').addEventListener('change', pnlPopularSelectCampoMedida);
   document.getElementById('pnlMedidaFuncao').addEventListener('change', pnlAtualizarCamposFormMedida);
   document.getElementById('pnlMedidaFormato').addEventListener('change', pnlAtualizarCamposFormMedida);
@@ -19107,10 +19020,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlRenderConteudo();
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('[data-rfiltro]') && !e.target.closest('#pnlFiltroColunaPortal')) pnlFecharFiltroColuna(); });
-  document.getElementById('btnPnlLimparFiltros').addEventListener('click', ()=>{
-    pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(f=>[f.campo, new Set()]));
-    pnlRender();
-  });
   document.getElementById('pnlGradeWidgets').addEventListener('click', e=>{
     // widget tipo "Filtro" — mesma dropdown/chips da grade "Filtros" do
     // topo, só que posicionável no canvas (ver pnlHtmlWidget tipo 'filtro')
@@ -19238,7 +19147,6 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlModoCanvas').addEventListener('click', pnlAlternarModoCanvas);
   document.getElementById('btnPnlRetrairMedidas').addEventListener('click', ()=>pnlAlternarRetrairCard('pnlCardMedidasCorpo','btnPnlRetrairMedidas'));
   document.getElementById('btnPnlRetrairPaleta').addEventListener('click', ()=>pnlAlternarRetrairCard('pnlCanvasPaletaCorpo','btnPnlRetrairPaleta'));
-  document.getElementById('btnPnlRetrairPropriedades').addEventListener('click', ()=>pnlAlternarRetrairCard('pnlCanvasPropriedadesCorpo','btnPnlRetrairPropriedades'));
   document.getElementById('pnlCanvasPaleta').addEventListener('click', e=>{
     const item = e.target.closest('[data-canvaspaleta]'); if(!item) return;
     pnlCanvasEscolherTipoNaPaleta(item.dataset.canvaspaleta);
@@ -19247,23 +19155,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlResetFormNovoWidget();
     pnlCanvasMostrarPaleta();
   });
-  document.getElementById('btnPnlCanvasPropEditar').addEventListener('click', ()=>{
-    if(pnlCanvasSelecionadoId) pnlWidgetEditar(pnlCanvasSelecionadoId);
-  });
-  document.getElementById('btnPnlCanvasPropRemover').addEventListener('click', ()=>{
-    if(!pnlCanvasSelecionadoId) return;
-    const id = pnlCanvasSelecionadoId;
-    pedirConfirmacao('Remover widget?','Isso só tira do painel — não mexe em nenhum dado.', ()=>{
-      pnlWidgetRemover(id);
-      pnlCanvasSelecionadoId = null;
-      pnlAtualizarPainelPropriedadesCanvas();
-    });
-  });
   document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
   document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
   document.getElementById('pnlNovoWidgetTipo').addEventListener('change', pnlAtualizarCamposNovoWidget);
   document.getElementById('pnlNovoWidgetConsulta').addEventListener('change', pnlAtualizarCamposNovoWidget);
+  document.getElementById('pnlNovoWidgetCorBordaAtiva').addEventListener('change', e=>{
+    document.getElementById('pnlNovoWidgetCorBorda').disabled = !e.target.checked;
+  });
+  document.getElementById('pnlNovoWidgetCorFundoAtiva').addEventListener('change', e=>{
+    document.getElementById('pnlNovoWidgetCorFundo').disabled = !e.target.checked;
+  });
   document.getElementById('pnlNovoWidgetFonte').addEventListener('change', ()=>{
     pnlFormColunasAtual = [];
     pnlAtualizarCamposNovoWidget();
@@ -19504,6 +19406,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const widget = { id: pnlEditandoWidgetId || pnlGerarIdWidget(), tipo, titulo };
     const consultaId = pnlConsultaSelecionadaNoForm();
     if(consultaId && !semDado) widget.consultaId = consultaId;
+    if(document.getElementById('pnlNovoWidgetCorBordaAtiva').checked) widget.corBorda = document.getElementById('pnlNovoWidgetCorBorda').value;
+    if(document.getElementById('pnlNovoWidgetCorFundoAtiva').checked) widget.corFundo = document.getElementById('pnlNovoWidgetCorFundo').value;
     if(tipo !== 'kpi'){
       const largura = document.getElementById('pnlNovoWidgetLargura').value || 'completa';
       if(largura !== 'completa') widget.largura = largura;
@@ -19560,14 +19464,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(pnlFormGuiasContainerAtual.length) widget.guias = JSON.parse(JSON.stringify(pnlFormGuiasContainerAtual));
     }else if(ehFiltro){
       widget.campo = campoFiltroWidget;
-      // widget é só uma posição extra pro MESMO filtro geral — se o campo
-      // ainda não existir como filtro do painel, registra agora (igual
-      // clicar "+ Adicionar" na grade "Filtros" do topo faria, mas sem
-      // disparar o pnlRender() próprio dessa função — o clique em
-      // "Adicionar ao painel" já renderiza tudo de novo logo abaixo)
+      // se o campo ainda não existir como filtro geral do painel, registra
+      // agora — "Adicionar ao painel" já renderiza tudo de novo logo abaixo
       if(!pnlPainelFiltros.some(f=>f.campo===campoFiltroWidget)){
         pnlPainelFiltros.push({ campo: campoFiltroWidget });
-        pnlPopularSelectNovoFiltro();
       }
       if(!pnlFiltros[campoFiltroWidget]) pnlFiltros[campoFiltroWidget] = new Set();
     }else{
@@ -19602,6 +19502,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       const i = pnlPainelWidgets.findIndex(w=>w.id===pnlEditandoWidgetId);
       if(i>=0){
         if(pnlWidgetTemCanvasValido(pnlPainelWidgets[i])) widget.canvas = pnlPainelWidgets[i].canvas;
+        // campos de posição/tamanho só aparecem (e só têm valor confiável)
+        // quando o widget já tinha canvas válido e está em modo canvas —
+        // ver pnlAtualizarCamposNovoWidget
+        if(widget.canvas && document.getElementById('pnlNovoWidgetCampoCanvasPos').style.display !== 'none'){
+          widget.canvas = {
+            x: Math.max(0, Number(document.getElementById('pnlNovoWidgetCanvasX').value) || widget.canvas.x),
+            y: Math.max(0, Number(document.getElementById('pnlNovoWidgetCanvasY').value) || widget.canvas.y),
+            w: Math.max(200, Number(document.getElementById('pnlNovoWidgetCanvasW').value) || widget.canvas.w),
+            h: Math.max(120, Number(document.getElementById('pnlNovoWidgetCanvasH').value) || widget.canvas.h),
+          };
+        }
         pnlPainelWidgets[i] = widget;
       }
     }else{
