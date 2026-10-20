@@ -949,7 +949,6 @@
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasColunaEsquerda{flex:0 0 272px;max-height:calc(100vh - 140px);overflow-y:auto;position:sticky;top:16px;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlGradeWidgets{flex:1 1 520px;min-width:0;}
-  #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo #pnlCanvasPropriedades{flex:0 0 240px;position:sticky;top:16px;margin-bottom:0;}
   .pnl-canvaspaleta-item{display:flex;align-items:center;gap:9px;width:100%;font-weight:600;}
   .pnl-canvaspaleta-item span{width:9px;height:9px;border-radius:2px;flex:none;display:inline-block;}
   .rm-lookup-item{padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;white-space:normal;}
@@ -2725,16 +2724,6 @@
         <p id="pnlStatus" style="color:var(--bad);font-size:12.5px;margin:4px 0 0;"></p>
       </div>
 
-      <div class="card" id="pnlCardFiltros" style="display:none;">
-        <h2>Filtros</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Clique no ▾ de cada filtro — "Selecionar todos" ou vá marcando quais quer. Use "⚙ Configurar painel" pra escolher quais filtros aparecem aqui, com base em qualquer coluna que a consulta trouxer.</p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;" id="pnlGradeFiltros"></div>
-        <div class="row" id="pnlLinhaAddFiltro" style="display:none;margin-top:12px;align-items:flex-end;gap:10px;flex-wrap:wrap;">
-          <div class="field" style="flex:1;min-width:200px;"><label>Adicionar filtro</label><select id="pnlNovoFiltroCampo"></select></div>
-          <button class="ghost" id="btnPnlAdicionarFiltro" type="button" style="width:auto;padding:8px 14px;">+ Adicionar</button>
-        </div>
-        <button class="ghost" id="btnPnlLimparFiltros" type="button" style="width:auto;padding:8px 14px;margin-top:10px;">Limpar filtros</button>
-      </div>
       <div class="lista-filtro-coluna-dropdown" id="pnlFiltroColunaPortal"></div>
 
       <div class="card" id="pnlCardGradeTopo" style="display:none;">
@@ -3048,32 +3037,33 @@
             <input type="checkbox" id="pnlNovoWidgetRotulos" style="width:auto;"> Mostrar rótulos de valor
           </label>
         </div>
+        <div class="row" id="pnlNovoWidgetCampoCanvasPos" style="display:none;">
+          <div class="field"><label>X</label><input type="number" id="pnlNovoWidgetCanvasX" step="8"></div>
+          <div class="field"><label>Y</label><input type="number" id="pnlNovoWidgetCanvasY" step="8"></div>
+        </div>
+        <div class="row" id="pnlNovoWidgetCampoCanvasTamanho" style="display:none;">
+          <div class="field"><label>Largura (canvas)</label><input type="number" id="pnlNovoWidgetCanvasW" min="200" step="8"></div>
+          <div class="field"><label>Altura (canvas)</label><input type="number" id="pnlNovoWidgetCanvasH" min="120" step="8"></div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="pnlNovoWidgetCorBordaAtiva" style="width:auto;"> Cor da borda
+            </label>
+            <input type="color" id="pnlNovoWidgetCorBorda" value="#63c3d9" disabled>
+          </div>
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+              <input type="checkbox" id="pnlNovoWidgetCorFundoAtiva" style="width:auto;"> Cor de fundo
+            </label>
+            <input type="color" id="pnlNovoWidgetCorFundo" value="#1b2430" disabled>
+          </div>
+        </div>
         <button class="primary" id="btnPnlAdicionarWidget" type="button">Adicionar ao painel</button>
       </div>
       </div>
 
       <div id="pnlGradeWidgets"></div>
-
-      <div class="card" id="pnlCanvasPropriedades" style="display:none;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <h2 style="margin:0;">Propriedades</h2>
-          <button type="button" class="ghost" id="btnPnlRetrairPropriedades" title="Retrair/expandir" style="width:auto;padding:2px 9px;font-size:12px;line-height:1.4;">▾</button>
-        </div>
-        <div id="pnlCanvasPropriedadesCorpo">
-        <div id="pnlCanvasPropriedadesVazio" style="color:var(--muted);font-size:12.5px;">Clique na alça (⣿) de um widget no canvas pra ver a posição dele aqui.</div>
-        <div id="pnlCanvasPropriedadesConteudo" style="display:none;">
-          <div style="font-size:13px;font-weight:700;margin-bottom:14px;word-break:break-word;" id="pnlCanvasPropTitulo"></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
-            <div><label style="font-size:10.5px;margin-bottom:4px;">X</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropX"></div></div>
-            <div><label style="font-size:10.5px;margin-bottom:4px;">Y</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropY"></div></div>
-            <div><label style="font-size:10.5px;margin-bottom:4px;">Largura</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropW"></div></div>
-            <div><label style="font-size:10.5px;margin-bottom:4px;">Altura</label><div class="mono" style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;" id="pnlCanvasPropH"></div></div>
-          </div>
-          <button class="ghost" type="button" id="btnPnlCanvasPropEditar" style="width:100%;margin-bottom:8px;">✎ Editar widget</button>
-          <button class="danger" type="button" id="btnPnlCanvasPropRemover" style="width:100%;">Remover widget</button>
-        </div>
-        </div>
-      </div>
       </div>
     </div>
 
