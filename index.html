@@ -3085,6 +3085,44 @@
             </label>
           </div>
         </div>
+        <div class="field">
+          <label>Estilo do título do widget</label>
+          <div class="row">
+            <div class="field"><label style="font-size:11px;">Alinhamento</label>
+              <select id="pnlNovoWidgetTituloAlinhamento">
+                <option value="">Padrão</option>
+                <option value="left">Esquerda</option>
+                <option value="center">Centro</option>
+                <option value="right">Direita</option>
+              </select>
+            </div>
+            <div class="field"><label style="font-size:11px;">Tamanho da fonte (px, opcional)</label><input type="number" id="pnlNovoWidgetTituloTamanho" min="6" placeholder="Ex: 13"></div>
+          </div>
+          <div class="row" style="gap:16px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;"><input type="checkbox" id="pnlNovoWidgetTituloNegrito" style="width:auto;"> Negrito</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;"><input type="checkbox" id="pnlNovoWidgetTituloItalico" style="width:auto;"> Itálico</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;"><input type="checkbox" id="pnlNovoWidgetTituloSublinhado" style="width:auto;"> Sublinhado</label>
+          </div>
+        </div>
+        <div class="field" id="pnlNovoWidgetCampoEstiloValor" style="display:none;">
+          <label>Estilo do valor do Indicador</label>
+          <div class="row">
+            <div class="field"><label style="font-size:11px;">Alinhamento</label>
+              <select id="pnlNovoWidgetValorAlinhamento">
+                <option value="">Padrão</option>
+                <option value="left">Esquerda</option>
+                <option value="center">Centro</option>
+                <option value="right">Direita</option>
+              </select>
+            </div>
+            <div class="field"><label style="font-size:11px;">Tamanho da fonte (px, opcional)</label><input type="number" id="pnlNovoWidgetValorTamanho" min="6" placeholder="Ex: 19"></div>
+          </div>
+          <div class="row" style="gap:16px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;"><input type="checkbox" id="pnlNovoWidgetValorNegrito" style="width:auto;"> Negrito</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;"><input type="checkbox" id="pnlNovoWidgetValorItalico" style="width:auto;"> Itálico</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:normal;"><input type="checkbox" id="pnlNovoWidgetValorSublinhado" style="width:auto;"> Sublinhado</label>
+          </div>
+        </div>
         <button class="primary" id="btnPnlAdicionarWidget" type="button">Adicionar ao painel</button>
       </div>
       </div>

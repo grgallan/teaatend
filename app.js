@@ -15781,7 +15781,7 @@ function pnlRenderWidgetKpi(containerId, widget, linhas){
       <span style="color:${cor};font-weight:700;">Variação: ${variacaoTxt}</span>
     </div>`;
   }
-  el.innerHTML = `<div class="box"${pnlEstiloCorWidget(widget)}><div class="k">${escaparHtml(widget.titulo || def.label || '')}</div><div class="v">${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}${comparacaoHtml}</div>`;
+  el.innerHTML = `<div class="box"${pnlEstiloCorWidget(widget)}><div class="k"${pnlAtributoEstiloTexto(widget.estiloTitulo)}>${escaparHtml(widget.titulo || def.label || '')}</div><div class="v"${pnlAtributoEstiloTexto(widget.estiloValor)}>${pnlFormatarMedida(valor, widget.medida)}</div>${sub ? `<div class="x" style="font-size:11px;color:var(--muted);margin-top:2px;">${escaparHtml(sub)}</div>` : ''}${comparacaoHtml}</div>`;
 }
 function pnlLigarCliqueBarras(container, grupos, campoFiltro){
   const rects = container.querySelectorAll('rect');
@@ -16466,6 +16466,56 @@ function pnlEstiloCorWidget(w, extraCss){
   else if(w.bordaEstilo==='arredondada') css += 'border-radius:16px;';
   return css ? ` style="${css}"` : '';
 }
+// estilo de texto (título do widget ou valor do Indicador) — mesmo formato
+// {alinhamento, tamanho, negrito, italico, sublinhado} pros dois casos.
+// pnlCssEstiloTexto devolve só o fragmento CSS (pra misturar com outro
+// style já existente, ex: o <h2> do widget Filtro); pnlAtributoEstiloTexto
+// devolve o atributo style="..." pronto (ou '' se não tem nada configurado)
+function pnlCssEstiloTexto(estilo){
+  if(!estilo) return '';
+  let css = '';
+  if(estilo.alinhamento) css += `text-align:${estilo.alinhamento};`;
+  if(estilo.tamanho) css += `font-size:${estilo.tamanho}px;`;
+  if(estilo.negrito) css += 'font-weight:700;';
+  if(estilo.italico) css += 'font-style:italic;';
+  if(estilo.sublinhado) css += 'text-decoration:underline;';
+  return css;
+}
+function pnlAtributoEstiloTexto(estilo){
+  const css = pnlCssEstiloTexto(estilo);
+  return css ? ` style="${css}"` : '';
+}
+// formulário de estilo de texto: mesmos 5 campos (alinhamento/tamanho/
+// negrito/itálico/sublinhado) servem pro "Título" de qualquer widget e,
+// só no Indicador, também pro "Valor" — prefixo é 'Titulo' ou 'Valor'
+function pnlResetEstiloTextoForm(prefixo){
+  document.getElementById(`pnlNovoWidget${prefixo}Alinhamento`).value = '';
+  document.getElementById(`pnlNovoWidget${prefixo}Tamanho`).value = '';
+  document.getElementById(`pnlNovoWidget${prefixo}Negrito`).checked = false;
+  document.getElementById(`pnlNovoWidget${prefixo}Italico`).checked = false;
+  document.getElementById(`pnlNovoWidget${prefixo}Sublinhado`).checked = false;
+}
+function pnlCarregarEstiloTextoForm(prefixo, estilo){
+  document.getElementById(`pnlNovoWidget${prefixo}Alinhamento`).value = (estilo && estilo.alinhamento) || '';
+  document.getElementById(`pnlNovoWidget${prefixo}Tamanho`).value = (estilo && estilo.tamanho) || '';
+  document.getElementById(`pnlNovoWidget${prefixo}Negrito`).checked = !!(estilo && estilo.negrito);
+  document.getElementById(`pnlNovoWidget${prefixo}Italico`).checked = !!(estilo && estilo.italico);
+  document.getElementById(`pnlNovoWidget${prefixo}Sublinhado`).checked = !!(estilo && estilo.sublinhado);
+}
+function pnlLerEstiloTextoForm(prefixo){
+  const alinhamento = document.getElementById(`pnlNovoWidget${prefixo}Alinhamento`).value;
+  const tamanho = document.getElementById(`pnlNovoWidget${prefixo}Tamanho`).value;
+  const negrito = document.getElementById(`pnlNovoWidget${prefixo}Negrito`).checked;
+  const italico = document.getElementById(`pnlNovoWidget${prefixo}Italico`).checked;
+  const sublinhado = document.getElementById(`pnlNovoWidget${prefixo}Sublinhado`).checked;
+  const estilo = {};
+  if(alinhamento) estilo.alinhamento = alinhamento;
+  if(tamanho) estilo.tamanho = Number(tamanho);
+  if(negrito) estilo.negrito = true;
+  if(italico) estilo.italico = true;
+  if(sublinhado) estilo.sublinhado = true;
+  return Object.keys(estilo).length ? estilo : null;
+}
 function pnlHtmlWidget(w, i, total){
   const toolbar = pnlHtmlToolbar(w, i, total);
   const classeEdit = pnlModoEdicao ? ' editando' : '';
@@ -16474,7 +16524,7 @@ function pnlHtmlWidget(w, i, total){
     const buscaHtml = w.fonte !== 'agrupado' ? `<input type="search" data-wbusca data-wid="${w.id}" placeholder="Buscar..." style="margin-bottom:10px;">` : '';
     const filtroRapidoHtml = (w.fonte !== 'agrupado' && w.filtroRapido) ? `<div class="filters" id="pnl-${w.id}-filtrorapido"></div>` : '';
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
-      <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      <h2${pnlAtributoEstiloTexto(w.estiloTitulo)}>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${filtroRapidoHtml}
       ${buscaHtml}
       <div style="overflow-x:auto;${estiloAltura}"><table class="valores-table" id="pnl-${w.id}-tabela"></table></div>
@@ -16483,7 +16533,7 @@ function pnlHtmlWidget(w, i, total){
   if(w.tipo === 'relatorio'){
     const filtroRapidoHtml = (w.fonte !== 'agrupado' && w.filtroRapido) ? `<div class="filters" id="pnl-${w.id}-filtrorapido"></div>` : '';
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
-      <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      <h2${pnlAtributoEstiloTexto(w.estiloTitulo)}>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${filtroRapidoHtml}
       <div style="overflow-x:auto;${estiloAltura}" id="pnl-${w.id}-conteudo"></div>
     </div>`;
@@ -16498,15 +16548,16 @@ function pnlHtmlWidget(w, i, total){
     // borda direita do card) pra nunca ficar embaixo da toolbar de
     // edição, que é absoluta no canto superior direito (ver .recebwidget-toolbar)
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
-      <h2 style="display:flex;align-items:center;gap:6px;">${escaparHtml(label)}<span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;font-weight:400;text-transform:none;font-size:14px;" title="Filtrar ${escaparHtml(label)}">▾</span></h2>
+      <h2 style="display:flex;align-items:center;gap:6px;${pnlCssEstiloTexto(w.estiloTitulo)}">${escaparHtml(label)}<span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;font-weight:400;text-transform:none;font-size:14px;" title="Filtrar ${escaparHtml(label)}">▾</span></h2>
       <div style="font-size:12.5px;color:var(--muted);margin-top:8px;" data-resumo-filtro="${escaparHtml(campo)}">${pnlResumoFiltroConteudoHtml(campo)}</div>
     </div>`;
   }
   if(w.tipo === 'titulo'){
     const icone = w.icone ? `<span class="pnl-container-icone">${escaparHtml(w.icone)}</span>` : '';
-    const sub = w.subtitulo ? `<div class="sub">${escaparHtml(w.subtitulo)}</div>` : '';
+    const estiloTextoAttr = pnlAtributoEstiloTexto(w.estiloTitulo);
+    const sub = w.subtitulo ? `<div class="sub"${estiloTextoAttr}>${escaparHtml(w.subtitulo)}</div>` : '';
     return `<div class="pnl-container-titulo recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
-      ${icone}<div class="pnl-container-textos"><h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>${sub}</div>
+      ${icone}<div class="pnl-container-textos"><h2${estiloTextoAttr}>${escaparHtml(pnlWidgetTitulo(w))}</h2>${sub}</div>
     </div>`;
   }
   if(w.tipo === 'container'){
@@ -16520,7 +16571,7 @@ function pnlHtmlWidget(w, i, total){
       return `<div class="pnl-grade-wrap" data-containerguiaconteudo="${w.id}::${g.id}" style="${g.id===guiaAtiva?'':'display:none;'}">${corpo}</div>`;
     }).join('');
     return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
-      <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+      <h2${pnlAtributoEstiloTexto(w.estiloTitulo)}>${escaparHtml(pnlWidgetTitulo(w))}</h2>
       ${tabsHtml}
       ${corposGuias}
     </div>`;
@@ -16529,7 +16580,7 @@ function pnlHtmlWidget(w, i, total){
   // número de linhas) — "Altura" vira um teto com rolagem, igual na tabela
   const estiloAlturaRanking = w.tipo==='barra-h' ? estiloAltura : '';
   return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w, w.tipo==='linha'?'overflow-x:auto;':'')}>${toolbar}
-    <h2>${escaparHtml(pnlWidgetTitulo(w))}</h2>
+    <h2${pnlAtributoEstiloTexto(w.estiloTitulo)}>${escaparHtml(pnlWidgetTitulo(w))}</h2>
     <div id="pnl-${w.id}-conteudo" style="margin-top:8px;${estiloAlturaRanking}"></div>
   </div>`;
 }
@@ -17143,6 +17194,7 @@ function pnlAtualizarCamposNovoWidget(){
   document.getElementById('pnlNovoWidgetCampoTop').style.display = (tipo==='barra-h'||tipo==='donut'||tipo==='barra'||tipo==='curvaabc'||tipo==='treemap'||tipo==='mapa') ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoMedidas2').style.display = (ehLinha || tipo==='barra') ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoSubtitulo').style.display = (ehKpi || ehTitulo) ? '' : 'none';
+  document.getElementById('pnlNovoWidgetCampoEstiloValor').style.display = ehKpi ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoIcone').style.display = ehTitulo ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoGuias').style.display = ehContainer ? '' : 'none';
   if(ehContainer) pnlRenderGuiasContainerLista();
@@ -17333,6 +17385,8 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetCorFundo').value = '#1b2430';
   document.getElementById('pnlNovoWidgetBordaEstilo').value = '';
   document.getElementById('pnlNovoWidgetFundoTransparente').checked = false;
+  pnlResetEstiloTextoForm('Titulo');
+  pnlResetEstiloTextoForm('Valor');
   pnlFormGuiasContainerAtual = [];
   pnlAtualizarCamposNovoWidget();
   document.getElementById('pnlNovoWidgetContainerPai').value = '';
@@ -17437,6 +17491,8 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetCorFundo').disabled = !w.corFundo || fundoTransparente;
   document.getElementById('pnlNovoWidgetCorFundo').value = fundoTransparente ? '#1b2430' : (w.corFundo || '#1b2430');
   document.getElementById('pnlNovoWidgetBordaEstilo').value = w.bordaEstilo || '';
+  pnlCarregarEstiloTextoForm('Titulo', w.estiloTitulo);
+  pnlCarregarEstiloTextoForm('Valor', w.estiloValor);
   pnlPopularSelectContainerPai(w.containerId || '', w.guiaId || '');
   document.getElementById('pnlNovoWidgetFiltroRapido').value = w.filtroRapido || '';
   document.getElementById('pnlNovoWidgetFiltroFixoCampo').value = w.filtroFixoCampo || '';
@@ -19726,6 +19782,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     else if(document.getElementById('pnlNovoWidgetCorFundoAtiva').checked) widget.corFundo = document.getElementById('pnlNovoWidgetCorFundo').value;
     const bordaEstilo = document.getElementById('pnlNovoWidgetBordaEstilo').value;
     if(bordaEstilo) widget.bordaEstilo = bordaEstilo;
+    const estiloTitulo = pnlLerEstiloTextoForm('Titulo');
+    if(estiloTitulo) widget.estiloTitulo = estiloTitulo;
+    if(tipo==='kpi'){
+      const estiloValor = pnlLerEstiloTextoForm('Valor');
+      if(estiloValor) widget.estiloValor = estiloValor;
+    }
     if(tipo !== 'kpi'){
       const largura = document.getElementById('pnlNovoWidgetLargura').value || 'completa';
       if(largura !== 'completa') widget.largura = largura;
