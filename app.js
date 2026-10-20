@@ -16612,9 +16612,13 @@ function pnlWidgetTemCanvasValido(w){
 // Filtro/Indicador/Título são só uma ou duas linhas de texto (rótulo,
 // número ou título+subtítulo) — não precisam dos 120px de altura mínima
 // que um gráfico/tabela exige pra ficar legível, então ganham um mínimo
-// bem mais baixo no canvas livre
+// bem mais baixo no canvas livre; Título é só 1 linha de texto na prática
+// (mesmo com subtítulo, o conteúdo pode passar um pouco do box, que não
+// corta — ver .pnl-canvas-item, sem overflow:hidden), então o mínimo dele
+// é ainda mais apertado que o de Filtro/Indicador
 function pnlCanvasAlturaMinima(tipo){
-  return (tipo==='filtro' || tipo==='kpi' || tipo==='titulo') ? 60 : 120;
+  if(tipo==='titulo') return 32;
+  return (tipo==='filtro' || tipo==='kpi') ? 60 : 120;
 }
 function pnlPainelUsaCanvas(topo){
   return topo.length>0 && topo.every(pnlWidgetTemCanvasValido);
