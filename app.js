@@ -3325,19 +3325,49 @@ function pnlNormalizarNomeCidade(s){
 }
 let PNL_CIDADES_INDICE = null;
 // nome de cidade não é único no Brasil (existe Santa Rita em vários
-// estados) — quando colidir, fica a primeira ocorrência do dataset; não dá
-// pra desambiguar por UF porque a consulta do usuário só traz o nome
+// estados) — por isso o índice guarda 2 mapas: um por nome+UF (exato, só
+// serve quando o widget informa a coluna de UF) e outro só por nome (usado
+// quando não há UF — nesse caso fica a 1ª ocorrência do dataset)
 function pnlCidadesIndice(){
   if(PNL_CIDADES_INDICE) return PNL_CIDADES_INDICE;
-  PNL_CIDADES_INDICE = {};
+  const porNome = {}, porNomeEUf = {};
   PNL_CIDADES_BR.forEach(([nome,uf,lat,lng])=>{
-    const chave = pnlNormalizarNomeCidade(nome);
-    if(!(chave in PNL_CIDADES_INDICE)) PNL_CIDADES_INDICE[chave] = { nome, uf, lat, lng };
+    const chaveNome = pnlNormalizarNomeCidade(nome);
+    if(!(chaveNome in porNome)) porNome[chaveNome] = { nome, uf, lat, lng };
+    porNomeEUf[`${chaveNome}|${uf.toLowerCase()}`] = { nome, uf, lat, lng };
   });
+  PNL_CIDADES_INDICE = { porNome, porNomeEUf };
   return PNL_CIDADES_INDICE;
 }
-function pnlBuscarCidade(nomeConsulta){
-  return pnlCidadesIndice()[pnlNormalizarNomeCidade(nomeConsulta)] || null;
+// com UF informado, tenta o match exato (nome+UF) primeiro; se não achar
+// (ex: sigla com typo, ou coluna de UF com nome do estado por extenso em
+// vez da sigla) cai pro match só por nome, igual sem UF nenhum
+function pnlBuscarCidade(nomeConsulta, ufConsulta){
+  const { porNome, porNomeEUf } = pnlCidadesIndice();
+  const chaveNome = pnlNormalizarNomeCidade(nomeConsulta);
+  if(ufConsulta){
+    const exata = porNomeEUf[`${chaveNome}|${String(ufConsulta).trim().toLowerCase()}`];
+    if(exata) return exata;
+  }
+  return porNome[chaveNome] || null;
+}
+// agrupa por cidade — e, quando o widget informa a coluna de UF, por
+// cidade+UF junto, pra não misturar numa bolha só duas cidades homônimas
+// de estados diferentes (ex: Santa Rita na PB e no MA)
+function pnlAgruparPorCidade(linhas, campoCidade, campoUf, medidaId){
+  const grupos = {};
+  linhas.forEach(o=>{
+    const cidade = pnlValorFiltro(o, campoCidade);
+    const uf = campoUf ? pnlValorFiltro(o, campoUf) : '';
+    const chave = campoUf ? `${cidade}␟${uf}` : cidade;
+    if(!grupos[chave]) grupos[chave] = { cidade, uf };
+  });
+  const arr = Object.values(grupos).map(g=>({
+    chave: g.cidade, uf: g.uf, rotulo: g.cidade,
+    valor: medidaId ? pnlValorMedida(medidaId, campoUf ? {campos:[campoCidade,campoUf], valores:[g.cidade,g.uf]} : {campos:[campoCidade], valores:[g.cidade]}) : 0,
+  }));
+  arr.sort((a,b)=>b.valor-a.valor);
+  return arr;
 }
 // 1 instância do Leaflet por widget — mas qualquer clique de filtro cruzado
 // refaz o HTML de TODOS os widgets do zero (pnlRenderEsqueleto), inclusive
@@ -3349,13 +3379,13 @@ const PNL_MAPA_VISTA = {};
 function pnlRenderWidgetMapa(containerId, widget, linhas){
   const cont = document.getElementById(containerId); if(!cont) return;
   if(typeof L === 'undefined'){ cont.innerHTML = '<div class="dash-empty">Não foi possível carregar o mapa. Confira sua internet.</div>'; return; }
-  let grupos = pnlAgruparPorCampo(linhas, widget.dimensao, widget.medida);
+  let grupos = pnlAgruparPorCidade(linhas, widget.dimensao, widget.campoUf, widget.medida);
   if(widget.top) grupos = grupos.slice(0, Number(widget.top));
   const fmt = v=>pnlFormatarMedida(v, widget.medida);
   const encontradas = [], naoEncontradas = [];
   grupos.forEach(g=>{
-    const c = pnlBuscarCidade(g.chave);
-    if(c) encontradas.push({ ...g, ...c }); else naoEncontradas.push(g.rotulo);
+    const c = pnlBuscarCidade(g.chave, g.uf);
+    if(c) encontradas.push({ ...g, ...c }); else naoEncontradas.push(widget.campoUf ? `${g.rotulo} (${g.uf})` : g.rotulo);
   });
   const altura = RECEB_ALTURAS_WIDGET[widget.altura] || 420;
 
@@ -16935,6 +16965,13 @@ function pnlExportDadosWidgetGrafico(widget, tipo){
     const corpo = chaves.map(chave=>[porChaveRotulo[chave]||chave, ...porMedida.map(arr=>{ const f = arr.find(g=>g.chave===chave); return f ? f.valor : 0; })]);
     return { cab, corpo };
   }
+  if(tipo==='mapa' && widget.campoUf){
+    let grupos = pnlAgruparPorCidade(linhas, widget.dimensao, widget.campoUf, widget.medida);
+    if(widget.top) grupos = grupos.slice(0, Number(widget.top));
+    const cab = [widget.dimensao, widget.campoUf, (pnlMedidaPorId(widget.medida)||{}).label || widget.medida];
+    const corpo = grupos.map(g=>[g.rotulo, g.uf, g.valor]);
+    return { cab, corpo };
+  }
   let grupos = pnlAgruparPorCampo(linhas, widget.dimensao, widget.medida);
   if(widget.top) grupos = grupos.slice(0, Number(widget.top));
   const cab = [widget.dimensao, (pnlMedidaPorId(widget.medida)||{}).label || widget.medida];
@@ -17145,6 +17182,13 @@ function pnlAtualizarCamposNovoWidget(){
     document.getElementById('pnlNovoWidgetDimensao2').innerHTML = opcoesExtra;
     document.getElementById('pnlNovoWidgetDimensao3').innerHTML = opcoesExtra;
   }
+  document.getElementById('pnlNovoWidgetCampoMapaUf').style.display = tipo==='mapa' ? '' : 'none';
+  if(tipo==='mapa'){
+    const selUf = document.getElementById('pnlNovoWidgetMapaUf');
+    const atualUf = selUf.value;
+    selUf.innerHTML = `<option value="">(nenhum)</option>` + colunas.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('');
+    if(colunas.includes(atualUf)) selUf.value = atualUf;
+  }
   if(ehTabelaPersonalizada) pnlRenderColunasPicker(fonte, consultaId);
   else if(ehRelatorio){
     pnlRenderColunasPicker(fonte, consultaId, fonte==='linhas' ? pnlFormSubdetalhesAtual : null);
@@ -17287,6 +17331,7 @@ function pnlResetFormNovoWidget(){
   pnlAtualizarSelectContainerGuia();
   document.getElementById('pnlNovoWidgetDimensao2').value = '';
   document.getElementById('pnlNovoWidgetDimensao3').value = '';
+  document.getElementById('pnlNovoWidgetMapaUf').value = '';
   document.getElementById('btnPnlAdicionarWidget').textContent = 'Adicionar ao painel';
 }
 // move um widget dentro do seu próprio grupo (nível principal, ou a mesma
@@ -17378,6 +17423,7 @@ function pnlWidgetEditar(id){
   if(w.tipo==='filtro' && w.campo) document.getElementById('pnlNovoWidgetFiltroWidgetCampo').value = w.campo;
   document.getElementById('pnlNovoWidgetDimensao2').value = w.dimensao2 || '';
   document.getElementById('pnlNovoWidgetDimensao3').value = w.dimensao3 || '';
+  document.getElementById('pnlNovoWidgetMapaUf').value = w.campoUf || '';
   document.getElementById('pnlNovoWidgetTop').value = w.top || '';
   pnlFormMedidasExtrasAtual = pnlMedidasExtrasWidget(w);
   pnlRenderMedidasExtrasPicker();
@@ -19725,7 +19771,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
         if(widget.filtroFixoOperador==='ULTIMOSMESES' && document.getElementById('pnlNovoWidgetComparacao').checked) widget.compararPeriodoAnterior = true;
       }
       else if(tipo==='linha'){ widget.dimensao = dimensao; if(pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
-      else { widget.dimensao = dimensao; if(top) widget.top = Number(top); if(tipo==='barra' && pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice(); }
+      else{
+        widget.dimensao = dimensao;
+        if(top) widget.top = Number(top);
+        if(tipo==='barra' && pnlFormMedidasExtrasAtual.length) widget.medidasExtras = pnlFormMedidasExtrasAtual.slice();
+        if(tipo==='mapa'){
+          const campoUf = document.getElementById('pnlNovoWidgetMapaUf').value;
+          if(campoUf) widget.campoUf = campoUf;
+        }
+      }
       if(tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut'||tipo==='treemap'||tipo==='mapa'){
         widget.mostrarLegenda = document.getElementById('pnlNovoWidgetLegenda').checked;
         widget.mostrarRotulos = document.getElementById('pnlNovoWidgetRotulos').checked;
