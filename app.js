@@ -14797,6 +14797,16 @@ function pnlCamposFiltroDisponiveis(){
   pnlConsultasCarregadas.forEach(c=>pnlColunasDisponiveis(c.id).forEach(col=>todasColunas.add(col)));
   return [...todasColunas].filter(c=>!jaConfigurados.has(c)).map(c=>({ campo:c, label:c }));
 }
+// catálogo do seletor "Campo a filtrar" do widget Filtro — diferente de
+// pnlCamposFiltroDisponiveis, NÃO exclui campos já configurados como
+// filtro geral (o widget pode ser só uma posição extra no canvas pra um
+// filtro que já existe), já que widget.campo referencia o MESMO estado
+// (pnlFiltros/pnlPainelFiltros) usado pela grade "Filtros" do topo
+function pnlCamposParaWidgetFiltro(){
+  const todasColunas = new Set();
+  pnlConsultasCarregadas.forEach(c=>pnlColunasDisponiveis(c.id).forEach(col=>todasColunas.add(col)));
+  return [...todasColunas].sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+}
 // linhas de UMA consulta, já filtradas pelos filtros gerais do painel —
 // um filtro só se aplica se a coluna dele EXISTIR nessa consulta (mesmo
 // nome de campo pode filtrar Vendas e Compras ao mesmo tempo, se as duas
@@ -15495,11 +15505,12 @@ function pnlResumoFiltroConteudoHtml(campo){
 // atualiza só o resumo/chips e a cor do ▾ de UM campo — usado depois de
 // marcar/desmarcar um valor, sem refazer a grade inteira de filtros (o
 // que fecharia o dropdown que acabou de ser clicado)
+// sem escopo a um container só — o mesmo campo pode aparecer tanto na
+// grade "Filtros" do topo quanto num widget Filtro no canvas, e os dois
+// precisam refletir o mesmo estado (pnlFiltros) ao mesmo tempo
 function pnlAtualizarResumoFiltro(campo){
-  const el = document.querySelector(`#pnlGradeFiltros [data-resumo-filtro="${CSS.escape(campo)}"]`);
-  if(el) el.innerHTML = pnlResumoFiltroConteudoHtml(campo);
-  const trig = document.querySelector(`#pnlGradeFiltros [data-rfiltro="${CSS.escape(campo)}"]`);
-  if(trig) trig.style.color = (pnlFiltros[campo]||new Set()).size > 0 ? 'var(--accent)' : '';
+  document.querySelectorAll(`[data-resumo-filtro="${CSS.escape(campo)}"]`).forEach(el=>{ el.innerHTML = pnlResumoFiltroConteudoHtml(campo); });
+  document.querySelectorAll(`[data-rfiltro="${CSS.escape(campo)}"]`).forEach(trig=>{ trig.style.color = (pnlFiltros[campo]||new Set()).size > 0 ? 'var(--accent)' : ''; });
 }
 function pnlRenderGradeFiltros(){
   const cont = document.getElementById('pnlGradeFiltros');
@@ -15998,6 +16009,7 @@ function pnlWidgetTitulo(w){
   if(w.tipo==='titulo') return 'Título';
   if(w.tipo==='container') return 'Container';
   if(w.tipo==='curvaabc') return 'Curva ABC';
+  if(w.tipo==='filtro') return w.campo || 'Filtro';
   return (pnlMedidaPorId(w.medida)||{}).label || w.medida || '(sem título)';
 }
 // opções (chave->label) da última renderização do picker de colunas —
@@ -16283,6 +16295,17 @@ function pnlHtmlWidget(w, i, total){
   if(w.tipo === 'kpi'){
     return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="pnl-${w.id}-conteudo"></div></div>`;
   }
+  if(w.tipo === 'filtro'){
+    const campo = w.campo;
+    const label = pnlWidgetTitulo(w);
+    // o gatilho ▾ fica colado no texto do título (não espalhado até a
+    // borda direita do card) pra nunca ficar embaixo da toolbar de
+    // edição, que é absoluta no canto superior direito (ver .recebwidget-toolbar)
+    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}
+      <h2 style="display:flex;align-items:center;gap:6px;">${escaparHtml(label)}<span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;font-weight:400;text-transform:none;font-size:14px;" title="Filtrar ${escaparHtml(label)}">▾</span></h2>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:8px;" data-resumo-filtro="${escaparHtml(campo)}">${pnlResumoFiltroConteudoHtml(campo)}</div>
+    </div>`;
+  }
   if(w.tipo === 'titulo'){
     const icone = w.icone ? `<span class="pnl-container-icone">${escaparHtml(w.icone)}</span>` : '';
     const sub = w.subtitulo ? `<div class="sub">${escaparHtml(w.subtitulo)}</div>` : '';
@@ -16444,6 +16467,18 @@ function pnlCanvasMoverRedimensionar(e){
   w.canvas.h = Math.max(120, Math.round((info.startH+dy)/8)*8);
   pnlAtualizarPosicaoCanvasNaTela(w.id);
 }
+// retrair/expandir o corpo de um card (Medidas, Widgets, Propriedades) —
+// só esconde o conteúdo, o cabeçalho com o botão continua visível pra
+// expandir de novo; estado fica só na seta do botão, não precisa de
+// variável separada (menos uma coisa pra dessincronizar do DOM)
+function pnlAlternarRetrairCard(idCorpo, idBotao){
+  const corpo = document.getElementById(idCorpo);
+  const botao = document.getElementById(idBotao);
+  if(!corpo || !botao) return;
+  const retraindo = corpo.style.display !== 'none';
+  corpo.style.display = retraindo ? 'none' : '';
+  botao.textContent = retraindo ? '▸' : '▾';
+}
 // no canvas livre, a barra lateral alterna entre a paleta de tipos (ponto
 // de partida) e o formulário de sempre (pra configurar o widget escolhido)
 // — fora do canvas, o formulário fica sempre visível, igual sempre foi
@@ -16500,7 +16535,7 @@ function pnlRenderConteudo(){
   pnlPainelWidgets.forEach(w=>{
     // Título/Container não têm dado pra buscar nem um "pnl-{id}-conteudo"
     // próprio — já saem inteiros do esqueleto (pnlHtmlWidget)
-    if(w.tipo==='titulo' || w.tipo==='container') return;
+    if(w.tipo==='titulo' || w.tipo==='container' || w.tipo==='filtro') return;
     const consultaId = w.consultaId || pnlConsultaPadrao();
     const linhas = pnlFiltrados(consultaId);
     pnlUltimoLinhasFiltradasPorWidget[w.id] = linhas;
@@ -16887,8 +16922,9 @@ function pnlAtualizarCamposNovoWidget(){
   const ehLinha = tipo==='linha';
   const ehTitulo = tipo==='titulo';
   const ehContainer = tipo==='container';
-  // Título/Container não têm dado próprio — não usam Consulta/Medida/Dimensão
-  const semDado = ehTitulo || ehContainer;
+  const ehFiltro = tipo==='filtro';
+  // Título/Container/Filtro não têm dado próprio — não usam Consulta/Medida/Dimensão
+  const semDado = ehTitulo || ehContainer || ehFiltro;
   const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
   const precisaMedida = !ehTabelaPersonalizada && !ehRelatorio && !semDado;
   // Relatório também ganha "Agrupar por" quando a fonte é 'agrupado' — igual
@@ -16903,6 +16939,14 @@ function pnlAtualizarCamposNovoWidget(){
     if(pnlConsultasCarregadas.some(c=>c.id===atualConsulta)) selConsulta.value = atualConsulta;
   }
   const consultaId = pnlConsultaSelecionadaNoForm();
+  document.getElementById('pnlNovoWidgetCampoFiltroWidget').style.display = ehFiltro ? '' : 'none';
+  if(ehFiltro){
+    const selCampoFiltro = document.getElementById('pnlNovoWidgetFiltroWidgetCampo');
+    const atualCampoFiltro = selCampoFiltro.value;
+    const camposFiltro = pnlCamposParaWidgetFiltro();
+    selCampoFiltro.innerHTML = camposFiltro.map(c=>`<option value="${escaparHtml(c)}">${escaparHtml(c)}</option>`).join('') || `<option value="">(nenhum campo disponível)</option>`;
+    if(camposFiltro.includes(atualCampoFiltro)) selCampoFiltro.value = atualCampoFiltro;
+  }
   document.getElementById('pnlNovoWidgetCampoLargura').style.display = ehKpi ? 'none' : '';
   document.getElementById('pnlNovoWidgetLinhaMedida').style.display = (precisaMedida || precisaDimensao) ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoMedida').style.display = precisaMedida ? '' : 'none';
@@ -17155,6 +17199,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetTitulo').value = w.titulo || '';
   if(w.medida) document.getElementById('pnlNovoWidgetMedida').value = w.medida;
   if(w.dimensao) document.getElementById('pnlNovoWidgetDimensao').value = w.dimensao;
+  if(w.tipo==='filtro' && w.campo) document.getElementById('pnlNovoWidgetFiltroWidgetCampo').value = w.campo;
   document.getElementById('pnlNovoWidgetDimensao2').value = w.dimensao2 || '';
   document.getElementById('pnlNovoWidgetDimensao3').value = w.dimensao3 || '';
   document.getElementById('pnlNovoWidgetTop').value = w.top || '';
@@ -19067,6 +19112,19 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     pnlRender();
   });
   document.getElementById('pnlGradeWidgets').addEventListener('click', e=>{
+    // widget tipo "Filtro" — mesma dropdown/chips da grade "Filtros" do
+    // topo, só que posicionável no canvas (ver pnlHtmlWidget tipo 'filtro')
+    const chipXWidget = e.target.closest('[data-chipfiltro]');
+    if(chipXWidget){
+      const set = pnlFiltros[chipXWidget.dataset.chipfiltro];
+      if(set) set.delete(chipXWidget.dataset.chipvalor);
+      pnlAtualizarResumoFiltro(chipXWidget.dataset.chipfiltro);
+      pnlRenderEsqueleto();
+      pnlRenderConteudo();
+      return;
+    }
+    const rfiltroWidget = e.target.closest('[data-rfiltro]');
+    if(rfiltroWidget){ pnlToggleFiltroColuna(rfiltroWidget.dataset.rfiltro, rfiltroWidget); return; }
     const toolbarBtn = e.target.closest('[data-wtoolbar]');
     if(toolbarBtn){
       const id = toolbarBtn.dataset.wid, acao = toolbarBtn.dataset.wtoolbar;
@@ -19178,6 +19236,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(resize){ e.preventDefault(); pnlCanvasIniciarRedimensionar(resize.dataset.wid, e); return; }
   });
   document.getElementById('btnPnlModoCanvas').addEventListener('click', pnlAlternarModoCanvas);
+  document.getElementById('btnPnlRetrairMedidas').addEventListener('click', ()=>pnlAlternarRetrairCard('pnlCardMedidasCorpo','btnPnlRetrairMedidas'));
+  document.getElementById('btnPnlRetrairPaleta').addEventListener('click', ()=>pnlAlternarRetrairCard('pnlCanvasPaletaCorpo','btnPnlRetrairPaleta'));
+  document.getElementById('btnPnlRetrairPropriedades').addEventListener('click', ()=>pnlAlternarRetrairCard('pnlCanvasPropriedadesCorpo','btnPnlRetrairPropriedades'));
   document.getElementById('pnlCanvasPaleta').addEventListener('click', e=>{
     const item = e.target.closest('[data-canvaspaleta]'); if(!item) return;
     pnlCanvasEscolherTipoNaPaleta(item.dataset.canvaspaleta);
@@ -19424,7 +19485,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const ehRelatorio = tipo==='relatorio';
     const ehTitulo = tipo==='titulo';
     const ehContainer = tipo==='container';
-    const semDado = ehTitulo || ehContainer;
+    const ehFiltro = tipo==='filtro';
+    const semDado = ehTitulo || ehContainer || ehFiltro;
     const titulo = document.getElementById('pnlNovoWidgetTitulo').value.trim();
     const medida = document.getElementById('pnlNovoWidgetMedida').value;
     const dimensao = document.getElementById('pnlNovoWidgetDimensao').value;
@@ -19432,7 +19494,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dimensao3 = document.getElementById('pnlNovoWidgetDimensao3').value;
     const top = document.getElementById('pnlNovoWidgetTop').value;
     const fonte = document.getElementById('pnlNovoWidgetFonte').value || 'linhas';
+    const campoFiltroWidget = document.getElementById('pnlNovoWidgetFiltroWidgetCampo').value;
     if(ehTitulo && !titulo){ toast('Informe o texto do título.'); return; }
+    if(ehFiltro && !campoFiltroWidget){ toast('Escolha o campo a filtrar.'); return; }
     if(!ehTabelaPersonalizada && !ehRelatorio && !semDado && tipo!=='kpi' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
     if(!ehTabelaPersonalizada && !ehRelatorio && !semDado && !medida){ toast('Escolha uma medida ou um campo da consulta.'); return; }
     if((ehTabelaPersonalizada || ehRelatorio) && fonte==='agrupado' && !dimensao){ toast('Escolha o agrupamento (Agrupar por)'); return; }
@@ -19494,6 +19558,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(icone) widget.icone = icone;
     }else if(ehContainer){
       if(pnlFormGuiasContainerAtual.length) widget.guias = JSON.parse(JSON.stringify(pnlFormGuiasContainerAtual));
+    }else if(ehFiltro){
+      widget.campo = campoFiltroWidget;
+      // widget é só uma posição extra pro MESMO filtro geral — se o campo
+      // ainda não existir como filtro do painel, registra agora (igual
+      // clicar "+ Adicionar" na grade "Filtros" do topo faria, mas sem
+      // disparar o pnlRender() próprio dessa função — o clique em
+      // "Adicionar ao painel" já renderiza tudo de novo logo abaixo)
+      if(!pnlPainelFiltros.some(f=>f.campo===campoFiltroWidget)){
+        pnlPainelFiltros.push({ campo: campoFiltroWidget });
+        pnlPopularSelectNovoFiltro();
+      }
+      if(!pnlFiltros[campoFiltroWidget]) pnlFiltros[campoFiltroWidget] = new Set();
     }else{
       widget.medida = medida;
       if(tipo==='kpi'){
