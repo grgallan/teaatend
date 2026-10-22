@@ -3850,6 +3850,29 @@ async function salvarWorkbook(livro, nomeArquivo){
   await Share.share({ title: nomeArquivo, dialogTitle: 'Compartilhar planilha', files: [gravado.uri] });
 }
 
+// mesma ideia de salvarWorkbook acima (baixa no navegador OU grava+compartilha
+// no app nativo), mas recebendo o ArrayBuffer já pronto — usado pela
+// exportação do painel montado, que gera o arquivo com ExcelJS (writeBuffer)
+// em vez do XLSX.write/writeFile de todo o resto do sistema
+async function salvarArrayBufferXlsx(arrayBuffer, nomeArquivo){
+  const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if(!emAppNativo()){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = nomeArquivo;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    return;
+  }
+  const plugins = window.Capacitor.Plugins || {};
+  const { Filesystem, Share } = plugins;
+  if(!Filesystem || !Share){
+    toast('Gerar planilha não está disponível nessa versão do app — atualize o aplicativo.');
+    return;
+  }
+  const base64 = await lerArquivoBase64(blob);
+  const gravado = await Filesystem.writeFile({ path: nomeArquivo, data: base64, directory: 'CACHE' });
+  await Share.share({ title: nomeArquivo, dialogTitle: 'Compartilhar planilha', files: [gravado.uri] });
+}
+
 function prepararImpressao(titulo, filtrosTexto, elementoId){
   const agora = new Date();
   const dataHora = agora.toLocaleDateString('pt-BR') + ' às ' + agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
@@ -17078,51 +17101,130 @@ function pnlExportDadosWidgetGrafico(widget, tipo){
   const corpo = grupos.map(g=>[g.rotulo, g.valor]);
   return { cab, corpo };
 }
+// tipos de gráfico desenhados como <svg> puro (cores já resolvidas em
+// valores reais via dashCss, então o SVG serializado funciona sozinho, sem
+// depender do CSS da página) — "mapa" fica de fora: é um mapa real do
+// Leaflet com tiles do OpenStreetMap, e tiles de outra origem "sujam" o
+// <canvas> (CORS), impedindo o toDataURL; esse continua só com a tabela
+function pnlTiposGraficoComImagem(){ return ['barra','barra-h','linha','donut','treemap']; }
+// serializa o <svg> já desenhado na tela pra um PNG (base64 sem o prefixo
+// data:), em resolução mais alta (escala) pra não ficar borrado ao colar
+// no Excel — devolve também a largura/altura usadas, pra saber quanto
+// espaço reservar na planilha
+async function pnlSvgParaPngBase64(svgEl, escala){
+  escala = escala || 2;
+  const largura = Math.round(Number(svgEl.getAttribute('width')) || svgEl.clientWidth || 400);
+  const altura = Math.round(Number(svgEl.getAttribute('height')) || svgEl.clientHeight || 200);
+  const clone = svgEl.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('width', largura);
+  clone.setAttribute('height', altura);
+  const serializado = new XMLSerializer().serializeToString(clone);
+  const url = URL.createObjectURL(new Blob([serializado], { type:'image/svg+xml;charset=utf-8' }));
+  try{
+    const img = await new Promise((resolve, reject)=>{
+      const im = new Image();
+      im.onload = ()=>resolve(im);
+      im.onerror = ()=>reject(new Error('Falha ao carregar o SVG do gráfico.'));
+      im.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = largura*escala; canvas.height = altura*escala;
+    const ctx = canvas.getContext('2d');
+    // fundo branco — o PNG colado no Excel não deve ficar transparente
+    // (apareceria preto se o Excel do usuário estiver no tema escuro)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return { base64: canvas.toDataURL('image/png').split(',')[1], largura, altura };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+// tira o print do gráfico de UM widget, já renderizado na tela (mesmo
+// <svg> que o usuário está vendo, com os filtros atuais aplicados) —
+// devolve null se o tipo não suporta imagem, se o widget não tiver sido
+// desenhado (sem dados) ou se por algum motivo o print falhar (nesse
+// caso a aba sai só com a tabela, igual já era antes dessa função existir)
+async function pnlCapturarImagemGraficoWidget(widget){
+  if(!pnlTiposGraficoComImagem().includes(widget.tipo)) return null;
+  const svg = document.querySelector(`#pnl-${widget.id}-conteudo svg`);
+  if(!svg) return null;
+  try{ return await pnlSvgParaPngBase64(svg); }
+  catch(e){ return null; }
+}
+// mesmo cabeçalho azul/branco em negrito de pnlEstilarCabecalhoExcel, só
+// que na API da ExcelJS (linha/coluna base 1, não base 0) — só essa
+// exportação usa ExcelJS (é a única que precisa colar imagem; as outras
+// continuam na xlsx-js-style de sempre)
+function pnlEstilarCabecalhoExcelJs(planilha, linha1, numColunas, offsetColuna){
+  offsetColuna = offsetColuna || 0;
+  const row = planilha.getRow(linha1);
+  for(let i=0;i<numColunas;i++){
+    const cell = row.getCell(offsetColuna+i+1);
+    cell.font = { bold:true, color:{ argb:'FFFFFFFF' } };
+    cell.fill = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF305496' } };
+    cell.alignment = { vertical:'middle' };
+  }
+  row.commit();
+}
 async function pnlExportarPainelMontado(){
-  if(typeof XLSX === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
+  if(typeof ExcelJS === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
   if(!pnlPainelWidgets.length){ toast('Esse painel ainda não tem nenhum widget montado.'); return; }
-  const livro = XLSX.utils.book_new();
+  const livro = new ExcelJS.Workbook();
   const nomesUsados = new Set();
   let sheetsCriadas = 0;
   const kpis = pnlPainelWidgets.filter(w=>w.tipo==='kpi');
   if(kpis.length){
     const aoa = [['Indicador','Valor'], ...kpis.map(w=>pnlExportLinhaKpi(w))];
-    const planilha = XLSX.utils.aoa_to_sheet(aoa);
-    pnlEstilarCabecalhoExcel(planilha, 2, 0);
-    planilha['!cols'] = [{wch:34},{wch:18}];
-    XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel('Resumo (KPIs)', nomesUsados));
+    const planilha = livro.addWorksheet(pnlNomeAbaExcel('Resumo (KPIs)', nomesUsados));
+    planilha.columns = [{width:34},{width:18}];
+    aoa.forEach(linha=>planilha.addRow(linha));
+    pnlEstilarCabecalhoExcelJs(planilha, 1, 2, 0);
     sheetsCriadas++;
   }
-  pnlPainelWidgets.forEach(w=>{
-    if(w.tipo==='kpi') return;
+  for(const w of pnlPainelWidgets){
+    if(w.tipo==='kpi') continue;
     if(w.tipo==='tabela'){
       const { cab, corpo, totais } = pnlExportDadosWidgetTabela(w);
-      if(!corpo.length) return;
+      if(!corpo.length) continue;
       const aoa = [cab, ...corpo];
       if(totais) aoa.push(totais);
-      const planilha = XLSX.utils.aoa_to_sheet(aoa);
-      pnlEstilarCabecalhoExcel(planilha, cab.length, 0);
-      XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      aoa.forEach(linha=>planilha.addRow(linha));
+      pnlEstilarCabecalhoExcelJs(planilha, 1, cab.length, 0);
       sheetsCriadas++;
     }else if(w.tipo==='relatorio'){
       const { aoa, headerStyles } = pnlExportAoaWidgetRelatorio(w);
-      if(aoa.length <= 1) return;
-      const planilha = XLSX.utils.aoa_to_sheet(aoa);
-      headerStyles.forEach(hs=>pnlEstilarCabecalhoExcel(planilha, hs.cols, hs.row, hs.offset));
-      XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      if(aoa.length <= 1) continue;
+      const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      aoa.forEach(linha=>planilha.addRow(linha));
+      headerStyles.forEach(hs=>pnlEstilarCabecalhoExcelJs(planilha, hs.row+1, hs.cols, hs.offset));
       sheetsCriadas++;
     }else if(['barra','barra-h','linha','donut','treemap','mapa'].includes(w.tipo)){
       const { cab, corpo } = pnlExportDadosWidgetGrafico(w, w.tipo);
-      if(!corpo.length) return;
+      if(!corpo.length) continue;
+      const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      // imagem do gráfico primeiro (igual aparece na tela), tabela de
+      // dados logo abaixo — linha de altura padrão do Excel ~20px, por
+      // isso a conta de quantas linhas em branco reservar pro desenho
+      const imagem = await pnlCapturarImagemGraficoWidget(w);
+      let linhaInicioTabela = 0;
+      if(imagem){
+        const imageId = livro.addImage({ base64: imagem.base64, extension:'png' });
+        planilha.addImage(imageId, { tl:{ col:0, row:0 }, ext:{ width:imagem.largura, height:imagem.altura } });
+        linhaInicioTabela = Math.ceil(imagem.altura/20) + 1;
+        for(let i=0;i<linhaInicioTabela;i++) planilha.addRow([]);
+      }
       const aoa = [cab, ...corpo];
-      const planilha = XLSX.utils.aoa_to_sheet(aoa);
-      pnlEstilarCabecalhoExcel(planilha, cab.length, 0);
-      XLSX.utils.book_append_sheet(livro, planilha, pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+      aoa.forEach(linha=>planilha.addRow(linha));
+      pnlEstilarCabecalhoExcelJs(planilha, linhaInicioTabela+1, cab.length, 0);
       sheetsCriadas++;
     }
-  });
+  }
   if(!sheetsCriadas){ toast('Nada pra exportar com esses filtros.'); return; }
-  await salvarWorkbook(livro, `${pnlPainelAtual.slug}-montado-${hojeLocalISO()}.xlsx`);
+  const arrayBuffer = await livro.xlsx.writeBuffer();
+  await salvarArrayBufferXlsx(arrayBuffer, `${pnlPainelAtual.slug}-montado-${hojeLocalISO()}.xlsx`);
   toast(`Painel exportado com ${sheetsCriadas} aba${sheetsCriadas===1?'':'s'} (1 por widget).`);
 }
 

@@ -3896,6 +3896,11 @@
      texto) — a SheetJS "Community Edition" original só grava valores, sem
      estilo, na versão gratuita -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<!-- ExcelJS: só usada na exportação do "painel montado" (pnlExportarPainelMontado),
+     pra poder colar a imagem (PNG) do gráfico na aba — a xlsx-js-style acima
+     não sabe inserir imagem, só valor/estilo de célula; o resto do sistema
+     continua 100% em cima da XLSX de sempre -->
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <!-- Leaflet: mapa de fundo real (tiles do OpenStreetMap) pro widget "Mapa"
      do Painel genérico — só esse widget precisa de internet pra carregar -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
