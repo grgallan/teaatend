@@ -17110,11 +17110,20 @@ function pnlTiposGraficoComImagem(){ return ['barra','barra-h','linha','donut','
 // serializa o <svg> já desenhado na tela pra um PNG (base64 sem o prefixo
 // data:), em resolução mais alta (escala) pra não ficar borrado ao colar
 // no Excel — devolve também a largura/altura usadas, pra saber quanto
-// espaço reservar na planilha
+// espaço reservar na planilha. A largura real do <svg> (container.clientWidth)
+// varia com o monitor de quem está exportando — numa tela bem larga o
+// canvas de captura (largura*escala, em pixels) fica grande à toa, deixando
+// a exportação mais lenta sem ganho nenhum de qualidade no Excel; por isso
+// o desenho é redimensionado (mantendo a proporção) pra um teto fixo antes
+// de aplicar a escala
+const PNL_GRAFICO_IMAGEM_LARGURA_MAXIMA = 900;
 async function pnlSvgParaPngBase64(svgEl, escala){
   escala = escala || 2;
-  const largura = Math.round(Number(svgEl.getAttribute('width')) || svgEl.clientWidth || 400);
-  const altura = Math.round(Number(svgEl.getAttribute('height')) || svgEl.clientHeight || 200);
+  const larguraOriginal = Math.round(Number(svgEl.getAttribute('width')) || svgEl.clientWidth || 400);
+  const alturaOriginal = Math.round(Number(svgEl.getAttribute('height')) || svgEl.clientHeight || 200);
+  const fator = larguraOriginal > PNL_GRAFICO_IMAGEM_LARGURA_MAXIMA ? PNL_GRAFICO_IMAGEM_LARGURA_MAXIMA/larguraOriginal : 1;
+  const largura = Math.round(larguraOriginal*fator);
+  const altura = Math.round(alturaOriginal*fator);
   const clone = svgEl.cloneNode(true);
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('width', largura);
@@ -17171,61 +17180,77 @@ function pnlEstilarCabecalhoExcelJs(planilha, linha1, numColunas, offsetColuna){
 async function pnlExportarPainelMontado(){
   if(typeof ExcelJS === 'undefined'){ toast('Não foi possível carregar o gerador de Excel. Confira sua internet.'); return; }
   if(!pnlPainelWidgets.length){ toast('Esse painel ainda não tem nenhum widget montado.'); return; }
-  const livro = new ExcelJS.Workbook();
-  const nomesUsados = new Set();
-  let sheetsCriadas = 0;
-  const kpis = pnlPainelWidgets.filter(w=>w.tipo==='kpi');
-  if(kpis.length){
-    const aoa = [['Indicador','Valor'], ...kpis.map(w=>pnlExportLinhaKpi(w))];
-    const planilha = livro.addWorksheet(pnlNomeAbaExcel('Resumo (KPIs)', nomesUsados));
-    planilha.columns = [{width:34},{width:18}];
-    aoa.forEach(linha=>planilha.addRow(linha));
-    pnlEstilarCabecalhoExcelJs(planilha, 1, 2, 0);
-    sheetsCriadas++;
-  }
-  for(const w of pnlPainelWidgets){
-    if(w.tipo==='kpi') continue;
-    if(w.tipo==='tabela'){
-      const { cab, corpo, totais } = pnlExportDadosWidgetTabela(w);
-      if(!corpo.length) continue;
-      const aoa = [cab, ...corpo];
-      if(totais) aoa.push(totais);
-      const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+  const btn = document.getElementById('btnPnlExportarMontado');
+  const textoOriginalBtn = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Gerando planilha…';
+  try{
+    const livro = new ExcelJS.Workbook();
+    const nomesUsados = new Set();
+    let sheetsCriadas = 0;
+    const kpis = pnlPainelWidgets.filter(w=>w.tipo==='kpi');
+    if(kpis.length){
+      const aoa = [['Indicador','Valor'], ...kpis.map(w=>pnlExportLinhaKpi(w))];
+      const planilha = livro.addWorksheet(pnlNomeAbaExcel('Resumo (KPIs)', nomesUsados));
+      planilha.columns = [{width:34},{width:18}];
       aoa.forEach(linha=>planilha.addRow(linha));
-      pnlEstilarCabecalhoExcelJs(planilha, 1, cab.length, 0);
-      sheetsCriadas++;
-    }else if(w.tipo==='relatorio'){
-      const { aoa, headerStyles } = pnlExportAoaWidgetRelatorio(w);
-      if(aoa.length <= 1) continue;
-      const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
-      aoa.forEach(linha=>planilha.addRow(linha));
-      headerStyles.forEach(hs=>pnlEstilarCabecalhoExcelJs(planilha, hs.row+1, hs.cols, hs.offset));
-      sheetsCriadas++;
-    }else if(['barra','barra-h','linha','donut','treemap','mapa'].includes(w.tipo)){
-      const { cab, corpo } = pnlExportDadosWidgetGrafico(w, w.tipo);
-      if(!corpo.length) continue;
-      const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
-      // imagem do gráfico primeiro (igual aparece na tela), tabela de
-      // dados logo abaixo — linha de altura padrão do Excel ~20px, por
-      // isso a conta de quantas linhas em branco reservar pro desenho
-      const imagem = await pnlCapturarImagemGraficoWidget(w);
-      let linhaInicioTabela = 0;
-      if(imagem){
-        const imageId = livro.addImage({ base64: imagem.base64, extension:'png' });
-        planilha.addImage(imageId, { tl:{ col:0, row:0 }, ext:{ width:imagem.largura, height:imagem.altura } });
-        linhaInicioTabela = Math.ceil(imagem.altura/20) + 1;
-        for(let i=0;i<linhaInicioTabela;i++) planilha.addRow([]);
-      }
-      const aoa = [cab, ...corpo];
-      aoa.forEach(linha=>planilha.addRow(linha));
-      pnlEstilarCabecalhoExcelJs(planilha, linhaInicioTabela+1, cab.length, 0);
+      pnlEstilarCabecalhoExcelJs(planilha, 1, 2, 0);
       sheetsCriadas++;
     }
+    // captura TODAS as imagens de gráfico em paralelo antes de montar as
+    // abas — cada print é I/O (decodificar o SVG como imagem), então rodar
+    // em paralelo é bem mais rápido que esperar um de cada vez; só depois
+    // disso a montagem do livro roda em sequência (ExcelJS não é thread-safe
+    // entre abas sendo escritas ao mesmo tempo, mas isso é síncrono/rápido)
+    const widgetsGrafico = pnlPainelWidgets.filter(w=>pnlTiposGraficoComImagem().includes(w.tipo));
+    const imagensPorWidget = {};
+    (await Promise.all(widgetsGrafico.map(w=>pnlCapturarImagemGraficoWidget(w).then(img=>[w.id, img]))))
+      .forEach(([id, img])=>{ imagensPorWidget[id] = img; });
+    for(const w of pnlPainelWidgets){
+      if(w.tipo==='kpi') continue;
+      if(w.tipo==='tabela'){
+        const { cab, corpo, totais } = pnlExportDadosWidgetTabela(w);
+        if(!corpo.length) continue;
+        const aoa = [cab, ...corpo];
+        if(totais) aoa.push(totais);
+        const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+        aoa.forEach(linha=>planilha.addRow(linha));
+        pnlEstilarCabecalhoExcelJs(planilha, 1, cab.length, 0);
+        sheetsCriadas++;
+      }else if(w.tipo==='relatorio'){
+        const { aoa, headerStyles } = pnlExportAoaWidgetRelatorio(w);
+        if(aoa.length <= 1) continue;
+        const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+        aoa.forEach(linha=>planilha.addRow(linha));
+        headerStyles.forEach(hs=>pnlEstilarCabecalhoExcelJs(planilha, hs.row+1, hs.cols, hs.offset));
+        sheetsCriadas++;
+      }else if(['barra','barra-h','linha','donut','treemap','mapa'].includes(w.tipo)){
+        const { cab, corpo } = pnlExportDadosWidgetGrafico(w, w.tipo);
+        if(!corpo.length) continue;
+        const planilha = livro.addWorksheet(pnlNomeAbaExcel(pnlWidgetTitulo(w), nomesUsados));
+        // imagem do gráfico primeiro (igual aparece na tela), tabela de
+        // dados logo abaixo — linha de altura padrão do Excel ~20px, por
+        // isso a conta de quantas linhas em branco reservar pro desenho
+        const imagem = imagensPorWidget[w.id];
+        let linhaInicioTabela = 0;
+        if(imagem){
+          const imageId = livro.addImage({ base64: imagem.base64, extension:'png' });
+          planilha.addImage(imageId, { tl:{ col:0, row:0 }, ext:{ width:imagem.largura, height:imagem.altura } });
+          linhaInicioTabela = Math.ceil(imagem.altura/20) + 1;
+          for(let i=0;i<linhaInicioTabela;i++) planilha.addRow([]);
+        }
+        const aoa = [cab, ...corpo];
+        aoa.forEach(linha=>planilha.addRow(linha));
+        pnlEstilarCabecalhoExcelJs(planilha, linhaInicioTabela+1, cab.length, 0);
+        sheetsCriadas++;
+      }
+    }
+    if(!sheetsCriadas){ toast('Nada pra exportar com esses filtros.'); return; }
+    const arrayBuffer = await livro.xlsx.writeBuffer();
+    await salvarArrayBufferXlsx(arrayBuffer, `${pnlPainelAtual.slug}-montado-${hojeLocalISO()}.xlsx`);
+    toast(`Painel exportado com ${sheetsCriadas} aba${sheetsCriadas===1?'':'s'} (1 por widget).`);
+  } finally {
+    btn.disabled = false; btn.textContent = textoOriginalBtn;
   }
-  if(!sheetsCriadas){ toast('Nada pra exportar com esses filtros.'); return; }
-  const arrayBuffer = await livro.xlsx.writeBuffer();
-  await salvarArrayBufferXlsx(arrayBuffer, `${pnlPainelAtual.slug}-montado-${hojeLocalISO()}.xlsx`);
-  toast(`Painel exportado com ${sheetsCriadas} aba${sheetsCriadas===1?'':'s'} (1 por widget).`);
 }
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
