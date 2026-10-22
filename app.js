@@ -14803,6 +14803,21 @@ function pnlConsultasDoCliente(painel, clienteId){
   const vinculadas = new Set((painel && painel.consultas || []).map(String));
   return rmRelatoriosGerenciais.filter(r=>vinculadas.has(String(r.id)) && String(r.clienteId)===String(clienteId));
 }
+// nomes das consultas vinculadas ao painel que NÃO entraram no carregamento
+// desse cliente — cada consulta (Relatórios Gerenciais TOTVS RM) pertence a
+// UM cliente só; se o painel foi montado com consultas de clientes
+// diferentes por engano (ou uma consulta foi excluída depois), ela some em
+// silêncio do pnlConsultasDoCliente acima — isso avisa o admin na hora de
+// atualizar, em vez de só aparecer "faltando 1" sem explicação nenhuma nos
+// seletores de Consulta dos widgets
+function pnlConsultasPainelIndisponiveis(painel, clienteId){
+  const vinculadas = (painel && painel.consultas || []).map(String);
+  return vinculadas.map(id=>{
+    const r = rmRelatoriosGerenciais.find(x=>String(x.id)===id);
+    if(!r) return null;
+    return String(r.clienteId)===String(clienteId) ? null : r.nome;
+  }).filter(Boolean);
+}
 function pnlClientesDoPainel(painel){
   const vinculadas = new Set((painel && painel.consultas || []).map(String));
   const clienteIds = new Set(rmRelatoriosGerenciais.filter(r=>vinculadas.has(String(r.id)) && r.clienteId).map(r=>String(r.clienteId)));
@@ -15662,6 +15677,10 @@ async function pnlAtualizarDoRm(){
     pnlFiltros = Object.fromEntries(pnlPainelFiltros.map(f=>[f.campo, new Set()]));
     const totalLinhas = consultas.reduce((s,c)=>s+(pnlDadosPorConsulta[c.id]||[]).length, 0);
     toast(`Painel atualizado com ${totalLinhas} linha${totalLinhas===1?'':'s'} do RM (${consultas.length} consulta${consultas.length===1?'':'s'}).`);
+    const indisponiveis = pnlConsultasPainelIndisponiveis(pnlPainelAtual, pnlClienteId);
+    document.getElementById('pnlStatus').textContent = indisponiveis.length
+      ? `Atenção: este painel também tem a(s) consulta(s) "${indisponiveis.join('", "')}" vinculada(s), mas cadastrada(s) pra outro cliente — por isso não apareceu(ram) aqui. Confira o campo Cliente em Relatórios Gerenciais TOTVS RM → Consultas SQL.`
+      : '';
     pnlSalvarCache();
     pnlRender();
   } finally {
