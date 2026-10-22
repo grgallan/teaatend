@@ -16153,7 +16153,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
       }).join('') : '';
       return `<tr class="pnl-relat-sub-wrap" data-detpai="${idLinha}"${atribQuebra}><td colspan="${colunas.length}">
         <div class="pnl-relat-sub-label">${escaparHtml(sd.titulo || 'Detalhes')}</div>
-        <table class="pnl-relat-sub-tabela"><thead><tr>${cabSub.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
+        <table class="pnl-relat-sub-tabela"${pnlAtributoFonteLinhasTabela(sd)}><thead><tr>${cabSub.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
         <tbody>${linhasSub}</tbody>${totaisSub ? `<tfoot><tr>${totaisSub}</tr></tfoot>` : ''}</table>
       </td></tr>`;
     }).join('');
@@ -17389,6 +17389,7 @@ function pnlResetFormNovoWidget(){
   pnlFormSubdetalheColunasApelidos = {};
   document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
   document.getElementById('pnlNovoWidgetSubdetalheFonte').value = 'linhas';
+  document.getElementById('pnlNovoWidgetSubdetalheTamanhoFonte').value = '';
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetZebrado').checked = false;
@@ -19694,6 +19695,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     if(pnlFormSubdetalheOrdenacaoAtual.length) item.ordenacao = pnlFormSubdetalheOrdenacaoAtual.slice();
     if(pnlFormSubdetalheTotaisAtual.length) item.colunasTotais = pnlFormSubdetalheTotaisAtual.slice();
     if(Object.keys(pnlFormSubdetalheColunasApelidos).length) item.colunasApelidos = {...pnlFormSubdetalheColunasApelidos};
+    const tamanhoFonteSub = Number(document.getElementById('pnlNovoWidgetSubdetalheTamanhoFonte').value);
+    if(tamanhoFonteSub > 0) item.tamanhoFonteLinhas = tamanhoFonteSub;
     if(pnlEditandoSubdetalheIndex !== null && pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex]){
       pnlFormSubdetalhesAtual[pnlEditandoSubdetalheIndex] = item;
     } else {
@@ -19703,6 +19706,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     document.getElementById('btnPnlAdicionarSubdetalhe').textContent = 'Adicionar subdetalhe';
     document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = '';
     document.getElementById('pnlNovoWidgetSubdetalheFonte').value = 'linhas';
+    document.getElementById('pnlNovoWidgetSubdetalheTamanhoFonte').value = '';
     pnlFormSubdetalheColunasAtual = [];
     pnlFormSubdetalheOrdenacaoAtual = [];
     pnlFormSubdetalheTotaisAtual = [];
@@ -19726,6 +19730,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       document.getElementById('pnlNovoWidgetSubdetalheTitulo').value = sd.titulo || '';
       document.getElementById('pnlNovoWidgetSubdetalheConsulta').value = sd.consultaId;
       document.getElementById('pnlNovoWidgetSubdetalheFonte').value = sd.fonte || 'linhas';
+      document.getElementById('pnlNovoWidgetSubdetalheTamanhoFonte').value = sd.tamanhoFonteLinhas || '';
       pnlAtualizarCamposSubdetalhe();
       document.getElementById('pnlNovoWidgetSubdetalheCampoPrincipal').value = sd.campoPrincipal;
       document.getElementById('pnlNovoWidgetSubdetalheCampoLink').value = sd.campoLink;
