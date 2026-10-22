@@ -16588,7 +16588,13 @@ function pnlHtmlWidget(w, i, total){
     </div>`;
   }
   if(w.tipo === 'kpi'){
-    return `<div class="recebwidget${classeEdit}" data-wid="${w.id}">${toolbar}<div id="pnl-${w.id}-conteudo"></div></div>`;
+    // "recebwidget-kpi" só existe pra dar um gancho de CSS no canvas livre
+    // (ver .pnl-canvas-item .recebwidget-kpi) — ao contrário dos outros
+    // tipos, o card visível do Indicador (.box, com a cor/borda do widget)
+    // fica 1 nível mais fundo que o .recebwidget, então sem isso aumentar a
+    // altura no canvas não tinha efeito nenhum: só o wrapper transparente
+    // crescia, o card ficava do mesmo tamanho de sempre
+    return `<div class="recebwidget recebwidget-kpi${classeEdit}" data-wid="${w.id}">${toolbar}<div id="pnl-${w.id}-conteudo"></div></div>`;
   }
   if(w.tipo === 'filtro'){
     const campo = w.campo;

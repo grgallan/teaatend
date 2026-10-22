@@ -946,6 +946,14 @@
   .pnl-canvas-superficie.editando{background-image:radial-gradient(var(--line) 1px, transparent 1px);background-size:16px 16px;border:1px dashed var(--line);border-radius:12px;}
   .pnl-canvas-item{position:absolute;box-sizing:border-box;}
   .pnl-canvas-item > *:not(.pnl-canvas-alca):not(.pnl-canvas-resize){height:100%;margin:0;box-sizing:border-box;overflow:auto;}
+  /* Indicador (KPI): ao contrário dos outros widgets (cuja cor/borda fica
+     no próprio .recebwidget, que já ganha height:100% acima), o card
+     visível do Indicador é o .box, 1 nível mais fundo — sem isso, aumentar
+     a altura no canvas livre só esticava o wrapper transparente, o card
+     continuava do tamanho de sempre */
+  .pnl-canvas-item .recebwidget-kpi{display:flex;flex-direction:column;}
+  .pnl-canvas-item .recebwidget-kpi > div{flex:1;display:flex;}
+  .pnl-canvas-item .recebwidget-kpi .box{flex:1;width:100%;display:flex;flex-direction:column;justify-content:center;}
   .pnl-canvas-alca{position:absolute;top:6px;left:6px;width:22px;height:22px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);display:flex;align-items:center;justify-content:center;cursor:grab;z-index:3;font-size:11px;line-height:1;}
   .pnl-canvas-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;z-index:3;background:linear-gradient(135deg, transparent 50%, var(--line) 50%);border-radius:0 0 11px 0;}
   #pnlCanvasLayoutWrap.pnl-canvas-modo-ativo{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;}
