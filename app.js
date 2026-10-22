@@ -16880,8 +16880,12 @@ function pnlMontarLinhasExportacao(){
 function pnlNomeAbaExcel(nome, usados){
   let base = String(nome).replace(/[:\\\/?*\[\]]/g, ' ').trim().slice(0, 31) || 'Painel';
   let final = base, n = 2;
-  while(usados.has(final)){ final = `${base.slice(0, 28)} ${n}`; n++; }
-  usados.add(final);
+  // nome de aba do Excel é único sem diferenciar maiúsc/minúsc (é assim que
+  // o próprio Excel trata — "Clientes" e "CLIENTES" colidem de verdade; o
+  // ExcelJS chega a lançar erro nessa hora), então o controle de duplicados
+  // tem que comparar normalizado, embora a aba fique com o nome original
+  while(usados.has(final.toUpperCase())){ final = `${base.slice(0, 28)} ${n}`; n++; }
+  usados.add(final.toUpperCase());
   return final;
 }
 async function pnlExportarExcel(){
