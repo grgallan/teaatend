@@ -1059,6 +1059,8 @@
     .gantt-filtro-card,
     #cardFiltrosResumo,
     #relatorioControles, #cardRelatoriosSalvos, #cardIntroRelatoriosPub,
+    #pnlCardTopo, #pnlCardGradeTopo, #pnlCanvasColunaEsquerda, #pnlFiltroColunaPortal,
+    .recebwidget-filtro, .recebwidget-toolbar, .pnl-canvas-alca, .pnl-canvas-resize,
     .view:not(.active), #toast, #modalBg, #senhaModal, #statusMassaModal, #salvarRelatorioModal
     { display:none !important; }
 
@@ -1077,6 +1079,13 @@
     .tag{border:1px solid #999 !important;background:#f2f2f2 !important;color:#111 !important;}
     #ganttChart{overflow:visible !important;}
     .gantt-row{break-inside:avoid;}
+
+    /* Painel genérico: cada widget evita quebrar no meio entre páginas; o
+       fundo quadriculado do canvas livre (só existe em modo de edição, que
+       já fica escondido acima — pnlCardGradeTopo/pnlCanvasColunaEsquerda —
+       mas por garantia) não deve aparecer impresso */
+    #pnlGradeWidgets .recebwidget{break-inside:avoid;}
+    .pnl-canvas-superficie{background-image:none !important;border:none !important;}
 
     /* o atendimento (modal) some do fundo escuro e vira uma página normal */
     .modal-bg.show{position:static !important;background:#fff !important;padding:0 !important;display:block !important;}
@@ -2718,7 +2727,7 @@
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-painelgenerico" style="display:none;">
-      <div class="card">
+      <div class="card" id="pnlCardTopo">
         <button type="button" class="ghost" id="btnPnlVoltar" style="width:auto;padding:8px 14px;margin-bottom:10px;">← Painéis</button>
         <h2 id="pnlTitulo">Painel</h2>
         <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Busca direto da API do TOTVS RM, usando a conexão cadastrada no cliente (Cadastros → Clientes).</p>
@@ -2730,6 +2739,7 @@
         <button class="ghost" id="btnPnlExportarExcel" type="button" style="width:auto;padding:8px 14px;display:none;">📊 Exportar Excel</button>
         <button class="ghost" id="btnPnlExportarCsv" type="button" style="width:auto;padding:8px 14px;display:none;margin-left:8px;" title="Pra consultas muito grandes — o Excel trava em ~1 milhão de linhas por aba, o CSV não">📄 Exportar CSV</button>
         <button class="ghost" id="btnPnlExportarMontado" type="button" style="width:auto;padding:8px 14px;display:none;margin-left:8px;" title="Exporta o painel igual está montado na tela: uma aba por widget, com a mesma estrutura, ordenação e totais">📑 Exportar painel montado</button>
+        <button class="ghost" id="btnPnlGerarPdf" type="button" style="width:auto;padding:8px 14px;display:none;margin-left:8px;" title="Gera um PDF do painel igual está montado na tela, com os filtros ativos indicados no topo">🖨️ Gerar PDF</button>
         <p id="pnlBaseInfo" style="color:var(--muted);font-size:12.5px;margin:4px 0 0;">Nenhum dado ainda. Escolha um cliente e clique em "Atualizar do RM".</p>
         <p id="pnlStatus" style="color:var(--bad);font-size:12.5px;margin:4px 0 0;"></p>
       </div>
