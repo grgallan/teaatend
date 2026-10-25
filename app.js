@@ -16602,7 +16602,7 @@ function pnlHtmlWidget(w, i, total){
     // o gatilho ▾ fica colado no texto do título (não espalhado até a
     // borda direita do card) pra nunca ficar embaixo da toolbar de
     // edição, que é absoluta no canto superior direito (ver .recebwidget-toolbar)
-    return `<div class="card recebwidget${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
+    return `<div class="card recebwidget recebwidget-filtro${classeEdit}" data-wid="${w.id}"${pnlEstiloCorWidget(w)}>${toolbar}
       <h2 style="display:flex;align-items:center;gap:6px;${pnlCssEstiloTexto(w.estiloTitulo)}">${escaparHtml(label)}<span data-rfiltro="${escaparHtml(campo)}" style="cursor:pointer;font-weight:400;text-transform:none;font-size:14px;" title="Filtrar ${escaparHtml(label)}">▾</span></h2>
       <div style="font-size:12.5px;color:var(--muted);margin-top:8px;" data-resumo-filtro="${escaparHtml(campo)}">${pnlResumoFiltroConteudoHtml(campo)}</div>
     </div>`;
@@ -16848,6 +16848,7 @@ function pnlRender(){
   document.getElementById('btnPnlExportarExcel').style.display = temDados ? '' : 'none';
   document.getElementById('btnPnlExportarCsv').style.display = (temDados && pnlConsultasCarregadas.length===1) ? '' : 'none';
   document.getElementById('btnPnlExportarMontado').style.display = (temDados && pnlPainelWidgets.length>0) ? '' : 'none';
+  document.getElementById('btnPnlGerarPdf').style.display = (temDados && pnlPainelWidgets.length>0) ? '' : 'none';
   document.getElementById('btnPnlLimparFiltros').disabled = !pnlTemAlgumFiltroAtivo();
   if(temDados){
     const resumo = pnlConsultasCarregadas.map(c=>`${c.nome}: ${(pnlDadosPorConsulta[c.id]||[]).length} linha${(pnlDadosPorConsulta[c.id]||[]).length===1?'':'s'}`).join(' · ');
@@ -17261,6 +17262,25 @@ async function pnlExportarPainelMontado(){
   } finally {
     btn.disabled = false; btn.textContent = textoOriginalBtn;
   }
+}
+// resumo textual dos filtros GERAIS ativos (selects/widgets Filtro do topo
+// do painel) — mostrado no cabeçalho do PDF/impressão, já que lá os
+// controles interativos somem (ver @media print, .recebwidget-filtro)
+function pnlFiltrosTextoParaImpressao(){
+  return pnlPainelFiltros.map(f=>{
+    const set = pnlFiltros[f.campo];
+    if(!set || !set.size) return null;
+    return `${f.apelido || f.campo}: ${[...set].join(', ')}`;
+  }).filter(Boolean).join(' · ');
+}
+// mesmo esquema de prepararImpressao/window.print() já usado pro resto do
+// sistema (Lista/Resumo/Cronograma de atendimentos) — a grade de widgets já
+// renderizada na tela (mesmos dados, mesmos filtros aplicados) é o que sai
+// impresso/no PDF; o CSS de impressão (@media print) cuida de esconder os
+// controles (botões, selects, toolbar de edição) e mostrar só o conteúdo
+function pnlGerarPdf(){
+  if(!pnlPainelWidgets.length){ toast('Esse painel ainda não tem nenhum widget montado.'); return; }
+  prepararImpressao(pnlPainelAtual.nome, pnlFiltrosTextoParaImpressao());
 }
 
 /* ---------- edição do painel (entrar/sair, salvar, formulário de widget) ---------- */
@@ -19502,6 +19522,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlExportarExcel').addEventListener('click', pnlExportarExcel);
   document.getElementById('btnPnlExportarCsv').addEventListener('click', pnlExportarCsv);
   document.getElementById('btnPnlExportarMontado').addEventListener('click', pnlExportarPainelMontado);
+  document.getElementById('btnPnlGerarPdf').addEventListener('click', pnlGerarPdf);
   document.getElementById('pnlMedidaConsulta').addEventListener('change', pnlPopularSelectCampoMedida);
   document.getElementById('pnlMedidaFuncao').addEventListener('change', pnlAtualizarCamposFormMedida);
   document.getElementById('pnlMedidaFormato').addEventListener('change', pnlAtualizarCamposFormMedida);
