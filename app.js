@@ -16022,10 +16022,16 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   if(busca) itens = itens.filter(o=>Object.values(o).some(v=>v!=null && String(v).toLowerCase().includes(busca)));
   const indicesLinks = pnlIndicesLinksWidget(widget);
   const cab = colunas.map(c=>pnlLabelColuna(c, catalogo, widget.colunasApelidos));
+  // clique-pra-filtrar (opcional, ver widget.cliqueFiltrar): só nas colunas
+  // "de verdade" dessa consulta — campo linkado de outra consulta não tem
+  // como entrar no filtro geral (que só compara o campo na PRÓPRIA linha
+  // de cada consulta, ver pnlValorFiltro/pnlFiltrados), então fica sem clique
   const corpo = itens.map(o=>`<tr>${colunas.map(c=>{
     const raw = pnlValorColunaLinha(o, c, indicesLinks);
     const formato = pnlFormatoColuna(c, widget.colunasFormatos);
-    return `<td${pnlColunaEhNumerica(raw, formato)?' class="num"':''}>${escaparHtml(pnlFormatarValorColunaComFormato(raw, formato))}</td>`;
+    const clicavel = widget.cliqueFiltrar && !pnlEhCampoLinkado(c);
+    const atribClique = clicavel ? ` style="cursor:pointer;" data-tcampo="${escaparHtml(c)}" data-tvalor="${escaparHtml(pnlValorFiltro(o, c))}" title="Filtrar por ${escaparHtml(String(raw))}"` : '';
+    return `<td${pnlColunaEhNumerica(raw, formato)?' class="num"':''}${atribClique}>${escaparHtml(pnlFormatarValorColunaComFormato(raw, formato))}</td>`;
   }).join('')}</tr>`).join('');
   const totais = colunas.map((c,i)=>{
     if(i===0) return `<td><b>${itens.length} linha${itens.length===1?'':'s'}</b></td>`;
@@ -16037,6 +16043,11 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
   tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
     <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhuma linha com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
     ${itens.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}`;
+  if(widget.cliqueFiltrar){
+    tab.querySelectorAll('tbody [data-tcampo]').forEach(td=>{
+      td.addEventListener('click', ()=>pnlToggleFiltro(td.dataset.tcampo, td.dataset.tvalor));
+    });
+  }
 }
 // índice (valor do campo de ligação -> TODAS as linhas com esse valor) de
 // uma consulta de subdetalhe — igual pnlIndiceConsultaLinkada, mas
@@ -17410,6 +17421,12 @@ function pnlAtualizarCamposNovoWidget(){
     if([...selFR.options].some(o=>o.value===atualFR)) selFR.value = atualFR;
   }
   document.getElementById('pnlNovoWidgetCampoColunas').style.display = (ehTabelaPersonalizada || ehRelatorio) ? '' : 'none';
+  // clique-pra-filtrar na linha só faz sentido na Tabela de registros
+  // crus (fonte 'linhas') — 'agrupado' já tem clique na célula da
+  // dimensão por padrão (ver pnlRenderWidgetTabelaPersonalizada), e no
+  // Relatório Mestre+Detalhe cada linha já expande/colapsa subdetalhes
+  // ao clicar, então um clique-pra-filtrar ali brigaria com esse gesto
+  document.getElementById('pnlNovoWidgetCampoCliqueFiltrar').style.display = (ehTabelaPersonalizada && fonte==='linhas') ? '' : 'none';
   document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut'||tipo==='treemap'||tipo==='mapa') ? '' : 'none';
   document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = (ehTabelaPersonalizada || ehRelatorio || ehKpi) ? '' : 'none';
   // Links e Subdetalhes são por REGISTRO — não fazem sentido quando o
@@ -17569,6 +17586,7 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetLegenda').checked = false;
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetZebrado').checked = false;
+  document.getElementById('pnlNovoWidgetCliqueFiltrar').checked = false;
   document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value = '';
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
@@ -17676,6 +17694,7 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetLargura').value = w.largura || 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   document.getElementById('pnlNovoWidgetZebrado').checked = !!w.zebrado;
+  document.getElementById('pnlNovoWidgetCliqueFiltrar').checked = !!w.cliqueFiltrar;
   document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value = w.tamanhoFonteLinhas || '';
   pnlAtualizarCamposNovoWidget();
   if(pnlModoCanvas && pnlWidgetTemCanvasValido(w)){
@@ -20006,6 +20025,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
       if(document.getElementById('pnlNovoWidgetZebrado').checked) widget.zebrado = true;
       const tamanhoFonteLinhas = Number(document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value);
       if(tamanhoFonteLinhas > 0) widget.tamanhoFonteLinhas = tamanhoFonteLinhas;
+    }
+    if(ehTabelaPersonalizada && fonte==='linhas' && document.getElementById('pnlNovoWidgetCliqueFiltrar').checked){
+      widget.cliqueFiltrar = true;
     }
     if(ehRelatorio){
       widget.fonte = fonte;
