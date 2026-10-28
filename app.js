@@ -14856,11 +14856,23 @@ let pnlDadosPorConsulta = {};
 let pnlConsultasCarregadas = [];
 let pnlInfo = null;
 let pnlCarregando = false;
+// ids (string) das consultas que estão sendo rebuscadas AGORA sob demanda
+// (ver widget.cliqueRebuscar/pnlAplicarRebuscaSobDemanda) — só pra mostrar
+// "Buscando no RM…" no widget certo enquanto a resposta não chega
+let pnlConsultasRebuscando = new Set();
+// valoresParametros do último "Atualizar do RM" — reaproveitado pela
+// rebusca sob demanda, que só sobrescreve o nome do parâmetro do clique
+// (os outros, se a consulta filha precisar de mais de um, continuam
+// valendo o que foi digitado no modal da atualização em massa)
+let pnlUltimosValoresParametros = {};
 let pnlPainelFiltros = [];
 let pnlPainelFiltrosSalvos = [];
 let pnlFiltros = {};
 let pnlFiltroColunaAberta = null;
 let pnlFormColunasAtual = [];
+// ids das OUTRAS consultas marcadas no form pra rebuscar sob demanda ao
+// clicar nesse widget — ver widget.cliqueRebuscar/pnlRenderRebuscarConsultasLista
+let pnlFormRebuscarConsultasAtual = [];
 // apelidos (nomes customizados) das colunas do Detalhe/Tabela — {campo: texto}
 let pnlFormColunasApelidos = {};
 // formato forçado por coluna do Detalhe/Tabela — {campo: 'texto'|'numero'|'moeda'}
@@ -15672,10 +15684,18 @@ async function pnlAtualizarDoRm(){
   // busca TODAS as consultas vinculadas ao painel que pertencem a esse
   // cliente de uma vez só (pode ser 1, pode ser várias — ex: Vendas +
   // Compras da mesma CORAL)
-  const consultas = pnlConsultasDoCliente(pnlPainelAtual, pnlClienteId);
-  if(!consultas.length){ document.getElementById('pnlStatus').textContent = 'Esse cliente não está vinculado a esse painel — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
+  const todasConsultas = pnlConsultasDoCliente(pnlPainelAtual, pnlClienteId);
+  if(!todasConsultas.length){ document.getElementById('pnlStatus').textContent = 'Esse cliente não está vinculado a esse painel — configure em Relatórios Gerenciais TOTVS RM → Painéis.'; return; }
+  // consultas "sob demanda" (ver widget.cliqueRebuscar) ficam de fora da
+  // busca em massa — só são buscadas quando o widget-gatilho é clicado
+  // (pnlAplicarRebuscaSobDemanda); dentro do EDITOR do painel continua
+  // buscando todas, igual sempre fez, porque é preciso ver uma amostra de
+  // cada consulta pra configurar colunas/filtros
+  const idsLazy = pnlModoEdicao ? new Set() : pnlConsultasLazyIds();
+  const consultas = todasConsultas.filter(c=>!idsLazy.has(String(c.id)));
   const valoresParametros = await rmValoresParametrosDeConsultas(consultas);
   if(!valoresParametros) return;
+  pnlUltimosValoresParametros = valoresParametros;
   pnlCarregando = true;
   const btn = document.getElementById('btnPnlAtualizar');
   const total = consultas.length;
@@ -15797,8 +15817,82 @@ function pnlRenderFiltros(){
 function pnlToggleFiltro(campo, valor){
   if(!pnlPainelFiltros.some(f=>f.campo===campo)) pnlPainelFiltros.push({campo});
   const set = pnlFiltros[campo] = pnlFiltros[campo] || new Set();
-  if(set.has(valor)) set.delete(valor); else set.add(valor);
+  const ligando = !set.has(valor);
+  if(ligando) set.add(valor); else set.delete(valor);
   pnlRender();
+  pnlAplicarRebuscaSobDemanda(campo, valor, ligando, set.size===0);
+}
+// ids (string) das consultas que só são buscadas sob demanda, ao clicar
+// num widget-gatilho (ver widget.cliqueRebuscar) — ficam de fora da busca
+// em massa do "Atualizar do RM" fora do editor (pnlAtualizarDoRm)
+function pnlConsultasLazyIds(){
+  const ids = new Set();
+  pnlPainelWidgets.forEach(w=>{
+    if(w.cliqueRebuscar && Array.isArray(w.cliqueRebuscar.consultas)){
+      w.cliqueRebuscar.consultas.forEach(id=>ids.add(String(id)));
+    }
+  });
+  return ids;
+}
+// mensagem da linha vazia duma Tabela/Relatório quando a consulta não tem
+// nenhum registro pros filtros atuais — distingue "buscando agora"
+// (rebusca sob demanda em andamento) de "só busca quando um registro for
+// clicado" (consulta lazy que ainda não foi buscada) do caso comum de
+// "nem atualizou do RM ainda"
+function pnlMensagemSemDadosConsulta(consultaId){
+  const id = String(consultaId);
+  if(pnlConsultasRebuscando.has(id)) return 'Buscando no RM…';
+  if(pnlConsultasLazyIds().has(id)) return 'Clique num registro acima pra carregar os dados relacionados.';
+  return 'Sem dados — atualize do RM primeiro.';
+}
+// Rebusca sob demanda (ver widget.cliqueRebuscar): pra consultas "filhas"
+// que exigem um parâmetro obrigatório (ex: o ID do contrato) e por isso
+// não entram na busca em massa do "Atualizar do RM" (ver
+// pnlConsultasLazyIds) — ao clicar na coluna configurada, dispara uma
+// busca NOVA no RM só dessas consultas, com o valor clicado como
+// parâmetro, mostrando "Buscando no RM…" enquanto não volta. É um recurso
+// A MAIS, que convive com o clique-pra-filtrar comum (cliqueFiltrar, que
+// continua filtrando instantaneamente os dados já carregados) — cada
+// widget escolhe se quer um, outro, os dois ou nenhum
+async function pnlAplicarRebuscaSobDemanda(campo, valor, ligando, setFicouVazio){
+  const regras = pnlPainelWidgets.filter(w=>w.cliqueRebuscar && w.cliqueRebuscar.campo === campo);
+  if(!regras.length) return;
+  const idsRebuscar = [...new Set(regras.flatMap(w=>w.cliqueRebuscar.consultas||[]))];
+  if(!idsRebuscar.length) return;
+  if(!ligando){
+    // desmarcou o último valor desse campo — sem contrato selecionado não
+    // tem como essas consultas rodarem (o parâmetro é obrigatório), então
+    // só limpa; se ainda sobrou outro valor marcado (multi-seleção), deixa
+    // o que já tinha sido buscado como está (não dá pra combinar 2 contratos)
+    if(setFicouVazio){
+      idsRebuscar.forEach(id=>{ delete pnlDadosPorConsulta[id]; });
+      pnlRender();
+    }
+    return;
+  }
+  const parametro = regras[0].cliqueRebuscar.parametro || campo;
+  idsRebuscar.forEach(id=>pnlConsultasRebuscando.add(String(id)));
+  pnlRender();
+  try{
+    const valoresParametros = { ...pnlUltimosValoresParametros, [parametro]: valor };
+    const resultados = await Promise.all(idsRebuscar.map(async id=>{
+      const c = rmRelatoriosGerenciais.find(x=>String(x.id)===String(id));
+      if(!c) return null;
+      const r = await api('executarRmRelatorioGerencial', { contaId: contaAtual().id, clienteId: pnlClienteId, relatorioId: c.id, painelId: pnlPainelAtual.id, valoresParametros });
+      return { c, r };
+    }));
+    const validos = resultados.filter(Boolean);
+    validos.forEach(({c, r})=>{
+      if(!r.ok) return;
+      pnlDadosPorConsulta[c.id] = r.linhas || [];
+      if(!pnlConsultasCarregadas.some(x=>x.id===c.id)) pnlConsultasCarregadas.push({ id:c.id, nome:c.nome });
+    });
+    const falha = validos.find(({r})=>!r.ok);
+    if(falha) toast(falha.r.erro || 'Não foi possível buscar os dados relacionados.');
+  } finally {
+    idsRebuscar.forEach(id=>pnlConsultasRebuscando.delete(String(id)));
+    pnlRender();
+  }
 }
 
 /* ---------- render de cada tipo de widget ---------- */
@@ -16004,7 +16098,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
       return `<tr>${celulasDimHtml}${celulasValHtml}</tr>`;
     }).join('');
     tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
-      <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum grupo com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>`;
+      <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum grupo com esses filtros.' : pnlMensagemSemDadosConsulta(consultaId)}</td></tr>`}</tbody>`;
     tab.querySelectorAll('tbody [data-tcampo]').forEach(td=>{
       td.addEventListener('click', ()=>pnlToggleFiltro(td.dataset.tcampo, td.dataset.tvalor));
     });
@@ -16041,7 +16135,7 @@ function pnlRenderWidgetTabelaPersonalizada(widget, linhas){
     return vals.length ? `<td class="num"><b>${pnlFormatarTotalColunaComFormato(vals.reduce((s,v)=>s+v,0), formato)}</b></td>` : '<td></td>';
   }).join('');
   tab.innerHTML = `<thead><tr>${cab.map(c=>`<th>${escaparHtml(c)}</th>`).join('')}</tr></thead>
-    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhuma linha com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
+    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhuma linha com esses filtros.' : pnlMensagemSemDadosConsulta(consultaId)}</td></tr>`}</tbody>
     ${itens.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}`;
   if(widget.cliqueFiltrar){
     tab.querySelectorAll('tbody [data-tcampo]').forEach(td=>{
@@ -16231,7 +16325,7 @@ function pnlRenderWidgetRelatorio(containerId, widget, linhas){
   const totais = pnlLinhaTotalColunas(linhas, colunas, indicesLinks, `${linhas.length} registro${linhas.length===1?'':'s'}`, '', widget.colunasFormatos, valorColuna);
   el.innerHTML = `<table class="valores-table pnl-relatorio-tabela"${pnlAtributoFonteLinhasTabela(widget)}>
     <thead><tr>${cab.join('')}</tr></thead>
-    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : 'Sem dados — atualize do RM primeiro.'}</td></tr>`}</tbody>
+    <tbody>${corpo || `<tr><td colspan="${cab.length}" class="empty">${(pnlDadosPorConsulta[consultaId]||[]).length ? 'Nenhum registro com esses filtros.' : pnlMensagemSemDadosConsulta(consultaId)}</td></tr>`}</tbody>
     ${linhas.length ? `<tfoot><tr>${totais}</tr></tfoot>` : ''}
   </table>`;
 }
@@ -16337,6 +16431,20 @@ function pnlRenderColunasPicker(fonte, consultaId, subdetalhesForm){
       (Object.keys(camposSubdetalhe).length ? `<div style="font-weight:700;font-size:11px;color:var(--muted);margin:10px 0 2px;">CALCULADO A PARTIR DO SUBDETALHE</div>${montaItens(camposSubdetalhe)}` : '');
   }
   pnlRenderColunasOrdem(opcoesCombinadas);
+}
+// checklist de quais OUTRAS consultas do painel são buscadas sob demanda
+// (rebusca no RM) quando esse widget for clicado na coluna escolhida em
+// "Coluna que dispara a rebusca" — ver widget.cliqueRebuscar
+function pnlRenderRebuscarConsultasLista(consultaId){
+  const cont = document.getElementById('pnlNovoWidgetRebuscarConsultasLista');
+  if(!cont) return;
+  const marcadas = new Set(pnlFormRebuscarConsultasAtual);
+  const outras = pnlConsultasCarregadas.filter(c=>c.id!==consultaId);
+  cont.innerHTML = outras.length ? outras.map(c=>`
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:normal;">
+      <input type="checkbox" data-wrebuscarconsulta value="${escaparHtml(c.id)}" ${marcadas.has(c.id)?'checked':''} style="width:auto;"> ${escaparHtml(c.nome)}
+    </label>
+  `).join('') : `<div style="color:var(--muted);font-size:12.5px;">Nenhuma outra consulta nesse painel ainda.</div>`;
 }
 // lista dos links já configurados no form (fonte 'linhas'), com botão de remover
 function pnlRenderLinksLista(){
@@ -17427,6 +17535,17 @@ function pnlAtualizarCamposNovoWidget(){
   // Relatório Mestre+Detalhe cada linha já expande/colapsa subdetalhes
   // ao clicar, então um clique-pra-filtrar ali brigaria com esse gesto
   document.getElementById('pnlNovoWidgetCampoCliqueFiltrar').style.display = (ehTabelaPersonalizada && fonte==='linhas') ? '' : 'none';
+  // rebusca sob demanda (ver widget.cliqueRebuscar) é um recurso A MAIS em
+  // cima do clique-pra-filtrar — só aparece com ele marcado
+  const mostraRebuscar = (ehTabelaPersonalizada && fonte==='linhas') && document.getElementById('pnlNovoWidgetCliqueFiltrar').checked;
+  document.getElementById('pnlNovoWidgetCampoRebuscarSobDemanda').style.display = mostraRebuscar ? '' : 'none';
+  if(mostraRebuscar){
+    const selRebuscarCampo = document.getElementById('pnlNovoWidgetRebuscarCampo');
+    const atualRebuscarCampo = selRebuscarCampo.value;
+    selRebuscarCampo.innerHTML = `<option value="">(nenhuma — só filtra, sem rebuscar)</option>` + Object.entries(pnlColunasTabelaDisponiveis(consultaId)).map(([k,v])=>`<option value="${escaparHtml(k)}">${escaparHtml(v)}</option>`).join('');
+    if([...selRebuscarCampo.options].some(o=>o.value===atualRebuscarCampo)) selRebuscarCampo.value = atualRebuscarCampo;
+    pnlRenderRebuscarConsultasLista(consultaId);
+  }
   document.getElementById('pnlNovoWidgetCampoGrafico').style.display = (tipo==='barra'||tipo==='barra-h'||tipo==='linha'||tipo==='donut'||tipo==='treemap'||tipo==='mapa') ? '' : 'none';
   document.getElementById('pnlNovoWidgetLinhaFiltroFixo').style.display = (ehTabelaPersonalizada || ehRelatorio || ehKpi) ? '' : 'none';
   // Links e Subdetalhes são por REGISTRO — não fazem sentido quando o
@@ -17587,6 +17706,9 @@ function pnlResetFormNovoWidget(){
   document.getElementById('pnlNovoWidgetRotulos').checked = false;
   document.getElementById('pnlNovoWidgetZebrado').checked = false;
   document.getElementById('pnlNovoWidgetCliqueFiltrar').checked = false;
+  pnlFormRebuscarConsultasAtual = [];
+  document.getElementById('pnlNovoWidgetRebuscarCampo').value = '';
+  document.getElementById('pnlNovoWidgetRebuscarParametro').value = '';
   document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value = '';
   document.getElementById('pnlNovoWidgetLargura').value = 'completa';
   document.getElementById('pnlNovoWidgetAltura').value = 'padrao';
@@ -17695,8 +17817,11 @@ function pnlWidgetEditar(id){
   document.getElementById('pnlNovoWidgetAltura').value = w.altura || 'padrao';
   document.getElementById('pnlNovoWidgetZebrado').checked = !!w.zebrado;
   document.getElementById('pnlNovoWidgetCliqueFiltrar').checked = !!w.cliqueFiltrar;
+  pnlFormRebuscarConsultasAtual = w.cliqueRebuscar ? (w.cliqueRebuscar.consultas||[]).slice() : [];
   document.getElementById('pnlNovoWidgetTamanhoFonteLinhas').value = w.tamanhoFonteLinhas || '';
   pnlAtualizarCamposNovoWidget();
+  document.getElementById('pnlNovoWidgetRebuscarCampo').value = (w.cliqueRebuscar && w.cliqueRebuscar.campo) || '';
+  document.getElementById('pnlNovoWidgetRebuscarParametro').value = (w.cliqueRebuscar && w.cliqueRebuscar.parametro) || '';
   if(pnlModoCanvas && pnlWidgetTemCanvasValido(w)){
     document.getElementById('pnlNovoWidgetCanvasX').value = w.canvas.x;
     document.getElementById('pnlNovoWidgetCanvasY').value = w.canvas.y;
@@ -19747,6 +19872,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
   document.getElementById('pnlNovoWidgetTipo').addEventListener('change', pnlAtualizarCamposNovoWidget);
   document.getElementById('pnlNovoWidgetConsulta').addEventListener('change', pnlAtualizarCamposNovoWidget);
+  // marcar/desmarcar "Clicar numa célula filtra o painel" mostra/esconde a
+  // seção de rebusca sob demanda na hora (ver pnlAtualizarCamposNovoWidget)
+  document.getElementById('pnlNovoWidgetCliqueFiltrar').addEventListener('change', pnlAtualizarCamposNovoWidget);
+  document.getElementById('pnlNovoWidgetRebuscarConsultasLista').addEventListener('change', e=>{
+    const cb = e.target.closest('[data-wrebuscarconsulta]'); if(!cb) return;
+    const id = cb.value;
+    if(cb.checked){ if(!pnlFormRebuscarConsultasAtual.includes(id)) pnlFormRebuscarConsultasAtual.push(id); }
+    else pnlFormRebuscarConsultasAtual = pnlFormRebuscarConsultasAtual.filter(x=>x!==id);
+  });
   document.getElementById('pnlNovoWidgetCorBordaAtiva').addEventListener('change', e=>{
     document.getElementById('pnlNovoWidgetCorBorda').disabled = !e.target.checked;
   });
@@ -20028,6 +20162,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     }
     if(ehTabelaPersonalizada && fonte==='linhas' && document.getElementById('pnlNovoWidgetCliqueFiltrar').checked){
       widget.cliqueFiltrar = true;
+      const rebuscarCampo = document.getElementById('pnlNovoWidgetRebuscarCampo').value;
+      const rebuscarConsultas = [...document.querySelectorAll('#pnlNovoWidgetRebuscarConsultasLista [data-wrebuscarconsulta]:checked')].map(cb=>cb.value);
+      if(rebuscarCampo && rebuscarConsultas.length){
+        const rebuscarParametro = document.getElementById('pnlNovoWidgetRebuscarParametro').value.trim();
+        widget.cliqueRebuscar = { campo: rebuscarCampo, parametro: rebuscarParametro || rebuscarCampo, consultas: rebuscarConsultas };
+      }
     }
     if(ehRelatorio){
       widget.fonte = fonte;
