@@ -2961,6 +2961,21 @@
             <input type="checkbox" id="pnlNovoWidgetCliqueFiltrar" style="width:auto;"> Clicar numa célula filtra o painel por aquele campo/valor (estilo Power BI)
           </label>
         </div>
+        <div id="pnlNovoWidgetCampoRebuscarSobDemanda" style="display:none;margin:0 0 10px 0;padding:10px;border:1px dashed var(--line);border-radius:8px;">
+          <div style="font-size:12.5px;color:var(--muted);margin-bottom:8px;">Opcional — além de filtrar o que já foi carregado, o clique também pode buscar dados NOVOS no RM (útil quando os widgets abaixo exigem um parâmetro obrigatório, tipo o ID do registro clicado, e por isso não entram na busca em massa do "Atualizar do RM").</div>
+          <div class="row">
+            <div class="field"><label>Coluna que dispara a rebusca</label>
+              <select id="pnlNovoWidgetRebuscarCampo"><option value="">(nenhuma — só filtra, sem rebuscar)</option></select>
+            </div>
+            <div class="field"><label>Nome do parâmetro a enviar pro RM</label>
+              <input type="text" id="pnlNovoWidgetRebuscarParametro" placeholder="ex: idcnt">
+            </div>
+          </div>
+          <div class="field">
+            <label>Rebuscar estas consultas quando clicar</label>
+            <div id="pnlNovoWidgetRebuscarConsultasLista" style="display:flex;flex-direction:column;gap:4px;max-height:160px;overflow-y:auto;"></div>
+          </div>
+        </div>
         <div class="row" id="pnlNovoWidgetLinhaFiltroFixo" style="display:none;">
           <div class="field"><label>Filtro fixo do widget (campo)</label>
             <select id="pnlNovoWidgetFiltroFixoCampo"><option value="">(nenhum)</option></select>
