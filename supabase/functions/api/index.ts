@@ -540,6 +540,12 @@ async function acaoEmpresaPadrao(_req: any) {
   return { ok: true, empresa: data ? empresaParaApi(data) : null };
 }
 
+// status que ainda precisam de atenção — um atendimento nesses status
+// NUNCA pode sumir da Lista/Kanban só por ser antigo (ver req.atendimentosDesde
+// logo abaixo), mesma regra/mesmos nomes do STATUS_SEMPRE_VISIVEL do front
+// (app.js, itensAtendimentosFiltrados)
+const STATUS_SEMPRE_VISIVEL = ['PENDENTE', 'EM ANDAMENTO', 'EM VALIDAÇÃO', 'NÃO VALIDADO'];
+
 async function acaoDados(req: any) {
   const contaId = req.contaId;
   const empresaId = req.empresaId || null;
@@ -636,23 +642,42 @@ async function acaoDados(req: any) {
   let atendimentos: any[] = [];
   let vinculos: any[] = [];
   if (comAtendimentos) {
-    let atendimentosQuery = db.from('atendimentos').select('*').order('data', { ascending: false });
-    if (empresaId) atendimentosQuery = atendimentosQuery.eq('empresa_id', empresaId);
-    if (contaAtual && contaAtual.perfil === 'USUARIO') {
-      // usuário marcado como "administrador do cliente" vê TODOS os
-      // atendimentos daquele cliente, não só os que ele mesmo abriu
-      if (contaAtual.admin_cliente && contaAtual.cliente_id) {
-        const clienteDoUsuario = (clientes || []).find((c: any) => String(c.id) === String(contaAtual.cliente_id));
-        if (clienteDoUsuario) {
-          atendimentosQuery = atendimentosQuery.eq('cliente', clienteDoUsuario.nome);
+    // mesmo escopo de visibilidade (empresa + USUARIO só vê o próprio
+    // cliente/os próprios) aplicado em QUALQUER consulta na tabela
+    // "atendimentos" — reaproveitado pelas 2 buscas logo abaixo
+    const comEscopo = (q: any) => {
+      let qq = q;
+      if (empresaId) qq = qq.eq('empresa_id', empresaId);
+      if (contaAtual && contaAtual.perfil === 'USUARIO') {
+        // usuário marcado como "administrador do cliente" vê TODOS os
+        // atendimentos daquele cliente, não só os que ele mesmo abriu
+        if (contaAtual.admin_cliente && contaAtual.cliente_id) {
+          const clienteDoUsuario = (clientes || []).find((c: any) => String(c.id) === String(contaAtual.cliente_id));
+          qq = clienteDoUsuario ? qq.eq('cliente', clienteDoUsuario.nome) : qq.eq('usuario', contaAtual.nome);
         } else {
-          atendimentosQuery = atendimentosQuery.eq('usuario', contaAtual.nome);
+          qq = qq.eq('usuario', contaAtual.nome);
         }
-      } else {
-        atendimentosQuery = atendimentosQuery.eq('usuario', contaAtual.nome);
       }
+      return qq;
+    };
+    let atendimentosRaw: any[];
+    if (req.atendimentosDesde) {
+      // carregamento "janela recente" (ver dataLimiteJanelaInicial no
+      // front): busca os atendimentos de dentro da janela MAIS os que
+      // estão fora dela mas ainda em aberto (mesmos status de
+      // STATUS_SEMPRE_VISIVEL do front) — um chamado aberto nunca pode
+      // sumir da Lista/Kanban só por ser antigo, senão perde o controle
+      // dele; só o histórico já FECHADO fora da janela fica de fora
+      const [recentes, abertosAntigos] = await Promise.all([
+        comEscopo(db.from('atendimentos').select('*').order('data', { ascending: false }).gte('data', req.atendimentosDesde)),
+        comEscopo(db.from('atendimentos').select('*').order('data', { ascending: false }).in('status', STATUS_SEMPRE_VISIVEL).lt('data', req.atendimentosDesde)),
+      ]);
+      const idsRecentes = new Set((recentes.data || []).map((a: any) => a.id));
+      atendimentosRaw = [...(recentes.data || []), ...((abertosAntigos.data || []).filter((a: any) => !idsRecentes.has(a.id)))];
+    } else {
+      const { data } = await comEscopo(db.from('atendimentos').select('*').order('data', { ascending: false }));
+      atendimentosRaw = data || [];
     }
-    const { data: atendimentosRaw } = await atendimentosQuery;
 
     // vínculos entre chamados — traz tudo de uma vez (em vez de uma consulta
     // por card) pro app conseguir montar a árvore de vínculos na lista/Kanban

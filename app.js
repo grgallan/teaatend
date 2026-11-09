@@ -807,6 +807,20 @@ function mostrarCarregando(mostrar){
   document.getElementById('loadingOverlay').style.display = mostrar ? 'flex' : 'none';
 }
 
+// data (AAAA-MM-DD) a partir da qual a janela "recente" de atendimentos
+// cobre — início do mês, 2 meses atrás (mês atual + os 2 anteriores = 3
+// meses no total). Usada tanto pra montar a requisição de login quanto
+// pra decidir se um período pedido numa tela (Resumo/Dashboard/Gantt/
+// Financeiro) já está coberto ou precisa buscar o histórico completo
+function dataLimiteJanelaInicial(){
+  const hoje = new Date();
+  const inicio = new Date(hoje.getFullYear(), hoje.getMonth()-2, 1);
+  return inicio.toISOString().slice(0,10);
+}
+// null = o array "atendimentos" em memória já tem o histórico INTEIRO;
+// uma data = só tem a partir dali (a janela recente do login) — ver
+// garantirHistoricoCompleto, que troca pra "tudo" sob demanda
+let atendimentosJanelaDesde = null;
 async function carregarTudo(opcoes={}){
   const contaId = sessaoConta ? sessaoConta.id : '';
   const empresaId = empresaAtual ? empresaAtual.id : '';
@@ -816,10 +830,18 @@ async function carregarTudo(opcoes={}){
   // desnecessário no Supabase. O backend então nem manda essas 2 chaves de
   // volta, e aqui a gente preserva o que já tava em memória.
   const comAtendimentos = opcoes.comAtendimentos !== false;
-  const r = await api('dados', { contaId, empresaId, comAtendimentos });
+  // o carregamento padrão (login) só traz os últimos 3 meses — cobre o uso
+  // do dia a dia (Lista/Kanban/chat) sem rebuscar o histórico inteiro toda
+  // vez; passar historicoCompleto:true (ver garantirHistoricoCompleto)
+  // busca tudo, sem esse corte — usado só quando uma tela que precisa de
+  // verdade do histórico completo (Resumo, Dashboard, Gantt, Financeiro) é
+  // aberta de fato, em vez de sempre, pra todo mundo, a cada login
+  const historicoCompleto = !!opcoes.historicoCompleto;
+  const atendimentosDesde = (comAtendimentos && !historicoCompleto) ? dataLimiteJanelaInicial() : undefined;
+  const r = await api('dados', { contaId, empresaId, comAtendimentos, atendimentosDesde });
   if(!r.ok) return false;
   contas = r.contas; clientes = r.clientes; tipos = r.tipos; segmentos = r.segmentos||[]; modulos = r.modulos||[]; submodulos = r.submodulos||[]; statusList = r.statusList||[]; valores = r.valores;
-  if(r.atendimentos !== undefined) atendimentos = r.atendimentos;
+  if(r.atendimentos !== undefined){ atendimentos = r.atendimentos; atendimentosJanelaDesde = atendimentosDesde || null; }
   if(r.vinculos !== undefined) vinculos = r.vinculos;
   categoriasFinanceiras = r.categoriasFinanceiras||[];
   rmRelatoriosGerenciais = r.rmRelatoriosGerenciais||[];
@@ -839,6 +861,20 @@ async function carregarTudo(opcoes={}){
     if(atualizada) { sessaoConta = atualizada; gravarSessao(sessaoConta); }
   }
   return true;
+}
+// telas que precisam enxergar o histórico INTEIRO de atendimentos (não só
+// a janela recente carregada no login — ver dataLimiteJanelaInicial): Resumo,
+// Dashboard, Gantt, Financeiro. Chamar isso antes de renderizar troca pra
+// "tudo", mas só busca de verdade na PRIMEIRA vez que alguém abre uma
+// dessas telas na sessão (depois disso já está tudo em memória, sem custo
+// nenhum nas chamadas seguintes) — idempotente mesmo se chamada em paralelo
+let carregandoHistoricoCompleto = null;
+async function garantirHistoricoCompleto(){
+  if(atendimentosJanelaDesde === null) return true;
+  if(!carregandoHistoricoCompleto){
+    carregandoHistoricoCompleto = carregarTudo({ historicoCompleto: true }).finally(()=>{ carregandoHistoricoCompleto = null; });
+  }
+  return carregandoHistoricoCompleto;
 }
 // atualiza (ou insere, se for um atendimento novo) UMA linha no array local
 // de atendimentos, sem rebuscar a tabela inteira do servidor — usada pelas
@@ -5432,7 +5468,7 @@ async function carregarRelatoriosPublicados(){
   }
 }
 
-function usarRelatorioPublicado(id){
+async function usarRelatorioPublicado(id){
   const rel = relatoriosPublicadosCache.find(x=>x.id === id);
   if(!rel) return;
   relEditandoId = null; // consumindo, não editando o salvo original
@@ -5440,6 +5476,10 @@ function usarRelatorioPublicado(id){
   document.getElementById('rel_titulo').value = rel.nome;
   document.getElementById('relatorioPubTitulo').textContent = rel.nome;
   document.getElementById('cardPreviewRelatoriosPub').style.display = '';
+  // um relatório publicado pode cobrir período anterior à janela recente
+  // (ver dataLimiteJanelaInicial) — garante o histórico inteiro antes de
+  // montar a prévia, senão linhas antigas somem silenciosamente
+  await garantirHistoricoCompleto();
   atualizarRelatorioComMovimentacoes();
   document.getElementById('cardPreviewRelatoriosPub').scrollIntoView({ behavior:'smooth' });
 }
@@ -6075,6 +6115,11 @@ function atualizarValorTotalFin(){
 }
 
 async function gerarLancamento(){
+  // a tela Financeiro já dispara isso ao abrir (ver goView), mas espera
+  // aqui de novo (sem custo se já tiver terminado) — um lançamento de
+  // RECEITA lista atendimentos não faturados do histórico inteiro, nunca
+  // só da janela recente, senão um atendimento antigo ficaria de fora à toa
+  await garantirHistoricoCompleto();
   const tipo = finTipoLancamento;
   const dataVencimento = document.getElementById('fin_vencimento').value;
   if(!dataVencimento){ toast('Informe a data de vencimento'); return; }
@@ -7068,7 +7113,11 @@ async function excluirAgendamento(id){
   toast('Agendamento excluído');
 }
 
-function exportarCsv(){
+async function exportarCsv(){
+  // a tela Resumo já dispara isso ao abrir (ver goView), mas espera aqui
+  // de novo (sem custo se já tiver terminado) — evita exportar incompleto
+  // se a pessoa clicar rápido demais, antes do histórico completo voltar
+  await garantirHistoricoCompleto();
   const mes = document.getElementById('r_mes').value;
   const conta = contaAtual();
   const isAdmin = ehAdminEfetivo(conta);
@@ -9048,6 +9097,10 @@ async function carregarAtividades(){
   if(!conta) return;
   const cont = document.getElementById('listaAtividades');
   cont.innerHTML = `<div class="empty" style="padding:14px;">Carregando…</div>`;
+  // os chips de atendimento vinculado (renderItemAtividade) podem apontar
+  // pra um atendimento fora da janela recente carregada no login — garante
+  // o histórico inteiro antes, senão o vínculo sumiria do card à toa
+  await garantirHistoricoCompleto();
   try{
     const r = await api('listarAtividades', { contaId: conta.id, empresaId: empresaAtual ? empresaAtual.id : '' });
     if(!r.ok){ cont.innerHTML = `<div class="empty">${r.erro || 'Não foi possível carregar.'}</div>`; return; }
@@ -10030,7 +10083,10 @@ function goProjSub(sub){
   projSubAba = sub;
   document.querySelectorAll('#projSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.projsub===sub));
   document.querySelectorAll('.proj-sub-view').forEach(v=>{ v.style.display = (v.id === 'proj-sub-'+sub) ? '' : 'none'; });
-  if(sub==='dashboard') renderDashboardProjeto();
+  // o Dashboard do projeto soma financeiro dos atendimentos vinculados —
+  // pode incluir atendimento fora da janela recente carregada no login
+  // (ver dataLimiteJanelaInicial), então busca o histórico inteiro antes
+  if(sub==='dashboard'){ renderDashboardProjeto(); garantirHistoricoCompleto().then(()=>{ if(projSubAba==='dashboard') renderDashboardProjeto(); }); }
   else if(sub==='tarefas') renderTabelaTarefas();
   else if(sub==='quadro') renderQuadroProjeto();
   else if(sub==='kanban') renderKanbanProjeto();
@@ -18175,8 +18231,16 @@ function editarUsuario(id){
   document.getElementById('btnAddUsuario').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoUsuario').style.display = '';
 
-  const historico = atendimentos.filter(a=>a.usuario === u.nome).slice().sort((a,b)=>String(b.data).localeCompare(String(a.data)));
-  const cardHist = document.getElementById('historicoUsuarioCard');
+  renderHistoricoUsuario(u.nome);
+  // histórico pode ter atendimentos fora da janela recente carregada no
+  // login (ver dataLimiteJanelaInicial) — busca o resto por trás e
+  // re-renderiza, só se ainda estiver editando esse mesmo usuário
+  garantirHistoricoCompleto().then(()=>{ if(editandoUsuarioId===id) renderHistoricoUsuario(u.nome); });
+  document.getElementById('historicoUsuarioCard').style.display = '';
+  document.getElementById('us_nome').scrollIntoView({behavior:'smooth', block:'start'});
+}
+function renderHistoricoUsuario(nomeUsuario){
+  const historico = atendimentos.filter(a=>a.usuario === nomeUsuario).slice().sort((a,b)=>String(b.data).localeCompare(String(a.data)));
   const contHist = document.getElementById('historicoUsuario');
   if(historico.length === 0){
     contHist.innerHTML = `<div class="empty">Nenhum atendimento registrado ainda.</div>`;
@@ -18189,8 +18253,6 @@ function editarUsuario(id){
       </div>`;
     }).join('');
   }
-  cardHist.style.display = '';
-  document.getElementById('us_nome').scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 function cancelarEdicaoUsuario(){
@@ -18957,24 +19019,38 @@ async function removerAnexoGenerico(id, containerId, atendimentoId, podeRemover)
 }
 
 /* ---------- navegação ---------- */
+// roda fn() só se a tela "name" ainda for a que está aberta — evita que
+// uma busca de histórico completo disparada ao abrir uma tela (ver
+// garantirHistoricoCompleto em goView) sobrescreva o conteúdo de outra
+// tela pra onde o usuário já navegou enquanto ela ainda tava em andamento
+function seAindaNestaView(name, fn){
+  const el = document.getElementById('view-'+name);
+  if(el && el.classList.contains('active')) fn();
+}
 function goView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.view===name));
   document.querySelectorAll('.navbtn').forEach(t=>t.classList.toggle('active', t.dataset.view===name));
   if(name==='lista') renderLista();
-  if(name==='resumo') renderResumo();
-  if(name==='dashboard') renderDashboard();
-  if(name==='gantt'){ renderFiltrosGantt(); renderGantt(); }
+  // Resumo/Dashboard/Gantt/Financeiro (abaixo) precisam do histórico
+  // INTEIRO de atendimentos, não só a janela recente carregada no login
+  // (ver dataLimiteJanelaInicial) — renderiza já com o que tiver, e busca
+  // o resto por trás, re-renderizando se ainda for a tela ativa quando a
+  // busca terminar (normalmente instantâneo a partir da 2ª vez na sessão)
+  if(name==='resumo'){ renderResumo(); garantirHistoricoCompleto().then(()=>seAindaNestaView('resumo', renderResumo)); }
+  if(name==='dashboard'){ renderDashboard(); garantirHistoricoCompleto().then(()=>seAindaNestaView('dashboard', renderDashboard)); }
+  if(name==='gantt'){ renderFiltrosGantt(); renderGantt(); garantirHistoricoCompleto().then(()=>seAindaNestaView('gantt', renderGantt)); }
   if(name==='relatorio'){
     renderRelatorioFiltros(); renderRelatorioColunas(); atualizarRelatorioComMovimentacoes();
     carregarRelatoriosSalvos().then(renderListaRelatoriosSalvos);
+    garantirHistoricoCompleto().then(()=>seAindaNestaView('relatorio', atualizarRelatorioComMovimentacoes));
   }
   if(name==='relatoriospub'){
     document.getElementById('cardPreviewRelatoriosPub').style.display = 'none';
     carregarRelatoriosPublicados();
   }
-  if(name==='cubo'){ renderTodosSeletoresCubo(); renderCuboPerfilSelect(); renderCubo(); }
+  if(name==='cubo'){ renderTodosSeletoresCubo(); renderCuboPerfilSelect(); renderCubo(); garantirHistoricoCompleto().then(()=>seAindaNestaView('cubo', renderCubo)); }
   if(name==='relatoriosgerenciaisrm'){ goRgrmSub(primeiraSubAbaVisivel('relatoriosgerenciaisrm', rgrmAba)); }
   if(name==='financeiro'){
     goFinSub(primeiraSubAbaVisivel('financeiro', finAba));
@@ -18987,6 +19063,7 @@ function goView(name){
     carregarNotasImportadas().then(renderListaNotasImportadas);
     document.getElementById('fin_xml_preview').style.display = 'none';
     document.getElementById('fin_xml_arquivo').value = '';
+    garantirHistoricoCompleto().then(()=>seAindaNestaView('financeiro', ()=>{ popularMesesFinanceiro(); renderFinAtendimentosLista(); }));
   }
   if(name==='agenda'){
     goAgSub(primeiraSubAbaVisivel('agenda', agAba));
