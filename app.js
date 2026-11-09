@@ -508,7 +508,7 @@ async function aplicarStatusMassa(){
     if(!r.ok){ toast(r.erro || 'Não foi possível alterar o status.'); return; }
     fecharModalStatusMassa();
     limparSelecao();
-    await carregarTudo();
+    if(!patchAtendimentosLocal(r.atendimentos)) await carregarTudo();
     renderLista(); renderResumo();
     const aviso = r.semSolucao > 0 ? ` — ${r.semSolucao} não fechado${r.semSolucao>1?'s':''} por falta de Solução (finalize pelo chat)` : '';
     toast(`${r.atualizados} de ${r.total} atendimentos atualizados${aviso}`);
@@ -839,6 +839,34 @@ async function carregarTudo(opcoes={}){
     if(atualizada) { sessaoConta = atualizada; gravarSessao(sessaoConta); }
   }
   return true;
+}
+// atualiza (ou insere, se for um atendimento novo) UMA linha no array local
+// de atendimentos, sem rebuscar a tabela inteira do servidor — usada pelas
+// ações que mexem num atendimento só (salvar, aprovar/rejeitar validação,
+// finalizar pelo chat, mudar status em massa) agora que o backend devolve
+// a linha já pronta (ver atendimentoUnicoParaFrontend no backend). Isso era
+// de longe a maior fonte de Egress do sistema: cada clique nessas ações
+// rebuscava o histórico INTEIRO de atendimentos, mesmo mudando 1 linha só
+function patchAtendimentoLocal(linha){
+  if(!linha) return false;
+  const i = atendimentos.findIndex(a=>String(a.id)===String(linha.id));
+  if(i >= 0) atendimentos[i] = linha;
+  else atendimentos.unshift(linha);
+  atualizarBadgeAtendimentos();
+  return true;
+}
+// mesma ideia, pra quando várias linhas mudaram de uma vez (ver
+// alterarStatusEmMassa)
+function patchAtendimentosLocal(linhas){
+  if(!Array.isArray(linhas) || !linhas.length) return false;
+  linhas.forEach(patchAtendimentoLocal);
+  return true;
+}
+function removerAtendimentoLocal(id){
+  const antes = atendimentos.length;
+  atendimentos = atendimentos.filter(a=>String(a.id)!==String(id));
+  atualizarBadgeAtendimentos();
+  return atendimentos.length !== antes;
 }
 
 /* ---------- sessão / login ---------- */
@@ -1591,7 +1619,7 @@ async function salvarRegistro(){
   try{
     const dataPrevista = isUsuario ? '' : document.getElementById('f_data_prevista').value;
     const payload = { id: editandoId, data, cliente, usuario, segmento, modulo, submodulo, tipo, atendente, assunto, detalhe, solucao, hi, inter, hf, status,
-      dataPrevista, atendente2, horasAtendente2, empresaId: empresaAtual ? empresaAtual.id : '',
+      dataPrevista, atendente2, horasAtendente2, empresaId: empresaAtual ? empresaAtual.id : '', contaId: conta.id,
       qtdManual: qtdManualStr !== '' ? Number(qtdManualStr) : undefined };
 
     // anexo inicial (só existe esse campo na criação — depois de salvo, usa a lista de múltiplos anexos)
@@ -1612,7 +1640,7 @@ async function salvarRegistro(){
     // projCriarAtendimentoParaRecurso), vincula o atendimento recém-criado
     // ao projeto de origem e volta pra lá, em vez do fluxo padrão
     const vincularProjeto = (!editandoId && projVincularAposSalvarAtendimento) ? projVincularAposSalvarAtendimento : null;
-    await carregarTudo();
+    if(!patchAtendimentoLocal(r.atendimento)) await carregarTudo();
     resetForm();
     renderLista();
     renderResumo();
@@ -2722,7 +2750,7 @@ async function soltarDragKanban(e){
   try{
     const r = await api('alterarStatusEmMassa', { ids:[id], novoStatus, contaId: conta.id });
     if(!r.ok){ toast(r.erro || 'Não foi possível mudar o status.'); return; }
-    await carregarTudo();
+    if(!patchAtendimentosLocal(r.atendimentos)) await carregarTudo();
     renderLista();
     renderResumo();
     if(r.semSolucao > 0){
@@ -2748,7 +2776,7 @@ function cancelarDragKanban(e){
 async function excluirAtendimento(id){
   const r = await api('excluirAtendimento', { id });
   if(!r.ok) return;
-  await carregarTudo();
+  if(!removerAtendimentoLocal(id)) await carregarTudo();
   renderLista(); renderResumo();
   toast('Lançamento excluído');
 }
@@ -9728,7 +9756,7 @@ async function moverStatus(id, direcao){
   renderListStatus(); // resposta visual imediata, antes mesmo do servidor confirmar
   const conta = contaAtual();
   const r = await api('reordenarStatus', { contaId: conta.id, ids: novaOrdem.map(s=>s.id) });
-  if(!r.ok){ toast(r.erro || 'Não foi possível reordenar.'); await carregarTudo(); renderListStatus(); return; }
+  if(!r.ok){ toast(r.erro || 'Não foi possível reordenar.'); await carregarTudo({ comAtendimentos: false }); renderListStatus(); return; }
   await carregarTudo({ comAtendimentos: false });
   renderCadastrosTudo();
   renderFiltrosStatus();
@@ -18207,7 +18235,7 @@ async function aprovarValidacaoUi(id){
   const r = await api('aprovarValidacao', { contaId: conta.id, id });
   if(!r.ok){ toast(r.erro || 'Não foi possível aprovar a validação.'); return; }
   toast('Validação aprovada — chamado encerrado');
-  await carregarTudo();
+  if(!patchAtendimentoLocal(r.atendimento)) await carregarTudo();
   renderLista();
   fecharChat();
 }
@@ -18218,7 +18246,7 @@ async function rejeitarValidacaoUi(id){
   const r = await api('rejeitarValidacao', { contaId: conta.id, id, motivo });
   if(!r.ok){ toast(r.erro || 'Não foi possível rejeitar a validação.'); return; }
   toast('Validação rejeitada — o atendente vai revisar');
-  await carregarTudo();
+  if(!patchAtendimentoLocal(r.atendimento)) await carregarTudo();
   renderLista();
   fecharChat();
 }
@@ -18680,17 +18708,18 @@ async function enviarMovimentacao(sufixo, finalizar){
     if(finalizar){
       toast('Atendimento finalizado — aguardando validação do usuário');
       // o status virou "EM VALIDAÇÃO" e a Solução foi preenchida com o texto
-      // dessa movimentação no servidor — recarrega tudo pra refletir em
-      // todas as telas (lista, kanban, etc); no formulário de edição,
-      // também atualiza Status e Solução na tela, senão um "Salvar" logo em
-      // seguida reenviaria os valores antigos e desfaria a mudança
+      // dessa movimentação no servidor — atualiza só essa linha local (ver
+      // patchAtendimentoLocal) pra refletir em todas as telas (lista,
+      // kanban, etc); no formulário de edição, também atualiza Status e
+      // Solução na tela, senão um "Salvar" logo em seguida reenviaria os
+      // valores antigos e desfaria a mudança
       if(sufixo === '_ed'){
         const fStatus = document.getElementById('f_status');
         if(fStatus) fStatus.value = 'EM VALIDAÇÃO';
         const fSolucao = document.getElementById('f_solucao');
         if(fSolucao) fSolucao.innerHTML = sanitizarHtml(textoParaEnviar);
       }
-      await carregarTudo();
+      if(!patchAtendimentoLocal(r.atendimento)) await carregarTudo();
       renderLista();
       if(sufixo === ''){ fecharChat(); return; }
       movLimparComposer(sufixo);

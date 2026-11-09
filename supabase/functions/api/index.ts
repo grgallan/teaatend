@@ -767,6 +767,41 @@ async function acaoDados(req: any) {
 // Solução fica sem rastro de qual movimentação resolveu o quê
 const STATUS_FECHAMENTO = new Set(['EM VALIDAÇÃO', 'CONCLUÍDO']);
 
+// monta UM atendimento no mesmo formato que a lista grande de acaoDados
+// (mesmas chaves, mesmos campos financeiros escondidos por perfil) — usado
+// pelas ações que mudam só uma linha (salvar/excluir/aprovar e rejeitar
+// validação/criarMovimentacao ao finalizar/alterarStatusEmMassa), pro
+// front conseguir atualizar só aquela linha localmente (patchAtendimentoLocal)
+// em vez de rebuscar a tabela de atendimentos inteira de novo a cada ação —
+// essa rebusca completa era de longe a maior fonte de Egress do sistema
+async function atendimentoUnicoParaFrontend(id: string, contaId?: string) {
+  const { data: a } = await db.from('atendimentos').select('*').eq('id', id).maybeSingle();
+  if (!a) return null;
+  const [{ data: conta }, { data: anexosRaw }, { data: visto }] = await Promise.all([
+    contaId ? db.from('contas').select('perfil,admin_cliente,eh_administrador').eq('id', contaId).maybeSingle() : Promise.resolve({ data: null }),
+    db.from('anexos').select('id,atendimento_id,nome,url').eq('atendimento_id', id),
+    contaId ? db.from('atendimento_visto').select('visto_em').eq('conta_id', contaId).eq('atendimento_id', id).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const naoLidas = !!a.ultima_movimentacao_em && (!visto?.visto_em || new Date(visto.visto_em) < new Date(a.ultima_movimentacao_em));
+  // mesma regra de anexo legado do acaoDados — não duplica o anexo_url na
+  // prévia quando ele já tem uma linha correspondente na tabela "anexos"
+  const anexosTabela = (anexosRaw || []).map((an: any) => ({ id: an.id, nome: an.nome, url: an.url }));
+  const jaTemNaTabela = a.anexo_url && anexosTabela.some((an: any) => an.url === a.anexo_url);
+  const anexos = [
+    ...(a.anexo_url && !jaTemNaTabela ? [{ id: 'legado-' + a.id, nome: a.anexo_nome || 'anexo', url: a.anexo_url }] : []),
+    ...anexosTabela,
+  ];
+  let linha: any = { ...atendimentoParaApi(a), naoLidas, anexos };
+  if (conta && conta.perfil === 'USUARIO') {
+    linha = conta.admin_cliente
+      ? { ...linha, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '' }
+      : { ...linha, vha: '', totalAnanda: '', vha2: '', totalAnanda2: '', vhr: '', totalReal: '' };
+  } else if (conta && conta.perfil === 'ATENDENTE' && !ehAdminEfetivo(conta)) {
+    linha = { ...linha, vhr: '', totalReal: '' };
+  }
+  return linha;
+}
+
 async function acaoSalvarAtendimento(req: any) {
   let clienteQuery = db.from('clientes').select('*').eq('nome', req.cliente);
   if (req.empresaId) clienteQuery = clienteQuery.eq('empresa_id', req.empresaId);
@@ -938,7 +973,8 @@ async function acaoSalvarAtendimento(req: any) {
     await notificarNovoAtendimento(registro);
   }
 
-  return { ok: true, id: registro.id };
+  const atendimento = await atendimentoUnicoParaFrontend(registro.id, req.contaId);
+  return { ok: true, id: registro.id, atendimento };
 }
 
 async function acaoExcluirAtendimento(req: any) {
@@ -963,7 +999,8 @@ async function acaoAprovarValidacao(req: any) {
   if (error) return { ok: false, erro: error.message };
   await registrarHistorico(req.id, `Validação aprovada por ${conta.nome}`);
   await notificarStatusAlterado({ ...atendimento, status: 'CONCLUÍDO' }, 'EM VALIDAÇÃO');
-  return { ok: true };
+  const atendimentoAtualizado = await atendimentoUnicoParaFrontend(req.id, req.contaId);
+  return { ok: true, atendimento: atendimentoAtualizado };
 }
 
 // o usuário solicitante rejeita a validação (achou que não ficou certo) —
@@ -984,7 +1021,8 @@ async function acaoRejeitarValidacao(req: any) {
   if (error) return { ok: false, erro: error.message };
   await registrarHistorico(req.id, `Validação rejeitada por ${conta.nome}${motivo ? ': ' + motivo : ''}`);
   await notificarStatusAlterado({ ...atendimento, status: 'NÃO VALIDADO' }, 'EM VALIDAÇÃO');
-  return { ok: true };
+  const atendimentoAtualizado = await atendimentoUnicoParaFrontend(req.id, req.contaId);
+  return { ok: true, atendimento: atendimentoAtualizado };
 }
 
 /* ---------- anexos (Supabase Storage no lugar do Google Drive) ---------- */
@@ -1472,6 +1510,7 @@ async function acaoCriarMovimentacao(req: any) {
 
   await notificarNovaMovimentacao(atendimento, req.autorNome, req.autorPerfil, texto);
 
+  let atendimentoAtualizado = null;
   if (finalizar) {
     // a movimentação que finaliza o atendimento vira também o registro de
     // Solução — replicada pra não depender de reescrever o mesmo texto de
@@ -1486,9 +1525,10 @@ async function acaoCriarMovimentacao(req: any) {
       await registrarHistorico(req.atendimentoId, `Status alterado de ${atendimento.status} para EM VALIDAÇÃO`);
       await notificarStatusAlterado({ ...atendimento, status: 'EM VALIDAÇÃO' }, atendimento.status);
     }
+    atendimentoAtualizado = await atendimentoUnicoParaFrontend(req.atendimentoId, req.contaId);
   }
 
-  return { ok: true, id: registro.id, anexo: anexoSalvo, finalizado: finalizar };
+  return { ok: true, id: registro.id, anexo: anexoSalvo, finalizado: finalizar, atendimento: atendimentoAtualizado };
 }
 
 async function acaoAtualizarMovimentacao(req: any) {
@@ -3583,6 +3623,7 @@ async function acaoAlterarStatusEmMassa(req: any) {
   if (erroSelect) return { ok: false, erro: 'Erro ao ler atendimentos: ' + erroSelect.message };
 
   let atualizados = 0, semSolucao = 0;
+  const idsAtualizados: string[] = [];
   for (const a of atuais || []) {
     if (a.status === req.novoStatus) continue;
     // fechar (EM VALIDAÇÃO/CONCLUÍDO) sem solução não é permitido nem em
@@ -3595,11 +3636,16 @@ async function acaoAlterarStatusEmMassa(req: any) {
     const { error } = await db.from('atendimentos').update(atualizacao).eq('id', a.id);
     if (!error) {
       atualizados++;
+      idsAtualizados.push(a.id);
       await registrarHistorico(a.id, `Status alterado de ${a.status} para ${req.novoStatus} (alteração em massa por ${conta.nome})`);
     }
   }
 
-  return { ok: true, total: ids.length, atualizados, semSolucao };
+  // devolve só as linhas que de fato mudaram (já no formato do front), pra
+  // dar pra atualizar o array local em memória sem rebuscar a tabela
+  // inteira de atendimentos de novo — ver patchAtendimentosLocal no app.js
+  const atendimentosAtualizados = await Promise.all(idsAtualizados.map(id => atendimentoUnicoParaFrontend(id, req.contaId)));
+  return { ok: true, total: ids.length, atualizados, semSolucao, atendimentos: atendimentosAtualizados.filter(Boolean) };
 }
 
 /* ---------- mensagens (bate-papo) ---------- */
