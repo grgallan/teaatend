@@ -18085,6 +18085,7 @@ function pnlEntrarModoEdicao(){
   pnlModoEdicao = true;
   document.getElementById('btnPnlEditarPainel').style.display = 'none';
   document.getElementById('btnPnlModoCanvas').style.display = '';
+  document.getElementById('btnPnlImportarJson').style.display = '';
   document.getElementById('btnPnlSalvarPainel').style.display = '';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = '';
   document.getElementById('pnlCardAddWidget').style.display = '';
@@ -18103,6 +18104,7 @@ function pnlSairModoEdicao(){
   document.getElementById('pnlCanvasLayoutWrap').classList.remove('pnl-canvas-modo-ativo');
   document.getElementById('pnlCanvasPaleta').style.display = 'none';
   document.getElementById('btnPnlCanvasVoltarPaleta').style.display = 'none';
+  document.getElementById('btnPnlImportarJson').style.display = 'none';
   document.getElementById('btnPnlSalvarPainel').style.display = 'none';
   document.getElementById('btnPnlCancelarEdicaoPainel').style.display = 'none';
   document.getElementById('pnlCardAddWidget').style.display = 'none';
@@ -18131,6 +18133,161 @@ async function pnlSalvarPainel(){
   pnlSairModoEdicao();
   pnlRender();
   toast('Layout do painel salvo.');
+}
+
+/* ---------- importar configuração do painel (JSON colado) ----------
+   Pensado pra quando a configuração (medidas/widgets/filtros) é montada
+   fora da tela — ex: pedida pra IA/Claude, que só tem acesso ao código,
+   nunca ao painel rodando de verdade — e precisa entrar sem recriar tudo
+   widget por widget na mão. O JSON referencia cada consulta pelo NOME
+   (não pelo id, que é opaco e specific de cada instalação) — a importação
+   casa esse nome com as consultas já carregadas nesse painel/cliente
+   (ver pnlConsultasCarregadas, populado pelo "Atualizar do RM"). Só
+   preenche pnlPainelMedidas/Widgets/Filtros em memória — como qualquer
+   outra edição, nada persiste até "Salvar layout". */
+function pnlAbrirModalImportarJson(){
+  document.getElementById('pnlImportarJsonTexto').value = '';
+  document.getElementById('pnlImportarJsonModal').classList.add('show');
+}
+function pnlFecharModalImportarJson(){
+  document.getElementById('pnlImportarJsonModal').classList.remove('show');
+}
+// acha a consulta carregada cujo nome casa com a palavra-chave — em 3
+// tentativas, da mais exata pra mais solta, parando na primeira que achar
+// exatamente 1 candidato (sem diferenciar maiúsculas/acentos à parte):
+//   1) nome completo igual à chave
+//   2) nome segue o padrão "CÓDIGO - NOME" (ex: "PLN.ST.001 - CONTRATOS")
+//      e o pedaço depois do " - " é igual à chave
+//   3) nome CONTÉM a chave em algum lugar
+// o passo 2 existe porque só "contém" sozinho é ambíguo demais pra esse
+// padrão de nome — "CONTRATOS" também aparece dentro de "MEDICOES DOS
+// CONTRATOS", por exemplo — null se não achar ou continuar ambíguo mesmo
+// assim; quem chama decide o que fazer com isso
+function pnlResolverConsultaPorNome(nomeChave){
+  if(!nomeChave) return null;
+  const alvo = String(nomeChave).trim().toUpperCase();
+  if(!alvo) return null;
+  const nomes = pnlConsultasCarregadas.map(c=>({ c, nome: String(c.nome||'').toUpperCase().trim() }));
+  const exatos = nomes.filter(x=>x.nome===alvo);
+  if(exatos.length === 1) return exatos[0].c.id;
+  const sufixo = nomes.filter(x=>{
+    const i = x.nome.lastIndexOf(' - ');
+    return i>=0 && x.nome.slice(i+3).trim()===alvo;
+  });
+  if(sufixo.length === 1) return sufixo[0].c.id;
+  const contem = nomes.filter(x=>x.nome.includes(alvo));
+  return contem.length === 1 ? contem[0].c.id : null;
+}
+function pnlImportarConfiguracaoJson(){
+  const texto = document.getElementById('pnlImportarJsonTexto').value.trim();
+  if(!texto){ toast('Cole o JSON da configuração.'); return; }
+  if(!pnlConsultasCarregadas.length){ toast('Clique em "Atualizar do RM" primeiro, com o cliente certo escolhido — a importação precisa saber quais consultas existem pra casar pelo nome.'); return; }
+  let cfg;
+  try{ cfg = JSON.parse(texto); }catch(e){ toast('JSON inválido: ' + e.message); return; }
+  const avisos = [];
+  const resolver = (nome, ondeUsa) => {
+    const id = pnlResolverConsultaPorNome(nome);
+    if(!id) avisos.push(`consulta "${nome}" (${ondeUsa}) não encontrada ou ambígua entre as vinculadas a esse cliente`);
+    return id;
+  };
+
+  (cfg.medidas||[]).forEach(m=>{
+    if(!m || !m.id) return;
+    const entrada = { id: m.id, label: m.nome || m.label || m.id };
+    if(m.fmt) entrada.fmt = m.fmt;
+    if(m.casas != null) entrada.casas = m.casas;
+    if(m.formula){
+      entrada.formula = m.formula;
+    }else{
+      if(m.funcao) entrada.funcao = m.funcao;
+      if(m.campo) entrada.campo = m.campo;
+      if(m.campoOrdem) entrada.campoOrdem = m.campoOrdem;
+      if(m.consultaNome){
+        const cid = resolver(m.consultaNome, `medida "${entrada.label}"`);
+        if(cid) entrada.consultaId = cid;
+      }
+    }
+    const i = pnlPainelMedidas.findIndex(x=>x.id===entrada.id);
+    if(i>=0) pnlPainelMedidas[i] = entrada; else pnlPainelMedidas.push(entrada);
+  });
+
+  (cfg.filtros||[]).forEach(f=>{
+    const campo = typeof f === 'string' ? f : (f && f.campo);
+    if(!campo) return;
+    if(!pnlPainelFiltros.some(x=>x.campo===campo)) pnlPainelFiltros.push({ campo, ...((f && f.apelido) ? {apelido:f.apelido} : {}) });
+    if(!pnlFiltros[campo]) pnlFiltros[campo] = new Set();
+  });
+
+  let widgetsImportados = 0;
+  (cfg.widgets||[]).forEach(w=>{
+    if(!w || !w.tipo) return;
+    const widget = { id: pnlGerarIdWidget(), tipo: w.tipo };
+    if(w.titulo) widget.titulo = w.titulo;
+    if(w.campo) widget.campo = w.campo; // widget tipo "filtro"
+    if(w.medida) widget.medida = w.medida;
+    if(w.dimensao) widget.dimensao = w.dimensao;
+    if(w.dimensao2) widget.dimensao2 = w.dimensao2;
+    if(w.dimensao3) widget.dimensao3 = w.dimensao3;
+    if(w.top) widget.top = w.top;
+    if(w.fonte) widget.fonte = w.fonte;
+    if(Array.isArray(w.colunas)) widget.colunas = w.colunas.slice();
+    if(w.colunasApelidos) widget.colunasApelidos = {...w.colunasApelidos};
+    if(w.colunasFormatos) widget.colunasFormatos = {...w.colunasFormatos};
+    if(Array.isArray(w.ordenacao)) widget.ordenacao = w.ordenacao.slice();
+    if(w.zebrado) widget.zebrado = true;
+    if(w.cliqueFiltrar) widget.cliqueFiltrar = true;
+    if(w.largura) widget.largura = w.largura;
+    if(w.altura) widget.altura = w.altura;
+    if(w.subtitulo) widget.subtitulo = w.subtitulo;
+    if(w.filtroFixoCampo){
+      widget.filtroFixoCampo = w.filtroFixoCampo;
+      widget.filtroFixoOperador = w.filtroFixoOperador || '=';
+      if((widget.filtroFixoOperador==='NULL' || widget.filtroFixoOperador==='NOTNULL')) widget.filtroFixoValor = '';
+      else if(w.filtroFixoValor != null) widget.filtroFixoValor = w.filtroFixoValor;
+    }
+    if(w.consultaNome){
+      const cid = resolver(w.consultaNome, `widget "${widget.titulo || w.tipo}"`);
+      if(cid) widget.consultaId = cid;
+    }
+    if(Array.isArray(w.subdetalhes)){
+      widget.subdetalhes = w.subdetalhes.map(sd=>{
+        const s = { id: pnlGerarIdSubdetalhe() };
+        if(sd.titulo) s.titulo = sd.titulo;
+        if(sd.campoPrincipal) s.campoPrincipal = sd.campoPrincipal;
+        if(sd.campoLink) s.campoLink = sd.campoLink;
+        if(Array.isArray(sd.colunas)) s.colunas = sd.colunas.slice();
+        if(sd.colunasApelidos) s.colunasApelidos = {...sd.colunasApelidos};
+        if(sd.fonte) s.fonte = sd.fonte;
+        if(sd.dimensao) s.dimensao = sd.dimensao;
+        if(Array.isArray(sd.ordenacao)) s.ordenacao = sd.ordenacao.slice();
+        if(Array.isArray(sd.colunasTotais)) s.colunasTotais = sd.colunasTotais.slice();
+        if(sd.consultaNome){
+          const cid = resolver(sd.consultaNome, `subdetalhe "${s.titulo || '(sem título)'}"`);
+          if(cid) s.consultaId = cid;
+        }
+        return s;
+      });
+    }
+    if(Array.isArray(w.links)){
+      widget.links = w.links.map(l=>{
+        const link = { campoPrincipal: l.campoPrincipal, campoLink: l.campoLink };
+        if(l.consultaNome){
+          const cid = resolver(l.consultaNome, `link do widget "${widget.titulo || w.tipo}"`);
+          if(cid) link.consultaId = cid;
+        }
+        return link;
+      });
+    }
+    pnlPainelWidgets.push(widget);
+    widgetsImportados++;
+  });
+
+  pnlRenderListaMedidas();
+  pnlPopularSelectsMedidaWidget();
+  pnlRender();
+  pnlFecharModalImportarJson();
+  const resumo = `Importado: ${(cfg.medidas||[]).length} medida(s), ${widgetsImportados} widget(s), ${(cfg.filtros||[]).length} filtro(s). Revise e clique em "Salvar layout".`;
+  toast(avisos.length ? `${resumo} Atenção: ${avisos.join(' · ')}` : resumo);
 }
 
 function renderValoresForm(){
@@ -19976,6 +20133,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnPnlEditarPainel').addEventListener('click', pnlEntrarModoEdicao);
   document.getElementById('btnPnlSalvarPainel').addEventListener('click', pnlSalvarPainel);
   document.getElementById('btnPnlCancelarEdicaoPainel').addEventListener('click', pnlCancelarEdicaoPainel);
+  document.getElementById('btnPnlImportarJson').addEventListener('click', pnlAbrirModalImportarJson);
+  document.getElementById('pnlImportarJsonCancelar').addEventListener('click', pnlFecharModalImportarJson);
+  document.getElementById('btnPnlImportarJsonConfirmar').addEventListener('click', pnlImportarConfiguracaoJson);
   document.getElementById('pnlNovoWidgetTipo').addEventListener('change', pnlAtualizarCamposNovoWidget);
   document.getElementById('pnlNovoWidgetConsulta').addEventListener('change', pnlAtualizarCamposNovoWidget);
   // marcar/desmarcar "Clicar numa célula filtra o painel" mostra/esconde a
