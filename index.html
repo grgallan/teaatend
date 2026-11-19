@@ -2756,6 +2756,7 @@
             <button class="ghost" id="btnPnlLimparFiltros" type="button" style="width:auto;padding:8px 14px;" title="Limpa todos os filtros ativos do painel (gerais e os de clique-pra-filtrar)">🧹 Limpar filtros</button>
             <button class="ghost" id="btnPnlEditarPainel" type="button" style="width:auto;padding:8px 14px;">⚙ Configurar painel</button>
             <button class="ghost" id="btnPnlModoCanvas" type="button" style="width:auto;padding:8px 14px;display:none;" title="Posicionar e redimensionar os widgets livremente (só em telas largas — no celular o painel usa a grade normal)">🖼 Canvas livre</button>
+            <button class="ghost" id="btnPnlImportarJson" type="button" style="width:auto;padding:8px 14px;display:none;" title="Cola uma configuração em JSON (medidas + widgets + filtros) pra montar o painel de uma vez, em vez de criar widget por widget na mão">📥 Importar JSON</button>
             <button class="primary" id="btnPnlSalvarPainel" type="button" style="width:auto;padding:8px 14px;display:none;">Salvar layout</button>
             <button class="ghost" id="btnPnlCancelarEdicaoPainel" type="button" style="width:auto;padding:8px 14px;display:none;">Cancelar</button>
           </div>
@@ -3925,6 +3926,18 @@
     <div class="modal-actions" style="margin-top:14px;">
       <button class="cancel" id="rmParametrosCancelar">Cancelar</button>
       <button class="confirm neutro" id="rmParametrosConfirmar">Atualizar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="pnlImportarJsonModal">
+  <div class="modal" style="max-width:640px;">
+    <h3>Importar configuração do painel</h3>
+    <p style="color:var(--muted);font-size:13px;margin:4px 0 10px;">Cole abaixo o JSON com as medidas, widgets e filtros a montar. As consultas são casadas pelo nome (ex: "CONTRATOS") com as já vinculadas a esse painel pro cliente selecionado — clique em "Atualizar do RM" antes, se ainda não tiver feito. Isso só preenche o painel na tela; nada é salvo de verdade até você clicar em "Salvar layout".</p>
+    <textarea id="pnlImportarJsonTexto" rows="12" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;" placeholder='{"medidas":[...],"widgets":[...],"filtros":[...]}'></textarea>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="cancel" id="pnlImportarJsonCancelar">Cancelar</button>
+      <button class="confirm neutro" id="btnPnlImportarJsonConfirmar">Importar</button>
     </div>
   </div>
 </div>
