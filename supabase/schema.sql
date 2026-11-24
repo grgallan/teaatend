@@ -1507,6 +1507,9 @@ create table if not exists rm_movimentacoes (
   itens jsonb not null default '[]'::jsonb,
   status text not null default 'rascunho', -- rascunho | enviada | erro
   resposta_rm text,
+  -- corpo exato que foi mandado pro RM no último "Enviar RM" — guardado pra
+  -- conferir qual campo violou alguma restrição quando o RM responde erro
+  corpo_enviado jsonb,
   criado_em timestamptz default now(),
   enviado_em timestamptz
 );
