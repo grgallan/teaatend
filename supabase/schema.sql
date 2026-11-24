@@ -1502,6 +1502,14 @@ alter table rm_tipos_movimento add column if not exists itens_array_keys text de
 alter table rm_tipos_movimento add column if not exists data_server_name text default '';
 alter table rm_tipos_movimento add column if not exists xml_raiz text default '';
 alter table rm_tipos_movimento add column if not exists contexto_soap text default '';
+-- busca no RM (ReadView via wsDataServer) pra preencher Fornecedor/Produto
+-- na tela de Movimentações em vez de digitar o código à mão — filtro tem
+-- {termo} no lugar do texto digitado na busca (mesma convenção de {token}
+-- do json_template)
+alter table rm_tipos_movimento add column if not exists busca_fornecedor_dataserver text default '';
+alter table rm_tipos_movimento add column if not exists busca_fornecedor_filtro text default '';
+alter table rm_tipos_movimento add column if not exists busca_produto_dataserver text default '';
+alter table rm_tipos_movimento add column if not exists busca_produto_filtro text default '';
 
 -- Movimentações: uma instância de "gravar no RM" a partir de um Tipo de
 -- Movimentação cadastrado — fica "rascunho" na nossa base (valores

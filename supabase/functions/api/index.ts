@@ -297,6 +297,8 @@ function rmTipoMovimentoParaApi(r: any) {
     usuario: r.usuario || '', temSenha: !!r.senha_cifrada, jsonTemplate: r.json_template || '',
     itensArrayKeys: r.itens_array_keys || '', dataServerName: r.data_server_name || '',
     xmlRaiz: r.xml_raiz || '', contextoSoap: r.contexto_soap || '',
+    buscaFornecedorDataServer: r.busca_fornecedor_dataserver || '', buscaFornecedorFiltro: r.busca_fornecedor_filtro || '',
+    buscaProdutoDataServer: r.busca_produto_dataserver || '', buscaProdutoFiltro: r.busca_produto_filtro || '',
   };
 }
 function rmMovimentacaoParaApi(r: any) {
@@ -411,6 +413,7 @@ async function rotear(req: any): Promise<any> {
     case 'atualizarRmMovimentacao': return acaoAtualizarRmMovimentacao(req);
     case 'removerRmMovimentacao': return acaoRemoverRmMovimentacao(req);
     case 'enviarRmMovimentacao': return acaoEnviarRmMovimentacao(req);
+    case 'buscarRmLista': return acaoBuscarRmLista(req);
     case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
     case 'salvarRmPainelLayout': return acaoSalvarRmPainelLayout(req);
     case 'addRmPainel': return acaoAddRmPainel(req);
@@ -4142,6 +4145,8 @@ async function acaoAddRmTipoMovimento(req: any) {
     id: gerarId(), cliente_id: req.clienteId, nome: req.nome, codtmv_destino: req.codtmvDestino,
     usuario: req.usuario || '', json_template: req.jsonTemplate || '', itens_array_keys: req.itensArrayKeys || '',
     data_server_name: req.dataServerName || '', xml_raiz: req.xmlRaiz || '', contexto_soap: req.contextoSoap || '',
+    busca_fornecedor_dataserver: req.buscaFornecedorDataServer || '', busca_fornecedor_filtro: req.buscaFornecedorFiltro || '',
+    busca_produto_dataserver: req.buscaProdutoDataServer || '', busca_produto_filtro: req.buscaProdutoFiltro || '',
   };
   if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
   const { error } = await db.from('rm_tipos_movimento').insert(registro);
@@ -4161,6 +4166,10 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   if (req.dataServerName !== undefined) atualizado.data_server_name = req.dataServerName;
   if (req.xmlRaiz !== undefined) atualizado.xml_raiz = req.xmlRaiz;
   if (req.contextoSoap !== undefined) atualizado.contexto_soap = req.contextoSoap;
+  if (req.buscaFornecedorDataServer !== undefined) atualizado.busca_fornecedor_dataserver = req.buscaFornecedorDataServer;
+  if (req.buscaFornecedorFiltro !== undefined) atualizado.busca_fornecedor_filtro = req.buscaFornecedorFiltro;
+  if (req.buscaProdutoDataServer !== undefined) atualizado.busca_produto_dataserver = req.buscaProdutoDataServer;
+  if (req.buscaProdutoFiltro !== undefined) atualizado.busca_produto_filtro = req.buscaProdutoFiltro;
   // a senha só é regravada quando a tela manda uma nova (campo em branco =
   // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
   if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);
@@ -4295,6 +4304,138 @@ function extrairTagSoap(xmlTexto: string, tag: string): string | null {
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'").replace(/&#xD;/gi, '').replace(/&amp;/g, '&');
 }
+// o Contexto do wsDataServer resolve a coligada (entre outras coisas) do
+// lado do RM — não é o CODCOLIGADA dentro do XML/filtro. Sem um valor fixo
+// cadastrado, autentica primeiro (AutenticaAcesso usa só o Basic Auth da
+// própria requisição, sem parâmetro) e usa o token que ela devolve. Usado
+// tanto pra gravar (SaveRecord) quanto pra buscar (ReadView) — devolve
+// também um "debug" com o que rolou nessa etapa, pra incluir no erro se a
+// chamada seguinte falhar
+async function resolverContextoSoap(url: string, usuario: string, senha: string, contextoFixo: string, ctl: AbortController): Promise<{ contexto: string; debug: string }> {
+  if (contextoFixo) return { contexto: contextoFixo, debug: `Contexto fixo cadastrado: "${contextoFixo}".` };
+  const envelopeAuth = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:AutenticaAcesso/></soap:Body></soap:Envelope>`;
+  try {
+    const respAuth = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: 'http://www.totvs.com/IwsBase/AutenticaAcesso',
+        Authorization: 'Basic ' + btoa(`${usuario}:${senha}`),
+      },
+      body: envelopeAuth,
+      signal: ctl.signal,
+    });
+    const textoAuth = await respAuth.text();
+    if (respAuth.ok) {
+      const contexto = extrairTagSoap(textoAuth, 'AutenticaAcessoResult') || '';
+      return { contexto, debug: `AutenticaAcesso (HTTP ${respAuth.status}) devolveu: "${contexto}".` };
+    }
+    return { contexto: '', debug: `AutenticaAcesso falhou (HTTP ${respAuth.status}): ${textoAuth.slice(0, 300)}` };
+  } catch (e: any) {
+    return { contexto: '', debug: `AutenticaAcesso deu exceção: ${e?.message || e}` };
+  }
+}
+// parser de XML bem simples (sem namespace/CDATA/comentário) — suficiente
+// pro XML plano que o RM usa. Monta uma árvore {tag, filhos, texto}
+type NoXml = { tag: string; filhos: NoXml[]; texto: string };
+function parsearXmlSimples(xml: string): NoXml {
+  let i = 0;
+  function parseElemento(): NoXml {
+    i++; // pula '<'
+    let tag = '';
+    while (i < xml.length && xml[i] !== ' ' && xml[i] !== '>' && xml[i] !== '/') { tag += xml[i]; i++; }
+    while (i < xml.length && xml[i] !== '>') i++;
+    const autoFechado = xml[i - 1] === '/';
+    i++; // pula '>'
+    const no: NoXml = { tag, filhos: [], texto: '' };
+    if (autoFechado) return no;
+    let textoAcumulado = '';
+    while (i < xml.length) {
+      if (xml[i] === '<') {
+        if (xml[i + 1] === '/') {
+          while (i < xml.length && xml[i] !== '>') i++;
+          i++;
+          break;
+        } else {
+          no.filhos.push(parseElemento());
+        }
+      } else {
+        textoAcumulado += xml[i];
+        i++;
+      }
+    }
+    no.texto = textoAcumulado.trim();
+    return no;
+  }
+  while (i < xml.length && xml[i] !== '<') i++;
+  return parseElemento();
+}
+// um ReadView devolve uma lista de linhas — não sabemos de antemão o nome
+// da tag de cada linha (varia por Data Server), então trata qualquer
+// filho-do-filho da raiz que tenha filhos próprios (campos) como "1 linha",
+// convertendo os campos folha dela em {NOMECAMPO: valorTexto}
+function extrairLinhasDeViewXml(xml: string): Record<string, string>[] {
+  let raiz: NoXml;
+  try { raiz = parsearXmlSimples(xml.trim()); } catch (_e) { return []; }
+  return raiz.filhos
+    .filter((f) => f.filhos.length > 0)
+    .map((linha) => {
+      const obj: Record<string, string> = {};
+      for (const campo of linha.filhos) if (campo.filhos.length === 0) obj[campo.tag] = campo.texto;
+      return obj;
+    });
+}
+// busca genérica no RM (ReadView) — usada pela tela de Movimentações pra
+// preencher Fornecedor/Produto a partir de uma busca em vez de digitar o
+// código à mão. {termo} no filtro cadastrado vira o texto digitado na tela
+async function acaoBuscarRmLista(req: any) {
+  if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'visualizar', true))) return { ok: false, erro: 'Você não tem permissão para buscar dados no RM.' };
+  if (!req.tipoMovimentoId) return { ok: false, erro: 'Tipo de movimentação não informado.' };
+  if (req.alvo !== 'fornecedor' && req.alvo !== 'produto') return { ok: false, erro: 'Busca inválida.' };
+  const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', req.tipoMovimentoId).maybeSingle();
+  if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
+  const dataServerName = req.alvo === 'fornecedor' ? tipo.busca_fornecedor_dataserver : tipo.busca_produto_dataserver;
+  const filtroTemplate = req.alvo === 'fornecedor' ? tipo.busca_fornecedor_filtro : tipo.busca_produto_filtro;
+  if (!dataServerName) return { ok: false, erro: `Esse tipo de movimentação ainda não tem a busca de ${req.alvo} configurada (Movimentos → Parâmetros).` };
+  if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
+  const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
+  if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
+  let senha: string;
+  try { senha = await decifrarRmSenha(tipo.senha_cifrada); } catch (_e) {
+    return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
+  }
+  const termo = String(req.termo || '').trim();
+  const filtro = (filtroTemplate || "NOMEFANTASIA LIKE '%{termo}%'").replace(/\{termo\}/g, termo.replace(/'/g, "''"));
+  const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
+  const url = `${base}/wsDataServer/IwsDataServer`;
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 60000);
+  try {
+    const { contexto, debug } = await resolverContextoSoap(url, tipo.usuario, senha, tipo.contexto_soap || '', ctl);
+    const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:ReadView><tns:DataServerName>${escaparXml(dataServerName)}</tns:DataServerName><tns:Filtro>${escaparXml(filtro)}</tns:Filtro><tns:Contexto>${escaparXml(contexto)}</tns:Contexto></tns:ReadView></soap:Body></soap:Envelope>`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: 'http://www.totvs.com/IwsDataServer/ReadView',
+        Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
+      },
+      body: envelope,
+      signal: ctl.signal,
+    });
+    const texto = await resp.text();
+    if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debug}` };
+    const resultado = extrairTagSoap(texto, 'ReadViewResult') ?? '';
+    if (!resultado) return { ok: false, erro: `O RM não devolveu resultado. ${debug}` };
+    const linhas = extrairLinhasDeViewXml(resultado);
+    return { ok: true, linhas, xmlBruto: resultado };
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
+    return { ok: false, erro: msg };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 async function acaoEnviarRmMovimentacao(req: any) {
   if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para enviar movimentações pro RM.' };
   if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
@@ -4321,42 +4462,7 @@ async function acaoEnviarRmMovimentacao(req: any) {
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 120000);
-  // o RM recusou nosso 1º teste ("Na coligada -1 não existe tipo de
-  // movimento...") mesmo mandando CODCOLIGADA certo dentro do XML — ele
-  // resolve a coligada pelo Contexto da chamada SOAP, não pelo XML. Sem um
-  // Contexto cadastrado à mão, autentica primeiro (mesmo usuário/senha,
-  // sem parâmetro — AutenticaAcesso usa só o Basic Auth da requisição) e
-  // usa o token que ela devolve como Contexto do SaveRecord
-  let contextoFinal = tipo.contexto_soap || '';
-  // diagnóstico do que rolou no AutenticaAcesso — incluído na mensagem de
-  // erro quando o SaveRecord falha, pra não ficar no escuro sobre se o
-  // contexto usado veio vazio, deu erro, ou veio preenchido mas mesmo
-  // assim não resolveu a coligada
-  let debugAuth = tipo.contexto_soap ? `Contexto fixo cadastrado: "${tipo.contexto_soap}".` : '';
-  if (!tipo.contexto_soap) {
-    const envelopeAuth = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:AutenticaAcesso/></soap:Body></soap:Envelope>`;
-    try {
-      const respAuth = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/xml; charset=utf-8',
-          SOAPAction: 'http://www.totvs.com/IwsBase/AutenticaAcesso',
-          Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
-        },
-        body: envelopeAuth,
-        signal: ctl.signal,
-      });
-      const textoAuth = await respAuth.text();
-      if (respAuth.ok) {
-        contextoFinal = extrairTagSoap(textoAuth, 'AutenticaAcessoResult') || '';
-        debugAuth = `AutenticaAcesso (HTTP ${respAuth.status}) devolveu: "${contextoFinal}".`;
-      } else {
-        debugAuth = `AutenticaAcesso falhou (HTTP ${respAuth.status}): ${textoAuth.slice(0, 300)}`;
-      }
-    } catch (e: any) {
-      debugAuth = `AutenticaAcesso deu exceção: ${e?.message || e}`;
-    }
-  }
+  const { contexto: contextoFinal, debug: debugAuth } = await resolverContextoSoap(url, tipo.usuario, senha, tipo.contexto_soap || '', ctl);
   // RM grava via SOAP (wsDataServer/IwsDataServer), operação SaveRecord —
   // não é REST/JSON: SaveRecord(DataServerName, XML, Contexto), onde XML é
   // uma STRING contendo o XML de negócio acima (confirmado via o WSDL/XSD

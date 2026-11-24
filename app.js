@@ -13116,6 +13116,10 @@ function editarRmTipoMovimento(id){
   document.getElementById('rgtm_dataserver').value = m.dataServerName || '';
   document.getElementById('rgtm_xmlraiz').value = m.xmlRaiz || '';
   document.getElementById('rgtm_contexto').value = m.contextoSoap || '';
+  document.getElementById('rgtm_busca_forn_ds').value = m.buscaFornecedorDataServer || '';
+  document.getElementById('rgtm_busca_forn_filtro').value = m.buscaFornecedorFiltro || '';
+  document.getElementById('rgtm_busca_prod_ds').value = m.buscaProdutoDataServer || '';
+  document.getElementById('rgtm_busca_prod_filtro').value = m.buscaProdutoFiltro || '';
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13134,6 +13138,10 @@ function cancelarEdicaoRmTipoMovimento(){
   document.getElementById('rgtm_dataserver').value = '';
   document.getElementById('rgtm_xmlraiz').value = '';
   document.getElementById('rgtm_contexto').value = '';
+  document.getElementById('rgtm_busca_forn_ds').value = '';
+  document.getElementById('rgtm_busca_forn_filtro').value = '';
+  document.getElementById('rgtm_busca_prod_ds').value = '';
+  document.getElementById('rgtm_busca_prod_filtro').value = '';
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13189,6 +13197,100 @@ function tokensDoTipoMovimento(tipo){
 function labelToken(nome){
   return nome.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase()).trim();
 }
+// convenção de nomes de token pra achar automaticamente qual campo do
+// cabeçalho/item é "o fornecedor"/"o produto" e oferecer o botão de busca
+// no RM — e pra qual campo do RM (ReadView) mapear o valor escolhido
+const PADROES_BUSCA_FORNECEDOR = {
+  codigo: ['fornecedor','codigofornecedor','cfo','codcfo'],
+  nome: ['fornecedornome','nomefornecedor','razaosocial','fantasiafornecedor'],
+};
+const CAMPOS_RM_FORNECEDOR = { codigo:['CODCFO'], nome:['NOMEFANTASIA','RAZAOSOCIAL'] };
+const PADROES_BUSCA_PRODUTO = {
+  codigo: ['produtocodigo','codigoproduto','produto','codprd'],
+  id: ['produtoid','idproduto'],
+  nome: ['produtonome','nomeproduto','descricaoproduto'],
+  reduzido: ['produtoreduzido','codigoreduzido'],
+  numFab: ['produtonumfab','numerofabricante'],
+  fabricante: ['produtofabricante','codigofabricante'],
+};
+const CAMPOS_RM_PRODUTO = {
+  codigo:['CODIGOPRD','CODPRD'], id:['IDPRD'], nome:['NOMEFANTASIA','DESCRICAO'],
+  reduzido:['CODIGOREDUZIDO'], numFab:['NUMNOFABRIC'], fabricante:['CODFAB'],
+};
+function acharTokenPorPadrao(tokens, padroes){
+  return tokens.find(t=>padroes.includes(t.toLowerCase()));
+}
+function valorCampoRm(linha, candidatos){
+  for(const c of candidatos){ if(linha[c]!==undefined && linha[c]!==null) return linha[c]; }
+  return '';
+}
+let buscaRmOnSelecionar = null, buscaRmAlvo = null, buscaRmLinhasAtual = [];
+function abrirBuscaRm(alvo, onSelecionar){
+  buscaRmAlvo = alvo;
+  buscaRmOnSelecionar = onSelecionar;
+  document.getElementById('buscaRmTitulo').textContent = alvo==='fornecedor' ? 'Buscar fornecedor no RM' : 'Buscar produto no RM';
+  document.getElementById('buscaRmTermo').value = '';
+  document.getElementById('buscaRmResultados').innerHTML = '';
+  document.getElementById('buscaRmErro').textContent = '';
+  document.getElementById('buscaRmModal').classList.add('show');
+  document.getElementById('buscaRmTermo').focus();
+}
+function fecharBuscaRm(){
+  document.getElementById('buscaRmModal').classList.remove('show');
+  buscaRmOnSelecionar = null;
+}
+async function executarBuscaRm(){
+  if(!movmTipoAtual) return;
+  const termo = document.getElementById('buscaRmTermo').value.trim();
+  const erroEl = document.getElementById('buscaRmErro');
+  const resEl = document.getElementById('buscaRmResultados');
+  erroEl.textContent = '';
+  resEl.innerHTML = '<div class="empty">Buscando...</div>';
+  const r = await api('buscarRmLista', { tipoMovimentoId: movmTipoAtual.tipo.id, alvo: buscaRmAlvo, termo });
+  if(!r.ok){ resEl.innerHTML=''; erroEl.textContent = r.erro || 'Erro ao buscar no RM.'; return; }
+  renderResultadosBuscaRm(r.linhas||[]);
+}
+function renderResultadosBuscaRm(linhas){
+  const resEl = document.getElementById('buscaRmResultados');
+  buscaRmLinhasAtual = linhas;
+  if(!linhas.length){ resEl.innerHTML = '<div class="empty">Nenhum resultado.</div>'; return; }
+  resEl.innerHTML = linhas.map((linha,i)=>{
+    const campos = Object.keys(linha).slice(0,6).map(k=>`<b>${escaparHtml(k)}:</b> ${escaparHtml(String(linha[k]))}`).join(' &nbsp; ');
+    return `<div class="card" style="margin:6px 0;padding:8px;cursor:pointer;" data-idx-busca-rm="${i}">${campos}</div>`;
+  }).join('');
+  resEl.querySelectorAll('[data-idx-busca-rm]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const linha = buscaRmLinhasAtual[Number(el.dataset.idxBuscaRm)];
+      if(buscaRmOnSelecionar) buscaRmOnSelecionar(linha);
+      fecharBuscaRm();
+    });
+  });
+}
+function abrirBuscaFornecedor(){
+  if(!movmTipoAtual) return;
+  const tokenCodigo = acharTokenPorPadrao(movmTipoAtual.headerTokens, PADROES_BUSCA_FORNECEDOR.codigo);
+  if(!tokenCodigo) return;
+  abrirBuscaRm('fornecedor', (linha)=>{
+    const inpCodigo = document.querySelector(`#movm_camposHeader [data-token="${tokenCodigo}"]`);
+    if(inpCodigo) inpCodigo.value = valorCampoRm(linha, CAMPOS_RM_FORNECEDOR.codigo);
+    const tokenNome = acharTokenPorPadrao(movmTipoAtual.headerTokens, PADROES_BUSCA_FORNECEDOR.nome);
+    if(tokenNome){
+      const inpNome = document.querySelector(`#movm_camposHeader [data-token="${tokenNome}"]`);
+      if(inpNome) inpNome.value = valorCampoRm(linha, CAMPOS_RM_FORNECEDOR.nome);
+    }
+  });
+}
+function abrirBuscaProduto(i){
+  if(!movmTipoAtual) return;
+  abrirBuscaRm('produto', (linha)=>{
+    Object.keys(PADROES_BUSCA_PRODUTO).forEach(chave=>{
+      const token = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_BUSCA_PRODUTO[chave]);
+      if(!token) return;
+      const inp = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${token}"]`);
+      if(inp) inp.value = valorCampoRm(linha, CAMPOS_RM_PRODUTO[chave]);
+    });
+  });
+}
 function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
   const container = document.getElementById('movm_camposHeader');
   const bloco = document.getElementById('movm_itensBloco');
@@ -13200,9 +13302,10 @@ function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
     bloco.style.display='none'; movmTipoAtual=null; return;
   }
   movmTipoAtual = { tipo, headerTokens:r.headerTokens, itemTokens:r.itemTokens };
+  const tokenFornecedor = tipo.buscaFornecedorDataServer ? acharTokenPorPadrao(r.headerTokens, PADROES_BUSCA_FORNECEDOR.codigo) : null;
   container.innerHTML = r.headerTokens.length===0
     ? `<p style="color:var(--muted);font-size:12px;">Esse tipo não tem campos de cabeçalho ({token} fora dos itens).</p>`
-    : r.headerTokens.map(tk=>`<div class="field"><label>${escaparHtml(labelToken(tk))}</label><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml((valoresHeaderAtuais&&valoresHeaderAtuais[tk])||'')}"></div>`).join('');
+    : r.headerTokens.map(tk=>`<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml((valoresHeaderAtuais&&valoresHeaderAtuais[tk])||'')}" style="flex:1;">${tk===tokenFornecedor?`<button type="button" class="ghost" onclick="abrirBuscaFornecedor()" style="width:auto;padding:6px 10px;">🔍 Buscar</button>`:''}</div></div>`).join('');
   bloco.style.display = r.itemTokens.length ? '' : 'none';
   renderItensMovimentacao();
 }
@@ -13211,11 +13314,15 @@ function renderItensMovimentacao(){
   if(!el) return;
   if(!movmTipoAtual || !movmTipoAtual.itemTokens.length){ el.innerHTML=''; return; }
   if(movmItens.length===0){ el.innerHTML = `<div class="empty">Nenhum item adicionado.</div>`; return; }
+  const mostrarBuscaProduto = !!(movmTipoAtual.tipo.buscaProdutoDataServer && acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_BUSCA_PRODUTO.codigo));
   el.innerHTML = movmItens.map((item,i)=>`
     <div class="card" style="margin:8px 0;padding:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <b style="font-size:12px;">Item ${i+1}</b>
-        <button type="button" class="ghost" onclick="removerItemMovimentacao(${i})" style="width:auto;padding:4px 10px;">Remover</button>
+        <div style="display:flex;gap:6px;">
+          ${mostrarBuscaProduto?`<button type="button" class="ghost" onclick="abrirBuscaProduto(${i})" style="width:auto;padding:4px 10px;">🔍 Buscar produto</button>`:''}
+          <button type="button" class="ghost" onclick="removerItemMovimentacao(${i})" style="width:auto;padding:4px 10px;">Remover</button>
+        </div>
       </div>
       ${movmTipoAtual.itemTokens.map(tk=>`<div class="field"><label>${escaparHtml(labelToken(tk))}</label><input type="text" data-item-idx="${i}" data-token="${escaparHtml(tk)}" value="${escaparHtml(item[tk]||'')}"></div>`).join('')}
     </div>`).join('');
@@ -19940,14 +20047,19 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dataServerName = document.getElementById('rgtm_dataserver').value.trim();
     const xmlRaiz = document.getElementById('rgtm_xmlraiz').value.trim();
     const contextoSoap = document.getElementById('rgtm_contexto').value.trim();
+    const buscaFornecedorDataServer = document.getElementById('rgtm_busca_forn_ds').value.trim();
+    const buscaFornecedorFiltro = document.getElementById('rgtm_busca_forn_filtro').value.trim();
+    const buscaProdutoDataServer = document.getElementById('rgtm_busca_prod_ds').value.trim();
+    const buscaProdutoFiltro = document.getElementById('rgtm_busca_prod_filtro').value.trim();
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
+    const payloadBusca = { buscaFornecedorDataServer, buscaFornecedorFiltro, buscaProdutoDataServer, buscaProdutoFiltro };
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, ...payloadBusca })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, ...payloadBusca });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
@@ -19982,6 +20094,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast(editando ? 'Movimentação atualizada' : 'Movimentação salva como rascunho');
   });
   document.getElementById('btnCancelarEdicaoRmMovimentacao').addEventListener('click', cancelarEdicaoRmMovimentacao);
+  document.getElementById('buscaRmCancelar').addEventListener('click', fecharBuscaRm);
+  document.getElementById('buscaRmBtnBuscar').addEventListener('click', executarBuscaRm);
+  document.getElementById('buscaRmTermo').addEventListener('keydown', e=>{ if(e.key==='Enter') executarBuscaRm(); });
   document.getElementById('btnAddRmPainel').addEventListener('click', async ()=>{
     const nome = document.getElementById('pnl_nome').value.trim();
     if(!nome){ toast('Informe o nome do painel'); return; }
