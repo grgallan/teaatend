@@ -1486,14 +1486,14 @@ create table if not exists rm_tipos_movimento (
   usuario text not null default '',
   senha_cifrada text,
   json_template text default '',
-  -- chaves (separadas por vírgula) dos arrays do json_template que são
-  -- "itens" (ex: TITMMOV) — repetem 1x por produto/serviço adicionado na
-  -- tela de Movimentações, em vez de 1x só como os arrays de cabeçalho
-  itens_array_keys text default '',
   criado_em timestamptz default now()
 );
 alter table rm_tipos_movimento enable row level security;
 create index if not exists idx_rm_tipos_movimento_cliente on rm_tipos_movimento (cliente_id);
+-- chaves (separadas por vírgula) dos arrays do json_template que são
+-- "itens" (ex: TITMMOV) — repetem 1x por produto/serviço adicionado na
+-- tela de Movimentações, em vez de 1x só como os arrays de cabeçalho
+alter table rm_tipos_movimento add column if not exists itens_array_keys text default '';
 
 -- Movimentações: uma instância de "gravar no RM" a partir de um Tipo de
 -- Movimentação cadastrado — fica "rascunho" na nossa base (valores
@@ -1507,11 +1507,11 @@ create table if not exists rm_movimentacoes (
   itens jsonb not null default '[]'::jsonb,
   status text not null default 'rascunho', -- rascunho | enviada | erro
   resposta_rm text,
-  -- corpo exato que foi mandado pro RM no último "Enviar RM" — guardado pra
-  -- conferir qual campo violou alguma restrição quando o RM responde erro
-  corpo_enviado jsonb,
   criado_em timestamptz default now(),
   enviado_em timestamptz
 );
 alter table rm_movimentacoes enable row level security;
 create index if not exists idx_rm_movimentacoes_tipo on rm_movimentacoes (tipo_movimento_id);
+-- corpo exato que foi mandado pro RM no último "Enviar RM" — guardado pra
+-- conferir qual campo violou alguma restrição quando o RM responde erro
+alter table rm_movimentacoes add column if not exists corpo_enviado jsonb;
