@@ -301,7 +301,8 @@ function rmTipoMovimentoParaApi(r: any) {
 function rmMovimentacaoParaApi(r: any) {
   return {
     id: r.id, tipoMovimentoId: r.tipo_movimento_id, valoresHeader: r.valores_header || {}, itens: r.itens || [],
-    status: r.status || 'rascunho', respostaRm: r.resposta_rm || '', criadoEm: r.criado_em, enviadoEm: r.enviado_em || null,
+    status: r.status || 'rascunho', respostaRm: r.resposta_rm || '', corpoEnviado: r.corpo_enviado || null,
+    criadoEm: r.criado_em, enviadoEm: r.enviado_em || null,
   };
 }
 function setorParaApi(s: any) {
@@ -4271,7 +4272,7 @@ async function acaoEnviarRmMovimentacao(req: any) {
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 120000);
   async function gravarResultado(status: string, texto: string) {
-    const atualizado: any = { status, resposta_rm: texto.slice(0, 4000) };
+    const atualizado: any = { status, resposta_rm: texto.slice(0, 4000), corpo_enviado: corpo };
     if (status === 'enviada') atualizado.enviado_em = new Date().toISOString();
     await db.from('rm_movimentacoes').update(atualizado).eq('id', req.id);
     return rmMovimentacaoParaApi({ ...mov, ...atualizado });
