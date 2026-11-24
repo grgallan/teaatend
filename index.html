@@ -2686,6 +2686,7 @@
     <div class="subtabs" id="rgrmSubtabs">
       <div class="subtab active" data-rgrmsub="cadastro">Consultas SQL</div>
       <div class="subtab" data-rgrmsub="paineis">Painéis</div>
+      <div class="subtab" data-rgrmsub="movimentacoes">Tipos de Movimentação</div>
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-cadastro">
@@ -2724,6 +2725,25 @@
       </div>
       <div class="subtabs" id="pnlPaineisSetorTabs" style="display:none;"></div>
       <div id="listRmPaineis"></div>
+    </div>
+
+    <div class="rgrm-sub-view" id="rgrm-sub-movimentacoes" style="display:none;">
+      <div class="card">
+        <h2 id="rgtm_tituloForm">Novo tipo de movimentação</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Cadastro de como GRAVAR um movimento no RM (diferente das Consultas SQL, que só leem). Cada tipo tem o CODTMV de destino, uma credencial de API própria pra escrita (separada da conexão de leitura do cliente, por segurança) e um template JSON do corpo a enviar.</p>
+        <div class="field"><label>Cliente</label><select id="rgtm_cliente"></select></div>
+        <div class="field"><label>Nome</label><input type="text" id="rgtm_nome" placeholder="Ex: NOTA DE ENTRADA"></div>
+        <div class="field"><label>CODTMV Destino</label><input type="text" id="rgtm_codtmv" placeholder="Ex: 1.1.01"></div>
+        <div class="row">
+          <div class="field"><label>Usuário</label><input type="text" id="rgtm_usuario" autocomplete="off"></div>
+          <div class="field"><label>Senha</label><input type="password" id="rgtm_senha" autocomplete="new-password" placeholder="Digite pra definir/trocar"></div>
+        </div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;" id="rgtm_senha_aviso"></p>
+        <div class="field"><label>Json</label><textarea id="rgtm_json" rows="10" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;" placeholder="Template do corpo a enviar pro RM"></textarea></div>
+        <button class="primary" id="btnAddRmTipoMovimento">Adicionar tipo de movimentação</button>
+        <button class="ghost" id="btnCancelarEdicaoRmTipoMovimento" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+      </div>
+      <div id="listRmTiposMovimento"></div>
     </div>
 
     <div class="rgrm-sub-view" id="rgrm-sub-painelgenerico" style="display:none;">

@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [], rmPaineis = [], setores = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [], rmPaineis = [], setores = [], rmTiposMovimento = [];
 let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
@@ -150,6 +150,7 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'cadastro', label:'Consultas SQL' },
     { chave:'paineis', label:'Painéis' },
     { chave:'painelrecebiveis', label:'Painel de Recebíveis' },
+    { chave:'movimentacoes', label:'Tipos de Movimentação' },
   ]},
 ];
 
@@ -848,6 +849,7 @@ async function carregarTudo(opcoes={}){
   rmPainelLayouts = r.rmPainelLayouts||[];
   rmPaineis = r.rmPaineis||[];
   setores = r.setores||[];
+  rmTiposMovimento = r.rmTiposMovimento||[];
   atualizarBadgeAtendimentos();
   perfisAcesso = r.perfisAcesso||[];
   empresas = r.empresas||[];
@@ -12992,6 +12994,7 @@ function goRgrmSub(sub){
   if(sub === 'paineis') renderListRmPaineis();
   if(sub === 'painelrecebiveis') recebAbrir();
   if(sub === 'painelgenerico') pnlAbrir();
+  if(sub === 'movimentacoes') renderListRmTiposMovimento();
 }
 
 /* ---------- Cadastro de Relatórios (CRUD simples, mesmo padrão de Categorias Financeiras) ---------- */
@@ -13054,6 +13057,71 @@ async function removerRmRelatorio(id){
   await carregarTudo({ comAtendimentos: false });
   renderListRmRelatorios();
   toast('Consulta removida');
+}
+
+/* ---------- Tipos de Movimentação (CRUD) — cadastro por cliente de como
+   GRAVAR um movimento no RM (CODTMV destino + credencial própria de
+   escrita + template JSON do corpo). Primeira peça da integração de
+   ESCRITA Controle de Atendimentos → RM — até aqui, tudo em Relatórios
+   Gerenciais TOTVS RM era só leitura (RealizaConsulta) ---------- */
+let editandoRmTipoMovimentoId = null;
+function renderListRmTiposMovimento(){
+  const el = document.getElementById('listRmTiposMovimento');
+  if(!el) return;
+  popularSelectRgtmCliente(document.getElementById('rgtm_cliente').value);
+  if(rmTiposMovimento.length===0){ el.innerHTML = `<div class="empty">Nenhum tipo de movimentação cadastrado.</div>`; return; }
+  el.innerHTML = rmTiposMovimento.map(m=>`
+    <div class="cad-item"><div class="info"><b>${escaparHtml(m.nome)}</b>
+      <span>Cliente: ${m.clienteId ? escaparHtml(rgrmNomeCliente(m.clienteId)) : '(nenhum — edite e escolha um cliente)'}</span>
+      <span>CODTMV destino: ${escaparHtml(m.codtmvDestino)}</span>
+      <span>Usuário: ${m.usuario ? escaparHtml(m.usuario) : '(não informado)'} · Senha: ${m.temSenha ? 'cadastrada' : 'não cadastrada'}</span>
+    </div>
+    <div class="acts">
+      <button class="ghost" onclick="editarRmTipoMovimento('${m.id}')">Editar</button>
+      <button class="danger" onclick="pedirConfirmacao('Remover tipo de movimentação?','Isso remove só o cadastro — não mexe em nada dentro do RM.', ()=>removerRmTipoMovimento('${m.id}'))">Remover</button>
+    </div></div>`).join('');
+}
+function popularSelectRgtmCliente(valorAtual){
+  const sel = document.getElementById('rgtm_cliente');
+  if(!sel) return;
+  sel.innerHTML = `<option value="">Escolha o cliente</option>` + clientes.map(c=>`<option value="${c.id}">${escaparHtml(c.nome)}${c.rmUrl ? '' : ' (sem conexão RM configurada)'}</option>`).join('');
+  sel.value = valorAtual || '';
+}
+function editarRmTipoMovimento(id){
+  const m = rmTiposMovimento.find(x=>String(x.id)===String(id));
+  if(!m) return;
+  editandoRmTipoMovimentoId = id;
+  popularSelectRgtmCliente(m.clienteId);
+  document.getElementById('rgtm_nome').value = m.nome;
+  document.getElementById('rgtm_codtmv').value = m.codtmvDestino;
+  document.getElementById('rgtm_usuario').value = m.usuario || '';
+  document.getElementById('rgtm_senha').value = '';
+  document.getElementById('rgtm_senha_aviso').textContent = m.temSenha ? 'Já tem uma senha salva — deixe em branco pra manter a atual.' : '';
+  document.getElementById('rgtm_json').value = m.jsonTemplate || '';
+  document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
+  document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
+  document.getElementById('rgtm_nome').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function cancelarEdicaoRmTipoMovimento(){
+  editandoRmTipoMovimentoId = null;
+  popularSelectRgtmCliente('');
+  document.getElementById('rgtm_nome').value = '';
+  document.getElementById('rgtm_codtmv').value = '';
+  document.getElementById('rgtm_usuario').value = '';
+  document.getElementById('rgtm_senha').value = '';
+  document.getElementById('rgtm_senha_aviso').textContent = '';
+  document.getElementById('rgtm_json').value = '';
+  document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
+  document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
+  document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
+}
+async function removerRmTipoMovimento(id){
+  const r = await api('removerRmTipoMovimento', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarTudo({ comAtendimentos: false });
+  renderListRmTiposMovimento();
+  toast('Tipo de movimentação removido');
 }
 
 /* ---------- Cadastro de Painéis (CRUD) ---------- */
@@ -19666,6 +19734,28 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast(editando ? 'Consulta atualizada' : 'Consulta adicionada');
   });
   document.getElementById('btnCancelarEdicaoRmRelatorio').addEventListener('click', cancelarEdicaoRmRelatorio);
+  document.getElementById('btnAddRmTipoMovimento').addEventListener('click', async ()=>{
+    const clienteId = document.getElementById('rgtm_cliente').value;
+    const nome = document.getElementById('rgtm_nome').value.trim();
+    const codtmvDestino = document.getElementById('rgtm_codtmv').value.trim();
+    const usuario = document.getElementById('rgtm_usuario').value.trim();
+    const senha = document.getElementById('rgtm_senha').value;
+    const jsonTemplate = document.getElementById('rgtm_json').value;
+    if(!clienteId){ toast('Escolha o cliente'); return; }
+    if(!nome){ toast('Informe o nome'); return; }
+    if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
+    const editando = !!editandoRmTipoMovimentoId;
+    const contaId = contaAtual().id;
+    const r = editando
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    cancelarEdicaoRmTipoMovimento();
+    await carregarTudo({ comAtendimentos: false });
+    renderListRmTiposMovimento();
+    toast(editando ? 'Tipo de movimentação atualizado' : 'Tipo de movimentação adicionado');
+  });
+  document.getElementById('btnCancelarEdicaoRmTipoMovimento').addEventListener('click', cancelarEdicaoRmTipoMovimento);
   document.getElementById('btnAddRmPainel').addEventListener('click', async ()=>{
     const nome = document.getElementById('pnl_nome').value.trim();
     if(!nome){ toast('Informe o nome do painel'); return; }

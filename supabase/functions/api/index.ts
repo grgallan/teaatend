@@ -231,6 +231,7 @@ const MENUS_PERFIL_ACESSO = [
   'cadastros.tabelasrm', 'cadastros.camposrm', 'cadastros.relacionamentosrm', 'cadastros.tabelasauxrm',
   'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket', 'utilitarios.sqlrm', 'utilitarios.painelrecebiveis',
   'relatoriosgerenciaisrm', 'relatoriosgerenciaisrm.cadastro', 'relatoriosgerenciaisrm.paineis', 'relatoriosgerenciaisrm.painelrecebiveis',
+  'relatoriosgerenciaisrm.movimentacoes',
 ];
 
 function permissaoVaziaPorMenu() {
@@ -287,6 +288,14 @@ function rmRelatorioGerencialParaApi(r: any) {
 }
 function rmPainelParaApi(p: any) {
   return { id: p.id, slug: p.slug, nome: p.nome, tipo: p.tipo || 'generico', consultas: p.consultas || [], setorId: p.setor_id || '' };
+}
+// senha NUNCA volta pro front (nem cifrada) — só "temSenha", pra tela
+// decidir o texto do placeholder, igual já faz clienteParaApi com a senha RM
+function rmTipoMovimentoParaApi(r: any) {
+  return {
+    id: r.id, clienteId: r.cliente_id || '', nome: r.nome, codtmvDestino: r.codtmv_destino || '',
+    usuario: r.usuario || '', temSenha: !!r.senha_cifrada, jsonTemplate: r.json_template || '',
+  };
 }
 function setorParaApi(s: any) {
   return { id: s.id, nome: s.nome, clienteId: s.cliente_id };
@@ -386,6 +395,9 @@ async function rotear(req: any): Promise<any> {
     case 'addRmRelatorioGerencial': return acaoAddRmRelatorioGerencial(req);
     case 'atualizarRmRelatorioGerencial': return acaoAtualizarRmRelatorioGerencial(req);
     case 'removerRmRelatorioGerencial': return acaoRemoverRmRelatorioGerencial(req);
+    case 'addRmTipoMovimento': return acaoAddRmTipoMovimento(req);
+    case 'atualizarRmTipoMovimento': return acaoAtualizarRmTipoMovimento(req);
+    case 'removerRmTipoMovimento': return acaoRemoverRmTipoMovimento(req);
     case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
     case 'salvarRmPainelLayout': return acaoSalvarRmPainelLayout(req);
     case 'addRmPainel': return acaoAddRmPainel(req);
@@ -564,7 +576,7 @@ async function acaoDados(req: any) {
   if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
   let rmRelatoriosQuery = db.from('rm_relatorios_gerenciais').select('*').order('nome');
   if (empresaId) rmRelatoriosQuery = rmRelatoriosQuery.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }, { data: perfilPaineisRaw }, { data: contaPaineisRaw }, { data: setoresRaw }] = await Promise.all([
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }, { data: perfilPaineisRaw }, { data: contaPaineisRaw }, { data: setoresRaw }, { data: rmTiposMovimentoRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -584,6 +596,7 @@ async function acaoDados(req: any) {
     db.from('perfil_acesso_paineis').select('*'),
     db.from('conta_paineis').select('*'),
     db.from('setores').select('*').order('nome'),
+    db.from('rm_tipos_movimento').select('*').order('nome'),
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
@@ -782,6 +795,7 @@ async function acaoDados(req: any) {
     rmPainelLayouts: (rmPainelLayoutsRaw || []).map((p: any) => ({ slug: p.slug, widgets: p.widgets || [], filtros: p.filtros || [], medidas: p.medidas || [] })),
     rmPaineis: (rmPaineisRaw || []).map(rmPainelParaApi),
     setores: (setoresRaw || []).map(setorParaApi),
+    rmTiposMovimento: (rmTiposMovimentoRaw || []).map(rmTipoMovimentoParaApi),
   };
 }
 
@@ -4100,6 +4114,46 @@ async function acaoRemoverRmRelatorioGerencial(req: any) {
   await db.from('rm_relatorios_gerenciais').delete().eq('id', req.id);
   return { ok: true };
 }
+
+/* ---------- Tipos de Movimentação: cadastro por cliente de como GRAVAR
+   um movimento no RM (CODTMV destino + credencial própria de escrita +
+   template JSON do corpo) — ver schema.sql (rm_tipos_movimento) ---------- */
+async function acaoAddRmTipoMovimento(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.movimentacoes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar tipos de movimentação.' };
+  if (!req.clienteId) return { ok: false, erro: 'Escolha o cliente.' };
+  if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome.' };
+  if (!req.codtmvDestino || !String(req.codtmvDestino).trim()) return { ok: false, erro: 'Informe o CODTMV de destino.' };
+  const registro: any = {
+    id: gerarId(), cliente_id: req.clienteId, nome: req.nome, codtmv_destino: req.codtmvDestino,
+    usuario: req.usuario || '', json_template: req.jsonTemplate || '',
+  };
+  if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
+  const { error } = await db.from('rm_tipos_movimento').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: rmTipoMovimentoParaApi(registro) };
+}
+async function acaoAtualizarRmTipoMovimento(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar tipos de movimentação.' };
+  if (!req.id) return { ok: false, erro: 'Tipo de movimentação não informado.' };
+  const atualizado: any = {};
+  if (req.clienteId) atualizado.cliente_id = req.clienteId;
+  if (req.nome !== undefined) atualizado.nome = req.nome;
+  if (req.codtmvDestino !== undefined) atualizado.codtmv_destino = req.codtmvDestino;
+  if (req.usuario !== undefined) atualizado.usuario = req.usuario;
+  if (req.jsonTemplate !== undefined) atualizado.json_template = req.jsonTemplate;
+  // a senha só é regravada quando a tela manda uma nova (campo em branco =
+  // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
+  if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);
+  const { error } = await db.from('rm_tipos_movimento').update(atualizado).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRemoverRmTipoMovimento(req: any) {
+  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.movimentacoes', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover tipos de movimentação.' };
+  await db.from('rm_tipos_movimento').delete().eq('id', req.id);
+  return { ok: true };
+}
+
 // monta a URL de consulta igual o painel standalone fazia (RealizaConsulta
 // da API de Consultas SQL do RM), mas a chamada em si agora é feita AQUI
 // no backend — usuário/senha do RM nunca mais trafegam pro navegador
