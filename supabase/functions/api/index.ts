@@ -4328,7 +4328,12 @@ async function acaoEnviarRmMovimentacao(req: any) {
   // sem parâmetro — AutenticaAcesso usa só o Basic Auth da requisição) e
   // usa o token que ela devolve como Contexto do SaveRecord
   let contextoFinal = tipo.contexto_soap || '';
-  if (!contextoFinal) {
+  // diagnóstico do que rolou no AutenticaAcesso — incluído na mensagem de
+  // erro quando o SaveRecord falha, pra não ficar no escuro sobre se o
+  // contexto usado veio vazio, deu erro, ou veio preenchido mas mesmo
+  // assim não resolveu a coligada
+  let debugAuth = tipo.contexto_soap ? `Contexto fixo cadastrado: "${tipo.contexto_soap}".` : '';
+  if (!tipo.contexto_soap) {
     const envelopeAuth = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:AutenticaAcesso/></soap:Body></soap:Envelope>`;
     try {
       const respAuth = await fetch(url, {
@@ -4342,11 +4347,14 @@ async function acaoEnviarRmMovimentacao(req: any) {
         signal: ctl.signal,
       });
       const textoAuth = await respAuth.text();
-      if (respAuth.ok) contextoFinal = extrairTagSoap(textoAuth, 'AutenticaAcessoResult') || '';
-    } catch (_e) {
-      // segue sem contexto — o SaveRecord abaixo vai acabar reportando o
-      // mesmo tipo de erro de permissão/conexão, só que já com uma
-      // mensagem do próprio RM
+      if (respAuth.ok) {
+        contextoFinal = extrairTagSoap(textoAuth, 'AutenticaAcessoResult') || '';
+        debugAuth = `AutenticaAcesso (HTTP ${respAuth.status}) devolveu: "${contextoFinal}".`;
+      } else {
+        debugAuth = `AutenticaAcesso falhou (HTTP ${respAuth.status}): ${textoAuth.slice(0, 300)}`;
+      }
+    } catch (e: any) {
+      debugAuth = `AutenticaAcesso deu exceção: ${e?.message || e}`;
     }
   }
   // RM grava via SOAP (wsDataServer/IwsDataServer), operação SaveRecord —
@@ -4380,12 +4388,12 @@ async function acaoEnviarRmMovimentacao(req: any) {
     });
     const texto = await resp.text();
     if (resp.status === 401 || resp.status === 403) {
-      const { registro, erroSalvar } = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
-      return { ok: false, erro: comAvisoDeSalvar(`O RM recusou o acesso (HTTP ${resp.status}). Confira usuário/senha desse tipo de movimentação.`, erroSalvar), registro };
+      const { registro, erroSalvar } = await gravarResultado('erro', `${debugAuth}\n\nHTTP ${resp.status}. ${texto}`);
+      return { ok: false, erro: comAvisoDeSalvar(`O RM recusou o acesso (HTTP ${resp.status}). Confira usuário/senha desse tipo de movimentação. ${debugAuth}`, erroSalvar), registro };
     }
     if (!resp.ok) {
-      const { registro, erroSalvar } = await gravarResultado('erro', `HTTP ${resp.status}. ${texto.slice(0, 2000)}`);
-      return { ok: false, erro: comAvisoDeSalvar(`O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)}`, erroSalvar), registro };
+      const { registro, erroSalvar } = await gravarResultado('erro', `${debugAuth}\n\nHTTP ${resp.status}. ${texto.slice(0, 2000)}`);
+      return { ok: false, erro: comAvisoDeSalvar(`O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debugAuth}`, erroSalvar), registro };
     }
     const resultado = extrairTagSoap(texto, 'SaveRecordResult') ?? texto;
     const { registro, erroSalvar } = await gravarResultado('enviada', resultado);
