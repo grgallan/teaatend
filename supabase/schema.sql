@@ -1494,6 +1494,14 @@ create index if not exists idx_rm_tipos_movimento_cliente on rm_tipos_movimento 
 -- "itens" (ex: TITMMOV) — repetem 1x por produto/serviço adicionado na
 -- tela de Movimentações, em vez de 1x só como os arrays de cabeçalho
 alter table rm_tipos_movimento add column if not exists itens_array_keys text default '';
+-- RM grava via SOAP (wsDataServer/IwsDataServer, operação SaveRecord), não
+-- REST: SaveRecord(DataServerName, XML, Contexto) — DataServerName é o
+-- nome do Data Server do RM (ex: MovMovimentoTBCData), XML é o corpo no
+-- formato <ElementoRaiz><TMOV>...</TMOV>...</ElementoRaiz> (mesmo formato
+-- que ReadRecord devolve) e Contexto varia por instalação do RM
+alter table rm_tipos_movimento add column if not exists data_server_name text default '';
+alter table rm_tipos_movimento add column if not exists xml_raiz text default '';
+alter table rm_tipos_movimento add column if not exists contexto_soap text default '';
 
 -- Movimentações: uma instância de "gravar no RM" a partir de um Tipo de
 -- Movimentação cadastrado — fica "rascunho" na nossa base (valores
