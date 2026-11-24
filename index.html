@@ -3381,6 +3381,12 @@
         <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">Cole aqui o Json real (com os campos fixos já certos) e troque pelo formato <code>{nome}</code> só os campos que a pessoa vai preencher ao criar a movimentação. Ex: <code>"CODCFO": "{fornecedor}"</code>, <code>"HISTORICOLONGO": "{historico}"</code>. Esses nomes viram os campos do formulário em Movimentações. Por padrão o valor digitado vai como <b>texto</b> (preserva zero à esquerda em códigos, ex: fornecedor "000175"); pra campo que precisa virar <b>número</b> de verdade (valor, quantidade), use <code>#</code> antes do nome: <code>"VALORBRUTO": "{#valorBruto}"</code>. Datas/horas: digite sempre no formato ISO, ex: <code>2026-11-24T00:00:00</code> (hora: <code>2026-11-24T15:53:00</code>).</p>
         <div class="field"><label>Chaves de itens (opcional)</label><input type="text" id="rgtm_itensArray" placeholder="Ex: TITMMOV,TITMMOVCOMPL,TITMMOVFISCAL"></div>
         <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">Nomes (separados por vírgula) dos arrays do Json que são <b>itens</b> — uma linha de produto/serviço por item adicionado na tela, em vez de um valor só (os demais arrays do Json são tratados como cabeçalho, preenchido 1x).</p>
+        <div class="row">
+          <div class="field"><label>Nome do Data Server (RM)</label><input type="text" id="rgtm_dataserver" placeholder="Ex: MovMovimentoTBCData"></div>
+          <div class="field"><label>Elemento raiz do XML</label><input type="text" id="rgtm_xmlraiz" placeholder="Ex: MovMovimento"></div>
+        </div>
+        <div class="field"><label>Contexto (opcional)</label><input type="text" id="rgtm_contexto" placeholder="Depende da instalação do RM — deixe em branco se não souber"></div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">O envio é feito via SOAP (serviço <code>wsDataServer</code> do RM, operação <code>SaveRecord</code>) — <b>Nome do Data Server</b> e <b>Elemento raiz do XML</b> são obrigatórios pra "Enviar RM" funcionar. Pra descobrir os valores certos, peça pro time técnico/TOTVS o WSDL do serviço (<code>.../wsDataServer/MEX?wsdl</code>) e o XSD referenciado nele.</p>
         <button class="primary" id="btnAddRmTipoMovimento">Adicionar tipo de movimentação</button>
         <button class="ghost" id="btnCancelarEdicaoRmTipoMovimento" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>

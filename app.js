@@ -13088,6 +13088,7 @@ function renderListRmTiposMovimento(){
       <span>Cliente: ${m.clienteId ? escaparHtml(rgrmNomeCliente(m.clienteId)) : '(nenhum — edite e escolha um cliente)'}</span>
       <span>CODTMV destino: ${escaparHtml(m.codtmvDestino)}</span>
       <span>Usuário: ${m.usuario ? escaparHtml(m.usuario) : '(não informado)'} · Senha: ${m.temSenha ? 'cadastrada' : 'não cadastrada'}</span>
+      <span>Data Server: ${m.dataServerName ? escaparHtml(m.dataServerName) : '(não informado — Enviar RM não vai funcionar)'} · Raiz XML: ${m.xmlRaiz ? escaparHtml(m.xmlRaiz) : '(não informado)'}</span>
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarRmTipoMovimento('${m.id}')">Editar</button>
@@ -13112,6 +13113,9 @@ function editarRmTipoMovimento(id){
   document.getElementById('rgtm_senha_aviso').textContent = m.temSenha ? 'Já tem uma senha salva — deixe em branco pra manter a atual.' : '';
   document.getElementById('rgtm_json').value = m.jsonTemplate || '';
   document.getElementById('rgtm_itensArray').value = m.itensArrayKeys || '';
+  document.getElementById('rgtm_dataserver').value = m.dataServerName || '';
+  document.getElementById('rgtm_xmlraiz').value = m.xmlRaiz || '';
+  document.getElementById('rgtm_contexto').value = m.contextoSoap || '';
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13127,6 +13131,9 @@ function cancelarEdicaoRmTipoMovimento(){
   document.getElementById('rgtm_senha_aviso').textContent = '';
   document.getElementById('rgtm_json').value = '';
   document.getElementById('rgtm_itensArray').value = '';
+  document.getElementById('rgtm_dataserver').value = '';
+  document.getElementById('rgtm_xmlraiz').value = '';
+  document.getElementById('rgtm_contexto').value = '';
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13258,7 +13265,7 @@ function renderListRmMovimentacoes(){
       <span>Cliente: ${escaparHtml(nomeClienteDoTipoMovimento(m.tipoMovimentoId))}</span>
       <span>Status: ${labelStatusMovimentacao(m.status)}${m.enviadoEm ? ' em ' + new Date(m.enviadoEm).toLocaleString('pt-BR') : ''}</span>
       ${m.status==='erro' && m.respostaRm ? `<span style="color:var(--bad);">${escaparHtml(m.respostaRm.slice(0,300))}</span>` : ''}
-      ${m.corpoEnviado ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver corpo enviado pro RM</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(JSON.stringify(m.corpoEnviado, null, 2))}</pre></details>` : ''}
+      ${m.corpoEnviado ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver corpo enviado pro RM</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(typeof m.corpoEnviado === 'string' ? m.corpoEnviado : JSON.stringify(m.corpoEnviado, null, 2))}</pre></details>` : ''}
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarRmMovimentacao('${m.id}')">Editar</button>
@@ -19929,14 +19936,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const senha = document.getElementById('rgtm_senha').value;
     const jsonTemplate = document.getElementById('rgtm_json').value;
     const itensArrayKeys = document.getElementById('rgtm_itensArray').value.trim();
+    const dataServerName = document.getElementById('rgtm_dataserver').value.trim();
+    const xmlRaiz = document.getElementById('rgtm_xmlraiz').value.trim();
+    const contextoSoap = document.getElementById('rgtm_contexto').value.trim();
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });

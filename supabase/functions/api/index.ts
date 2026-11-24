@@ -295,7 +295,8 @@ function rmTipoMovimentoParaApi(r: any) {
   return {
     id: r.id, clienteId: r.cliente_id || '', nome: r.nome, codtmvDestino: r.codtmv_destino || '',
     usuario: r.usuario || '', temSenha: !!r.senha_cifrada, jsonTemplate: r.json_template || '',
-    itensArrayKeys: r.itens_array_keys || '',
+    itensArrayKeys: r.itens_array_keys || '', dataServerName: r.data_server_name || '',
+    xmlRaiz: r.xml_raiz || '', contextoSoap: r.contexto_soap || '',
   };
 }
 function rmMovimentacaoParaApi(r: any) {
@@ -4140,6 +4141,7 @@ async function acaoAddRmTipoMovimento(req: any) {
   const registro: any = {
     id: gerarId(), cliente_id: req.clienteId, nome: req.nome, codtmv_destino: req.codtmvDestino,
     usuario: req.usuario || '', json_template: req.jsonTemplate || '', itens_array_keys: req.itensArrayKeys || '',
+    data_server_name: req.dataServerName || '', xml_raiz: req.xmlRaiz || '', contexto_soap: req.contextoSoap || '',
   };
   if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
   const { error } = await db.from('rm_tipos_movimento').insert(registro);
@@ -4156,6 +4158,9 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   if (req.usuario !== undefined) atualizado.usuario = req.usuario;
   if (req.jsonTemplate !== undefined) atualizado.json_template = req.jsonTemplate;
   if (req.itensArrayKeys !== undefined) atualizado.itens_array_keys = req.itensArrayKeys;
+  if (req.dataServerName !== undefined) atualizado.data_server_name = req.dataServerName;
+  if (req.xmlRaiz !== undefined) atualizado.xml_raiz = req.xmlRaiz;
+  if (req.contextoSoap !== undefined) atualizado.contexto_soap = req.contextoSoap;
   // a senha só é regravada quando a tela manda uma nova (campo em branco =
   // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
   if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);
@@ -4253,6 +4258,43 @@ async function acaoRemoverRmMovimentacao(req: any) {
   await db.from('rm_movimentacoes').delete().eq('id', req.id);
   return { ok: true };
 }
+// escapa texto pra entrar como conteúdo de uma tag XML (nome de tag nunca
+// passa por aqui — só valores)
+function escaparXml(v: any): string {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+// monta o XML <raiz><TMOV>...</TMOV><TITMMOV>...</TITMMOV>...</raiz> que o
+// SaveRecord do wsDataServer espera — mesmo formato que o ReadRecord devolve
+// (cada linha de cada "tabela" vira 1 elemento, repetido 1x por linha; não
+// agrupa itens dentro de um array, cada item é um <TITMMOV> irmão)
+function corpoParaXml(corpo: any, raiz: string): string {
+  let xml = `<${raiz}>`;
+  for (const tabela of Object.keys(corpo || {})) {
+    const linhas = corpo[tabela];
+    if (!Array.isArray(linhas)) continue;
+    for (const linha of linhas) {
+      xml += `<${tabela}>`;
+      for (const campo of Object.keys(linha || {})) {
+        const v = linha[campo];
+        if (v === null || v === undefined) continue;
+        xml += `<${campo}>${escaparXml(v)}</${campo}>`;
+      }
+      xml += `</${tabela}>`;
+    }
+  }
+  xml += `</${raiz}>`;
+  return xml;
+}
+// pega o conteúdo de <tag>...</tag> (com ou sem prefixo de namespace) numa
+// resposta SOAP, e desfaz o escape de entidades (&lt; etc) pra ficar
+// legível — usado pra extrair o <SaveRecordResult> de dentro do envelope
+function extrairTagSoap(xmlTexto: string, tag: string): string | null {
+  const m = xmlTexto.match(new RegExp(`<(?:[A-Za-z0-9_]+:)?${tag}[^>]*>([\\s\\S]*?)</(?:[A-Za-z0-9_]+:)?${tag}>`));
+  if (!m) return null;
+  return m[1]
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&#xD;/gi, '').replace(/&amp;/g, '&');
+}
 async function acaoEnviarRmMovimentacao(req: any) {
   if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para enviar movimentações pro RM.' };
   if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
@@ -4261,6 +4303,7 @@ async function acaoEnviarRmMovimentacao(req: any) {
   const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', mov.tipo_movimento_id).maybeSingle();
   if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
+  if (!tipo.data_server_name || !tipo.xml_raiz) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem "Nome do Data Server" / "Elemento raiz do XML" cadastrados (Movimentos → Parâmetros).' };
   const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
   if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
   let template: any;
@@ -4273,8 +4316,14 @@ async function acaoEnviarRmMovimentacao(req: any) {
   }
   const itensArrayKeys = String(tipo.itens_array_keys || '').split(',').map((s: string) => s.trim()).filter(Boolean);
   const corpo = montarCorpoMovimentacao(template, mov.valores_header || {}, mov.itens || [], itensArrayKeys);
+  const xmlCorpo = corpoParaXml(corpo, tipo.xml_raiz);
+  // RM grava via SOAP (wsDataServer/IwsDataServer), operação SaveRecord —
+  // não é REST/JSON: SaveRecord(DataServerName, XML, Contexto), onde XML é
+  // uma STRING contendo o XML de negócio acima (confirmado via o WSDL/XSD
+  // do serviço e comparando com um ReadRecord real)
+  const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:SaveRecord><tns:DataServerName>${escaparXml(tipo.data_server_name)}</tns:DataServerName><tns:XML>${escaparXml(xmlCorpo)}</tns:XML><tns:Contexto>${escaparXml(tipo.contexto_soap || '')}</tns:Contexto></tns:SaveRecord></soap:Body></soap:Envelope>`;
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
-  const url = `${base}/rmsrestdataserver/rest/MovMovimentoTBCData`;
+  const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 120000);
   // devolve também um erro de SALVAR (ex: coluna nova ainda não visível pro
@@ -4282,7 +4331,7 @@ async function acaoEnviarRmMovimentacao(req: any) {
   // isso, uma falha aqui ficava muda: a tela mostrava a resposta do RM
   // certinha mas "corpo_enviado" nunca aparecia, sem pista nenhuma do motivo
   async function gravarResultado(status: string, texto: string) {
-    const atualizado: any = { status, resposta_rm: texto.slice(0, 4000), corpo_enviado: corpo };
+    const atualizado: any = { status, resposta_rm: texto.slice(0, 4000), corpo_enviado: xmlCorpo };
     if (status === 'enviada') atualizado.enviado_em = new Date().toISOString();
     const { error: erroSalvar } = await db.from('rm_movimentacoes').update(atualizado).eq('id', req.id);
     return { registro: rmMovimentacaoParaApi({ ...mov, ...atualizado }), erroSalvar: erroSalvar ? erroSalvar.message : null };
@@ -4293,8 +4342,12 @@ async function acaoEnviarRmMovimentacao(req: any) {
   try {
     const resp = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`) },
-      body: JSON.stringify(corpo),
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: 'http://www.totvs.com/IwsDataServer/SaveRecord',
+        Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
+      },
+      body: envelope,
       signal: ctl.signal,
     });
     const texto = await resp.text();
@@ -4303,10 +4356,11 @@ async function acaoEnviarRmMovimentacao(req: any) {
       return { ok: false, erro: comAvisoDeSalvar(`O RM recusou o acesso (HTTP ${resp.status}). Confira usuário/senha desse tipo de movimentação.`, erroSalvar), registro };
     }
     if (!resp.ok) {
-      const { registro, erroSalvar } = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
-      return { ok: false, erro: comAvisoDeSalvar(`O RM respondeu HTTP ${resp.status}. ${texto.slice(0, 300)}`, erroSalvar), registro };
+      const { registro, erroSalvar } = await gravarResultado('erro', `HTTP ${resp.status}. ${texto.slice(0, 2000)}`);
+      return { ok: false, erro: comAvisoDeSalvar(`O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)}`, erroSalvar), registro };
     }
-    const { registro, erroSalvar } = await gravarResultado('enviada', texto);
+    const resultado = extrairTagSoap(texto, 'SaveRecordResult') ?? texto;
+    const { registro, erroSalvar } = await gravarResultado('enviada', resultado);
     if (erroSalvar) return { ok: false, erro: comAvisoDeSalvar('O RM aceitou o envio, mas não consegui salvar o resultado no banco.', erroSalvar), registro };
     return { ok: true, registro };
   } catch (e: any) {
