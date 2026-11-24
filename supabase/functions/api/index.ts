@@ -4317,15 +4317,43 @@ async function acaoEnviarRmMovimentacao(req: any) {
   const itensArrayKeys = String(tipo.itens_array_keys || '').split(',').map((s: string) => s.trim()).filter(Boolean);
   const corpo = montarCorpoMovimentacao(template, mov.valores_header || {}, mov.itens || [], itensArrayKeys);
   const xmlCorpo = corpoParaXml(corpo, tipo.xml_raiz);
-  // RM grava via SOAP (wsDataServer/IwsDataServer), operação SaveRecord —
-  // não é REST/JSON: SaveRecord(DataServerName, XML, Contexto), onde XML é
-  // uma STRING contendo o XML de negócio acima (confirmado via o WSDL/XSD
-  // do serviço e comparando com um ReadRecord real)
-  const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:SaveRecord><tns:DataServerName>${escaparXml(tipo.data_server_name)}</tns:DataServerName><tns:XML>${escaparXml(xmlCorpo)}</tns:XML><tns:Contexto>${escaparXml(tipo.contexto_soap || '')}</tns:Contexto></tns:SaveRecord></soap:Body></soap:Envelope>`;
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 120000);
+  // o RM recusou nosso 1º teste ("Na coligada -1 não existe tipo de
+  // movimento...") mesmo mandando CODCOLIGADA certo dentro do XML — ele
+  // resolve a coligada pelo Contexto da chamada SOAP, não pelo XML. Sem um
+  // Contexto cadastrado à mão, autentica primeiro (mesmo usuário/senha,
+  // sem parâmetro — AutenticaAcesso usa só o Basic Auth da requisição) e
+  // usa o token que ela devolve como Contexto do SaveRecord
+  let contextoFinal = tipo.contexto_soap || '';
+  if (!contextoFinal) {
+    const envelopeAuth = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:AutenticaAcesso/></soap:Body></soap:Envelope>`;
+    try {
+      const respAuth = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/xml; charset=utf-8',
+          SOAPAction: 'http://www.totvs.com/IwsBase/AutenticaAcesso',
+          Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
+        },
+        body: envelopeAuth,
+        signal: ctl.signal,
+      });
+      const textoAuth = await respAuth.text();
+      if (respAuth.ok) contextoFinal = extrairTagSoap(textoAuth, 'AutenticaAcessoResult') || '';
+    } catch (_e) {
+      // segue sem contexto — o SaveRecord abaixo vai acabar reportando o
+      // mesmo tipo de erro de permissão/conexão, só que já com uma
+      // mensagem do próprio RM
+    }
+  }
+  // RM grava via SOAP (wsDataServer/IwsDataServer), operação SaveRecord —
+  // não é REST/JSON: SaveRecord(DataServerName, XML, Contexto), onde XML é
+  // uma STRING contendo o XML de negócio acima (confirmado via o WSDL/XSD
+  // do serviço e comparando com um ReadRecord real)
+  const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:SaveRecord><tns:DataServerName>${escaparXml(tipo.data_server_name)}</tns:DataServerName><tns:XML>${escaparXml(xmlCorpo)}</tns:XML><tns:Contexto>${escaparXml(contextoFinal)}</tns:Contexto></tns:SaveRecord></soap:Body></soap:Envelope>`;
   // devolve também um erro de SALVAR (ex: coluna nova ainda não visível pro
   // PostgREST por falta de "reload schema") separado do erro do RM — sem
   // isso, uma falha aqui ficava muda: a tela mostrava a resposta do RM
