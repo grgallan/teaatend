@@ -306,6 +306,7 @@ function rmMovimentacaoParaApi(r: any) {
     id: r.id, tipoMovimentoId: r.tipo_movimento_id, valoresHeader: r.valores_header || {}, itens: r.itens || [],
     status: r.status || 'rascunho', respostaRm: r.resposta_rm || '', corpoEnviado: r.corpo_enviado || null,
     criadoEm: r.criado_em, enviadoEm: r.enviado_em || null,
+    rmColigada: r.rm_coligada || '', rmIdmov: r.rm_idmov || '',
   };
 }
 function setorParaApi(s: any) {
@@ -4441,6 +4442,11 @@ async function acaoEnviarRmMovimentacao(req: any) {
   if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
   const { data: mov } = await db.from('rm_movimentacoes').select('*').eq('id', req.id).maybeSingle();
   if (!mov) return { ok: false, erro: 'Movimentação não encontrada.' };
+  // trava: uma vez enviada com sucesso pro RM (coligada+IDMOV gravados),
+  // não deixa gerar de novo — evita duplicar o movimento no RM
+  if (mov.status === 'enviada') {
+    return { ok: false, erro: `Essa movimentação já foi enviada pro RM (coligada ${mov.rm_coligada || '?'} / IDMOV ${mov.rm_idmov || '?'}) e não pode ser enviada de novo.`, registro: rmMovimentacaoParaApi(mov) };
+  }
   const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', mov.tipo_movimento_id).maybeSingle();
   if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
@@ -4474,7 +4480,12 @@ async function acaoEnviarRmMovimentacao(req: any) {
   // certinha mas "corpo_enviado" nunca aparecia, sem pista nenhuma do motivo
   async function gravarResultado(status: string, texto: string) {
     const atualizado: any = { status, resposta_rm: texto.slice(0, 4000), corpo_enviado: xmlCorpo };
-    if (status === 'enviada') atualizado.enviado_em = new Date().toISOString();
+    if (status === 'enviada') {
+      atualizado.enviado_em = new Date().toISOString();
+      // SaveRecordResult de sucesso vem como "coligada;idmov" (ex: "3;387366")
+      const partes = /^(-?\d+);(-?\d+)$/.exec(texto.trim());
+      if (partes) { atualizado.rm_coligada = partes[1]; atualizado.rm_idmov = partes[2]; }
+    }
     const { error: erroSalvar } = await db.from('rm_movimentacoes').update(atualizado).eq('id', req.id);
     return { registro: rmMovimentacaoParaApi({ ...mov, ...atualizado }), erroSalvar: erroSalvar ? erroSalvar.message : null };
   }
