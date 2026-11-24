@@ -13148,8 +13148,12 @@ let movmItens = []; // cada item é {token: valor, ...} — uma linha de produto
 let movmTipoAtual = null; // {tipo, headerTokens, itemTokens} do tipo selecionado agora
 function escanearTokensEmValor(v, destino){
   if(typeof v === 'string'){
-    const m = v.match(/\{([^{}]+)\}/g);
-    if(m) m.forEach(t=>destino.add(t.slice(1,-1).trim()));
+    // o # antes do nome (ex: {#valorBruto}) só marca pro backend que o
+    // campo vira número ao montar o corpo — na tela o campo é o mesmo,
+    // mostrado 1x (sem o #) independente de ter {nome} ou {#nome}
+    const re = /\{#?([^{}]+)\}/g;
+    let m;
+    while((m = re.exec(v))) destino.add(m[1].trim());
   } else if(Array.isArray(v)){
     v.forEach(x=>escanearTokensEmValor(x, destino));
   } else if(v && typeof v === 'object'){

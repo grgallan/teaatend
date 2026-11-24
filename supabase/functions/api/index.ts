@@ -4169,20 +4169,26 @@ async function acaoRemoverRmTipoMovimento(req: any) {
   return { ok: true };
 }
 
-// {token} sozinho como valor de um campo troca de TIPO pro valor informado
-// (número quando o texto digitado parece número); {token} dentro de um
-// texto maior só troca o trecho, o resultado continua string — mesma
-// convenção já usada no campo "Parâmetros" das Consultas SQL
+// {token} sozinho como valor de um campo troca pelo valor informado, SEMPRE
+// como texto — preserva zero à esquerda em códigos (CODCFO "000175",
+// CODFAB "013" etc, que são chave estrangeira no RM: perder o zero à
+// esquerda faz o RM não achar o registro e rejeitar com erro de
+// foreign-key). Pra campo que realmente precisa virar número (valores,
+// quantidades) marque com # antes do nome: {#valorBruto} — só aí vira
+// Number. {token} dentro de um texto maior só troca o trecho, sempre como
+// texto — mesma convenção já usada no campo "Parâmetros" das Consultas SQL
 function aplicarTokensValor(valor: any, valores: Record<string, any>): any {
   if (typeof valor === 'string') {
-    const sozinho = valor.match(/^\{([^{}]+)\}$/);
+    const sozinho = valor.match(/^\{(#?)([^{}]+)\}$/);
     if (sozinho) {
-      const v = valores[sozinho[1].trim()];
-      if (v === undefined || v === null || v === '') return '';
-      if (typeof v === 'number') return v;
-      return /^-?\d+(\.\d+)?$/.test(String(v)) ? Number(v) : String(v);
+      const numerico = sozinho[1] === '#';
+      const v = valores[sozinho[2].trim()];
+      if (v === undefined || v === null || v === '') return numerico ? 0 : '';
+      if (!numerico) return String(v);
+      const n = Number(v);
+      return Number.isNaN(n) ? 0 : n;
     }
-    return valor.replace(/\{([^{}]+)\}/g, (_m, nome) => {
+    return valor.replace(/\{#?([^{}]+)\}/g, (_m, nome) => {
       const v = valores[String(nome).trim()];
       return v === undefined || v === null ? '' : String(v);
     });
