@@ -1502,6 +1502,14 @@ alter table rm_tipos_movimento add column if not exists itens_array_keys text de
 alter table rm_tipos_movimento add column if not exists data_server_name text default '';
 alter table rm_tipos_movimento add column if not exists xml_raiz text default '';
 alter table rm_tipos_movimento add column if not exists contexto_soap text default '';
+-- busca no RM (ReadView via wsDataServer) pra preencher Fornecedor/Produto
+-- na tela de Movimentações em vez de digitar o código à mão — filtro tem
+-- {termo} no lugar do texto digitado na busca (mesma convenção de {token}
+-- do json_template)
+alter table rm_tipos_movimento add column if not exists busca_fornecedor_dataserver text default '';
+alter table rm_tipos_movimento add column if not exists busca_fornecedor_filtro text default '';
+alter table rm_tipos_movimento add column if not exists busca_produto_dataserver text default '';
+alter table rm_tipos_movimento add column if not exists busca_produto_filtro text default '';
 
 -- Movimentações: uma instância de "gravar no RM" a partir de um Tipo de
 -- Movimentação cadastrado — fica "rascunho" na nossa base (valores
@@ -1523,3 +1531,9 @@ create index if not exists idx_rm_movimentacoes_tipo on rm_movimentacoes (tipo_m
 -- corpo exato que foi mandado pro RM no último "Enviar RM" — guardado pra
 -- conferir qual campo violou alguma restrição quando o RM responde erro
 alter table rm_movimentacoes add column if not exists corpo_enviado jsonb;
+-- coligada/IDMOV devolvidos pelo RM num envio com sucesso (SaveRecordResult
+-- vem como "coligada;idmov", ex: "3;387366") — guardados pra travar um 2º
+-- envio da mesma movimentação (status='enviada' já é a trava; isso é só
+-- pra mostrar o que foi gravado)
+alter table rm_movimentacoes add column if not exists rm_coligada text;
+alter table rm_movimentacoes add column if not exists rm_idmov text;
