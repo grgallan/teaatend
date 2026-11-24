@@ -13169,6 +13169,10 @@ function tokensDoTipoMovimento(tipo){
     const v = template[chave];
     escanearTokensEmValor(v, (Array.isArray(v) && itensArrayKeys.includes(chave)) ? itemTokens : headerTokens);
   });
+  // um token que também aparece no cabeçalho já é herdado por cada item
+  // (montarCorpoMovimentacao faz {...valoresHeader, ...item}) — não repete
+  // o mesmo campo na tela, 1x no cabeçalho já basta
+  headerTokens.forEach(t=>itemTokens.delete(t));
   return { ok:true, headerTokens:[...headerTokens], itemTokens:[...itemTokens] };
 }
 function labelToken(nome){
