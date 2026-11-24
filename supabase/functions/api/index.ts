@@ -4394,8 +4394,20 @@ async function acaoBuscarRmLista(req: any) {
   // movimentação existente (precisa de "editar") — "visualizar" nunca é
   // usado em nenhuma outra ação desse menu, então nenhum perfil tem isso
   // marcado e a busca sempre recusava mesmo pra quem já pode mexer nela
-  const podeBuscar = (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir')) || (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'));
-  if (!podeBuscar) return { ok: false, erro: 'Você não tem permissão para buscar dados no RM.' };
+  const podeInserir = await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir');
+  const podeEditar = await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar');
+  if (!podeInserir && !podeEditar) {
+    // diagnóstico temporário — já tivemos 2 causas diferentes pro mesmo
+    // erro (campo de permissão errado, depois contaId faltando) e dessa
+    // vez o erro persistiu idêntico mesmo com as 2 correções, então em
+    // vez de adivinhar de novo, expõe o que a checagem de permissão viu
+    const { data: contaDiag } = await db.from('contas').select('id,perfil,eh_administrador').eq('id', req.contaId).maybeSingle();
+    const { data: vinculosDiag } = await db.from('conta_perfis_acesso').select('perfil_id').eq('conta_id', req.contaId);
+    return {
+      ok: false,
+      erro: `Você não tem permissão para buscar dados no RM. [diagnóstico: contaId recebido="${req.contaId}", conta encontrada=${JSON.stringify(contaDiag)}, perfis vinculados=${(vinculosDiag || []).length}]`,
+    };
+  }
   if (!req.tipoMovimentoId) return { ok: false, erro: 'Tipo de movimentação não informado.' };
   if (req.alvo !== 'fornecedor' && req.alvo !== 'produto') return { ok: false, erro: 'Busca inválida.' };
   const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', req.tipoMovimentoId).maybeSingle();
