@@ -4271,11 +4271,18 @@ async function acaoEnviarRmMovimentacao(req: any) {
   const url = `${base}/rmsrestdataserver/rest/MovMovimentoTBCData`;
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 120000);
+  // devolve também um erro de SALVAR (ex: coluna nova ainda não visível pro
+  // PostgREST por falta de "reload schema") separado do erro do RM — sem
+  // isso, uma falha aqui ficava muda: a tela mostrava a resposta do RM
+  // certinha mas "corpo_enviado" nunca aparecia, sem pista nenhuma do motivo
   async function gravarResultado(status: string, texto: string) {
     const atualizado: any = { status, resposta_rm: texto.slice(0, 4000), corpo_enviado: corpo };
     if (status === 'enviada') atualizado.enviado_em = new Date().toISOString();
-    await db.from('rm_movimentacoes').update(atualizado).eq('id', req.id);
-    return rmMovimentacaoParaApi({ ...mov, ...atualizado });
+    const { error: erroSalvar } = await db.from('rm_movimentacoes').update(atualizado).eq('id', req.id);
+    return { registro: rmMovimentacaoParaApi({ ...mov, ...atualizado }), erroSalvar: erroSalvar ? erroSalvar.message : null };
+  }
+  function comAvisoDeSalvar(erro: string, erroSalvar: string | null): string {
+    return erroSalvar ? `${erro} (aviso: não consegui salvar o resultado no banco: ${erroSalvar})` : erro;
   }
   try {
     const resp = await fetch(url, {
@@ -4286,19 +4293,20 @@ async function acaoEnviarRmMovimentacao(req: any) {
     });
     const texto = await resp.text();
     if (resp.status === 401 || resp.status === 403) {
-      const registro = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
-      return { ok: false, erro: `O RM recusou o acesso (HTTP ${resp.status}). Confira usuário/senha desse tipo de movimentação.`, registro };
+      const { registro, erroSalvar } = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
+      return { ok: false, erro: comAvisoDeSalvar(`O RM recusou o acesso (HTTP ${resp.status}). Confira usuário/senha desse tipo de movimentação.`, erroSalvar), registro };
     }
     if (!resp.ok) {
-      const registro = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
-      return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${texto.slice(0, 300)}`, registro };
+      const { registro, erroSalvar } = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
+      return { ok: false, erro: comAvisoDeSalvar(`O RM respondeu HTTP ${resp.status}. ${texto.slice(0, 300)}`, erroSalvar), registro };
     }
-    const registro = await gravarResultado('enviada', texto);
+    const { registro, erroSalvar } = await gravarResultado('enviada', texto);
+    if (erroSalvar) return { ok: false, erro: comAvisoDeSalvar('O RM aceitou o envio, mas não consegui salvar o resultado no banco.', erroSalvar), registro };
     return { ok: true, registro };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 2 minutos (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
-    const registro = await gravarResultado('erro', msg);
-    return { ok: false, erro: msg, registro };
+    const { registro, erroSalvar } = await gravarResultado('erro', msg);
+    return { ok: false, erro: comAvisoDeSalvar(msg, erroSalvar), registro };
   } finally {
     clearTimeout(timeout);
   }
