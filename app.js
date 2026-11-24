@@ -150,7 +150,10 @@ const MENUS_PERFIL_ACESSO = [
     { chave:'cadastro', label:'Consultas SQL' },
     { chave:'paineis', label:'Painéis' },
     { chave:'painelrecebiveis', label:'Painel de Recebíveis' },
-    { chave:'movimentacoes', label:'Tipos de Movimentação' },
+  ]},
+  { chave:'movimentos', label:'Movimentos', subContainer:'#movSubtabs', subDataAttr:'movsub', submenus:[
+    { chave:'parametros', label:'Parâmetros' },
+    { chave:'movimentacoes', label:'Movimentações' },
   ]},
 ];
 
@@ -1273,6 +1276,7 @@ function entrarNoApp(){
   aplicarVisibilidadeMenu('cadastros', menuVisivel(conta, 'cadastros', isAdmin));
   aplicarVisibilidadeMenu('utilitarios', menuVisivel(conta, 'utilitarios', isAdmin));
   aplicarVisibilidadeMenu('relatoriosgerenciaisrm', menuVisivel(conta, 'relatoriosgerenciaisrm', isAdmin));
+  aplicarVisibilidadeMenu('movimentos', menuVisivel(conta, 'movimentos', isAdmin));
   // mesma ideia, mas pras abas internas de cada menu (Dashboard, Financeiro,
   // Agenda, Vídeos, Cadastros, Utilitários) — cada uma com sua própria
   // permissão "menu.submenu" configurável no Perfil de Acesso
@@ -12994,7 +12998,14 @@ function goRgrmSub(sub){
   if(sub === 'paineis') renderListRmPaineis();
   if(sub === 'painelrecebiveis') recebAbrir();
   if(sub === 'painelgenerico') pnlAbrir();
-  if(sub === 'movimentacoes') renderListRmTiposMovimento();
+}
+
+let movAba = 'parametros';
+function goMovSub(sub){
+  movAba = sub;
+  document.querySelectorAll('#movSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.movsub===sub));
+  document.querySelectorAll('.mov-sub-view').forEach(v=>{ v.style.display = (v.id === 'mov-sub-'+sub) ? '' : 'none'; });
+  if(sub === 'parametros') renderListRmTiposMovimento();
 }
 
 /* ---------- Cadastro de Relatórios (CRUD simples, mesmo padrão de Categorias Financeiras) ---------- */
@@ -19277,6 +19288,7 @@ function goView(name){
   }
   if(name==='cubo'){ renderTodosSeletoresCubo(); renderCuboPerfilSelect(); renderCubo(); garantirHistoricoCompleto().then(()=>seAindaNestaView('cubo', renderCubo)); }
   if(name==='relatoriosgerenciaisrm'){ goRgrmSub(primeiraSubAbaVisivel('relatoriosgerenciaisrm', rgrmAba)); }
+  if(name==='movimentos'){ goMovSub(primeiraSubAbaVisivel('movimentos', movAba)); }
   if(name==='financeiro'){
     goFinSub(primeiraSubAbaVisivel('financeiro', finAba));
     selecionarTipoLancamento('RECEITA');
@@ -19711,6 +19723,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('rgrmSubtabs').addEventListener('click', e=>{
     const tab = e.target.closest('.subtab'); if(!tab) return;
     goRgrmSub(tab.dataset.rgrmsub);
+  });
+  document.getElementById('movSubtabs').addEventListener('click', e=>{
+    const tab = e.target.closest('.subtab'); if(!tab) return;
+    goMovSub(tab.dataset.movsub);
   });
   document.getElementById('btnAddRmRelatorio').addEventListener('click', async ()=>{
     const clienteId = document.getElementById('rgrm_cliente').value;

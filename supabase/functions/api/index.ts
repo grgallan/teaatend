@@ -231,7 +231,7 @@ const MENUS_PERFIL_ACESSO = [
   'cadastros.tabelasrm', 'cadastros.camposrm', 'cadastros.relacionamentosrm', 'cadastros.tabelasauxrm',
   'utilitarios', 'utilitarios.esocial', 'utilitarios.tomticket', 'utilitarios.sqlrm', 'utilitarios.painelrecebiveis',
   'relatoriosgerenciaisrm', 'relatoriosgerenciaisrm.cadastro', 'relatoriosgerenciaisrm.paineis', 'relatoriosgerenciaisrm.painelrecebiveis',
-  'relatoriosgerenciaisrm.movimentacoes',
+  'movimentos', 'movimentos.parametros', 'movimentos.movimentacoes',
 ];
 
 function permissaoVaziaPorMenu() {
@@ -4119,7 +4119,7 @@ async function acaoRemoverRmRelatorioGerencial(req: any) {
    um movimento no RM (CODTMV destino + credencial própria de escrita +
    template JSON do corpo) — ver schema.sql (rm_tipos_movimento) ---------- */
 async function acaoAddRmTipoMovimento(req: any) {
-  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.movimentacoes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar tipos de movimentação.' };
+  if (!(await podeAgir(req.contaId, 'movimentos.parametros', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar tipos de movimentação.' };
   if (!req.clienteId) return { ok: false, erro: 'Escolha o cliente.' };
   if (!req.nome || !String(req.nome).trim()) return { ok: false, erro: 'Informe o nome.' };
   if (!req.codtmvDestino || !String(req.codtmvDestino).trim()) return { ok: false, erro: 'Informe o CODTMV de destino.' };
@@ -4133,7 +4133,7 @@ async function acaoAddRmTipoMovimento(req: any) {
   return { ok: true, registro: rmTipoMovimentoParaApi(registro) };
 }
 async function acaoAtualizarRmTipoMovimento(req: any) {
-  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar tipos de movimentação.' };
+  if (!(await podeAgir(req.contaId, 'movimentos.parametros', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar tipos de movimentação.' };
   if (!req.id) return { ok: false, erro: 'Tipo de movimentação não informado.' };
   const atualizado: any = {};
   if (req.clienteId) atualizado.cliente_id = req.clienteId;
@@ -4149,7 +4149,7 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   return { ok: true };
 }
 async function acaoRemoverRmTipoMovimento(req: any) {
-  if (!(await podeAgir(req.contaId, 'relatoriosgerenciaisrm.movimentacoes', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover tipos de movimentação.' };
+  if (!(await podeAgir(req.contaId, 'movimentos.parametros', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover tipos de movimentação.' };
   await db.from('rm_tipos_movimento').delete().eq('id', req.id);
   return { ok: true };
 }
