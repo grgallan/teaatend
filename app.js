@@ -13265,6 +13265,7 @@ function renderListRmMovimentacoes(){
       <span>Cliente: ${escaparHtml(nomeClienteDoTipoMovimento(m.tipoMovimentoId))}</span>
       <span>Status: ${labelStatusMovimentacao(m.status)}${m.enviadoEm ? ' em ' + new Date(m.enviadoEm).toLocaleString('pt-BR') : ''}</span>
       ${m.status==='erro' && m.respostaRm ? `<span style="color:var(--bad);">${escaparHtml(m.respostaRm.slice(0,300))}</span>` : ''}
+      ${m.respostaRm ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver resposta do RM (SaveRecordResult)</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(m.respostaRm)}</pre></details>` : ''}
       ${m.corpoEnviado ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver corpo enviado pro RM</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(typeof m.corpoEnviado === 'string' ? m.corpoEnviado : JSON.stringify(m.corpoEnviado, null, 2))}</pre></details>` : ''}
     </div>
     <div class="acts">
