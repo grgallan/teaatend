@@ -13246,7 +13246,7 @@ async function executarBuscaRm(){
   const resEl = document.getElementById('buscaRmResultados');
   erroEl.textContent = '';
   resEl.innerHTML = '<div class="empty">Buscando...</div>';
-  const r = await api('buscarRmLista', { tipoMovimentoId: movmTipoAtual.tipo.id, alvo: buscaRmAlvo, termo });
+  const r = await api('buscarRmLista', { contaId: contaAtual().id, tipoMovimentoId: movmTipoAtual.tipo.id, alvo: buscaRmAlvo, termo });
   if(!r.ok){ resEl.innerHTML=''; erroEl.textContent = r.erro || 'Erro ao buscar no RM.'; return; }
   renderResultadosBuscaRm(r.linhas||[]);
 }
