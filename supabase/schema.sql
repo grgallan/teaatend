@@ -1486,7 +1486,29 @@ create table if not exists rm_tipos_movimento (
   usuario text not null default '',
   senha_cifrada text,
   json_template text default '',
+  -- chaves (separadas por vírgula) dos arrays do json_template que são
+  -- "itens" (ex: TITMMOV) — repetem 1x por produto/serviço adicionado na
+  -- tela de Movimentações, em vez de 1x só como os arrays de cabeçalho
+  itens_array_keys text default '',
   criado_em timestamptz default now()
 );
 alter table rm_tipos_movimento enable row level security;
 create index if not exists idx_rm_tipos_movimento_cliente on rm_tipos_movimento (cliente_id);
+
+-- Movimentações: uma instância de "gravar no RM" a partir de um Tipo de
+-- Movimentação cadastrado — fica "rascunho" na nossa base (valores
+-- digitados na tela, ainda sem mandar nada pro RM) até o usuário clicar
+-- "Enviar RM", quando o backend monta o corpo real (json_template do tipo
+-- + esses valores) e grava no RM via POST
+create table if not exists rm_movimentacoes (
+  id text primary key,
+  tipo_movimento_id text not null references rm_tipos_movimento(id) on delete cascade,
+  valores_header jsonb not null default '{}'::jsonb,
+  itens jsonb not null default '[]'::jsonb,
+  status text not null default 'rascunho', -- rascunho | enviada | erro
+  resposta_rm text,
+  criado_em timestamptz default now(),
+  enviado_em timestamptz
+);
+alter table rm_movimentacoes enable row level security;
+create index if not exists idx_rm_movimentacoes_tipo on rm_movimentacoes (tipo_movimento_id);

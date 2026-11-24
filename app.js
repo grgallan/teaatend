@@ -21,7 +21,7 @@ const CONFIG = {
 
 const SESSAO_KEY = 'sessao_v4';
 
-let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [], rmPaineis = [], setores = [], rmTiposMovimento = [];
+let contas = [], clientes = [], tipos = [], segmentos = [], modulos = [], submodulos = [], statusList = [], valores = [], atendimentos = [], vinculos = [], perfisAcesso = [], empresas = [], tomticketErros = [], categoriasFinanceiras = [], rmRelatoriosGerenciais = [], rmPainelLayouts = [], rmPaineis = [], setores = [], rmTiposMovimento = [], rmMovimentacoes = [];
 let configTomticket = null;
 
 /* ---------- Gerador SQL RM (dicionário de tabelas do TOTVS RM) ---------- */
@@ -853,6 +853,7 @@ async function carregarTudo(opcoes={}){
   rmPaineis = r.rmPaineis||[];
   setores = r.setores||[];
   rmTiposMovimento = r.rmTiposMovimento||[];
+  rmMovimentacoes = r.rmMovimentacoes||[];
   atualizarBadgeAtendimentos();
   perfisAcesso = r.perfisAcesso||[];
   empresas = r.empresas||[];
@@ -13006,6 +13007,7 @@ function goMovSub(sub){
   document.querySelectorAll('#movSubtabs .subtab').forEach(t=>t.classList.toggle('active', t.dataset.movsub===sub));
   document.querySelectorAll('.mov-sub-view').forEach(v=>{ v.style.display = (v.id === 'mov-sub-'+sub) ? '' : 'none'; });
   if(sub === 'parametros') renderListRmTiposMovimento();
+  if(sub === 'movimentacoes') renderListRmMovimentacoes();
 }
 
 /* ---------- Cadastro de Relatórios (CRUD simples, mesmo padrão de Categorias Financeiras) ---------- */
@@ -13109,6 +13111,7 @@ function editarRmTipoMovimento(id){
   document.getElementById('rgtm_senha').value = '';
   document.getElementById('rgtm_senha_aviso').textContent = m.temSenha ? 'Já tem uma senha salva — deixe em branco pra manter a atual.' : '';
   document.getElementById('rgtm_json').value = m.jsonTemplate || '';
+  document.getElementById('rgtm_itensArray').value = m.itensArrayKeys || '';
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13123,6 +13126,7 @@ function cancelarEdicaoRmTipoMovimento(){
   document.getElementById('rgtm_senha').value = '';
   document.getElementById('rgtm_senha_aviso').textContent = '';
   document.getElementById('rgtm_json').value = '';
+  document.getElementById('rgtm_itensArray').value = '';
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13133,6 +13137,164 @@ async function removerRmTipoMovimento(id){
   await carregarTudo({ comAtendimentos: false });
   renderListRmTiposMovimento();
   toast('Tipo de movimentação removido');
+}
+
+/* ---------- Movimentações: cria uma instância de "gravar no RM" a
+   partir de um Tipo de Movimentação (aba Parâmetros) — os campos da tela
+   são montados dinamicamente a partir dos {tokens} usados no Json daquele
+   tipo (mesma convenção do campo "Parâmetros" das Consultas SQL) ---------- */
+let editandoRmMovimentacaoId = null;
+let movmItens = []; // cada item é {token: valor, ...} — uma linha de produto/serviço
+let movmTipoAtual = null; // {tipo, headerTokens, itemTokens} do tipo selecionado agora
+function escanearTokensEmValor(v, destino){
+  if(typeof v === 'string'){
+    const m = v.match(/\{([^{}]+)\}/g);
+    if(m) m.forEach(t=>destino.add(t.slice(1,-1).trim()));
+  } else if(Array.isArray(v)){
+    v.forEach(x=>escanearTokensEmValor(x, destino));
+  } else if(v && typeof v === 'object'){
+    Object.keys(v).forEach(k=>escanearTokensEmValor(v[k], destino));
+  }
+}
+// lê o Json cadastrado no tipo + a lista de chaves de itens, e separa
+// quais {tokens} aparecem no cabeçalho (preenchido 1x) dos que aparecem
+// dentro de um array de itens (1x por item adicionado na tela)
+function tokensDoTipoMovimento(tipo){
+  let template;
+  try{ template = JSON.parse(tipo.jsonTemplate || '{}'); }
+  catch(e){ return { ok:false, erro:'O Json cadastrado nesse tipo não é um JSON válido.' }; }
+  const itensArrayKeys = (tipo.itensArrayKeys||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const headerTokens = new Set(), itemTokens = new Set();
+  Object.keys(template).forEach(chave=>{
+    const v = template[chave];
+    escanearTokensEmValor(v, (Array.isArray(v) && itensArrayKeys.includes(chave)) ? itemTokens : headerTokens);
+  });
+  return { ok:true, headerTokens:[...headerTokens], itemTokens:[...itemTokens] };
+}
+function labelToken(nome){
+  return nome.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase()).trim();
+}
+function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
+  const container = document.getElementById('movm_camposHeader');
+  const bloco = document.getElementById('movm_itensBloco');
+  const tipo = rmTiposMovimento.find(t=>String(t.id)===String(tipoId));
+  if(!tipo){ container.innerHTML=''; bloco.style.display='none'; movmTipoAtual=null; return; }
+  const r = tokensDoTipoMovimento(tipo);
+  if(!r.ok){
+    container.innerHTML = `<p style="color:var(--bad);font-size:12px;">${escaparHtml(r.erro)}</p>`;
+    bloco.style.display='none'; movmTipoAtual=null; return;
+  }
+  movmTipoAtual = { tipo, headerTokens:r.headerTokens, itemTokens:r.itemTokens };
+  container.innerHTML = r.headerTokens.length===0
+    ? `<p style="color:var(--muted);font-size:12px;">Esse tipo não tem campos de cabeçalho ({token} fora dos itens).</p>`
+    : r.headerTokens.map(tk=>`<div class="field"><label>${escaparHtml(labelToken(tk))}</label><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml((valoresHeaderAtuais&&valoresHeaderAtuais[tk])||'')}"></div>`).join('');
+  bloco.style.display = r.itemTokens.length ? '' : 'none';
+  renderItensMovimentacao();
+}
+function renderItensMovimentacao(){
+  const el = document.getElementById('movm_itensLista');
+  if(!el) return;
+  if(!movmTipoAtual || !movmTipoAtual.itemTokens.length){ el.innerHTML=''; return; }
+  if(movmItens.length===0){ el.innerHTML = `<div class="empty">Nenhum item adicionado.</div>`; return; }
+  el.innerHTML = movmItens.map((item,i)=>`
+    <div class="card" style="margin:8px 0;padding:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <b style="font-size:12px;">Item ${i+1}</b>
+        <button type="button" class="ghost" onclick="removerItemMovimentacao(${i})" style="width:auto;padding:4px 10px;">Remover</button>
+      </div>
+      ${movmTipoAtual.itemTokens.map(tk=>`<div class="field"><label>${escaparHtml(labelToken(tk))}</label><input type="text" data-item-idx="${i}" data-token="${escaparHtml(tk)}" value="${escaparHtml(item[tk]||'')}"></div>`).join('')}
+    </div>`).join('');
+}
+function removerItemMovimentacao(i){
+  coletarItens();
+  movmItens.splice(i,1);
+  renderItensMovimentacao();
+}
+function coletarValoresHeader(){
+  const valores = {};
+  document.querySelectorAll('#movm_camposHeader [data-token]').forEach(inp=>{ valores[inp.dataset.token] = inp.value; });
+  return valores;
+}
+function coletarItens(){
+  document.querySelectorAll('#movm_itensLista input[data-item-idx]').forEach(inp=>{
+    const i = Number(inp.dataset.itemIdx);
+    if(!movmItens[i]) movmItens[i] = {};
+    movmItens[i][inp.dataset.token] = inp.value;
+  });
+  return movmItens;
+}
+function nomeClienteDoTipoMovimento(tipoId){
+  const t = rmTiposMovimento.find(x=>String(x.id)===String(tipoId));
+  return t ? rgrmNomeCliente(t.clienteId) : '(tipo não encontrado)';
+}
+function popularSelectMovmTipo(valorAtual){
+  const sel = document.getElementById('movm_tipo');
+  if(!sel) return;
+  sel.innerHTML = `<option value="">Escolha o tipo de movimentação</option>` + rmTiposMovimento.map(t=>`<option value="${t.id}">${escaparHtml(t.nome)} (${escaparHtml(rgrmNomeCliente(t.clienteId))})</option>`).join('');
+  sel.value = valorAtual || '';
+}
+function labelStatusMovimentacao(status){
+  if(status==='enviada') return 'Enviada ✓';
+  if(status==='erro') return 'Erro no envio';
+  return 'Rascunho';
+}
+function renderListRmMovimentacoes(){
+  const el = document.getElementById('listRmMovimentacoes');
+  if(!el) return;
+  popularSelectMovmTipo(document.getElementById('movm_tipo').value);
+  if(rmMovimentacoes.length===0){ el.innerHTML = `<div class="empty">Nenhuma movimentação criada ainda.</div>`; return; }
+  el.innerHTML = rmMovimentacoes.map(m=>{
+    const t = rmTiposMovimento.find(x=>String(x.id)===String(m.tipoMovimentoId));
+    return `
+    <div class="cad-item"><div class="info"><b>${t ? escaparHtml(t.nome) : '(tipo removido)'}</b>
+      <span>Cliente: ${escaparHtml(nomeClienteDoTipoMovimento(m.tipoMovimentoId))}</span>
+      <span>Status: ${labelStatusMovimentacao(m.status)}${m.enviadoEm ? ' em ' + new Date(m.enviadoEm).toLocaleString('pt-BR') : ''}</span>
+      ${m.status==='erro' && m.respostaRm ? `<span style="color:var(--bad);">${escaparHtml(m.respostaRm.slice(0,300))}</span>` : ''}
+    </div>
+    <div class="acts">
+      <button class="ghost" onclick="editarRmMovimentacao('${m.id}')">Editar</button>
+      <button class="primary" onclick="pedirConfirmacao('Enviar pro RM?','Isso grava de verdade no RM — confira os dados antes.', ()=>enviarRmMovimentacao('${m.id}'), 'Enviar RM')">Enviar RM</button>
+      <button class="danger" onclick="pedirConfirmacao('Remover movimentação?','Isso remove só o rascunho — se já foi enviada, não desfaz nada no RM.', ()=>removerRmMovimentacao('${m.id}'))">Remover</button>
+    </div></div>`;
+  }).join('');
+}
+function editarRmMovimentacao(id){
+  const m = rmMovimentacoes.find(x=>String(x.id)===String(id));
+  if(!m) return;
+  editandoRmMovimentacaoId = id;
+  popularSelectMovmTipo(m.tipoMovimentoId);
+  montarFormularioMovimentacao(m.tipoMovimentoId, m.valoresHeader);
+  movmItens = (m.itens||[]).map(it=>({...it}));
+  renderItensMovimentacao();
+  document.getElementById('movm_tituloForm').textContent = 'Editar movimentação';
+  document.getElementById('btnAddRmMovimentacao').textContent = 'Salvar alterações';
+  document.getElementById('btnCancelarEdicaoRmMovimentacao').style.display = '';
+  document.getElementById('movm_tituloForm').scrollIntoView({ behavior:'smooth', block:'center' });
+}
+function cancelarEdicaoRmMovimentacao(){
+  editandoRmMovimentacaoId = null;
+  movmItens = [];
+  movmTipoAtual = null;
+  popularSelectMovmTipo('');
+  document.getElementById('movm_camposHeader').innerHTML = '';
+  document.getElementById('movm_itensBloco').style.display = 'none';
+  document.getElementById('movm_itensLista').innerHTML = '';
+  document.getElementById('movm_tituloForm').textContent = 'Nova movimentação';
+  document.getElementById('btnAddRmMovimentacao').textContent = 'Salvar movimentação';
+  document.getElementById('btnCancelarEdicaoRmMovimentacao').style.display = 'none';
+}
+async function removerRmMovimentacao(id){
+  const r = await api('removerRmMovimentacao', { contaId: contaAtual().id, id });
+  if(!r.ok){ toast(r.erro || 'Não foi possível remover.'); return; }
+  await carregarTudo({ comAtendimentos: false });
+  renderListRmMovimentacoes();
+  toast('Movimentação removida');
+}
+async function enviarRmMovimentacao(id){
+  const r = await api('enviarRmMovimentacao', { contaId: contaAtual().id, id });
+  await carregarTudo({ comAtendimentos: false });
+  renderListRmMovimentacoes();
+  toast(r.ok ? 'Movimentação enviada pro RM' : (r.erro || 'Falha ao enviar pro RM'));
 }
 
 /* ---------- Cadastro de Painéis (CRUD) ---------- */
@@ -19757,14 +19919,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const usuario = document.getElementById('rgtm_usuario').value.trim();
     const senha = document.getElementById('rgtm_senha').value;
     const jsonTemplate = document.getElementById('rgtm_json').value;
+    const itensArrayKeys = document.getElementById('rgtm_itensArray').value.trim();
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
@@ -19772,6 +19935,33 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast(editando ? 'Tipo de movimentação atualizado' : 'Tipo de movimentação adicionado');
   });
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').addEventListener('click', cancelarEdicaoRmTipoMovimento);
+  document.getElementById('movm_tipo').addEventListener('change', e=>{
+    editandoRmMovimentacaoId = null;
+    movmItens = [];
+    montarFormularioMovimentacao(e.target.value, null);
+  });
+  document.getElementById('btnMovmAddItem').addEventListener('click', ()=>{
+    coletarItens();
+    movmItens.push({});
+    renderItensMovimentacao();
+  });
+  document.getElementById('btnAddRmMovimentacao').addEventListener('click', async ()=>{
+    const tipoMovimentoId = document.getElementById('movm_tipo').value;
+    if(!tipoMovimentoId){ toast('Escolha o tipo de movimentação'); return; }
+    const valoresHeader = coletarValoresHeader();
+    const itens = coletarItens();
+    const editando = !!editandoRmMovimentacaoId;
+    const contaId = contaAtual().id;
+    const r = editando
+      ? await api('atualizarRmMovimentacao', { contaId, id: editandoRmMovimentacaoId, tipoMovimentoId, valoresHeader, itens })
+      : await api('addRmMovimentacao', { contaId, tipoMovimentoId, valoresHeader, itens });
+    if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
+    cancelarEdicaoRmMovimentacao();
+    await carregarTudo({ comAtendimentos: false });
+    renderListRmMovimentacoes();
+    toast(editando ? 'Movimentação atualizada' : 'Movimentação salva como rascunho');
+  });
+  document.getElementById('btnCancelarEdicaoRmMovimentacao').addEventListener('click', cancelarEdicaoRmMovimentacao);
   document.getElementById('btnAddRmPainel').addEventListener('click', async ()=>{
     const nome = document.getElementById('pnl_nome').value.trim();
     if(!nome){ toast('Informe o nome do painel'); return; }
