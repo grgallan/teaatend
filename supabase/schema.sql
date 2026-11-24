@@ -1466,3 +1466,27 @@ alter table setores enable row level security;
 create index if not exists idx_setores_cliente on setores (cliente_id);
 
 alter table rm_paineis add column if not exists setor_id text references setores(id) on delete set null;
+
+-- "Tipos de Movimentação": cadastro por cliente de como GRAVAR (não só
+-- consultar) um movimento no RM — primeira peça da integração de ESCRITA
+-- Controle de Atendimentos → RM (até aqui, tudo em Relatórios Gerenciais
+-- TOTVS RM era só leitura, via RealizaConsulta). Guarda qual CODTMV de
+-- destino, a credencial de API própria pra escrita (separada da conexão
+-- de LEITURA em clientes.rm_usuario/rm_senha_cifrada, de propósito — dar
+-- permissão de gravação só pra quem realmente precisa, não pra toda
+-- consulta de relatório) e um template JSON do corpo a mandar pro endpoint
+-- de criação de movimento do RM. Senha cifrada do mesmo jeito que a senha
+-- RM do cliente (ver cifrarRmSenha/decifrarRmSenha) — nunca em texto puro
+-- no banco.
+create table if not exists rm_tipos_movimento (
+  id text primary key,
+  cliente_id text not null references clientes(id) on delete cascade,
+  nome text not null,
+  codtmv_destino text not null,
+  usuario text not null default '',
+  senha_cifrada text,
+  json_template text default '',
+  criado_em timestamptz default now()
+);
+alter table rm_tipos_movimento enable row level security;
+create index if not exists idx_rm_tipos_movimento_cliente on rm_tipos_movimento (cliente_id);
