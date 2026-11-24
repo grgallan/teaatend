@@ -3377,7 +3377,10 @@
           <div class="field"><label>Senha</label><input type="password" id="rgtm_senha" autocomplete="new-password" placeholder="Digite pra definir/trocar"></div>
         </div>
         <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;" id="rgtm_senha_aviso"></p>
-        <div class="field"><label>Json</label><textarea id="rgtm_json" rows="10" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;" placeholder="Template do corpo a enviar pro RM"></textarea></div>
+        <div class="field"><label>Json</label><textarea id="rgtm_json" rows="12" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;" placeholder="Template do corpo a enviar pro RM"></textarea></div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">Cole aqui o Json real (com os campos fixos já certos) e troque pelo formato <code>{nome}</code> só os campos que a pessoa vai preencher ao criar a movimentação. Ex: <code>"CODCFO": "{fornecedor}"</code>, <code>"HISTORICOLONGO": "{historico}"</code>, <code>"VALORBRUTO": "{valorBruto}"</code>. Esses nomes viram os campos do formulário em Movimentações.</p>
+        <div class="field"><label>Chaves de itens (opcional)</label><input type="text" id="rgtm_itensArray" placeholder="Ex: TITMMOV,TITMMOVCOMPL,TITMMOVFISCAL"></div>
+        <p style="color:var(--muted);font-size:11.5px;margin:-6px 0 12px;">Nomes (separados por vírgula) dos arrays do Json que são <b>itens</b> — uma linha de produto/serviço por item adicionado na tela, em vez de um valor só (os demais arrays do Json são tratados como cabeçalho, preenchido 1x).</p>
         <button class="primary" id="btnAddRmTipoMovimento">Adicionar tipo de movimentação</button>
         <button class="ghost" id="btnCancelarEdicaoRmTipoMovimento" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>
@@ -3386,9 +3389,21 @@
 
     <div class="mov-sub-view" id="mov-sub-movimentacoes" style="display:none;">
       <div class="card">
-        <h2>Movimentações</h2>
-        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0;">Em breve: criar uma movimentação a partir de um Parâmetro cadastrado (busca Fornecedor, Produtos/Serviços, Condição de pagamento no RM) e enviar pro RM.</p>
+        <h2 id="movm_tituloForm">Nova movimentação</h2>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Escolha o tipo de movimentação (cadastrado em Parâmetros) — os campos abaixo são montados a partir do Json daquele tipo.</p>
+        <div class="field"><label>Tipo de movimentação</label><select id="movm_tipo"></select></div>
+        <div id="movm_camposHeader"></div>
+        <div id="movm_itensBloco" style="display:none;">
+          <h3 style="margin:14px 0 6px;font-size:13px;">Itens</h3>
+          <div id="movm_itensLista"></div>
+          <button type="button" class="ghost" id="btnMovmAddItem" style="margin-top:6px;">+ Adicionar item</button>
+        </div>
+        <div style="margin-top:14px;">
+          <button class="primary" id="btnAddRmMovimentacao">Salvar movimentação</button>
+          <button class="ghost" id="btnCancelarEdicaoRmMovimentacao" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
+        </div>
       </div>
+      <div id="listRmMovimentacoes"></div>
     </div>
   </section>
 

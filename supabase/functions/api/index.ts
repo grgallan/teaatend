@@ -295,6 +295,13 @@ function rmTipoMovimentoParaApi(r: any) {
   return {
     id: r.id, clienteId: r.cliente_id || '', nome: r.nome, codtmvDestino: r.codtmv_destino || '',
     usuario: r.usuario || '', temSenha: !!r.senha_cifrada, jsonTemplate: r.json_template || '',
+    itensArrayKeys: r.itens_array_keys || '',
+  };
+}
+function rmMovimentacaoParaApi(r: any) {
+  return {
+    id: r.id, tipoMovimentoId: r.tipo_movimento_id, valoresHeader: r.valores_header || {}, itens: r.itens || [],
+    status: r.status || 'rascunho', respostaRm: r.resposta_rm || '', criadoEm: r.criado_em, enviadoEm: r.enviado_em || null,
   };
 }
 function setorParaApi(s: any) {
@@ -398,6 +405,10 @@ async function rotear(req: any): Promise<any> {
     case 'addRmTipoMovimento': return acaoAddRmTipoMovimento(req);
     case 'atualizarRmTipoMovimento': return acaoAtualizarRmTipoMovimento(req);
     case 'removerRmTipoMovimento': return acaoRemoverRmTipoMovimento(req);
+    case 'addRmMovimentacao': return acaoAddRmMovimentacao(req);
+    case 'atualizarRmMovimentacao': return acaoAtualizarRmMovimentacao(req);
+    case 'removerRmMovimentacao': return acaoRemoverRmMovimentacao(req);
+    case 'enviarRmMovimentacao': return acaoEnviarRmMovimentacao(req);
     case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
     case 'salvarRmPainelLayout': return acaoSalvarRmPainelLayout(req);
     case 'addRmPainel': return acaoAddRmPainel(req);
@@ -576,7 +587,7 @@ async function acaoDados(req: any) {
   if (empresaId) categoriasFinanceirasQuery = categoriasFinanceirasQuery.eq('empresa_id', empresaId);
   let rmRelatoriosQuery = db.from('rm_relatorios_gerenciais').select('*').order('nome');
   if (empresaId) rmRelatoriosQuery = rmRelatoriosQuery.or(`empresa_id.eq.${empresaId},empresa_id.is.null`);
-  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }, { data: perfilPaineisRaw }, { data: contaPaineisRaw }, { data: setoresRaw }, { data: rmTiposMovimentoRaw }] = await Promise.all([
+  const [{ data: contas }, { data: clientes }, { data: tipos }, { data: segmentos }, { data: modulos }, { data: submodulos }, { data: statusList }, { data: perfisAcessoRaw }, { data: permissoesRaw }, { data: contaPerfisRaw }, { data: empresasRaw }, { data: contaEmpresasRaw }, { data: categoriasFinanceirasRaw }, { data: rmRelatoriosRaw }, { data: rmPainelLayoutsRaw }, { data: rmPaineisRaw }, { data: perfilPaineisRaw }, { data: contaPaineisRaw }, { data: setoresRaw }, { data: rmTiposMovimentoRaw }, { data: rmMovimentacoesRaw }] = await Promise.all([
     db.from('contas').select('*'),
     clientesQuery,
     db.from('tipos').select('*').order('nome'),
@@ -597,6 +608,7 @@ async function acaoDados(req: any) {
     db.from('conta_paineis').select('*'),
     db.from('setores').select('*').order('nome'),
     db.from('rm_tipos_movimento').select('*').order('nome'),
+    db.from('rm_movimentacoes').select('*').order('criado_em', { ascending: false }),
   ]);
   const empresaIdsPorConta: Record<string, string[]> = {};
   (contaEmpresasRaw || []).forEach((v: any) => {
@@ -796,6 +808,7 @@ async function acaoDados(req: any) {
     rmPaineis: (rmPaineisRaw || []).map(rmPainelParaApi),
     setores: (setoresRaw || []).map(setorParaApi),
     rmTiposMovimento: (rmTiposMovimentoRaw || []).map(rmTipoMovimentoParaApi),
+    rmMovimentacoes: (rmMovimentacoesRaw || []).map(rmMovimentacaoParaApi),
   };
 }
 
@@ -4125,7 +4138,7 @@ async function acaoAddRmTipoMovimento(req: any) {
   if (!req.codtmvDestino || !String(req.codtmvDestino).trim()) return { ok: false, erro: 'Informe o CODTMV de destino.' };
   const registro: any = {
     id: gerarId(), cliente_id: req.clienteId, nome: req.nome, codtmv_destino: req.codtmvDestino,
-    usuario: req.usuario || '', json_template: req.jsonTemplate || '',
+    usuario: req.usuario || '', json_template: req.jsonTemplate || '', itens_array_keys: req.itensArrayKeys || '',
   };
   if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
   const { error } = await db.from('rm_tipos_movimento').insert(registro);
@@ -4141,6 +4154,7 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   if (req.codtmvDestino !== undefined) atualizado.codtmv_destino = req.codtmvDestino;
   if (req.usuario !== undefined) atualizado.usuario = req.usuario;
   if (req.jsonTemplate !== undefined) atualizado.json_template = req.jsonTemplate;
+  if (req.itensArrayKeys !== undefined) atualizado.itens_array_keys = req.itensArrayKeys;
   // a senha só é regravada quando a tela manda uma nova (campo em branco =
   // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
   if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);
@@ -4152,6 +4166,141 @@ async function acaoRemoverRmTipoMovimento(req: any) {
   if (!(await podeAgir(req.contaId, 'movimentos.parametros', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover tipos de movimentação.' };
   await db.from('rm_tipos_movimento').delete().eq('id', req.id);
   return { ok: true };
+}
+
+// {token} sozinho como valor de um campo troca de TIPO pro valor informado
+// (número quando o texto digitado parece número); {token} dentro de um
+// texto maior só troca o trecho, o resultado continua string — mesma
+// convenção já usada no campo "Parâmetros" das Consultas SQL
+function aplicarTokensValor(valor: any, valores: Record<string, any>): any {
+  if (typeof valor === 'string') {
+    const sozinho = valor.match(/^\{([^{}]+)\}$/);
+    if (sozinho) {
+      const v = valores[sozinho[1].trim()];
+      if (v === undefined || v === null || v === '') return '';
+      if (typeof v === 'number') return v;
+      return /^-?\d+(\.\d+)?$/.test(String(v)) ? Number(v) : String(v);
+    }
+    return valor.replace(/\{([^{}]+)\}/g, (_m, nome) => {
+      const v = valores[String(nome).trim()];
+      return v === undefined || v === null ? '' : String(v);
+    });
+  }
+  if (Array.isArray(valor)) return valor.map((v) => aplicarTokensValor(v, valores));
+  if (valor && typeof valor === 'object') {
+    const obj: any = {};
+    for (const k of Object.keys(valor)) obj[k] = aplicarTokensValor(valor[k], valores);
+    return obj;
+  }
+  return valor;
+}
+// monta o corpo real a mandar pro RM a partir do Json cadastrado no Tipo
+// de Movimentação — arrays cuja chave está em itensArrayKeys (ex: TITMMOV)
+// repetem o objeto-modelo 1x por item adicionado na tela (renumerando
+// NSEQITMMOV quando o campo existe); os demais arrays (cabeçalho, sempre
+// 1 objeto) só têm os tokens trocados pelos valores informados 1x
+function montarCorpoMovimentacao(template: any, valoresHeader: Record<string, any>, itens: Record<string, any>[], itensArrayKeys: string[]): any {
+  const corpo: any = {};
+  for (const chave of Object.keys(template || {})) {
+    const v = template[chave];
+    if (Array.isArray(v) && itensArrayKeys.includes(chave)) {
+      const modelo = v[0] || {};
+      corpo[chave] = (itens.length ? itens : [{}]).map((item, i) => {
+        const obj = aplicarTokensValor(modelo, { ...valoresHeader, ...item });
+        if (Object.prototype.hasOwnProperty.call(obj, 'NSEQITMMOV')) obj.NSEQITMMOV = i + 1;
+        return obj;
+      });
+    } else {
+      corpo[chave] = aplicarTokensValor(v, valoresHeader);
+    }
+  }
+  return corpo;
+}
+/* ---------- Movimentações: uma instância de "gravar no RM" a partir de
+   um Tipo de Movimentação cadastrado — fica "rascunho" na nossa base até
+   o usuário clicar "Enviar RM" ---------- */
+async function acaoAddRmMovimentacao(req: any) {
+  if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar movimentações.' };
+  if (!req.tipoMovimentoId) return { ok: false, erro: 'Escolha o tipo de movimentação.' };
+  const registro: any = {
+    id: gerarId(), tipo_movimento_id: req.tipoMovimentoId,
+    valores_header: req.valoresHeader || {}, itens: req.itens || [], status: 'rascunho',
+  };
+  const { error } = await db.from('rm_movimentacoes').insert(registro);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true, registro: rmMovimentacaoParaApi(registro) };
+}
+async function acaoAtualizarRmMovimentacao(req: any) {
+  if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para editar movimentações.' };
+  if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
+  const atualizado: any = {};
+  if (req.tipoMovimentoId) atualizado.tipo_movimento_id = req.tipoMovimentoId;
+  if (req.valoresHeader !== undefined) atualizado.valores_header = req.valoresHeader;
+  if (req.itens !== undefined) atualizado.itens = req.itens;
+  const { error } = await db.from('rm_movimentacoes').update(atualizado).eq('id', req.id);
+  if (error) return { ok: false, erro: error.message };
+  return { ok: true };
+}
+async function acaoRemoverRmMovimentacao(req: any) {
+  if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'excluir'))) return { ok: false, erro: 'Você não tem permissão para remover movimentações.' };
+  await db.from('rm_movimentacoes').delete().eq('id', req.id);
+  return { ok: true };
+}
+async function acaoEnviarRmMovimentacao(req: any) {
+  if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para enviar movimentações pro RM.' };
+  if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
+  const { data: mov } = await db.from('rm_movimentacoes').select('*').eq('id', req.id).maybeSingle();
+  if (!mov) return { ok: false, erro: 'Movimentação não encontrada.' };
+  const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', mov.tipo_movimento_id).maybeSingle();
+  if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
+  if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
+  const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
+  if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
+  let template: any;
+  try { template = JSON.parse(tipo.json_template || '{}'); } catch (_e) {
+    return { ok: false, erro: 'O Json cadastrado nesse tipo de movimentação não é um JSON válido.' };
+  }
+  let senha: string;
+  try { senha = await decifrarRmSenha(tipo.senha_cifrada); } catch (_e) {
+    return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
+  }
+  const itensArrayKeys = String(tipo.itens_array_keys || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+  const corpo = montarCorpoMovimentacao(template, mov.valores_header || {}, mov.itens || [], itensArrayKeys);
+  const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
+  const url = `${base}/rmsrestdataserver/rest/MovMovimentoTBCData`;
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 120000);
+  async function gravarResultado(status: string, texto: string) {
+    const atualizado: any = { status, resposta_rm: texto.slice(0, 4000) };
+    if (status === 'enviada') atualizado.enviado_em = new Date().toISOString();
+    await db.from('rm_movimentacoes').update(atualizado).eq('id', req.id);
+    return rmMovimentacaoParaApi({ ...mov, ...atualizado });
+  }
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`) },
+      body: JSON.stringify(corpo),
+      signal: ctl.signal,
+    });
+    const texto = await resp.text();
+    if (resp.status === 401 || resp.status === 403) {
+      const registro = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
+      return { ok: false, erro: `O RM recusou o acesso (HTTP ${resp.status}). Confira usuário/senha desse tipo de movimentação.`, registro };
+    }
+    if (!resp.ok) {
+      const registro = await gravarResultado('erro', `HTTP ${resp.status}. ${texto}`);
+      return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${texto.slice(0, 300)}`, registro };
+    }
+    const registro = await gravarResultado('enviada', texto);
+    return { ok: true, registro };
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 2 minutos (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
+    const registro = await gravarResultado('erro', msg);
+    return { ok: false, erro: msg, registro };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // monta a URL de consulta igual o painel standalone fazia (RealizaConsulta
