@@ -4390,7 +4390,12 @@ function extrairLinhasDeViewXml(xml: string): Record<string, string>[] {
 // preencher Fornecedor/Produto a partir de uma busca em vez de digitar o
 // código à mão. {termo} no filtro cadastrado vira o texto digitado na tela
 async function acaoBuscarRmLista(req: any) {
-  if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'visualizar', true))) return { ok: false, erro: 'Você não tem permissão para buscar dados no RM.' };
+  // usada tanto ao criar (precisa de "inserir") quanto ao editar uma
+  // movimentação existente (precisa de "editar") — "visualizar" nunca é
+  // usado em nenhuma outra ação desse menu, então nenhum perfil tem isso
+  // marcado e a busca sempre recusava mesmo pra quem já pode mexer nela
+  const podeBuscar = (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir')) || (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'));
+  if (!podeBuscar) return { ok: false, erro: 'Você não tem permissão para buscar dados no RM.' };
   if (!req.tipoMovimentoId) return { ok: false, erro: 'Tipo de movimentação não informado.' };
   if (req.alvo !== 'fornecedor' && req.alvo !== 'produto') return { ok: false, erro: 'Busca inválida.' };
   const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', req.tipoMovimentoId).maybeSingle();
