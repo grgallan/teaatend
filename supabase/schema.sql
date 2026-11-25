@@ -1502,6 +1502,16 @@ alter table rm_tipos_movimento add column if not exists itens_array_keys text de
 alter table rm_tipos_movimento add column if not exists data_server_name text default '';
 alter table rm_tipos_movimento add column if not exists xml_raiz text default '';
 alter table rm_tipos_movimento add column if not exists contexto_soap text default '';
+-- "Consultar Status" (ReadRecord) às vezes dá "Ambiguous column name
+-- CODCOLIGADA/IDMOV" no MESMO Data Server usado pra Enviar RM — porque esse
+-- Data Server junta várias tabelas numa visão só (header+itens, pro
+-- SaveRecord gravar tudo de uma vez) e CODCOLIGADA/IDMOV existem em todas
+-- elas, então a visão em si já é ambígua pra essas 2 colunas (não é algo que
+-- dá pra resolver só ajustando o filtro da nossa busca). Esse campo deixa
+-- informar um Data Server DIFERENTE, só de leitura/sem esse join, específico
+-- pra consultar status — vazio usa o mesmo de Enviar RM (comportamento de
+-- antes desse campo existir)
+alter table rm_tipos_movimento add column if not exists status_data_server_name text default '';
 -- busca no RM (ReadView via wsDataServer) pra preencher Fornecedor/Produto
 -- na tela de Movimentações em vez de digitar o código à mão — filtro tem
 -- {termo} no lugar do texto digitado na busca (mesma convenção de {token}

@@ -13116,6 +13116,7 @@ function editarRmTipoMovimento(id){
   document.getElementById('rgtm_dataserver').value = m.dataServerName || '';
   document.getElementById('rgtm_xmlraiz').value = m.xmlRaiz || '';
   document.getElementById('rgtm_contexto').value = m.contextoSoap || '';
+  document.getElementById('rgtm_statusDataserver').value = m.statusDataServerName || '';
   rgtmBuscasRmLinhas = parsearBuscasRmParaLinhas(m.buscasRm);
   renderBuscasRmLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
@@ -13136,6 +13137,7 @@ function cancelarEdicaoRmTipoMovimento(){
   document.getElementById('rgtm_dataserver').value = '';
   document.getElementById('rgtm_xmlraiz').value = '';
   document.getElementById('rgtm_contexto').value = '';
+  document.getElementById('rgtm_statusDataserver').value = '';
   rgtmBuscasRmLinhas = [];
   renderBuscasRmLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
@@ -20236,6 +20238,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dataServerName = document.getElementById('rgtm_dataserver').value.trim();
     const xmlRaiz = document.getElementById('rgtm_xmlraiz').value.trim();
     const contextoSoap = document.getElementById('rgtm_contexto').value.trim();
+    const statusDataServerName = document.getElementById('rgtm_statusDataserver').value.trim();
     const buscasRm = serializarLinhasParaBuscasRm(coletarBuscasRmLinhas());
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
@@ -20243,8 +20246,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, buscasRm })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, buscasRm });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
