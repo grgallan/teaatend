@@ -13116,7 +13116,8 @@ function editarRmTipoMovimento(id){
   document.getElementById('rgtm_dataserver').value = m.dataServerName || '';
   document.getElementById('rgtm_xmlraiz').value = m.xmlRaiz || '';
   document.getElementById('rgtm_contexto').value = m.contextoSoap || '';
-  document.getElementById('rgtm_buscas_rm').value = m.buscasRm || '';
+  rgtmBuscasRmLinhas = parsearBuscasRmParaLinhas(m.buscasRm);
+  renderBuscasRmLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13135,7 +13136,8 @@ function cancelarEdicaoRmTipoMovimento(){
   document.getElementById('rgtm_dataserver').value = '';
   document.getElementById('rgtm_xmlraiz').value = '';
   document.getElementById('rgtm_contexto').value = '';
-  document.getElementById('rgtm_buscas_rm').value = '';
+  rgtmBuscasRmLinhas = [];
+  renderBuscasRmLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13208,6 +13210,53 @@ function parsearBuscasRm(texto){
     if(campos.length) mapa[m[1]] = { dataServerName:m[2], campos };
   });
   return mapa;
+}
+// cadastro de "Buscas no RM": edição por linha (Token / Data Server /
+// Campos) em vez de digitar o texto cru — guarda em memória e serializa
+// pro mesmo formato de texto que o backend já entende na hora de salvar
+let rgtmBuscasRmLinhas = [];
+function parsearBuscasRmParaLinhas(texto){
+  const linhas = [];
+  String(texto||'').split('\n').forEach(linhaBruta=>{
+    const linha = linhaBruta.trim();
+    if(!linha) return;
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)$/.exec(linha);
+    if(!m) return;
+    linhas.push({ token:m[1], dataServer:m[2], campos:m[3].trim() });
+  });
+  return linhas;
+}
+function serializarLinhasParaBuscasRm(linhas){
+  return linhas
+    .filter(l=>l.token && l.dataServer && l.campos)
+    .map(l=>`${l.token} = ${l.dataServer} (${l.campos})`)
+    .join('\n');
+}
+function renderBuscasRmLinhas(){
+  const el = document.getElementById('rgtm_buscas_rm_lista');
+  if(!el) return;
+  if(rgtmBuscasRmLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhuma busca configurada.</div>`; return; }
+  el.innerHTML = rgtmBuscasRmLinhas.map((l,i)=>`
+    <div class="row3">
+      <div class="field"><label>Token</label><input type="text" data-busca-idx="${i}" data-busca-campo="token" value="${escaparHtml(l.token||'')}" placeholder="Ex: fornecedor"></div>
+      <div class="field"><label>Data Server</label><input type="text" data-busca-idx="${i}" data-busca-campo="dataServer" value="${escaparHtml(l.dataServer||'')}" placeholder="Ex: FinCFODataBR"></div>
+      <div class="field"><label>Campos (separados por vírgula)</label><input type="text" data-busca-idx="${i}" data-busca-campo="campos" value="${escaparHtml(l.campos||'')}" placeholder="Ex: CODCFO, NOME, NOMEFANTASIA"></div>
+    </div>
+    <button type="button" class="ghost" onclick="removerBuscaRmLinha(${i})" style="width:auto;padding:4px 10px;margin:-6px 0 14px;">Remover</button>
+  `).join('');
+}
+function coletarBuscasRmLinhas(){
+  document.querySelectorAll('#rgtm_buscas_rm_lista [data-busca-idx]').forEach(inp=>{
+    const i = Number(inp.dataset.buscaIdx);
+    if(!rgtmBuscasRmLinhas[i]) rgtmBuscasRmLinhas[i] = {};
+    rgtmBuscasRmLinhas[i][inp.dataset.buscaCampo] = inp.value;
+  });
+  return rgtmBuscasRmLinhas;
+}
+function removerBuscaRmLinha(i){
+  coletarBuscasRmLinhas();
+  rgtmBuscasRmLinhas.splice(i,1);
+  renderBuscasRmLinhas();
 }
 // tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
 // mesmo Data Server do token clicado, cada um com o campo que o preenche
@@ -20135,7 +20184,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dataServerName = document.getElementById('rgtm_dataserver').value.trim();
     const xmlRaiz = document.getElementById('rgtm_xmlraiz').value.trim();
     const contextoSoap = document.getElementById('rgtm_contexto').value.trim();
-    const buscasRm = document.getElementById('rgtm_buscas_rm').value;
+    const buscasRm = serializarLinhasParaBuscasRm(coletarBuscasRmLinhas());
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
@@ -20151,6 +20200,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     toast(editando ? 'Tipo de movimentação atualizado' : 'Tipo de movimentação adicionado');
   });
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').addEventListener('click', cancelarEdicaoRmTipoMovimento);
+  document.getElementById('btnRgtmAddBuscaRm').addEventListener('click', ()=>{
+    coletarBuscasRmLinhas();
+    rgtmBuscasRmLinhas.push({ token:'', dataServer:'', campos:'' });
+    renderBuscasRmLinhas();
+  });
+  renderBuscasRmLinhas();
   document.getElementById('movm_tipo').addEventListener('change', e=>{
     editandoRmMovimentacaoId = null;
     movmItens = [];
