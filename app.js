@@ -13125,6 +13125,8 @@ function editarRmTipoMovimento(id){
   renderConsultasSqlLinhas();
   rgtmLayoutImpressaoLinhas = parsearLayoutImpressao(m.layoutImpressao);
   renderLayoutImpressaoLinhas();
+  rgtmColunasProdutosLinhas = parsearColunasProdutos(m.colunasProdutos);
+  renderColunasProdutosLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13150,6 +13152,8 @@ function cancelarEdicaoRmTipoMovimento(){
   renderConsultasSqlLinhas();
   rgtmLayoutImpressaoLinhas = [];
   renderLayoutImpressaoLinhas();
+  rgtmColunasProdutosLinhas = [];
+  renderColunasProdutosLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13379,17 +13383,25 @@ function nomeExibicaoCampoTexto(campo){
   return i===-1 ? semOculto : semOculto.slice(i+1);
 }
 let rgtmLayoutImpressaoLinhas = [];
-// campos "extra" disponíveis pro Layout: todo campo (a partir do 2º) de
-// cada linha de Busca no RM/Consulta SQL já digitada no cadastro (o 1º
-// campo preenche o próprio Token, não é um "extra"; campo oculto com "!"
-// nunca aparece, nem aqui)
-function extrasDisponiveisDoTipo(){
+let rgtmColunasProdutosLinhas = [];
+function tokensDoFormAtual(){
+  return tokensDoTipoMovimento({ jsonTemplate: document.getElementById('rgtm_json').value, itensArrayKeys: document.getElementById('rgtm_itensArray').value });
+}
+// campos "extra" disponíveis pros construtores de layout: todo campo (a
+// partir do 2º) de cada linha de Busca no RM/Consulta SQL já digitada no
+// cadastro CUJO TOKEN esteja em "tokensAlvo" (headerTokens pro Layout da
+// Impressão, itemTokens pras Colunas de Produtos — nunca os dois juntos,
+// senão um extra de item aparecia como opção pro cabeçalho e vice-versa).
+// O 1º campo de cada linha preenche o próprio Token, não é um "extra";
+// campo oculto com "!" nunca aparece, nem aqui
+function extrasDisponiveisParaTokens(tokensAlvo){
   coletarBuscasRmLinhas();
   coletarConsultasSqlLinhas();
+  const alvoSet = new Set(tokensAlvo||[]);
   const opcoes = [];
   const vistos = new Set();
   const addLinha = (token, camposTexto)=>{
-    if(!token || !camposTexto) return;
+    if(!token || !camposTexto || !alvoSet.has(token)) return;
     const campos = String(camposTexto).split(',').map(c=>c.trim()).filter(Boolean).slice(1);
     campos.forEach(c=>{
       if(c.startsWith('!')) return;
@@ -13405,10 +13417,16 @@ function extrasDisponiveisDoTipo(){
   return opcoes;
 }
 function camposDisponiveisParaLayout(){
-  const r = tokensDoTipoMovimento({ jsonTemplate: document.getElementById('rgtm_json').value, itensArrayKeys: document.getElementById('rgtm_itensArray').value });
+  const r = tokensDoFormAtual();
   const opcoes = [{ id:'', label:'— escolha um campo —' }];
   if(r.ok) r.headerTokens.forEach(tk=>opcoes.push({ id:`token:${tk}`, label: labelToken(tk) }));
-  return opcoes.concat(extrasDisponiveisDoTipo());
+  return opcoes.concat(extrasDisponiveisParaTokens(r.ok ? r.headerTokens : []));
+}
+function camposDisponiveisParaColunasProdutos(){
+  const r = tokensDoFormAtual();
+  const opcoes = [{ id:'', label:'— escolha um campo —' }];
+  if(r.ok) r.itemTokens.forEach(tk=>opcoes.push({ id:`token:${tk}`, label: labelToken(tk) }));
+  return opcoes.concat(extrasDisponiveisParaTokens(r.ok ? r.itemTokens : []));
 }
 function renderLayoutImpressaoLinhas(){
   const el = document.getElementById('rgtm_layout_impressao_lista');
@@ -13448,6 +13466,56 @@ function removerLinhaLayoutImpressao(i){
   coletarLayoutImpressaoLinhas();
   rgtmLayoutImpressaoLinhas.splice(i,1);
   renderLayoutImpressaoLinhas();
+}
+// "Colunas da tabela de Produtos": mesma ideia do Layout da Impressão, só
+// que pros campos de ITEM — aqui vira uma lista simples (1 campo por
+// entrada, não agrupado de 3 em 3), já que colunas de tabela já ficam lado
+// a lado naturalmente. Campo oculto ("!") nunca aparece, nem o combinado
+// vira duas opções (só a calculada, pelo nome); guardado como array plano
+// de ids ("token:NOME"/"extra:CAMPO") na coluna colunas_produtos
+function serializarColunasProdutos(colunas){
+  const validas = (colunas||[]).filter(Boolean);
+  return validas.length ? JSON.stringify(validas) : '';
+}
+function parsearColunasProdutos(json){
+  try{
+    const l = JSON.parse(json||'[]');
+    return Array.isArray(l) ? l.filter(x=>typeof x==='string' && x) : [];
+  }catch(_e){ return []; }
+}
+function renderColunasProdutosLinhas(){
+  const el = document.getElementById('rgtm_colunas_produtos_lista');
+  if(!el) return;
+  const opcoes = camposDisponiveisParaColunasProdutos();
+  if(rgtmColunasProdutosLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhuma coluna configurada — a tabela de Produtos usa o padrão (1 coluna por campo de item, na ordem do Json, extras soltos numa linha itálica abaixo de cada produto).</div>`; return; }
+  el.innerHTML = rgtmColunasProdutosLinhas.map((valorAtual,i)=>`
+    <div class="cad-item" style="display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:8px;">
+      <select data-coluna-idx="${i}" style="flex:1;">${opcoes.map(o=>`<option value="${escaparHtml(o.id)}" ${o.id===(valorAtual||'')?'selected':''}>${escaparHtml(o.label)}</option>`).join('')}</select>
+      <button type="button" class="ghost" onclick="moverColunaProduto(${i},-1)" style="width:auto;padding:4px 8px;" ${i===0?'disabled':''}>↑</button>
+      <button type="button" class="ghost" onclick="moverColunaProduto(${i},1)" style="width:auto;padding:4px 8px;" ${i===rgtmColunasProdutosLinhas.length-1?'disabled':''}>↓</button>
+      <button type="button" class="ghost" onclick="removerColunaProduto(${i})" style="width:auto;padding:4px 8px;">Remover</button>
+    </div>
+  `).join('');
+}
+function coletarColunasProdutosLinhas(){
+  const porIdx = {};
+  document.querySelectorAll('#rgtm_colunas_produtos_lista [data-coluna-idx]').forEach(sel=>{
+    porIdx[Number(sel.dataset.colunaIdx)] = sel.value;
+  });
+  rgtmColunasProdutosLinhas = Object.keys(porIdx).sort((a,b)=>a-b).map(i=>porIdx[i]).filter(Boolean);
+  return rgtmColunasProdutosLinhas;
+}
+function moverColunaProduto(i, delta){
+  coletarColunasProdutosLinhas();
+  const j = i+delta;
+  if(j<0 || j>=rgtmColunasProdutosLinhas.length) return;
+  [rgtmColunasProdutosLinhas[i], rgtmColunasProdutosLinhas[j]] = [rgtmColunasProdutosLinhas[j], rgtmColunasProdutosLinhas[i]];
+  renderColunasProdutosLinhas();
+}
+function removerColunaProduto(i){
+  coletarColunasProdutosLinhas();
+  rgtmColunasProdutosLinhas.splice(i,1);
+  renderColunasProdutosLinhas();
 }
 // tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
 // mesmo Data Server do token clicado, cada um com o campo que o preenche
@@ -13913,16 +13981,27 @@ function imprimirRmMovimentacao(id){
   const dadosHtml = layoutDados.map(linha=>linhaCamposHtml(linha.map(id=>campoHtml(labelDoCampoLayout(id), valorDoCampoLayout(id))))).join('')
     + emParesDe2(extrasSoltos).map(par=>linhaCamposHtml(par.map(c=>campoHtml(c, extrasHeader[c])))).join('');
 
+  // colunas da tabela de Produtos: admin escolhe em "Colunas da tabela de
+  // Produtos" (Movimentos → Parâmetros) — sem nenhuma configurada, cai no
+  // padrão (1 coluna por campo de item, na ordem do Json). Um extra do item
+  // que exista mas não virou coluna continua na linha itálica abaixo do
+  // produto, mesma ideia do "extras soltos" da seção Dados
+  const colunasSalvas = parsearColunasProdutos(tipo.colunasProdutos);
+  const colunasProdutos = colunasSalvas.length ? colunasSalvas : r.itemTokens.map(tk=>`token:${tk}`);
+  const valorDoCampoItem = (item,id)=> id.startsWith('extra:') ? (item.__extras||{})[id.slice(6)] : item[id.slice(6)];
+  const labelDoCampoItem = (id)=> id.startsWith('extra:') ? id.slice(6) : labelToken(id.slice(6));
+  const extrasUsadosComoColuna = new Set(colunasProdutos.filter(id=>id.startsWith('extra:')).map(id=>id.slice(6)));
+
   const itens = m.itens||[];
   const produtosHtml = !itens.length ? '' : `
     <h3 class="secao">Produtos</h3>
     <table>
-      <thead><tr>${r.itemTokens.map(tk=>`<th>${escaparHtml(labelToken(tk))}</th>`).join('')}</tr></thead>
+      <thead><tr>${colunasProdutos.map(id=>`<th>${escaparHtml(labelDoCampoItem(id))}</th>`).join('')}</tr></thead>
       <tbody>${itens.map(item=>{
-        const cols = r.itemTokens.map(tk=>`<td>${escaparHtml(String(item[tk]??''))}</td>`).join('');
+        const cols = colunasProdutos.map(id=>`<td>${escaparHtml(String(valorDoCampoItem(item,id)??''))}</td>`).join('');
         const ex = item.__extras||{};
-        const extraTxt = Object.keys(ex).filter(k=>ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
-        return `<tr>${cols}</tr>${extraTxt ? `<tr class="extra-linha"><td colspan="${r.itemTokens.length}">${extraTxt}</td></tr>` : ''}`;
+        const extraTxt = Object.keys(ex).filter(k=>!extrasUsadosComoColuna.has(k) && ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
+        return `<tr>${cols}</tr>${extraTxt ? `<tr class="extra-linha"><td colspan="${colunasProdutos.length}">${extraTxt}</td></tr>` : ''}`;
       }).join('')}</tbody>
     </table>`;
 
@@ -20668,14 +20747,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const buscasRm = serializarLinhasParaBuscasRm(coletarBuscasRmLinhas());
     const consultasSql = serializarLinhasParaConsultasSql(coletarConsultasSqlLinhas());
     const layoutImpressao = serializarLayoutImpressao(coletarLayoutImpressaoLinhas());
+    const colunasProdutos = serializarColunasProdutos(coletarColunasProdutosLinhas());
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao, colunasProdutos })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao, colunasProdutos });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
@@ -20700,11 +20780,24 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     rgtmLayoutImpressaoLinhas.push([]);
     renderLayoutImpressaoLinhas();
   });
-  document.getElementById('btnRgtmAtualizarCamposLayout').addEventListener('click', ()=>{
+  // atualiza as 2 listas de uma vez (Dados e Colunas de Produtos) — os
+  // campos disponíveis das 2 vêm do mesmo Json/Campos das buscas, então um
+  // só botão (em qualquer uma das 2 seções) já cobre as duas
+  const atualizarListasDeCampos = ()=>{
     coletarLayoutImpressaoLinhas();
     renderLayoutImpressaoLinhas();
-  });
+    coletarColunasProdutosLinhas();
+    renderColunasProdutosLinhas();
+  };
+  document.getElementById('btnRgtmAtualizarCamposLayout').addEventListener('click', atualizarListasDeCampos);
   renderLayoutImpressaoLinhas();
+  document.getElementById('btnRgtmAddColunaProduto').addEventListener('click', ()=>{
+    coletarColunasProdutosLinhas();
+    rgtmColunasProdutosLinhas.push('');
+    renderColunasProdutosLinhas();
+  });
+  document.getElementById('btnRgtmAtualizarCamposColunas').addEventListener('click', atualizarListasDeCampos);
+  renderColunasProdutosLinhas();
   document.getElementById('movm_tipo').addEventListener('change', e=>{
     editandoRmMovimentacaoId = null;
     movmItens = [];
