@@ -1544,3 +1544,5 @@ alter table rm_movimentacoes add column if not exists corpo_enviado jsonb;
 -- pra mostrar o que foi gravado)
 alter table rm_movimentacoes add column if not exists rm_coligada text;
 alter table rm_movimentacoes add column if not exists rm_idmov text;
+-- cada um só vê/edita as movimentações que ele mesmo criou (ver acaoDados)
+alter table rm_movimentacoes add column if not exists criado_por text;

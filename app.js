@@ -13204,10 +13204,10 @@ function parsearBuscasRm(texto){
   String(texto||'').split('\n').forEach(linhaBruta=>{
     const linha = linhaBruta.trim();
     if(!linha) return;
-    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)$/.exec(linha);
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)(?:\s*\[([^\]]*)\])?$/.exec(linha);
     if(!m) return;
     const campos = m[3].split(',').map(c=>c.trim()).filter(Boolean);
-    if(campos.length) mapa[m[1]] = { dataServerName:m[2], campos };
+    if(campos.length) mapa[m[1]] = { dataServerName:m[2], campos, filtroExtra:(m[4]||'').trim() };
   });
   return mapa;
 }
@@ -13220,16 +13220,16 @@ function parsearBuscasRmParaLinhas(texto){
   String(texto||'').split('\n').forEach(linhaBruta=>{
     const linha = linhaBruta.trim();
     if(!linha) return;
-    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)$/.exec(linha);
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)(?:\s*\[([^\]]*)\])?$/.exec(linha);
     if(!m) return;
-    linhas.push({ token:m[1], dataServer:m[2], campos:m[3].trim() });
+    linhas.push({ token:m[1], dataServer:m[2], campos:m[3].trim(), filtroExtra:(m[4]||'').trim() });
   });
   return linhas;
 }
 function serializarLinhasParaBuscasRm(linhas){
   return linhas
     .filter(l=>l.token && l.dataServer && l.campos)
-    .map(l=>`${l.token} = ${l.dataServer} (${l.campos})`)
+    .map(l=>`${l.token} = ${l.dataServer} (${l.campos})${l.filtroExtra ? ' ['+l.filtroExtra+']' : ''}`)
     .join('\n');
 }
 function renderBuscasRmLinhas(){
@@ -13237,12 +13237,17 @@ function renderBuscasRmLinhas(){
   if(!el) return;
   if(rgtmBuscasRmLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhuma busca configurada.</div>`; return; }
   el.innerHTML = rgtmBuscasRmLinhas.map((l,i)=>`
-    <div class="row3">
-      <div class="field"><label>Token</label><input type="text" data-busca-idx="${i}" data-busca-campo="token" value="${escaparHtml(l.token||'')}" placeholder="Ex: fornecedor"></div>
-      <div class="field"><label>Data Server</label><input type="text" data-busca-idx="${i}" data-busca-campo="dataServer" value="${escaparHtml(l.dataServer||'')}" placeholder="Ex: FinCFODataBR"></div>
-      <div class="field"><label>Campos (separados por vírgula)</label><input type="text" data-busca-idx="${i}" data-busca-campo="campos" value="${escaparHtml(l.campos||'')}" placeholder="Ex: CODCFO, NOME, NOMEFANTASIA"></div>
+    <div class="cad-item" style="display:block;margin:0 0 10px;padding:10px;">
+      <div class="row">
+        <div class="field"><label>Token</label><input type="text" data-busca-idx="${i}" data-busca-campo="token" value="${escaparHtml(l.token||'')}" placeholder="Ex: fornecedor"></div>
+        <div class="field"><label>Data Server</label><input type="text" data-busca-idx="${i}" data-busca-campo="dataServer" value="${escaparHtml(l.dataServer||'')}" placeholder="Ex: FinCFODataBR"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Campos (separados por vírgula)</label><input type="text" data-busca-idx="${i}" data-busca-campo="campos" value="${escaparHtml(l.campos||'')}" placeholder="Ex: CODCFO, NOME, NOMEFANTASIA"></div>
+        <div class="field"><label>Filtro extra (opcional)</label><input type="text" data-busca-idx="${i}" data-busca-campo="filtroExtra" value="${escaparHtml(l.filtroExtra||'')}" placeholder="Ex: INATIVO = 0"></div>
+      </div>
+      <button type="button" class="ghost" onclick="removerBuscaRmLinha(${i})" style="width:auto;padding:4px 10px;margin:4px 0 0;">Remover</button>
     </div>
-    <button type="button" class="ghost" onclick="removerBuscaRmLinha(${i})" style="width:auto;padding:4px 10px;margin:-6px 0 14px;">Remover</button>
   `).join('');
 }
 function coletarBuscasRmLinhas(){
@@ -20214,7 +20219,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').addEventListener('click', cancelarEdicaoRmTipoMovimento);
   document.getElementById('btnRgtmAddBuscaRm').addEventListener('click', ()=>{
     coletarBuscasRmLinhas();
-    rgtmBuscasRmLinhas.push({ token:'', dataServer:'', campos:'' });
+    rgtmBuscasRmLinhas.push({ token:'', dataServer:'', campos:'', filtroExtra:'' });
     renderBuscasRmLinhas();
   });
   renderBuscasRmLinhas();
