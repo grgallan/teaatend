@@ -1506,10 +1506,17 @@ alter table rm_tipos_movimento add column if not exists contexto_soap text defau
 -- na tela de Movimentações em vez de digitar o código à mão — filtro tem
 -- {termo} no lugar do texto digitado na busca (mesma convenção de {token}
 -- do json_template)
+-- SUPERADO pelas 4 colunas abaixo (busca_fornecedor_*/busca_produto_* só
+-- cobriam 2 tokens fixos; buscas_rm cobre qualquer token) — mantidas sem
+-- uso só pra não perder o que já tinha sido cadastrado; dá pra remover
+-- depois de reconfigurar em Movimentos → Parâmetros
 alter table rm_tipos_movimento add column if not exists busca_fornecedor_dataserver text default '';
 alter table rm_tipos_movimento add column if not exists busca_fornecedor_filtro text default '';
 alter table rm_tipos_movimento add column if not exists busca_produto_dataserver text default '';
 alter table rm_tipos_movimento add column if not exists busca_produto_filtro text default '';
+-- genérico: 1 linha por token, "{token} = DataServerName (CAMPO1, CAMPO2)"
+-- — ver parsearBuscasRm no backend
+alter table rm_tipos_movimento add column if not exists buscas_rm text default '';
 
 -- Movimentações: uma instância de "gravar no RM" a partir de um Tipo de
 -- Movimentação cadastrado — fica "rascunho" na nossa base (valores

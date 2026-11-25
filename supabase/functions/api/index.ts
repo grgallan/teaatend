@@ -297,8 +297,7 @@ function rmTipoMovimentoParaApi(r: any) {
     usuario: r.usuario || '', temSenha: !!r.senha_cifrada, jsonTemplate: r.json_template || '',
     itensArrayKeys: r.itens_array_keys || '', dataServerName: r.data_server_name || '',
     xmlRaiz: r.xml_raiz || '', contextoSoap: r.contexto_soap || '',
-    buscaFornecedorDataServer: r.busca_fornecedor_dataserver || '', buscaFornecedorFiltro: r.busca_fornecedor_filtro || '',
-    buscaProdutoDataServer: r.busca_produto_dataserver || '', buscaProdutoFiltro: r.busca_produto_filtro || '',
+    buscasRm: r.buscas_rm || '',
   };
 }
 function rmMovimentacaoParaApi(r: any) {
@@ -4146,8 +4145,7 @@ async function acaoAddRmTipoMovimento(req: any) {
     id: gerarId(), cliente_id: req.clienteId, nome: req.nome, codtmv_destino: req.codtmvDestino,
     usuario: req.usuario || '', json_template: req.jsonTemplate || '', itens_array_keys: req.itensArrayKeys || '',
     data_server_name: req.dataServerName || '', xml_raiz: req.xmlRaiz || '', contexto_soap: req.contextoSoap || '',
-    busca_fornecedor_dataserver: req.buscaFornecedorDataServer || '', busca_fornecedor_filtro: req.buscaFornecedorFiltro || '',
-    busca_produto_dataserver: req.buscaProdutoDataServer || '', busca_produto_filtro: req.buscaProdutoFiltro || '',
+    buscas_rm: req.buscasRm || '',
   };
   if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
   const { error } = await db.from('rm_tipos_movimento').insert(registro);
@@ -4167,10 +4165,7 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   if (req.dataServerName !== undefined) atualizado.data_server_name = req.dataServerName;
   if (req.xmlRaiz !== undefined) atualizado.xml_raiz = req.xmlRaiz;
   if (req.contextoSoap !== undefined) atualizado.contexto_soap = req.contextoSoap;
-  if (req.buscaFornecedorDataServer !== undefined) atualizado.busca_fornecedor_dataserver = req.buscaFornecedorDataServer;
-  if (req.buscaFornecedorFiltro !== undefined) atualizado.busca_fornecedor_filtro = req.buscaFornecedorFiltro;
-  if (req.buscaProdutoDataServer !== undefined) atualizado.busca_produto_dataserver = req.buscaProdutoDataServer;
-  if (req.buscaProdutoFiltro !== undefined) atualizado.busca_produto_filtro = req.buscaProdutoFiltro;
+  if (req.buscasRm !== undefined) atualizado.buscas_rm = req.buscasRm;
   // a senha só é regravada quando a tela manda uma nova (campo em branco =
   // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
   if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);
@@ -4386,9 +4381,27 @@ function extrairLinhasDeViewXml(xml: string): Record<string, string>[] {
       return obj;
     });
 }
+// o cadastro de Busca no RM é um texto com 1 linha por token, no formato
+// "{token} = DataServerName (CAMPO1, CAMPO2, ...)" — o 1º campo da lista
+// preenche o {token}, os demais só aparecem no resultado da busca (pra
+// ajudar a identificar o registro certo). Tokens diferentes que apontam
+// pro MESMO Data Server ficam "ligados": escolher um resultado preenche
+// todos de uma vez (ex: código + nome do mesmo produto)
+function parsearBuscasRm(texto: string): Record<string, { dataServerName: string; campos: string[] }> {
+  const mapa: Record<string, { dataServerName: string; campos: string[] }> = {};
+  for (const linhaBruta of String(texto || '').split('\n')) {
+    const linha = linhaBruta.trim();
+    if (!linha) continue;
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)$/.exec(linha);
+    if (!m) continue;
+    const campos = m[3].split(',').map((c) => c.trim()).filter(Boolean);
+    if (campos.length) mapa[m[1]] = { dataServerName: m[2], campos };
+  }
+  return mapa;
+}
 // busca genérica no RM (ReadView) — usada pela tela de Movimentações pra
-// preencher Fornecedor/Produto a partir de uma busca em vez de digitar o
-// código à mão. {termo} no filtro cadastrado vira o texto digitado na tela
+// preencher qualquer token configurado a partir de uma busca em vez de
+// digitar o código à mão
 async function acaoBuscarRmLista(req: any) {
   // usada tanto ao criar (precisa de "inserir") quanto ao editar uma
   // movimentação existente (precisa de "editar") — "visualizar" nunca é
@@ -4397,12 +4410,17 @@ async function acaoBuscarRmLista(req: any) {
   const podeBuscar = (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir')) || (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'));
   if (!podeBuscar) return { ok: false, erro: 'Você não tem permissão para buscar dados no RM.' };
   if (!req.tipoMovimentoId) return { ok: false, erro: 'Tipo de movimentação não informado.' };
-  if (req.alvo !== 'fornecedor' && req.alvo !== 'produto') return { ok: false, erro: 'Busca inválida.' };
+  if (!req.token) return { ok: false, erro: 'Busca inválida.' };
   const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', req.tipoMovimentoId).maybeSingle();
   if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
-  const dataServerName = req.alvo === 'fornecedor' ? tipo.busca_fornecedor_dataserver : tipo.busca_produto_dataserver;
-  const filtroTemplate = req.alvo === 'fornecedor' ? tipo.busca_fornecedor_filtro : tipo.busca_produto_filtro;
-  if (!dataServerName) return { ok: false, erro: `Esse tipo de movimentação ainda não tem a busca de ${req.alvo} configurada (Movimentos → Parâmetros).` };
+  const buscas = parsearBuscasRm(tipo.buscas_rm || '');
+  const configPrincipal = buscas[req.token];
+  if (!configPrincipal) return { ok: false, erro: `O token {${req.token}} ainda não tem busca configurada (Movimentos → Parâmetros).` };
+  const dataServerName = configPrincipal.dataServerName;
+  // todo token (cabeçalho OU item) que aponte pro mesmo Data Server é
+  // preenchido de uma vez só, a partir da mesma linha escolhida
+  const linhasMesmoDataServer = Object.entries(buscas).filter(([, cfg]) => cfg.dataServerName === dataServerName);
+  const camposExibicao = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
   const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
   if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
@@ -4410,8 +4428,8 @@ async function acaoBuscarRmLista(req: any) {
   try { senha = await decifrarRmSenha(tipo.senha_cifrada); } catch (_e) {
     return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
   }
-  const termo = String(req.termo || '').trim();
-  const filtro = (filtroTemplate || "NOMEFANTASIA LIKE '%{termo}%'").replace(/\{termo\}/g, termo.replace(/'/g, "''"));
+  const termo = String(req.termo || '').trim().replace(/'/g, "''");
+  const filtro = camposExibicao.map((c) => `${c} LIKE '%${termo}%'`).join(' OR ');
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
@@ -4458,7 +4476,7 @@ async function acaoBuscarRmLista(req: any) {
     // sozinho — sem essa restrição vem fornecedor de TODAS as coligadas)
     const coligadaContexto = /CODCOLIGADA\s*=\s*(-?\d+)/i.exec(contexto || '')?.[1];
     const linhas = coligadaContexto ? linhasDeTabela.filter((l) => String(l.CODCOLIGADA) === coligadaContexto) : linhasDeTabela;
-    return { ok: true, linhas, xmlBruto: resultado };
+    return { ok: true, linhas, camposExibicao, xmlBruto: resultado };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
     return { ok: false, erro: msg };
