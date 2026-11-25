@@ -13119,6 +13119,8 @@ function editarRmTipoMovimento(id){
   document.getElementById('rgtm_statusDataserver').value = m.statusDataServerName || '';
   rgtmBuscasRmLinhas = parsearBuscasRmParaLinhas(m.buscasRm);
   renderBuscasRmLinhas();
+  rgtmConsultasSqlLinhas = parsearConsultasSqlParaLinhas(m.consultasSql);
+  renderConsultasSqlLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13140,6 +13142,8 @@ function cancelarEdicaoRmTipoMovimento(){
   document.getElementById('rgtm_statusDataserver').value = '';
   rgtmBuscasRmLinhas = [];
   renderBuscasRmLinhas();
+  rgtmConsultasSqlLinhas = [];
+  renderConsultasSqlLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13216,6 +13220,22 @@ function parsearBuscasRm(texto){
   });
   return mapa;
 }
+// espelha parsearConsultasSql do backend — preenche um {token} rodando uma
+// consulta já cadastrada em Relatórios Gerenciais TOTVS RM, em vez de
+// buscar via ReadView. "Nome Da Consulta" pode ter espaço (não é alfanumérico
+// puro como Data Server), por isso o grupo 2 aceita qualquer caractere
+function parsearConsultasSql(texto){
+  const mapa = {};
+  String(texto||'').split('\n').forEach(linhaBruta=>{
+    const linha = linhaBruta.trim();
+    if(!linha) return;
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*(.+?)\s*\(([^)]*)\)(?:\s*\[([^\]]*)\])?$/.exec(linha);
+    if(!m) return;
+    const campos = m[3].split(',').map(c=>c.trim()).filter(Boolean);
+    if(campos.length) mapa[m[1]] = { consultaNome:m[2].trim(), campos, paramTermo:(m[4]||'').trim() };
+  });
+  return mapa;
+}
 // cadastro de "Buscas no RM": edição por linha (Token / Data Server /
 // Campos) em vez de digitar o texto cru — guarda em memória e serializa
 // pro mesmo formato de texto que o backend já entende na hora de salvar
@@ -13268,6 +13288,58 @@ function removerBuscaRmLinha(i){
   rgtmBuscasRmLinhas.splice(i,1);
   renderBuscasRmLinhas();
 }
+// cadastro de "Busca via Consulta SQL": mesmo esquema de edição por linha
+// da Busca no RM, só que apontando pro nome de uma consulta já cadastrada
+// em Relatórios Gerenciais TOTVS RM em vez de um Data Server
+let rgtmConsultasSqlLinhas = [];
+function parsearConsultasSqlParaLinhas(texto){
+  const linhas = [];
+  String(texto||'').split('\n').forEach(linhaBruta=>{
+    const linha = linhaBruta.trim();
+    if(!linha) return;
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*(.+?)\s*\(([^)]*)\)(?:\s*\[([^\]]*)\])?$/.exec(linha);
+    if(!m) return;
+    linhas.push({ token:m[1], consultaNome:m[2].trim(), campos:m[3].trim(), paramTermo:(m[4]||'').trim() });
+  });
+  return linhas;
+}
+function serializarLinhasParaConsultasSql(linhas){
+  return linhas
+    .filter(l=>l.token && l.consultaNome && l.campos)
+    .map(l=>`${l.token} = ${l.consultaNome} (${l.campos})${l.paramTermo ? ' ['+l.paramTermo+']' : ''}`)
+    .join('\n');
+}
+function renderConsultasSqlLinhas(){
+  const el = document.getElementById('rgtm_consultas_sql_lista');
+  if(!el) return;
+  if(rgtmConsultasSqlLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhuma consulta configurada.</div>`; return; }
+  el.innerHTML = rgtmConsultasSqlLinhas.map((l,i)=>`
+    <div class="cad-item" style="display:block;margin:0 0 10px;padding:10px;">
+      <div class="row">
+        <div class="field"><label>Token</label><input type="text" data-consultasql-idx="${i}" data-consultasql-campo="token" value="${escaparHtml(l.token||'')}" placeholder="Ex: representante"></div>
+        <div class="field"><label>Nome da Consulta (Relatórios Gerenciais)</label><input type="text" data-consultasql-idx="${i}" data-consultasql-campo="consultaNome" value="${escaparHtml(l.consultaNome||'')}" placeholder="Ex: Representantes Ativos"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>Campos (separados por vírgula)</label><input type="text" data-consultasql-idx="${i}" data-consultasql-campo="campos" value="${escaparHtml(l.campos||'')}" placeholder="Ex: CODRPR, NOME"></div>
+        <div class="field"><label>Parâmetro do termo (opcional)</label><input type="text" data-consultasql-idx="${i}" data-consultasql-campo="paramTermo" value="${escaparHtml(l.paramTermo||'')}" placeholder="Ex: nome"></div>
+      </div>
+      <button type="button" class="ghost" onclick="removerConsultaSqlLinha(${i})" style="width:auto;padding:4px 10px;margin:4px 0 0;">Remover</button>
+    </div>
+  `).join('');
+}
+function coletarConsultasSqlLinhas(){
+  document.querySelectorAll('#rgtm_consultas_sql_lista [data-consultasql-idx]').forEach(inp=>{
+    const i = Number(inp.dataset.consultasqlIdx);
+    if(!rgtmConsultasSqlLinhas[i]) rgtmConsultasSqlLinhas[i] = {};
+    rgtmConsultasSqlLinhas[i][inp.dataset.consultasqlCampo] = inp.value;
+  });
+  return rgtmConsultasSqlLinhas;
+}
+function removerConsultaSqlLinha(i){
+  coletarConsultasSqlLinhas();
+  rgtmConsultasSqlLinhas.splice(i,1);
+  renderConsultasSqlLinhas();
+}
 // tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
 // mesmo Data Server do token clicado, cada um com o campo que o preenche
 // o campo cadastrado pode vir qualificado ("DataServer.CAMPO" — opcional,
@@ -13285,14 +13357,27 @@ function tokensMesmoDataServer(mapaBuscas, tokensEscopo, tokenClicado){
     .filter(tk=>mapaBuscas[tk] && mapaBuscas[tk].dataServerName===cfg.dataServerName)
     .map(tk=>({ token:tk, campo:campoPuro(mapaBuscas[tk].campos[0]) }));
 }
+// mesma ideia de tokensMesmoDataServer, só que agrupando pelo nome da
+// consulta em vez do Data Server
+function tokensMesmaConsultaSql(mapaConsultas, tokensEscopo, tokenClicado){
+  const cfg = mapaConsultas[tokenClicado];
+  if(!cfg) return [];
+  return tokensEscopo
+    .filter(tk=>mapaConsultas[tk] && mapaConsultas[tk].consultaNome===cfg.consultaNome)
+    .map(tk=>({ token:tk, campo:campoPuro(mapaConsultas[tk].campos[0]) }));
+}
 function acharTokenPorPadrao(tokens, padroes){
   return tokens.find(t=>padroes.includes(t.toLowerCase()));
 }
-let buscaRmOnSelecionar = null, buscaRmToken = null, buscaRmLinhasAtual = [], buscaRmCamposExibicaoAtual = [];
-function abrirBuscaRm(token, onSelecionar){
+// o mesmo modal serve pras 2 formas de busca (ReadView via Busca no RM, ou
+// uma consulta de Relatórios Gerenciais via Busca via Consulta SQL) —
+// buscaRmKind decide qual ação da API chamar
+let buscaRmOnSelecionar = null, buscaRmToken = null, buscaRmLinhasAtual = [], buscaRmCamposExibicaoAtual = [], buscaRmKind = 'rm';
+function abrirBuscaRm(token, onSelecionar, kind){
   buscaRmToken = token;
   buscaRmOnSelecionar = onSelecionar;
-  document.getElementById('buscaRmTitulo').textContent = `Buscar ${labelToken(token)} no RM`;
+  buscaRmKind = kind || 'rm';
+  document.getElementById('buscaRmTitulo').textContent = buscaRmKind==='sql' ? `Buscar ${labelToken(token)}` : `Buscar ${labelToken(token)} no RM`;
   document.getElementById('buscaRmTermo').value = '';
   document.getElementById('buscaRmResultados').innerHTML = '';
   document.getElementById('buscaRmErro').textContent = '';
@@ -13312,9 +13397,10 @@ async function executarBuscaRm(){
   const resEl = document.getElementById('buscaRmResultados');
   erroEl.textContent = '';
   resEl.innerHTML = '<div class="empty">Buscando...</div>';
-  const r = await api('buscarRmLista', { contaId: contaAtual().id, tipoMovimentoId: movmTipoAtual.tipo.id, token: buscaRmToken, termo });
-  // sempre mostra o XML bruto (não só no erro) — é o jeito de descobrir o
-  // nome certo de um campo que o RM devolve mas ainda não tá mapeado em
+  const acao = buscaRmKind==='sql' ? 'buscarConsultaSqlLista' : 'buscarRmLista';
+  const r = await api(acao, { contaId: contaAtual().id, tipoMovimentoId: movmTipoAtual.tipo.id, token: buscaRmToken, termo });
+  // sempre mostra a resposta bruta (não só no erro) — é o jeito de descobrir
+  // o nome certo de um campo que o RM devolve mas ainda não tá mapeado em
   // nenhum token (ex: "Unidade de Controle" do produto)
   const xmlBlock = document.getElementById('buscaRmXmlBlock');
   if(r.xmlBruto){
@@ -13323,7 +13409,7 @@ async function executarBuscaRm(){
   } else {
     xmlBlock.style.display = 'none';
   }
-  if(!r.ok){ resEl.innerHTML=''; erroEl.textContent = r.erro || 'Erro ao buscar no RM.'; return; }
+  if(!r.ok){ resEl.innerHTML=''; erroEl.textContent = r.erro || 'Erro ao buscar.'; return; }
   buscaRmCamposExibicaoAtual = r.camposExibicao||[];
   renderResultadosBuscaRm(r.linhas||[]);
 }
@@ -13345,29 +13431,37 @@ function renderResultadosBuscaRm(linhas){
     });
   });
 }
+// um token pode ter busca configurada em QUALQUER UMA das 2 formas (Busca
+// no RM ou Busca via Consulta SQL) — nunca nas duas ao mesmo tempo; a 1ª
+// que achar config pro token vence
+function buscaConfiguradaParaToken(tipo, tokensEscopo, token){
+  const mapaBuscas = parsearBuscasRm(tipo.buscasRm);
+  if(mapaBuscas[token]) return { kind:'rm', alvos: tokensMesmoDataServer(mapaBuscas, tokensEscopo, token) };
+  const mapaConsultas = parsearConsultasSql(tipo.consultasSql);
+  if(mapaConsultas[token]) return { kind:'sql', alvos: tokensMesmaConsultaSql(mapaConsultas, tokensEscopo, token) };
+  return null;
+}
 function abrirBuscaCampoHeader(token){
   if(!movmTipoAtual) return;
-  const mapaBuscas = parsearBuscasRm(movmTipoAtual.tipo.buscasRm);
-  const alvos = tokensMesmoDataServer(mapaBuscas, movmTipoAtual.headerTokens, token);
-  if(!alvos.length) return;
+  const busca = buscaConfiguradaParaToken(movmTipoAtual.tipo, movmTipoAtual.headerTokens, token);
+  if(!busca || !busca.alvos.length) return;
   abrirBuscaRm(token, (linha)=>{
-    alvos.forEach(({token:tk,campo})=>{
+    busca.alvos.forEach(({token:tk,campo})=>{
       const inp = document.querySelector(`#movm_camposHeader [data-token="${tk}"]`);
       if(inp) inp.value = linha[campo] ?? '';
     });
-  });
+  }, busca.kind);
 }
 function abrirBuscaCampoItem(token, i){
   if(!movmTipoAtual) return;
-  const mapaBuscas = parsearBuscasRm(movmTipoAtual.tipo.buscasRm);
-  const alvos = tokensMesmoDataServer(mapaBuscas, movmTipoAtual.itemTokens, token);
-  if(!alvos.length) return;
+  const busca = buscaConfiguradaParaToken(movmTipoAtual.tipo, movmTipoAtual.itemTokens, token);
+  if(!busca || !busca.alvos.length) return;
   abrirBuscaRm(token, (linha)=>{
-    alvos.forEach(({token:tk,campo})=>{
+    busca.alvos.forEach(({token:tk,campo})=>{
       const inp = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${tk}"]`);
       if(inp) inp.value = linha[campo] ?? '';
     });
-  });
+  }, busca.kind);
 }
 // convenção de nomes de token pra reconhecer automaticamente campos com
 // comportamento especial: Data/Hora de emissão viram automáticas (data de
@@ -13426,6 +13520,7 @@ function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
   }
   movmTipoAtual = { tipo, headerTokens:r.headerTokens, itemTokens:r.itemTokens };
   const mapaBuscas = parsearBuscasRm(tipo.buscasRm);
+  const mapaConsultasSql = parsearConsultasSql(tipo.consultasSql);
   const tokenValorBruto = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_VALOR_BRUTO);
   const tokenDataEmissao = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_DATA_EMISSAO);
   const tokenHorarioEmissao = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_HORARIO_EMISSAO);
@@ -13439,7 +13534,7 @@ function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
       if(tk===tokenDataEmissao) valor = dataHoraLocalIso(false);
       else if(tk===tokenHorarioEmissao) valor = dataHoraLocalIso(true);
     }
-    const temBusca = !!mapaBuscas[tk];
+    const temBusca = !!mapaBuscas[tk] || !!mapaConsultasSql[tk];
     const estiloInput = calculado ? 'flex:1;background:var(--panel-2);color:var(--muted);' : 'flex:1;';
     const readonlyAttr = calculado ? 'readonly title="Calculado automaticamente — soma dos itens"' : '';
     return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml(valor)}" style="${estiloInput}" ${readonlyAttr}>${temBusca?`<button type="button" class="ghost" onclick="abrirBuscaCampoHeader('${escaparHtml(tk)}')" style="width:auto;padding:6px 10px;">🔍 Buscar</button>`:''}</div></div>`;
@@ -13464,11 +13559,12 @@ function renderItensMovimentacao(){
     return;
   }
   const mapaBuscas = parsearBuscasRm(movmTipoAtual.tipo.buscasRm);
+  const mapaConsultasSql = parsearConsultasSql(movmTipoAtual.tipo.consultasSql);
   const tokenValorItem = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_ITEM_VALOR_BRUTO);
   el.innerHTML = movmItens.map((item,i)=>{
     const campos = movmTipoAtual.itemTokens.map(tk=>{
       const calculado = tk===tokenValorItem;
-      const temBusca = !!mapaBuscas[tk];
+      const temBusca = !!mapaBuscas[tk] || !!mapaConsultasSql[tk];
       const estiloInput = calculado ? 'background:var(--panel-2);color:var(--muted);' : '';
       const readonlyAttr = calculado ? 'readonly title="Calculado automaticamente — quantidade × preço"' : '';
       return `<div class="field" style="flex:1 1 140px;min-width:120px;margin:0;"><label style="font-size:10.5px;">${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:4px;"><input type="text" data-item-idx="${i}" data-token="${escaparHtml(tk)}" value="${escaparHtml(item[tk]||'')}" style="${estiloInput}" ${readonlyAttr}>${temBusca?`<button type="button" class="ghost" onclick="abrirBuscaCampoItem('${escaparHtml(tk)}',${i})" style="width:auto;padding:4px 8px;">🔍</button>`:''}</div></div>`;
@@ -20242,14 +20338,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const contextoSoap = document.getElementById('rgtm_contexto').value.trim();
     const statusDataServerName = document.getElementById('rgtm_statusDataserver').value.trim();
     const buscasRm = serializarLinhasParaBuscasRm(coletarBuscasRmLinhas());
+    const consultasSql = serializarLinhasParaConsultasSql(coletarConsultasSqlLinhas());
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
@@ -20263,6 +20360,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     renderBuscasRmLinhas();
   });
   renderBuscasRmLinhas();
+  document.getElementById('btnRgtmAddConsultaSql').addEventListener('click', ()=>{
+    coletarConsultasSqlLinhas();
+    rgtmConsultasSqlLinhas.push({ token:'', consultaNome:'', campos:'', paramTermo:'' });
+    renderConsultasSqlLinhas();
+  });
+  renderConsultasSqlLinhas();
   document.getElementById('movm_tipo').addEventListener('change', e=>{
     editandoRmMovimentacaoId = null;
     movmItens = [];

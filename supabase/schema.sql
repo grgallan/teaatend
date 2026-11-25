@@ -1512,6 +1512,12 @@ alter table rm_tipos_movimento add column if not exists contexto_soap text defau
 -- pra consultar status — vazio usa o mesmo de Enviar RM (comportamento de
 -- antes desse campo existir)
 alter table rm_tipos_movimento add column if not exists status_data_server_name text default '';
+-- preenche um {token} rodando uma consulta já cadastrada em Relatórios
+-- Gerenciais TOTVS RM (RealizaConsulta, do mesmo jeito que o Dashboard já
+-- executa) em vez de buscar via ReadView (wsDataServer) — útil quando o
+-- dado não tá numa tabela simples de buscar por ReadView, mas já tem uma
+-- consulta SQL pronta cadastrada. Ver parsearConsultasSql no backend
+alter table rm_tipos_movimento add column if not exists consultas_sql text default '';
 -- busca no RM (ReadView via wsDataServer) pra preencher Fornecedor/Produto
 -- na tela de Movimentações em vez de digitar o código à mão — filtro tem
 -- {termo} no lugar do texto digitado na busca (mesma convenção de {token}
