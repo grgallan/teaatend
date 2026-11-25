@@ -4560,7 +4560,15 @@ async function acaoEnviarRmMovimentacao(req: any) {
       return { ok: false, erro: comAvisoDeSalvar(`O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debugAuth}`, erroSalvar), registro };
     }
     const resultado = extrairTagSoap(texto, 'SaveRecordResult') ?? texto;
-    const { registro, erroSalvar } = await gravarResultado('enviada', resultado);
+    // só é sucesso de verdade quando o RM devolve "coligada;idmov" (ex:
+    // "3;387366") — HTTP 200 não garante nada: o RM pode devolver uma
+    // exceção de negócio (ex: "Não foi possível encontrar a tabela
+    // opcional...") dentro do próprio SaveRecordResult, com status 200.
+    // Tratar isso como "enviada" travava a movimentação (trava de reenvio)
+    // mesmo ela nunca tendo sido gravada de verdade no RM
+    const sucesso = /^(-?\d+);(-?\d+)$/.test(resultado.trim());
+    const { registro, erroSalvar } = await gravarResultado(sucesso ? 'enviada' : 'erro', resultado);
+    if (!sucesso) return { ok: false, erro: comAvisoDeSalvar(`O RM não confirmou a gravação: ${resultado.slice(0, 800)}`, erroSalvar), registro };
     if (erroSalvar) return { ok: false, erro: comAvisoDeSalvar('O RM aceitou o envio, mas não consegui salvar o resultado no banco.', erroSalvar), registro };
     return { ok: true, registro };
   } catch (e: any) {
