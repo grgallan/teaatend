@@ -297,7 +297,7 @@ function rmTipoMovimentoParaApi(r: any) {
     usuario: r.usuario || '', temSenha: !!r.senha_cifrada, jsonTemplate: r.json_template || '',
     itensArrayKeys: r.itens_array_keys || '', dataServerName: r.data_server_name || '',
     xmlRaiz: r.xml_raiz || '', contextoSoap: r.contexto_soap || '',
-    buscasRm: r.buscas_rm || '',
+    buscasRm: r.buscas_rm || '', statusDataServerName: r.status_data_server_name || '',
   };
 }
 function rmMovimentacaoParaApi(r: any) {
@@ -4152,7 +4152,7 @@ async function acaoAddRmTipoMovimento(req: any) {
     id: gerarId(), cliente_id: req.clienteId, nome: req.nome, codtmv_destino: req.codtmvDestino,
     usuario: req.usuario || '', json_template: req.jsonTemplate || '', itens_array_keys: req.itensArrayKeys || '',
     data_server_name: req.dataServerName || '', xml_raiz: req.xmlRaiz || '', contexto_soap: req.contextoSoap || '',
-    buscas_rm: req.buscasRm || '',
+    buscas_rm: req.buscasRm || '', status_data_server_name: req.statusDataServerName || '',
   };
   if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
   const { error } = await db.from('rm_tipos_movimento').insert(registro);
@@ -4173,6 +4173,7 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   if (req.xmlRaiz !== undefined) atualizado.xml_raiz = req.xmlRaiz;
   if (req.contextoSoap !== undefined) atualizado.contexto_soap = req.contextoSoap;
   if (req.buscasRm !== undefined) atualizado.buscas_rm = req.buscasRm;
+  if (req.statusDataServerName !== undefined) atualizado.status_data_server_name = req.statusDataServerName;
   // a senha só é regravada quando a tela manda uma nova (campo em branco =
   // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
   if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);
@@ -4618,18 +4619,18 @@ async function acaoEnviarRmMovimentacao(req: any) {
   }
 }
 // consulta no RM o status atual do movimento já gravado. Usa ReadRecord (não
-// ReadView): ReadRecord busca por CHAVE PRIMÁRIA direto (FilterKey no mesmo
-// formato "coligada;idmov" que o SaveRecordResult devolve — mesma convenção
-// de chave usada em todo esse serviço), sem passar por um WHERE textual numa
-// view com várias tabelas juntadas. O ReadView com "CODCOLIGADA = X AND
-// IDMOV = Y" dava "Ambiguous column name" porque CODCOLIGADA/IDMOV existem
-// em praticamente toda tabela do RM (são a chave de todas elas) — exatamente
-// o tipo de coluna repetida que o SELECT com JOIN da view não consegue
-// resolver sozinho. ReadRecord evita isso lendo pela chave, não por filtro
-// SQL. Devolve a resposta como uma lista de "linhas" (1 por seção/tabela do
-// XML de negócio — TMOV, TITMMOV, etc., igual ao corpo que o SaveRecord
-// manda) + o XML bruto, já que não dá pra saber de antemão o nome do campo
-// de status (varia por tipo de movimentação)
+// ReadView): ReadRecord busca por CHAVE PRIMÁRIA (FilterKey no mesmo formato
+// "coligada;idmov" que o SaveRecordResult devolve). NA PRÁTICA, pra Data
+// Servers do tipo "master-detail" (header + itens juntados numa visão só,
+// que é o que o Enviar RM precisa pra gravar tudo de uma vez via
+// SaveRecord), o RM monta o ReadRecord por trás internamente como um filtro
+// contra essa MESMA visão — então "Ambiguous column name CODCOLIGADA/IDMOV"
+// pode aparecer igualzinho ao do ReadView (confirmado em teste real): essas
+// 2 colunas existem em toda tabela envolvida no join, e isso é uma
+// característica da própria visão, não do nosso filtro — ReadRecord não
+// escapa disso sozinho. Por isso dá pra cadastrar um Data Server DIFERENTE
+// só pra essa consulta (status_data_server_name) — tipicamente um que lê só
+// a tabela master, sem o join de itens, e por isso não tem essa ambiguidade
 async function acaoConsultarStatusRmMovimentacao(req: any) {
   if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para consultar status no RM.' };
   if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
@@ -4639,7 +4640,8 @@ async function acaoConsultarStatusRmMovimentacao(req: any) {
   const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', mov.tipo_movimento_id).maybeSingle();
   if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
-  if (!tipo.data_server_name) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem "Nome do Data Server" cadastrado (Movimentos → Parâmetros).' };
+  const dataServerName = tipo.status_data_server_name || tipo.data_server_name;
+  if (!dataServerName) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem "Nome do Data Server" cadastrado (Movimentos → Parâmetros).' };
   const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
   if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
   let senha: string;
@@ -4651,9 +4653,12 @@ async function acaoConsultarStatusRmMovimentacao(req: any) {
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 60000);
+  // dica mostrada junto de um erro de "Ambiguous column" — não repete o
+  // mesmo erro sem dar um próximo passo pro usuário tentar
+  const dicaAmbiguidade = ' (Isso costuma acontecer porque o Data Server acima junta header+itens numa visão só. Tente cadastrar um Data Server diferente, só de leitura da tabela master, no campo "Data Server pra Consultar Status (opcional)" em Movimentos → Parâmetros.)';
   try {
     const { contexto, debug } = await resolverContextoSoap(url, tipo.usuario, senha, tipo.contexto_soap || '', ctl);
-    const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:ReadRecord><tns:DataServerName>${escaparXml(tipo.data_server_name)}</tns:DataServerName><tns:FilterKey>${escaparXml(filterKey)}</tns:FilterKey><tns:Contexto>${escaparXml(contexto)}</tns:Contexto></tns:ReadRecord></soap:Body></soap:Envelope>`;
+    const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:ReadRecord><tns:DataServerName>${escaparXml(dataServerName)}</tns:DataServerName><tns:FilterKey>${escaparXml(filterKey)}</tns:FilterKey><tns:Contexto>${escaparXml(contexto)}</tns:Contexto></tns:ReadRecord></soap:Body></soap:Envelope>`;
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
@@ -4667,7 +4672,10 @@ async function acaoConsultarStatusRmMovimentacao(req: any) {
     const texto = await resp.text();
     if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debug}` };
     const faultstring = extrairTagSoap(texto, 'faultstring');
-    if (faultstring) return { ok: false, erro: `O RM recusou a consulta: ${faultstring} ${debug}` };
+    if (faultstring) {
+      const dica = /Ambiguous column name/i.test(faultstring) ? dicaAmbiguidade : '';
+      return { ok: false, erro: `O RM recusou a consulta: ${faultstring}${dica} ${debug}` };
+    }
     const resultadoAberto = extrairTagSoap(texto, 'ReadRecordResult');
     const resultadoAutoFechado = /<(?:[A-Za-z0-9_]+:)?ReadRecordResult\b[^>]*\/>/.test(texto);
     if (resultadoAberto === null && !resultadoAutoFechado) {
