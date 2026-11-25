@@ -1522,6 +1522,13 @@ alter table rm_tipos_movimento add column if not exists status_data_server_name 
 -- dado não tá numa tabela simples de buscar por ReadView, mas já tem uma
 -- consulta SQL pronta cadastrada. Ver parsearConsultasSql no backend
 alter table rm_tipos_movimento add column if not exists consultas_sql text default '';
+-- layout da seção "Dados" do botão "Imprimir" (Movimentos → Movimentações):
+-- JSON (array de arrays de ids "token:NOME"/"extra:CAMPO") montado na tela
+-- "Layout da Impressão" (Movimentos → Parâmetros) — cada array interno é 1
+-- linha, com até 3 campos lado a lado. Vazio/ausente cai no layout padrão
+-- (1 token por linha, extras soltos no fim) — ver imprimirRmMovimentacao no
+-- app.js, que é quem lê e aplica esse layout (o backend só guarda o texto)
+alter table rm_tipos_movimento add column if not exists layout_impressao text default '';
 -- busca no RM (ReadView via wsDataServer) pra preencher Fornecedor/Produto
 -- na tela de Movimentações em vez de digitar o código à mão — filtro tem
 -- {termo} no lugar do texto digitado na busca (mesma convenção de {token}
