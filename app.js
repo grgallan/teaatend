@@ -13604,7 +13604,13 @@ function renderItensMovimentacao(){
       const temBusca = !!mapaBuscas[tk] || !!mapaConsultasSql[tk];
       const estiloInput = calculado ? 'background:var(--panel-2);color:var(--muted);' : '';
       const readonlyAttr = calculado ? 'readonly title="Calculado automaticamente — quantidade × preço"' : '';
-      return `<div class="field" style="flex:1 1 140px;min-width:120px;margin:0;"><label style="font-size:10.5px;">${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:4px;"><input type="text" data-item-idx="${i}" data-token="${escaparHtml(tk)}" value="${escaparHtml(item[tk]||'')}" style="${estiloInput}" ${readonlyAttr}>${temBusca?`<button type="button" class="ghost" onclick="abrirBuscaCampoItem('${escaparHtml(tk)}',${i})" style="width:auto;padding:4px 8px;">🔍</button>`:''}</div></div>`;
+      const botaoBusca = temBusca ? `<button type="button" class="ghost" onclick="abrirBuscaCampoItem('${escaparHtml(tk)}',${i})" style="width:auto;padding:4px 8px;">🔍</button>` : '';
+      // campo de texto longo (descrição/observação) sai da linha flex-wrap
+      // compacta e vira um textarea de largura total, sozinho
+      if(ehCampoTextoLongo(tk)){
+        return `<div class="field" style="flex:1 1 100%;margin:0;"><label style="font-size:10.5px;">${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:4px;"><textarea data-item-idx="${i}" data-token="${escaparHtml(tk)}" rows="3" style="width:100%;resize:vertical;font-family:inherit;">${escaparHtml(item[tk]||'')}</textarea>${botaoBusca}</div></div>`;
+      }
+      return `<div class="field" style="flex:1 1 140px;min-width:120px;margin:0;"><label style="font-size:10.5px;">${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:4px;"><input type="text" data-item-idx="${i}" data-token="${escaparHtml(tk)}" value="${escaparHtml(item[tk]||'')}" style="${estiloInput}" ${readonlyAttr}>${botaoBusca}</div></div>`;
     }).join('');
     return `
     <div class="card" style="margin:8px 0;padding:10px;">
@@ -13640,7 +13646,7 @@ function coletarValoresHeader(){
   return valores;
 }
 function coletarItens(){
-  document.querySelectorAll('#movm_itensLista input[data-item-idx]').forEach(inp=>{
+  document.querySelectorAll('#movm_itensLista [data-item-idx]').forEach(inp=>{
     const i = Number(inp.dataset.itemIdx);
     if(!movmItens[i]) movmItens[i] = {};
     movmItens[i][inp.dataset.token] = inp.value;
