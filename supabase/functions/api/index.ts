@@ -306,6 +306,7 @@ function rmMovimentacaoParaApi(r: any) {
     status: r.status || 'rascunho', respostaRm: r.resposta_rm || '', corpoEnviado: r.corpo_enviado || null,
     criadoEm: r.criado_em, enviadoEm: r.enviado_em || null,
     rmColigada: r.rm_coligada || '', rmIdmov: r.rm_idmov || '',
+    criadoPor: r.criado_por || '',
   };
 }
 function setorParaApi(s: any) {
@@ -813,7 +814,12 @@ async function acaoDados(req: any) {
     rmPaineis: (rmPaineisRaw || []).map(rmPainelParaApi),
     setores: (setoresRaw || []).map(setorParaApi),
     rmTiposMovimento: (rmTiposMovimentoRaw || []).map(rmTipoMovimentoParaApi),
-    rmMovimentacoes: (rmMovimentacoesRaw || []).map(rmMovimentacaoParaApi),
+    // cada um só vê as movimentações que ele mesmo criou — uma movimentação
+    // sem criado_por (criada antes dessa coluna existir) fica visível pra
+    // todo mundo, pra não "desaparecer" registro antigo da lista de ninguém
+    rmMovimentacoes: (rmMovimentacoesRaw || [])
+      .filter((m: any) => !m.criado_por || (contaAtual && m.criado_por === contaAtual.nome))
+      .map(rmMovimentacaoParaApi),
   };
 }
 
@@ -4239,9 +4245,11 @@ function montarCorpoMovimentacao(template: any, valoresHeader: Record<string, an
 async function acaoAddRmMovimentacao(req: any) {
   if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar movimentações.' };
   if (!req.tipoMovimentoId) return { ok: false, erro: 'Escolha o tipo de movimentação.' };
+  const { data: conta } = await db.from('contas').select('nome').eq('id', req.contaId).maybeSingle();
   const registro: any = {
     id: gerarId(), tipo_movimento_id: req.tipoMovimentoId,
     valores_header: req.valoresHeader || {}, itens: req.itens || [], status: 'rascunho',
+    criado_por: conta ? conta.nome : '',
   };
   const { error } = await db.from('rm_movimentacoes').insert(registro);
   if (error) return { ok: false, erro: error.message };
@@ -4382,20 +4390,24 @@ function extrairLinhasDeViewXml(xml: string): Record<string, string>[] {
     });
 }
 // o cadastro de Busca no RM é um texto com 1 linha por token, no formato
-// "{token} = DataServerName (CAMPO1, CAMPO2, ...)" — o 1º campo da lista
-// preenche o {token}, os demais só aparecem no resultado da busca (pra
-// ajudar a identificar o registro certo). Tokens diferentes que apontam
-// pro MESMO Data Server ficam "ligados": escolher um resultado preenche
-// todos de uma vez (ex: código + nome do mesmo produto)
-function parsearBuscasRm(texto: string): Record<string, { dataServerName: string; campos: string[] }> {
-  const mapa: Record<string, { dataServerName: string; campos: string[] }> = {};
+// "{token} = DataServerName (CAMPO1, CAMPO2, ...) [FILTRO EXTRA]" — o 1º
+// campo da lista preenche o {token}, os demais só aparecem no resultado da
+// busca (pra ajudar a identificar o registro certo). Tokens diferentes que
+// apontam pro MESMO Data Server ficam "ligados": escolher um resultado
+// preenche todos de uma vez (ex: código + nome do mesmo produto). O trecho
+// opcional em [colchetes] é uma condição SQL fixa (ex: "INATIVO = 0") que
+// soma (AND) com a busca por texto — é o equivalente ao campo "Filtro" livre
+// que existia na versão antiga, antes da simplificação pra Token/Data
+// Server/Campos
+function parsearBuscasRm(texto: string): Record<string, { dataServerName: string; campos: string[]; filtroExtra: string }> {
+  const mapa: Record<string, { dataServerName: string; campos: string[]; filtroExtra: string }> = {};
   for (const linhaBruta of String(texto || '').split('\n')) {
     const linha = linhaBruta.trim();
     if (!linha) continue;
-    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)$/.exec(linha);
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)(?:\s*\[([^\]]*)\])?$/.exec(linha);
     if (!m) continue;
     const campos = m[3].split(',').map((c) => c.trim()).filter(Boolean);
-    if (campos.length) mapa[m[1]] = { dataServerName: m[2], campos };
+    if (campos.length) mapa[m[1]] = { dataServerName: m[2], campos, filtroExtra: (m[4] || '').trim() };
   }
   return mapa;
 }
@@ -4439,6 +4451,10 @@ async function acaoBuscarRmLista(req: any) {
   const camposExibicaoBruto = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
   const camposFiltro = camposFiltroPorNome.length ? camposFiltroPorNome : camposExibicaoBruto;
   const camposExibicao = [...new Set(camposExibicaoBruto.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }))];
+  // condição fixa opcional (ex: "INATIVO = 0") — soma com AND em cima da
+  // busca por texto; se mais de uma linha do grupo tiver filtro extra
+  // diferente, todas entram (AND entre elas também)
+  const filtrosExtras = [...new Set(linhasMesmoDataServer.map(([, cfg]) => cfg.filtroExtra).filter(Boolean))];
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
   const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
   if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
@@ -4447,7 +4463,10 @@ async function acaoBuscarRmLista(req: any) {
     return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
   }
   const termo = String(req.termo || '').trim().replace(/'/g, "''");
-  const filtro = camposFiltro.map((c) => `${c} LIKE '%${termo}%'`).join(' OR ');
+  const filtroTexto = camposFiltro.map((c) => `${c} LIKE '%${termo}%'`).join(' OR ');
+  const filtro = filtrosExtras.length
+    ? (filtroTexto ? `(${filtroTexto}) AND ${filtrosExtras.join(' AND ')}` : filtrosExtras.join(' AND '))
+    : filtroTexto;
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
