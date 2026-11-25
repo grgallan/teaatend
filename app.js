@@ -13477,7 +13477,10 @@ const PADROES_ITEM_QUANTIDADE = ['quantidade','qtd','quantidadeitem'];
 const PADROES_ITEM_PRECO = ['precounitario','precounit','preco','valorunitario'];
 const PADROES_ITEM_VALOR_BRUTO = ['valoritem','valorbrutoitem','valortotalitem'];
 function ehCampoTextoLongo(tk){
-  return PADROES_HEADER_TEXTO_LONGO.includes(tk.toLowerCase());
+  // substring, não igualdade exata — pega variações compostas tipo
+  // "descricaoItem", "historicoLongo", "observacaoGeral", não só o nome puro
+  const tkLower = tk.toLowerCase();
+  return PADROES_HEADER_TEXTO_LONGO.some(p=>tkLower.includes(p));
 }
 function dataHoraLocalIso(comHora){
   const d = new Date();
