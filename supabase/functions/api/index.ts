@@ -4671,11 +4671,17 @@ async function acaoConsultarStatusRmMovimentacao(req: any) {
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 60000);
   try {
+    // a chave na URL não basta — sem um jeito de informar a coligada
+    // separadamente, o RM resolve pra "-1" (confirmado em teste real: erro
+    // "Na coligada -1 não existe tipo de movimento..." mesmo com a coligada
+    // certa dentro da chave). Manda também como header "coligada", convenção
+    // comum da API REST do RM pra resolver esse contexto
     const resp = await fetch(url, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
         Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
+        coligada: String(mov.rm_coligada),
       },
       signal: ctl.signal,
     });
