@@ -13157,6 +13157,9 @@ async function removerRmTipoMovimento(id){
 let editandoRmMovimentacaoId = null;
 let movmItens = []; // cada item é {token: valor, ...} — uma linha de produto/serviço
 let movmTipoAtual = null; // {tipo, headerTokens, itemTokens} do tipo selecionado agora
+// resultado da última "Consultar Status" por movimentação (id -> {linha, xmlBruto} | {erro, xmlBruto})
+// — só em memória, não persiste no banco, é só uma consulta pontual no RM
+let rmStatusConsultado = {};
 function escanearTokensEmValor(v, destino){
   if(typeof v === 'string'){
     // o # antes do nome (ex: {#valorBruto}) só marca pro backend que o
@@ -13528,13 +13531,38 @@ function renderListRmMovimentacoes(){
       ${m.status==='erro' && m.respostaRm ? `<span style="color:var(--bad);">${escaparHtml(m.respostaRm.slice(0,300))}</span>` : ''}
       ${m.respostaRm ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver resposta do RM (SaveRecordResult)</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(m.respostaRm)}</pre></details>` : ''}
       ${m.corpoEnviado ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver corpo enviado pro RM</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(typeof m.corpoEnviado === 'string' ? m.corpoEnviado : JSON.stringify(m.corpoEnviado, null, 2))}</pre></details>` : ''}
+      ${rmStatusConsultado[m.id] ? renderStatusConsultadoBloco(rmStatusConsultado[m.id]) : ''}
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarRmMovimentacao('${m.id}')">Editar</button>
       ${m.status!=='enviada' ? `<button class="primary" onclick="pedirConfirmacao('Enviar pro RM?','Isso grava de verdade no RM — confira os dados antes.', ()=>enviarRmMovimentacao('${m.id}'), 'Enviar RM')">Enviar RM</button>` : ''}
-      <button class="danger" onclick="pedirConfirmacao('Remover movimentação?','Isso remove só o rascunho — se já foi enviada, não desfaz nada no RM.', ()=>removerRmMovimentacao('${m.id}'))">Remover</button>
+      ${m.status==='enviada' && m.rmColigada ? `<button class="ghost" onclick="consultarStatusRmMovimentacao('${m.id}')">Consultar Status</button>` : ''}
+      ${m.status!=='enviada' ? `<button class="danger" onclick="pedirConfirmacao('Remover movimentação?','Isso remove só o rascunho — se já foi enviada, não desfaz nada no RM.', ()=>removerRmMovimentacao('${m.id}'))">Remover</button>` : ''}
     </div></div>`;
   }).join('');
+}
+// o nome do campo de status varia por Data Server/tipo de movimentação —
+// não dá pra arriscar um fixo, então destaca qualquer campo cujo nome tenha
+// "STATUS" e deixa todos os campos disponíveis pra conferir caso nenhum bata
+function renderStatusConsultadoBloco(consulta){
+  if(consulta.erro){
+    return `<div style="margin-top:4px;color:var(--bad);font-size:11.5px;">Consultar Status: ${escaparHtml(consulta.erro)}</div>`;
+  }
+  const linha = consulta.linha||{};
+  const camposStatus = Object.keys(linha).filter(k=>k.toUpperCase().includes('STATUS'));
+  const resumo = camposStatus.length
+    ? camposStatus.map(k=>`${k}: ${linha[k]}`).join(' · ')
+    : 'Nenhum campo com "STATUS" no nome veio na resposta — veja todos os campos abaixo.';
+  return `<div style="margin-top:4px;font-size:11.5px;">
+    <b>Status no RM:</b> ${escaparHtml(resumo)}
+    <details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver todos os campos devolvidos</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(JSON.stringify(linha, null, 2))}</pre></details>
+  </div>`;
+}
+async function consultarStatusRmMovimentacao(id){
+  const r = await api('consultarStatusRmMovimentacao', { contaId: contaAtual().id, id });
+  rmStatusConsultado[id] = r.ok ? { linha: r.linha } : { erro: r.erro || 'Falha ao consultar status no RM.' };
+  renderListRmMovimentacoes();
+  toast(r.ok ? 'Status consultado no RM' : (r.erro || 'Falha ao consultar status no RM'));
 }
 function editarRmMovimentacao(id){
   const m = rmMovimentacoes.find(x=>String(x.id)===String(id));
