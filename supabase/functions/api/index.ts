@@ -4394,20 +4394,8 @@ async function acaoBuscarRmLista(req: any) {
   // movimentação existente (precisa de "editar") — "visualizar" nunca é
   // usado em nenhuma outra ação desse menu, então nenhum perfil tem isso
   // marcado e a busca sempre recusava mesmo pra quem já pode mexer nela
-  const podeInserir = await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir');
-  const podeEditar = await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar');
-  if (!podeInserir && !podeEditar) {
-    // diagnóstico temporário — já tivemos 2 causas diferentes pro mesmo
-    // erro (campo de permissão errado, depois contaId faltando) e dessa
-    // vez o erro persistiu idêntico mesmo com as 2 correções, então em
-    // vez de adivinhar de novo, expõe o que a checagem de permissão viu
-    const { data: contaDiag } = await db.from('contas').select('id,perfil,eh_administrador').eq('id', req.contaId).maybeSingle();
-    const { data: vinculosDiag } = await db.from('conta_perfis_acesso').select('perfil_id').eq('conta_id', req.contaId);
-    return {
-      ok: false,
-      erro: `Você não tem permissão para buscar dados no RM. [diagnóstico: contaId recebido="${req.contaId}", conta encontrada=${JSON.stringify(contaDiag)}, perfis vinculados=${(vinculosDiag || []).length}]`,
-    };
-  }
+  const podeBuscar = (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir')) || (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'));
+  if (!podeBuscar) return { ok: false, erro: 'Você não tem permissão para buscar dados no RM.' };
   if (!req.tipoMovimentoId) return { ok: false, erro: 'Tipo de movimentação não informado.' };
   if (req.alvo !== 'fornecedor' && req.alvo !== 'produto') return { ok: false, erro: 'Busca inválida.' };
   const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', req.tipoMovimentoId).maybeSingle();
@@ -4443,9 +4431,23 @@ async function acaoBuscarRmLista(req: any) {
     });
     const texto = await resp.text();
     if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debug}` };
-    const resultado = extrairTagSoap(texto, 'ReadViewResult') ?? '';
-    if (!resultado) return { ok: false, erro: `O RM não devolveu resultado. ${debug}` };
-    const linhas = extrairLinhasDeViewXml(resultado);
+    // o RM às vezes devolve HTTP 200 com um <soap:Fault> dentro (erro de
+    // negócio, não de transporte) — teria passado pelo "!resp.ok" acima
+    // sem ser detectado
+    const faultstring = extrairTagSoap(texto, 'faultstring');
+    if (faultstring) return { ok: false, erro: `O RM recusou a busca: ${faultstring} ${debug}` };
+    // ReadViewResult pode vir como tag aberta com conteúdo (linhas),
+    // SELF-CLOSED tipo <ReadViewResult/> (zero linhas — resultado
+    // legítimo, não é erro), ou simplesmente ausente (aí sim é erro de
+    // verdade). extrairTagSoap só pega a 1ª forma — testa a 2ª também
+    // antes de desistir
+    const resultadoAberto = extrairTagSoap(texto, 'ReadViewResult');
+    const resultadoAutoFechado = /<(?:[A-Za-z0-9_]+:)?ReadViewResult\b[^>]*\/>/.test(texto);
+    if (resultadoAberto === null && !resultadoAutoFechado) {
+      return { ok: false, erro: `O RM não devolveu a tag ReadViewResult esperada. ${debug}\n\nResposta bruta (início): ${texto.slice(0, 800)}` };
+    }
+    const resultado = resultadoAberto ?? '';
+    const linhas = resultado ? extrairLinhasDeViewXml(resultado) : [];
     return { ok: true, linhas, xmlBruto: resultado };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
