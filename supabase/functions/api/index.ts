@@ -414,6 +414,7 @@ async function rotear(req: any): Promise<any> {
     case 'atualizarRmMovimentacao': return acaoAtualizarRmMovimentacao(req);
     case 'removerRmMovimentacao': return acaoRemoverRmMovimentacao(req);
     case 'enviarRmMovimentacao': return acaoEnviarRmMovimentacao(req);
+    case 'consultarStatusRmMovimentacao': return acaoConsultarStatusRmMovimentacao(req);
     case 'buscarRmLista': return acaoBuscarRmLista(req);
     case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
     case 'salvarRmPainelLayout': return acaoSalvarRmPainelLayout(req);
@@ -4612,6 +4613,68 @@ async function acaoEnviarRmMovimentacao(req: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 2 minutos (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
     const { registro, erroSalvar } = await gravarResultado('erro', msg);
     return { ok: false, erro: comAvisoDeSalvar(msg, erroSalvar), registro };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+// consulta no RM (ReadView, filtrando por CODCOLIGADA/IDMOV) o status atual
+// do movimento já gravado — não dá pra saber de antemão o nome do campo de
+// status na view de cada Data Server (varia por tipo de movimentação), então
+// devolve a linha inteira (todos os campos) + o XML bruto, igual a busca
+// genérica já faz, em vez de arriscar um nome de campo fixo
+async function acaoConsultarStatusRmMovimentacao(req: any) {
+  if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para consultar status no RM.' };
+  if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
+  const { data: mov } = await db.from('rm_movimentacoes').select('*').eq('id', req.id).maybeSingle();
+  if (!mov) return { ok: false, erro: 'Movimentação não encontrada.' };
+  if (!mov.rm_coligada || !mov.rm_idmov) return { ok: false, erro: 'Essa movimentação ainda não tem Coligada/IDMOV gravados pelo RM — envie pro RM antes de consultar o status.' };
+  const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', mov.tipo_movimento_id).maybeSingle();
+  if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
+  if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
+  if (!tipo.data_server_name) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem "Nome do Data Server" cadastrado (Movimentos → Parâmetros).' };
+  const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
+  if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
+  let senha: string;
+  try { senha = await decifrarRmSenha(tipo.senha_cifrada); } catch (_e) {
+    return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
+  }
+  const coligada = String(mov.rm_coligada).replace(/'/g, "''");
+  const idmov = String(mov.rm_idmov).replace(/'/g, "''");
+  const filtro = `CODCOLIGADA = ${coligada} AND IDMOV = ${idmov}`;
+  const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
+  const url = `${base}/wsDataServer/IwsDataServer`;
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 60000);
+  try {
+    const { contexto, debug } = await resolverContextoSoap(url, tipo.usuario, senha, tipo.contexto_soap || '', ctl);
+    const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:ReadView><tns:DataServerName>${escaparXml(tipo.data_server_name)}</tns:DataServerName><tns:Filtro>${escaparXml(filtro)}</tns:Filtro><tns:Contexto>${escaparXml(contexto)}</tns:Contexto></tns:ReadView></soap:Body></soap:Envelope>`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/xml; charset=utf-8',
+        SOAPAction: 'http://www.totvs.com/IwsDataServer/ReadView',
+        Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
+      },
+      body: envelope,
+      signal: ctl.signal,
+    });
+    const texto = await resp.text();
+    if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debug}` };
+    const faultstring = extrairTagSoap(texto, 'faultstring');
+    if (faultstring) return { ok: false, erro: `O RM recusou a consulta: ${faultstring} ${debug}` };
+    const resultadoAberto = extrairTagSoap(texto, 'ReadViewResult');
+    const resultadoAutoFechado = /<(?:[A-Za-z0-9_]+:)?ReadViewResult\b[^>]*\/>/.test(texto);
+    if (resultadoAberto === null && !resultadoAutoFechado) {
+      return { ok: false, erro: `O RM não devolveu a tag ReadViewResult esperada. ${debug}\n\nResposta bruta (início): ${texto.slice(0, 800)}` };
+    }
+    const resultado = resultadoAberto ?? '';
+    const todasLinhas = resultado ? extrairLinhasDeViewXml(resultado) : [];
+    const linha = todasLinhas.find((l) => 'CODCOLIGADA' in l) || null;
+    if (!linha) return { ok: false, erro: `O RM não encontrou nenhum movimento com Coligada ${mov.rm_coligada} / IDMOV ${mov.rm_idmov}.`, xmlBruto: resultado };
+    return { ok: true, linha, xmlBruto: resultado };
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
+    return { ok: false, erro: msg };
   } finally {
     clearTimeout(timeout);
   }
