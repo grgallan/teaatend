@@ -13470,9 +13470,15 @@ function abrirBuscaCampoItem(token, i){
 const PADROES_HEADER_DATA_EMISSAO = ['dataemissao','data'];
 const PADROES_HEADER_HORARIO_EMISSAO = ['horarioemissao','horaemissao','hora'];
 const PADROES_HEADER_VALOR_BRUTO = ['valorbruto','valortotal','valorbrutomovimento'];
+// campo de observação/histórico vira textarea (maior, várias linhas) em vez
+// de <input> de 1 linha só, e ocupa a linha inteira (sai do grid de 3)
+const PADROES_HEADER_TEXTO_LONGO = ['historico','historicolongo','observacao','observacoes','obs','descricao','complemento','detalhes'];
 const PADROES_ITEM_QUANTIDADE = ['quantidade','qtd','quantidadeitem'];
 const PADROES_ITEM_PRECO = ['precounitario','precounit','preco','valorunitario'];
 const PADROES_ITEM_VALOR_BRUTO = ['valoritem','valorbrutoitem','valortotalitem'];
+function ehCampoTextoLongo(tk){
+  return PADROES_HEADER_TEXTO_LONGO.includes(tk.toLowerCase());
+}
 function dataHoraLocalIso(comHora){
   const d = new Date();
   const pad = n=>String(n).padStart(2,'0');
@@ -13537,14 +13543,31 @@ function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
     const temBusca = !!mapaBuscas[tk] || !!mapaConsultasSql[tk];
     const estiloInput = calculado ? 'flex:1;background:var(--panel-2);color:var(--muted);' : 'flex:1;';
     const readonlyAttr = calculado ? 'readonly title="Calculado automaticamente — soma dos itens"' : '';
-    return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml(valor)}" style="${estiloInput}" ${readonlyAttr}>${temBusca?`<button type="button" class="ghost" onclick="abrirBuscaCampoHeader('${escaparHtml(tk)}')" style="width:auto;padding:6px 10px;">🔍 Buscar</button>`:''}</div></div>`;
+    const botaoBusca = temBusca ? `<button type="button" class="ghost" onclick="abrirBuscaCampoHeader('${escaparHtml(tk)}')" style="width:auto;padding:6px 10px;">🔍 Buscar</button>` : '';
+    if(ehCampoTextoLongo(tk)){
+      return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><textarea data-token="${escaparHtml(tk)}" rows="3" style="width:100%;resize:vertical;font-family:inherit;">${escaparHtml(valor)}</textarea>${botaoBusca}</div></div>`;
+    }
+    return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml(valor)}" style="${estiloInput}" ${readonlyAttr}>${botaoBusca}</div></div>`;
   };
   if(r.headerTokens.length===0){
     container.innerHTML = `<p style="color:var(--muted);font-size:12px;">Esse tipo não tem campos de cabeçalho ({token} fora dos itens).</p>`;
   } else {
-    const grupos = [];
-    for(let i=0;i<r.headerTokens.length;i+=3) grupos.push(r.headerTokens.slice(i,i+3));
-    container.innerHTML = grupos.map(g=>`<div class="row3">${g.map(campoHeaderHtml).join('')}</div>`).join('');
+    // campos de texto longo (histórico/observação) saem do grid de 3 e viram
+    // um bloco de largura total, sozinhos — o resto continua agrupado de 3
+    // em 3, na mesma ordem em que aparecem no Json
+    const blocos = [];
+    let grupoAtual = [];
+    r.headerTokens.forEach(tk=>{
+      if(ehCampoTextoLongo(tk)){
+        if(grupoAtual.length){ blocos.push(`<div class="row3">${grupoAtual.map(campoHeaderHtml).join('')}</div>`); grupoAtual = []; }
+        blocos.push(campoHeaderHtml(tk));
+      } else {
+        grupoAtual.push(tk);
+        if(grupoAtual.length===3){ blocos.push(`<div class="row3">${grupoAtual.map(campoHeaderHtml).join('')}</div>`); grupoAtual = []; }
+      }
+    });
+    if(grupoAtual.length) blocos.push(`<div class="row3">${grupoAtual.map(campoHeaderHtml).join('')}</div>`);
+    container.innerHTML = blocos.join('');
   }
   bloco.style.display = r.itemTokens.length ? '' : 'none';
   renderItensMovimentacao();
