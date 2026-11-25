@@ -13116,10 +13116,7 @@ function editarRmTipoMovimento(id){
   document.getElementById('rgtm_dataserver').value = m.dataServerName || '';
   document.getElementById('rgtm_xmlraiz').value = m.xmlRaiz || '';
   document.getElementById('rgtm_contexto').value = m.contextoSoap || '';
-  document.getElementById('rgtm_busca_forn_ds').value = m.buscaFornecedorDataServer || '';
-  document.getElementById('rgtm_busca_forn_filtro').value = m.buscaFornecedorFiltro || '';
-  document.getElementById('rgtm_busca_prod_ds').value = m.buscaProdutoDataServer || '';
-  document.getElementById('rgtm_busca_prod_filtro').value = m.buscaProdutoFiltro || '';
+  document.getElementById('rgtm_buscas_rm').value = m.buscasRm || '';
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13138,10 +13135,7 @@ function cancelarEdicaoRmTipoMovimento(){
   document.getElementById('rgtm_dataserver').value = '';
   document.getElementById('rgtm_xmlraiz').value = '';
   document.getElementById('rgtm_contexto').value = '';
-  document.getElementById('rgtm_busca_forn_ds').value = '';
-  document.getElementById('rgtm_busca_forn_filtro').value = '';
-  document.getElementById('rgtm_busca_prod_ds').value = '';
-  document.getElementById('rgtm_busca_prod_filtro').value = '';
+  document.getElementById('rgtm_buscas_rm').value = '';
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13197,55 +13191,41 @@ function tokensDoTipoMovimento(tipo){
 function labelToken(nome){
   return nome.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase()).trim();
 }
-// convenção de nomes de token pra achar automaticamente qual campo do
-// cabeçalho/item é "o fornecedor"/"o produto" e oferecer o botão de busca
-// no RM — e pra qual campo do RM (ReadView) mapear o valor escolhido
-const PADROES_BUSCA_FORNECEDOR = {
-  codigo: ['fornecedor','codigofornecedor','cfo','codcfo'],
-  nome: ['fornecedornome','nomefornecedor','razaosocial','fantasiafornecedor'],
-};
-const CAMPOS_RM_FORNECEDOR = { codigo:['CODCFO'], nome:['NOMEFANTASIA','RAZAOSOCIAL'] };
-const PADROES_BUSCA_PRODUTO = {
-  codigo: ['produtocodigo','codigoproduto','produto','codprd'],
-  id: ['produtoid','idproduto'],
-  nome: ['produtonome','nomeproduto','descricaoproduto'],
-  reduzido: ['produtoreduzido','codigoreduzido'],
-  numFab: ['produtonumfab','numerofabricante'],
-  fabricante: ['produtofabricante','codigofabricante'],
-};
-const CAMPOS_RM_PRODUTO = {
-  codigo:['CODIGOPRD','CODPRD'], id:['IDPRD'], nome:['NOMEFANTASIA','DESCRICAO'],
-  reduzido:['CODIGOREDUZIDO'], numFab:['NUMNOFABRIC'], fabricante:['CODFAB'],
-};
-// campos mostrados no resultado da busca — só os relevantes pra
-// identificar o registro certo, em vez de despejar todo campo que o RM
-// devolveu (a view tem campos técnicos tipo CODMUNICIPIO/IDPAIS que só
-// atrapalham)
-const CAMPOS_EXIBICAO_BUSCA = {
-  fornecedor: [
-    { rotulo:'Código', campos:['CODCFO'] },
-    { rotulo:'CNPJ', campos:['CGCCFO','CGC','CNPJCPF','CNPJ'] },
-    { rotulo:'Nome', campos:['NOME','RAZAOSOCIAL'] },
-    { rotulo:'Nome Fantasia', campos:['NOMEFANTASIA'] },
-  ],
-  produto: [
-    { rotulo:'Código', campos:['CODIGOPRD','CODPRD'] },
-    { rotulo:'Nome', campos:['NOMEFANTASIA','DESCRICAO'] },
-    { rotulo:'Cód. Reduzido', campos:['CODIGOREDUZIDO'] },
-  ],
-};
+// cadastro de "Buscas no RM" é um texto com 1 linha por token, no formato
+// "{token} = DataServerName (CAMPO1, CAMPO2, ...)" — espelha o parser do
+// backend (supabase/functions/api/index.ts:parsearBuscasRm). O 1º campo
+// preenche o {token}; os demais só servem pra exibir/identificar no
+// resultado. Tokens que citam o MESMO Data Server ficam ligados: ao
+// escolher um resultado, todos eles são preenchidos de uma vez
+function parsearBuscasRm(texto){
+  const mapa = {};
+  String(texto||'').split('\n').forEach(linhaBruta=>{
+    const linha = linhaBruta.trim();
+    if(!linha) return;
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*([A-Za-z0-9_]+)\s*\(([^)]*)\)$/.exec(linha);
+    if(!m) return;
+    const campos = m[3].split(',').map(c=>c.trim()).filter(Boolean);
+    if(campos.length) mapa[m[1]] = { dataServerName:m[2], campos };
+  });
+  return mapa;
+}
+// tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
+// mesmo Data Server do token clicado, cada um com o campo que o preenche
+function tokensMesmoDataServer(mapaBuscas, tokensEscopo, tokenClicado){
+  const cfg = mapaBuscas[tokenClicado];
+  if(!cfg) return [];
+  return tokensEscopo
+    .filter(tk=>mapaBuscas[tk] && mapaBuscas[tk].dataServerName===cfg.dataServerName)
+    .map(tk=>({ token:tk, campo:mapaBuscas[tk].campos[0] }));
+}
 function acharTokenPorPadrao(tokens, padroes){
   return tokens.find(t=>padroes.includes(t.toLowerCase()));
 }
-function valorCampoRm(linha, candidatos){
-  for(const c of candidatos){ if(linha[c]!==undefined && linha[c]!==null) return linha[c]; }
-  return '';
-}
-let buscaRmOnSelecionar = null, buscaRmAlvo = null, buscaRmLinhasAtual = [];
-function abrirBuscaRm(alvo, onSelecionar){
-  buscaRmAlvo = alvo;
+let buscaRmOnSelecionar = null, buscaRmToken = null, buscaRmLinhasAtual = [], buscaRmCamposExibicaoAtual = [];
+function abrirBuscaRm(token, onSelecionar){
+  buscaRmToken = token;
   buscaRmOnSelecionar = onSelecionar;
-  document.getElementById('buscaRmTitulo').textContent = alvo==='fornecedor' ? 'Buscar fornecedor no RM' : 'Buscar produto no RM';
+  document.getElementById('buscaRmTitulo').textContent = `Buscar ${labelToken(token)} no RM`;
   document.getElementById('buscaRmTermo').value = '';
   document.getElementById('buscaRmResultados').innerHTML = '';
   document.getElementById('buscaRmErro').textContent = '';
@@ -13263,18 +13243,18 @@ async function executarBuscaRm(){
   const resEl = document.getElementById('buscaRmResultados');
   erroEl.textContent = '';
   resEl.innerHTML = '<div class="empty">Buscando...</div>';
-  const r = await api('buscarRmLista', { contaId: contaAtual().id, tipoMovimentoId: movmTipoAtual.tipo.id, alvo: buscaRmAlvo, termo });
+  const r = await api('buscarRmLista', { contaId: contaAtual().id, tipoMovimentoId: movmTipoAtual.tipo.id, token: buscaRmToken, termo });
   if(!r.ok){ resEl.innerHTML=''; erroEl.textContent = r.erro || 'Erro ao buscar no RM.'; return; }
+  buscaRmCamposExibicaoAtual = r.camposExibicao||[];
   renderResultadosBuscaRm(r.linhas||[]);
 }
 function renderResultadosBuscaRm(linhas){
   const resEl = document.getElementById('buscaRmResultados');
   buscaRmLinhasAtual = linhas;
   if(!linhas.length){ resEl.innerHTML = '<div class="empty">Nenhum resultado.</div>'; return; }
-  const camposExibicao = CAMPOS_EXIBICAO_BUSCA[buscaRmAlvo] || [];
   resEl.innerHTML = linhas.map((linha,i)=>{
-    const campos = camposExibicao
-      .map(c=>{ const v = valorCampoRm(linha, c.campos); return v ? `<b>${escaparHtml(c.rotulo)}:</b> ${escaparHtml(String(v))}` : ''; })
+    const campos = buscaRmCamposExibicaoAtual
+      .map(c=> linha[c] ? `<b>${escaparHtml(c)}:</b> ${escaparHtml(String(linha[c]))}` : '')
       .filter(Boolean).join(' &nbsp; ');
     return `<div class="card" style="margin:6px 0;padding:8px;cursor:pointer;" data-idx-busca-rm="${i}">${campos}</div>`;
   }).join('');
@@ -13286,30 +13266,74 @@ function renderResultadosBuscaRm(linhas){
     });
   });
 }
-function abrirBuscaFornecedor(){
+function abrirBuscaCampoHeader(token){
   if(!movmTipoAtual) return;
-  const tokenCodigo = acharTokenPorPadrao(movmTipoAtual.headerTokens, PADROES_BUSCA_FORNECEDOR.codigo);
-  if(!tokenCodigo) return;
-  abrirBuscaRm('fornecedor', (linha)=>{
-    const inpCodigo = document.querySelector(`#movm_camposHeader [data-token="${tokenCodigo}"]`);
-    if(inpCodigo) inpCodigo.value = valorCampoRm(linha, CAMPOS_RM_FORNECEDOR.codigo);
-    const tokenNome = acharTokenPorPadrao(movmTipoAtual.headerTokens, PADROES_BUSCA_FORNECEDOR.nome);
-    if(tokenNome){
-      const inpNome = document.querySelector(`#movm_camposHeader [data-token="${tokenNome}"]`);
-      if(inpNome) inpNome.value = valorCampoRm(linha, CAMPOS_RM_FORNECEDOR.nome);
-    }
-  });
-}
-function abrirBuscaProduto(i){
-  if(!movmTipoAtual) return;
-  abrirBuscaRm('produto', (linha)=>{
-    Object.keys(PADROES_BUSCA_PRODUTO).forEach(chave=>{
-      const token = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_BUSCA_PRODUTO[chave]);
-      if(!token) return;
-      const inp = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${token}"]`);
-      if(inp) inp.value = valorCampoRm(linha, CAMPOS_RM_PRODUTO[chave]);
+  const mapaBuscas = parsearBuscasRm(movmTipoAtual.tipo.buscasRm);
+  const alvos = tokensMesmoDataServer(mapaBuscas, movmTipoAtual.headerTokens, token);
+  if(!alvos.length) return;
+  abrirBuscaRm(token, (linha)=>{
+    alvos.forEach(({token:tk,campo})=>{
+      const inp = document.querySelector(`#movm_camposHeader [data-token="${tk}"]`);
+      if(inp) inp.value = linha[campo] ?? '';
     });
   });
+}
+function abrirBuscaCampoItem(token, i){
+  if(!movmTipoAtual) return;
+  const mapaBuscas = parsearBuscasRm(movmTipoAtual.tipo.buscasRm);
+  const alvos = tokensMesmoDataServer(mapaBuscas, movmTipoAtual.itemTokens, token);
+  if(!alvos.length) return;
+  abrirBuscaRm(token, (linha)=>{
+    alvos.forEach(({token:tk,campo})=>{
+      const inp = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${tk}"]`);
+      if(inp) inp.value = linha[campo] ?? '';
+    });
+  });
+}
+// convenção de nomes de token pra reconhecer automaticamente campos com
+// comportamento especial: Data/Hora de emissão viram automáticas (data de
+// hoje), e os valores brutos (item = quantidade × preço; cabeçalho = soma
+// dos itens) viram só leitura, sempre recalculados
+const PADROES_HEADER_DATA_EMISSAO = ['dataemissao','data'];
+const PADROES_HEADER_HORARIO_EMISSAO = ['horarioemissao','horaemissao','hora'];
+const PADROES_HEADER_VALOR_BRUTO = ['valorbruto','valortotal','valorbrutomovimento'];
+const PADROES_ITEM_QUANTIDADE = ['quantidade','qtd','quantidadeitem'];
+const PADROES_ITEM_PRECO = ['precounitario','precounit','preco','valorunitario'];
+const PADROES_ITEM_VALOR_BRUTO = ['valoritem','valorbrutoitem','valortotalitem'];
+function dataHoraLocalIso(comHora){
+  const d = new Date();
+  const pad = n=>String(n).padStart(2,'0');
+  const data = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  return comHora ? `${data}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` : `${data}T00:00:00`;
+}
+function recalcularValorItem(i){
+  if(!movmTipoAtual) return;
+  const tokenQtd = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_ITEM_QUANTIDADE);
+  const tokenPreco = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_ITEM_PRECO);
+  const tokenValor = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_ITEM_VALOR_BRUTO);
+  if(!tokenQtd || !tokenPreco || !tokenValor) return;
+  const inpQtd = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${tokenQtd}"]`);
+  const inpPreco = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${tokenPreco}"]`);
+  const inpValor = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${tokenValor}"]`);
+  if(!inpQtd || !inpPreco || !inpValor) return;
+  const qtd = parseFloat(String(inpQtd.value).replace(',','.')) || 0;
+  const preco = parseFloat(String(inpPreco.value).replace(',','.')) || 0;
+  inpValor.value = (qtd*preco).toFixed(2);
+}
+function recalcularValorBrutoHeader(){
+  if(!movmTipoAtual) return;
+  const tokenHeader = acharTokenPorPadrao(movmTipoAtual.headerTokens, PADROES_HEADER_VALOR_BRUTO);
+  if(!tokenHeader) return;
+  const inpHeader = document.querySelector(`#movm_camposHeader [data-token="${tokenHeader}"]`);
+  if(!inpHeader) return;
+  const tokenValorItem = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_ITEM_VALOR_BRUTO);
+  let soma = 0;
+  if(tokenValorItem){
+    document.querySelectorAll(`#movm_itensLista [data-token="${tokenValorItem}"]`).forEach(inp=>{
+      soma += parseFloat(String(inp.value).replace(',','.')) || 0;
+    });
+  }
+  inpHeader.value = soma.toFixed(2);
 }
 function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
   const container = document.getElementById('movm_camposHeader');
@@ -13322,10 +13346,32 @@ function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
     bloco.style.display='none'; movmTipoAtual=null; return;
   }
   movmTipoAtual = { tipo, headerTokens:r.headerTokens, itemTokens:r.itemTokens };
-  const tokenFornecedor = tipo.buscaFornecedorDataServer ? acharTokenPorPadrao(r.headerTokens, PADROES_BUSCA_FORNECEDOR.codigo) : null;
-  container.innerHTML = r.headerTokens.length===0
-    ? `<p style="color:var(--muted);font-size:12px;">Esse tipo não tem campos de cabeçalho ({token} fora dos itens).</p>`
-    : r.headerTokens.map(tk=>`<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml((valoresHeaderAtuais&&valoresHeaderAtuais[tk])||'')}" style="flex:1;">${tk===tokenFornecedor?`<button type="button" class="ghost" onclick="abrirBuscaFornecedor()" style="width:auto;padding:6px 10px;">🔍 Buscar</button>`:''}</div></div>`).join('');
+  const mapaBuscas = parsearBuscasRm(tipo.buscasRm);
+  const tokenValorBruto = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_VALOR_BRUTO);
+  const tokenDataEmissao = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_DATA_EMISSAO);
+  const tokenHorarioEmissao = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_HORARIO_EMISSAO);
+  const campoHeaderHtml = (tk)=>{
+    const calculado = tk===tokenValorBruto;
+    let valor = (valoresHeaderAtuais && valoresHeaderAtuais[tk]) || '';
+    // só sugere data/hora de hoje numa movimentação NOVA (valoresHeaderAtuais
+    // nulo) e com o campo ainda vazio — editando uma existente mantém o
+    // que já tava salvo
+    if(!valoresHeaderAtuais && !valor){
+      if(tk===tokenDataEmissao) valor = dataHoraLocalIso(false);
+      else if(tk===tokenHorarioEmissao) valor = dataHoraLocalIso(true);
+    }
+    const temBusca = !!mapaBuscas[tk];
+    const estiloInput = calculado ? 'flex:1;background:var(--panel-2);color:var(--muted);' : 'flex:1;';
+    const readonlyAttr = calculado ? 'readonly title="Calculado automaticamente — soma dos itens"' : '';
+    return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml(valor)}" style="${estiloInput}" ${readonlyAttr}>${temBusca?`<button type="button" class="ghost" onclick="abrirBuscaCampoHeader('${escaparHtml(tk)}')" style="width:auto;padding:6px 10px;">🔍 Buscar</button>`:''}</div></div>`;
+  };
+  if(r.headerTokens.length===0){
+    container.innerHTML = `<p style="color:var(--muted);font-size:12px;">Esse tipo não tem campos de cabeçalho ({token} fora dos itens).</p>`;
+  } else {
+    const grupos = [];
+    for(let i=0;i<r.headerTokens.length;i+=3) grupos.push(r.headerTokens.slice(i,i+3));
+    container.innerHTML = grupos.map(g=>`<div class="row3">${g.map(campoHeaderHtml).join('')}</div>`).join('');
+  }
   bloco.style.display = r.itemTokens.length ? '' : 'none';
   renderItensMovimentacao();
 }
@@ -13333,19 +13379,32 @@ function renderItensMovimentacao(){
   const el = document.getElementById('movm_itensLista');
   if(!el) return;
   if(!movmTipoAtual || !movmTipoAtual.itemTokens.length){ el.innerHTML=''; return; }
-  if(movmItens.length===0){ el.innerHTML = `<div class="empty">Nenhum item adicionado.</div>`; return; }
-  const mostrarBuscaProduto = !!(movmTipoAtual.tipo.buscaProdutoDataServer && acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_BUSCA_PRODUTO.codigo));
-  el.innerHTML = movmItens.map((item,i)=>`
+  if(movmItens.length===0){
+    el.innerHTML = `<div class="empty">Nenhum item adicionado.</div>`;
+    recalcularValorBrutoHeader();
+    return;
+  }
+  const mapaBuscas = parsearBuscasRm(movmTipoAtual.tipo.buscasRm);
+  const tokenValorItem = acharTokenPorPadrao(movmTipoAtual.itemTokens, PADROES_ITEM_VALOR_BRUTO);
+  el.innerHTML = movmItens.map((item,i)=>{
+    const campos = movmTipoAtual.itemTokens.map(tk=>{
+      const calculado = tk===tokenValorItem;
+      const temBusca = !!mapaBuscas[tk];
+      const estiloInput = calculado ? 'background:var(--panel-2);color:var(--muted);' : '';
+      const readonlyAttr = calculado ? 'readonly title="Calculado automaticamente — quantidade × preço"' : '';
+      return `<div class="field" style="flex:1 1 140px;min-width:120px;margin:0;"><label style="font-size:10.5px;">${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:4px;"><input type="text" data-item-idx="${i}" data-token="${escaparHtml(tk)}" value="${escaparHtml(item[tk]||'')}" style="${estiloInput}" ${readonlyAttr}>${temBusca?`<button type="button" class="ghost" onclick="abrirBuscaCampoItem('${escaparHtml(tk)}',${i})" style="width:auto;padding:4px 8px;">🔍</button>`:''}</div></div>`;
+    }).join('');
+    return `
     <div class="card" style="margin:8px 0;padding:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
         <b style="font-size:12px;">Item ${i+1}</b>
-        <div style="display:flex;gap:6px;">
-          ${mostrarBuscaProduto?`<button type="button" class="ghost" onclick="abrirBuscaProduto(${i})" style="width:auto;padding:4px 10px;">🔍 Buscar produto</button>`:''}
-          <button type="button" class="ghost" onclick="removerItemMovimentacao(${i})" style="width:auto;padding:4px 10px;">Remover</button>
-        </div>
+        <button type="button" class="ghost" onclick="removerItemMovimentacao(${i})" style="width:auto;padding:4px 10px;">Remover</button>
       </div>
-      ${movmTipoAtual.itemTokens.map(tk=>`<div class="field"><label>${escaparHtml(labelToken(tk))}</label><input type="text" data-item-idx="${i}" data-token="${escaparHtml(tk)}" value="${escaparHtml(item[tk]||'')}"></div>`).join('')}
-    </div>`).join('');
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">${campos}</div>
+    </div>`;
+  }).join('');
+  movmItens.forEach((_,i)=>recalcularValorItem(i));
+  recalcularValorBrutoHeader();
 }
 function removerItemMovimentacao(i){
   coletarItens();
@@ -20068,19 +20127,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const dataServerName = document.getElementById('rgtm_dataserver').value.trim();
     const xmlRaiz = document.getElementById('rgtm_xmlraiz').value.trim();
     const contextoSoap = document.getElementById('rgtm_contexto').value.trim();
-    const buscaFornecedorDataServer = document.getElementById('rgtm_busca_forn_ds').value.trim();
-    const buscaFornecedorFiltro = document.getElementById('rgtm_busca_forn_filtro').value.trim();
-    const buscaProdutoDataServer = document.getElementById('rgtm_busca_prod_ds').value.trim();
-    const buscaProdutoFiltro = document.getElementById('rgtm_busca_prod_filtro').value.trim();
+    const buscasRm = document.getElementById('rgtm_buscas_rm').value;
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
-    const payloadBusca = { buscaFornecedorDataServer, buscaFornecedorFiltro, buscaProdutoDataServer, buscaProdutoFiltro };
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, ...payloadBusca })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, ...payloadBusca });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, buscasRm })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, buscasRm });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
@@ -20118,6 +20173,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('buscaRmCancelar').addEventListener('click', fecharBuscaRm);
   document.getElementById('buscaRmBtnBuscar').addEventListener('click', executarBuscaRm);
   document.getElementById('buscaRmTermo').addEventListener('keydown', e=>{ if(e.key==='Enter') executarBuscaRm(); });
+  // delegado (em vez de 1 listener por input) porque os campos do item são
+  // recriados a cada renderItensMovimentacao — recalcula valor bruto do
+  // item (quantidade × preço) e do cabeçalho (soma dos itens) a cada
+  // digitação, pros tokens que seguem essa convenção de nome
+  document.getElementById('movm_itensLista').addEventListener('input', e=>{
+    if(e.target.dataset.itemIdx===undefined) return;
+    recalcularValorItem(Number(e.target.dataset.itemIdx));
+    recalcularValorBrutoHeader();
+  });
   document.getElementById('btnAddRmPainel').addEventListener('click', async ()=>{
     const nome = document.getElementById('pnl_nome').value.trim();
     if(!nome){ toast('Informe o nome do painel'); return; }
