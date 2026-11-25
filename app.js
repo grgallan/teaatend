@@ -13453,11 +13453,20 @@ function buscaConfiguradaParaToken(tipo, tokensEscopo, token){
 // ENDERECO, DESCRICAO, APRESENTACAO, FABRICANTE, REGISTRO ANVISA) — guardados
 // à parte ("extras") só pra uso no "Imprimir", já que não tem token/Json
 // Template pra eles. Vêm de graça do dataserver, no mesmo resultado que já
-// preenche o(s) token(s) ligados — sem precisar buscar de novo
-function camposExtrasDaLinha(linha, alvos){
+// preenche o(s) token(s) ligados — sem precisar buscar de novo. IMPORTANTE:
+// só os campos que a PESSOA listou em "Campos" do cadastro (camposConfigurados,
+// = buscaRmCamposExibicaoAtual, o que o backend já recorta a partir do
+// cadastro) — a linha devolvida pelo RM traz TODA a tabela (CEP, DDD, FAX,
+// VALORPAGAMENTO1-5, dezenas de campos), então sem esse filtro o "extra"
+// vira um despejo de tudo que o RM tem, não só do que foi pedido
+function camposExtrasDaLinha(linha, alvos, camposConfigurados){
   const usados = new Set(alvos.map(a=>a.campo));
   const extras = {};
-  Object.keys(linha).forEach(c=>{ if(!usados.has(c)) extras[c] = linha[c]; });
+  (camposConfigurados||[]).forEach(c=>{
+    if(usados.has(c)) return;
+    const v = linha[c];
+    if(v!==undefined && v!==null && v!=='') extras[c] = v;
+  });
   return extras;
 }
 function abrirBuscaCampoHeader(token){
@@ -13469,7 +13478,7 @@ function abrirBuscaCampoHeader(token){
       const inp = document.querySelector(`#movm_camposHeader [data-token="${tk}"]`);
       if(inp) inp.value = linha[campo] ?? '';
     });
-    Object.assign(movmHeaderExtras, camposExtrasDaLinha(linha, busca.alvos));
+    Object.assign(movmHeaderExtras, camposExtrasDaLinha(linha, busca.alvos, buscaRmCamposExibicaoAtual));
   }, busca.kind);
 }
 function abrirBuscaCampoItem(token, i){
@@ -13482,7 +13491,7 @@ function abrirBuscaCampoItem(token, i){
       if(inp) inp.value = linha[campo] ?? '';
     });
     if(!movmItens[i]) movmItens[i] = {};
-    movmItens[i].__extras = { ...(movmItens[i].__extras||{}), ...camposExtrasDaLinha(linha, busca.alvos) };
+    movmItens[i].__extras = { ...(movmItens[i].__extras||{}), ...camposExtrasDaLinha(linha, busca.alvos, buscaRmCamposExibicaoAtual) };
   }, busca.kind);
 }
 // convenção de nomes de token pra reconhecer automaticamente campos com
