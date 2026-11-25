@@ -298,7 +298,7 @@ function rmTipoMovimentoParaApi(r: any) {
     itensArrayKeys: r.itens_array_keys || '', dataServerName: r.data_server_name || '',
     xmlRaiz: r.xml_raiz || '', contextoSoap: r.contexto_soap || '',
     buscasRm: r.buscas_rm || '', statusDataServerName: r.status_data_server_name || '',
-    consultasSql: r.consultas_sql || '',
+    consultasSql: r.consultas_sql || '', layoutImpressao: r.layout_impressao || '',
   };
 }
 function rmMovimentacaoParaApi(r: any) {
@@ -4156,7 +4156,7 @@ async function acaoAddRmTipoMovimento(req: any) {
     usuario: req.usuario || '', json_template: req.jsonTemplate || '', itens_array_keys: req.itensArrayKeys || '',
     data_server_name: req.dataServerName || '', xml_raiz: req.xmlRaiz || '', contexto_soap: req.contextoSoap || '',
     buscas_rm: req.buscasRm || '', status_data_server_name: req.statusDataServerName || '',
-    consultas_sql: req.consultasSql || '',
+    consultas_sql: req.consultasSql || '', layout_impressao: req.layoutImpressao || '',
   };
   if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
   const { error } = await db.from('rm_tipos_movimento').insert(registro);
@@ -4179,6 +4179,7 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   if (req.buscasRm !== undefined) atualizado.buscas_rm = req.buscasRm;
   if (req.statusDataServerName !== undefined) atualizado.status_data_server_name = req.statusDataServerName;
   if (req.consultasSql !== undefined) atualizado.consultas_sql = req.consultasSql;
+  if (req.layoutImpressao !== undefined) atualizado.layout_impressao = req.layoutImpressao;
   // a senha só é regravada quando a tela manda uma nova (campo em branco =
   // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
   if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);

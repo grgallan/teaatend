@@ -13123,6 +13123,8 @@ function editarRmTipoMovimento(id){
   renderBuscasRmLinhas();
   rgtmConsultasSqlLinhas = parsearConsultasSqlParaLinhas(m.consultasSql);
   renderConsultasSqlLinhas();
+  rgtmLayoutImpressaoLinhas = parsearLayoutImpressao(m.layoutImpressao);
+  renderLayoutImpressaoLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13146,6 +13148,8 @@ function cancelarEdicaoRmTipoMovimento(){
   renderBuscasRmLinhas();
   rgtmConsultasSqlLinhas = [];
   renderConsultasSqlLinhas();
+  rgtmLayoutImpressaoLinhas = [];
+  renderLayoutImpressaoLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13347,6 +13351,103 @@ function removerConsultaSqlLinha(i){
   coletarConsultasSqlLinhas();
   rgtmConsultasSqlLinhas.splice(i,1);
   renderConsultasSqlLinhas();
+}
+// "Layout da Impressão": define as linhas (1 a 3 campos cada) da seção
+// "Dados" do "Imprimir" — cada campo é ou um Token do cabeçalho
+// ("token:NOME") ou um extra capturado numa Busca no RM/Consulta SQL
+// ("extra:CAMPO"). Guardado como JSON (array de arrays de ids) na coluna
+// layout_impressao; vazio cai no comportamento padrão (1 token por linha,
+// extras soltos no fim — ver imprimirRmMovimentacao)
+function serializarLayoutImpressao(linhas){
+  const validas = (linhas||[]).map(l=>(l||[]).filter(Boolean)).filter(l=>l.length);
+  return validas.length ? JSON.stringify(validas) : '';
+}
+function parsearLayoutImpressao(json){
+  try{
+    const l = JSON.parse(json||'[]');
+    return Array.isArray(l) ? l.filter(x=>Array.isArray(x) && x.length) : [];
+  }catch(_e){ return []; }
+}
+// nome que um campo de busca (ex: "NOME", "!CGCCFO", "END=RUA+NUMERO") usa
+// em camposExibicao — cópia simplificada, só pra DECIDIR O RÓTULO da opção
+// no dropdown do Layout (o cálculo de verdade, com combo, é no backend)
+function nomeExibicaoCampoTexto(campo){
+  const semOculto = String(campo||'').trim().replace(/^!\s*/, '');
+  const combo = /^([A-Za-z0-9_]+)\s*=\s*(.+)$/.exec(semOculto);
+  if(combo) return combo[1].trim();
+  const i = semOculto.lastIndexOf('.');
+  return i===-1 ? semOculto : semOculto.slice(i+1);
+}
+let rgtmLayoutImpressaoLinhas = [];
+// campos "extra" disponíveis pro Layout: todo campo (a partir do 2º) de
+// cada linha de Busca no RM/Consulta SQL já digitada no cadastro (o 1º
+// campo preenche o próprio Token, não é um "extra"; campo oculto com "!"
+// nunca aparece, nem aqui)
+function extrasDisponiveisDoTipo(){
+  coletarBuscasRmLinhas();
+  coletarConsultasSqlLinhas();
+  const opcoes = [];
+  const vistos = new Set();
+  const addLinha = (token, camposTexto)=>{
+    if(!token || !camposTexto) return;
+    const campos = String(camposTexto).split(',').map(c=>c.trim()).filter(Boolean).slice(1);
+    campos.forEach(c=>{
+      if(c.startsWith('!')) return;
+      const nome = nomeExibicaoCampoTexto(c);
+      const id = `extra:${nome}`;
+      if(vistos.has(id)) return;
+      vistos.add(id);
+      opcoes.push({ id, label: `${nome} (extra de ${labelToken(token)})` });
+    });
+  };
+  rgtmBuscasRmLinhas.forEach(l=>addLinha(l.token, l.campos));
+  rgtmConsultasSqlLinhas.forEach(l=>addLinha(l.token, l.campos));
+  return opcoes;
+}
+function camposDisponiveisParaLayout(){
+  const r = tokensDoTipoMovimento({ jsonTemplate: document.getElementById('rgtm_json').value, itensArrayKeys: document.getElementById('rgtm_itensArray').value });
+  const opcoes = [{ id:'', label:'— escolha um campo —' }];
+  if(r.ok) r.headerTokens.forEach(tk=>opcoes.push({ id:`token:${tk}`, label: labelToken(tk) }));
+  return opcoes.concat(extrasDisponiveisDoTipo());
+}
+function renderLayoutImpressaoLinhas(){
+  const el = document.getElementById('rgtm_layout_impressao_lista');
+  if(!el) return;
+  const opcoes = camposDisponiveisParaLayout();
+  if(rgtmLayoutImpressaoLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhuma linha configurada — a impressão usa o layout padrão (1 campo do cabeçalho por linha, extras soltos no fim).</div>`; return; }
+  const selectHtml = (i,col,valorAtual)=>`<select data-layout-idx="${i}" data-layout-col="${col}">${opcoes.map(o=>`<option value="${escaparHtml(o.id)}" ${o.id===(valorAtual||'')?'selected':''}>${escaparHtml(o.label)}</option>`).join('')}</select>`;
+  el.innerHTML = rgtmLayoutImpressaoLinhas.map((linha,i)=>`
+    <div class="cad-item" style="display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:8px;">
+      <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+        ${[0,1,2].map(col=>selectHtml(i,col,linha[col])).join('')}
+      </div>
+      <button type="button" class="ghost" onclick="moverLinhaLayoutImpressao(${i},-1)" style="width:auto;padding:4px 8px;" ${i===0?'disabled':''}>↑</button>
+      <button type="button" class="ghost" onclick="moverLinhaLayoutImpressao(${i},1)" style="width:auto;padding:4px 8px;" ${i===rgtmLayoutImpressaoLinhas.length-1?'disabled':''}>↓</button>
+      <button type="button" class="ghost" onclick="removerLinhaLayoutImpressao(${i})" style="width:auto;padding:4px 8px;">Remover</button>
+    </div>
+  `).join('');
+}
+function coletarLayoutImpressaoLinhas(){
+  const porLinha = {};
+  document.querySelectorAll('#rgtm_layout_impressao_lista [data-layout-idx]').forEach(sel=>{
+    const i = Number(sel.dataset.layoutIdx);
+    if(!porLinha[i]) porLinha[i] = [];
+    porLinha[i][Number(sel.dataset.layoutCol)] = sel.value;
+  });
+  rgtmLayoutImpressaoLinhas = Object.keys(porLinha).sort((a,b)=>a-b).map(i=>(porLinha[i]||[]).filter(Boolean));
+  return rgtmLayoutImpressaoLinhas;
+}
+function moverLinhaLayoutImpressao(i, delta){
+  coletarLayoutImpressaoLinhas();
+  const j = i+delta;
+  if(j<0 || j>=rgtmLayoutImpressaoLinhas.length) return;
+  [rgtmLayoutImpressaoLinhas[i], rgtmLayoutImpressaoLinhas[j]] = [rgtmLayoutImpressaoLinhas[j], rgtmLayoutImpressaoLinhas[i]];
+  renderLayoutImpressaoLinhas();
+}
+function removerLinhaLayoutImpressao(i){
+  coletarLayoutImpressaoLinhas();
+  rgtmLayoutImpressaoLinhas.splice(i,1);
+  renderLayoutImpressaoLinhas();
 }
 // tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
 // mesmo Data Server do token clicado, cada um com o campo que o preenche
@@ -13793,9 +13894,24 @@ function imprimirRmMovimentacao(id){
   const tokensObservacao = r.headerTokens.filter(ehCampoTextoLongo);
   const tokensComuns = r.headerTokens.filter(tk=>tk!==tokenValorBruto && !tokensObservacao.includes(tk));
 
+  // layout da seção "Dados": admin monta em Movimentos → Parâmetros →
+  // "Layout da Impressão" (linhas de 1 a 3 campos cada, token ou extra) —
+  // sem layout configurado, cai no comportamento antigo (1 token por
+  // linha, extras soltos no fim). Extra que existe mas não foi colocado em
+  // nenhuma linha do layout também aparece solto no fim, pra nenhum dado
+  // capturado sumir só por falta de configuração
+  const layoutSalvo = parsearLayoutImpressao(tipo.layoutImpressao);
+  const layoutDados = layoutSalvo.length ? layoutSalvo : tokensComuns.map(tk=>[`token:${tk}`]);
+  const valorDoCampoLayout = (id)=> id.startsWith('extra:') ? extrasHeader[id.slice(6)] : valores[id.slice(6)];
+  const labelDoCampoLayout = (id)=> id.startsWith('extra:') ? id.slice(6) : labelToken(id.slice(6));
+  const camposUsadosNoLayout = new Set(layoutDados.flat().filter(id=>id.startsWith('extra:')).map(id=>id.slice(6)));
+  const extrasSoltos = Object.keys(extrasHeader).filter(c=>!camposUsadosNoLayout.has(c));
+  const emParesDe2 = (arr)=>{ const out=[]; for(let i=0;i<arr.length;i+=2) out.push(arr.slice(i,i+2)); return out; };
+
   const campoHtml = (label,valor)=> (valor===undefined||valor===null||valor==='') ? '' : `<div class="campo"><label>${escaparHtml(label)}</label><div>${escaparHtml(String(valor))}</div></div>`;
-  const dadosHtml = tokensComuns.map(tk=>campoHtml(labelToken(tk), valores[tk])).join('')
-    + Object.keys(extrasHeader).map(c=>campoHtml(c, extrasHeader[c])).join('');
+  const linhaCamposHtml = (htmls)=> `<div class="linha-campos" style="grid-template-columns:repeat(${htmls.length},1fr);">${htmls.join('')}</div>`;
+  const dadosHtml = layoutDados.map(linha=>linhaCamposHtml(linha.map(id=>campoHtml(labelDoCampoLayout(id), valorDoCampoLayout(id))))).join('')
+    + emParesDe2(extrasSoltos).map(par=>linhaCamposHtml(par.map(c=>campoHtml(c, extrasHeader[c])))).join('');
 
   const itens = m.itens||[];
   const produtosHtml = !itens.length ? '' : `
@@ -13838,7 +13954,7 @@ function imprimirRmMovimentacao(id){
   .titulo b{font-size:14px;letter-spacing:.04em;text-transform:uppercase;}
   .titulo div{font-size:11px;color:#666;margin-top:3px;}
   h3.secao{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:#888;border-bottom:1px solid #e2e2e2;padding-bottom:5px;margin:20px 0 10px;}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;}
+  .linha-campos{display:grid;gap:4px 28px;}
   .campo{margin-bottom:8px;}
   .campo label{display:block;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.03em;margin-bottom:1px;}
   .campo div{font-size:13px;}
@@ -13864,7 +13980,7 @@ function imprimirRmMovimentacao(id){
       <div class="titulo"><b>${escaparHtml(tipo.nome)}</b><div>Nº ${escaparHtml(numero)}</div><div>Emitida em ${escaparHtml(formatarDataBr(m.criadoEm))}</div></div>
     </div>
     <h3 class="secao">Dados</h3>
-    <div class="grid2">${dadosHtml}</div>
+    ${dadosHtml}
     ${produtosHtml}
     ${resumoHtml}
     ${observacoesHtml}
@@ -20551,14 +20667,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const statusDataServerName = document.getElementById('rgtm_statusDataserver').value.trim();
     const buscasRm = serializarLinhasParaBuscasRm(coletarBuscasRmLinhas());
     const consultasSql = serializarLinhasParaConsultasSql(coletarConsultasSqlLinhas());
+    const layoutImpressao = serializarLayoutImpressao(coletarLayoutImpressaoLinhas());
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
@@ -20578,6 +20695,16 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     renderConsultasSqlLinhas();
   });
   renderConsultasSqlLinhas();
+  document.getElementById('btnRgtmAddLayoutImpressao').addEventListener('click', ()=>{
+    coletarLayoutImpressaoLinhas();
+    rgtmLayoutImpressaoLinhas.push([]);
+    renderLayoutImpressaoLinhas();
+  });
+  document.getElementById('btnRgtmAtualizarCamposLayout').addEventListener('click', ()=>{
+    coletarLayoutImpressaoLinhas();
+    renderLayoutImpressaoLinhas();
+  });
+  renderLayoutImpressaoLinhas();
   document.getElementById('movm_tipo').addEventListener('change', e=>{
     editandoRmMovimentacaoId = null;
     movmItens = [];
