@@ -4420,7 +4420,14 @@ async function acaoBuscarRmLista(req: any) {
   // todo token (cabeçalho OU item) que aponte pro mesmo Data Server é
   // preenchido de uma vez só, a partir da mesma linha escolhida
   const linhasMesmoDataServer = Object.entries(buscas).filter(([, cfg]) => cfg.dataServerName === dataServerName);
-  const camposExibicao = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
+  // os campos no cadastro podem vir qualificados ("DataServer.CAMPO") pra
+  // resolver "Ambiguous column name" quando a view junta tabelas com coluna
+  // de mesmo nome (ex: CODFILIAL) — opcional, só quando quem cadastrou
+  // escreveu assim; o filtro usa o campo literal (com ou sem qualificação),
+  // mas o nome puro (sem o "DataServer.") é o que casa com a tag do XML de
+  // retorno, então é isso que vai pro front pra exibir/preencher
+  const camposFiltro = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
+  const camposExibicao = [...new Set(camposFiltro.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }))];
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
   const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
   if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
@@ -4429,11 +4436,7 @@ async function acaoBuscarRmLista(req: any) {
     return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
   }
   const termo = String(req.termo || '').trim().replace(/'/g, "''");
-  // qualifica cada campo com o Data Server (convenção do RM pra desambiguar
-  // nome de coluna repetido entre as tabelas que a view do ReadView junta
-  // por baixo dos panos — sem isso o RM recusa com "Ambiguous column name"
-  // sempre que o campo existe em mais de uma tabela da view, ex: CODFILIAL)
-  const filtro = camposExibicao.map((c) => `${dataServerName}.${c} LIKE '%${termo}%'`).join(' OR ');
+  const filtro = camposFiltro.map((c) => `${c} LIKE '%${termo}%'`).join(' OR ');
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();

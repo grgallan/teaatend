@@ -13211,12 +13211,20 @@ function parsearBuscasRm(texto){
 }
 // tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
 // mesmo Data Server do token clicado, cada um com o campo que o preenche
+// o campo cadastrado pode vir qualificado ("DataServer.CAMPO" — opcional,
+// só quando precisa desambiguar coluna repetida na view do RM); a linha
+// de resultado vem com a tag pura (sem o "DataServer."), então é o nome
+// puro que bate com a chave do objeto devolvido
+function campoPuro(campo){
+  const i = campo.lastIndexOf('.');
+  return i===-1 ? campo : campo.slice(i+1);
+}
 function tokensMesmoDataServer(mapaBuscas, tokensEscopo, tokenClicado){
   const cfg = mapaBuscas[tokenClicado];
   if(!cfg) return [];
   return tokensEscopo
     .filter(tk=>mapaBuscas[tk] && mapaBuscas[tk].dataServerName===cfg.dataServerName)
-    .map(tk=>({ token:tk, campo:mapaBuscas[tk].campos[0] }));
+    .map(tk=>({ token:tk, campo:campoPuro(mapaBuscas[tk].campos[0]) }));
 }
 function acharTokenPorPadrao(tokens, padroes){
   return tokens.find(t=>padroes.includes(t.toLowerCase()));
