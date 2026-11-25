@@ -13548,19 +13548,22 @@ function renderStatusConsultadoBloco(consulta){
   if(consulta.erro){
     return `<div style="margin-top:4px;color:var(--bad);font-size:11.5px;">Consultar Status: ${escaparHtml(consulta.erro)}</div>`;
   }
-  const linha = consulta.linha||{};
-  const camposStatus = Object.keys(linha).filter(k=>k.toUpperCase().includes('STATUS'));
+  // ReadRecord devolve 1 "linha" por seção do XML de negócio (TMOV, TITMMOV,
+  // ...) — igual ao corpo que o Enviar RM manda; procura "STATUS" em todas
+  const linhas = consulta.linhas||[];
+  const camposStatus = [];
+  linhas.forEach(linha=>Object.keys(linha).filter(k=>k.toUpperCase().includes('STATUS')).forEach(k=>camposStatus.push(`${k}: ${linha[k]}`)));
   const resumo = camposStatus.length
-    ? camposStatus.map(k=>`${k}: ${linha[k]}`).join(' · ')
+    ? camposStatus.join(' · ')
     : 'Nenhum campo com "STATUS" no nome veio na resposta — veja todos os campos abaixo.';
   return `<div style="margin-top:4px;font-size:11.5px;">
     <b>Status no RM:</b> ${escaparHtml(resumo)}
-    <details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver todos os campos devolvidos</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(JSON.stringify(linha, null, 2))}</pre></details>
+    <details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver todos os campos devolvidos</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(JSON.stringify(linhas, null, 2))}</pre></details>
   </div>`;
 }
 async function consultarStatusRmMovimentacao(id){
   const r = await api('consultarStatusRmMovimentacao', { contaId: contaAtual().id, id });
-  rmStatusConsultado[id] = r.ok ? { linha: r.linha } : { erro: r.erro || 'Falha ao consultar status no RM.' };
+  rmStatusConsultado[id] = r.ok ? { linhas: r.linhas } : { erro: r.erro || 'Falha ao consultar status no RM.' };
   renderListRmMovimentacoes();
   toast(r.ok ? 'Status consultado no RM' : (r.erro || 'Falha ao consultar status no RM'));
 }
@@ -13574,6 +13577,9 @@ function editarRmMovimentacao(id){
   renderItensMovimentacao();
   document.getElementById('movm_tituloForm').textContent = 'Editar movimentação';
   document.getElementById('btnAddRmMovimentacao').textContent = 'Salvar alterações';
+  // já integrado no RM — editar aqui só serve pra conferir os dados, salvar
+  // alterações locais não muda (nem desfaz) nada do que já foi gravado lá
+  document.getElementById('btnAddRmMovimentacao').style.display = m.status==='enviada' ? 'none' : '';
   document.getElementById('btnCancelarEdicaoRmMovimentacao').style.display = '';
   document.getElementById('movm_tituloForm').scrollIntoView({ behavior:'smooth', block:'center' });
 }
@@ -13587,6 +13593,7 @@ function cancelarEdicaoRmMovimentacao(){
   document.getElementById('movm_itensLista').innerHTML = '';
   document.getElementById('movm_tituloForm').textContent = 'Nova movimentação';
   document.getElementById('btnAddRmMovimentacao').textContent = 'Salvar movimentação';
+  document.getElementById('btnAddRmMovimentacao').style.display = '';
   document.getElementById('btnCancelarEdicaoRmMovimentacao').style.display = 'none';
 }
 async function removerRmMovimentacao(id){

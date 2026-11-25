@@ -4617,11 +4617,19 @@ async function acaoEnviarRmMovimentacao(req: any) {
     clearTimeout(timeout);
   }
 }
-// consulta no RM (ReadView, filtrando por CODCOLIGADA/IDMOV) o status atual
-// do movimento já gravado — não dá pra saber de antemão o nome do campo de
-// status na view de cada Data Server (varia por tipo de movimentação), então
-// devolve a linha inteira (todos os campos) + o XML bruto, igual a busca
-// genérica já faz, em vez de arriscar um nome de campo fixo
+// consulta no RM o status atual do movimento já gravado. Usa ReadRecord (não
+// ReadView): ReadRecord busca por CHAVE PRIMÁRIA direto (FilterKey no mesmo
+// formato "coligada;idmov" que o SaveRecordResult devolve — mesma convenção
+// de chave usada em todo esse serviço), sem passar por um WHERE textual numa
+// view com várias tabelas juntadas. O ReadView com "CODCOLIGADA = X AND
+// IDMOV = Y" dava "Ambiguous column name" porque CODCOLIGADA/IDMOV existem
+// em praticamente toda tabela do RM (são a chave de todas elas) — exatamente
+// o tipo de coluna repetida que o SELECT com JOIN da view não consegue
+// resolver sozinho. ReadRecord evita isso lendo pela chave, não por filtro
+// SQL. Devolve a resposta como uma lista de "linhas" (1 por seção/tabela do
+// XML de negócio — TMOV, TITMMOV, etc., igual ao corpo que o SaveRecord
+// manda) + o XML bruto, já que não dá pra saber de antemão o nome do campo
+// de status (varia por tipo de movimentação)
 async function acaoConsultarStatusRmMovimentacao(req: any) {
   if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para consultar status no RM.' };
   if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
@@ -4638,21 +4646,19 @@ async function acaoConsultarStatusRmMovimentacao(req: any) {
   try { senha = await decifrarRmSenha(tipo.senha_cifrada); } catch (_e) {
     return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
   }
-  const coligada = String(mov.rm_coligada).replace(/'/g, "''");
-  const idmov = String(mov.rm_idmov).replace(/'/g, "''");
-  const filtro = `CODCOLIGADA = ${coligada} AND IDMOV = ${idmov}`;
+  const filterKey = `${mov.rm_coligada};${mov.rm_idmov}`;
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 60000);
   try {
     const { contexto, debug } = await resolverContextoSoap(url, tipo.usuario, senha, tipo.contexto_soap || '', ctl);
-    const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:ReadView><tns:DataServerName>${escaparXml(tipo.data_server_name)}</tns:DataServerName><tns:Filtro>${escaparXml(filtro)}</tns:Filtro><tns:Contexto>${escaparXml(contexto)}</tns:Contexto></tns:ReadView></soap:Body></soap:Envelope>`;
+    const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:ReadRecord><tns:DataServerName>${escaparXml(tipo.data_server_name)}</tns:DataServerName><tns:FilterKey>${escaparXml(filterKey)}</tns:FilterKey><tns:Contexto>${escaparXml(contexto)}</tns:Contexto></tns:ReadRecord></soap:Body></soap:Envelope>`;
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/xml; charset=utf-8',
-        SOAPAction: 'http://www.totvs.com/IwsDataServer/ReadView',
+        SOAPAction: 'http://www.totvs.com/IwsDataServer/ReadRecord',
         Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
       },
       body: envelope,
@@ -4662,16 +4668,15 @@ async function acaoConsultarStatusRmMovimentacao(req: any) {
     if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debug}` };
     const faultstring = extrairTagSoap(texto, 'faultstring');
     if (faultstring) return { ok: false, erro: `O RM recusou a consulta: ${faultstring} ${debug}` };
-    const resultadoAberto = extrairTagSoap(texto, 'ReadViewResult');
-    const resultadoAutoFechado = /<(?:[A-Za-z0-9_]+:)?ReadViewResult\b[^>]*\/>/.test(texto);
+    const resultadoAberto = extrairTagSoap(texto, 'ReadRecordResult');
+    const resultadoAutoFechado = /<(?:[A-Za-z0-9_]+:)?ReadRecordResult\b[^>]*\/>/.test(texto);
     if (resultadoAberto === null && !resultadoAutoFechado) {
-      return { ok: false, erro: `O RM não devolveu a tag ReadViewResult esperada. ${debug}\n\nResposta bruta (início): ${texto.slice(0, 800)}` };
+      return { ok: false, erro: `O RM não devolveu a tag ReadRecordResult esperada. ${debug}\n\nResposta bruta (início): ${texto.slice(0, 800)}` };
     }
     const resultado = resultadoAberto ?? '';
-    const todasLinhas = resultado ? extrairLinhasDeViewXml(resultado) : [];
-    const linha = todasLinhas.find((l) => 'CODCOLIGADA' in l) || null;
-    if (!linha) return { ok: false, erro: `O RM não encontrou nenhum movimento com Coligada ${mov.rm_coligada} / IDMOV ${mov.rm_idmov}.`, xmlBruto: resultado };
-    return { ok: true, linha, xmlBruto: resultado };
+    const linhas = resultado ? extrairLinhasDeViewXml(resultado) : [];
+    if (!linhas.length) return { ok: false, erro: `O RM não encontrou nenhum movimento com Coligada ${mov.rm_coligada} / IDMOV ${mov.rm_idmov}.`, xmlBruto: resultado };
+    return { ok: true, linhas, xmlBruto: resultado };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
     return { ok: false, erro: msg };

@@ -144,6 +144,14 @@
   .fa-btn-add{width:auto !important;padding:7px 12px !important;font-size:12px !important;margin-top:2px !important;}
   @media (max-width:620px){ .fa-condicao{grid-template-columns:1fr 1fr;} .fa-condicao button{grid-column:span 2;width:100%;} }
 
+  /* cadastro de Movimentações (Nova movimentação) no celular: cabeçalho e
+     campos do item viram 1 por linha — lado a lado (3 no cabeçalho, vários
+     encolhidos no item) ficava apertado demais pra tocar/digitar */
+  @media (max-width:620px){
+    #movm_camposHeader .row3{grid-template-columns:1fr;}
+    #movm_itensLista .field{flex:1 1 100% !important;min-width:0 !important;}
+  }
+
   .preview{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px;}
   .preview .stat{flex:1;min-width:110px;background:var(--panel-2);border-radius:10px;padding:10px 12px;border:1px solid var(--line);}
   .preview .stat .k{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
