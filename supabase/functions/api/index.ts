@@ -4442,6 +4442,26 @@ function ehCampoCombo(campo: string): { nome: string; partes: string[] } | null 
   }).filter(Boolean);
   return partes.length ? { nome: m[1].trim(), partes } : null;
 }
+// um campo (comum ou combinado) pode vir marcado como "oculto" com o
+// prefixo "!" ("!CAMPO" ou "!NOME=A+B+..."): continua sendo buscado e
+// combinado normalmente (serve de ingrediente de combo e ainda entra no
+// filtro de busca por texto), só não entra em camposExibicao — ou seja,
+// não aparece no card da busca nem é capturado como extra pro "Imprimir"
+function ehCampoOculto(campo: string): boolean {
+  return campo.trim().startsWith('!');
+}
+function semMarcaOculto(campo: string): string {
+  return campo.trim().replace(/^!\s*/, '');
+}
+// nome que o campo (já sem o "!") usa em camposExibicao: o nome do combo,
+// se for um campo combinado, senão o próprio campo sem a qualificação
+// "DataServer." (mesma regra que já existia pra exibição/extras)
+function nomeExibicaoCampo(campoSemOculto: string): string {
+  const combo = ehCampoCombo(campoSemOculto);
+  if (combo) return combo.nome;
+  const i = campoSemOculto.lastIndexOf('.');
+  return i === -1 ? campoSemOculto : campoSemOculto.slice(i + 1);
+}
 function combinarValorCampo(linha: Record<string, string>, partes: string[]): string {
   const valores = partes.map((p) => linha[p]).filter((v) => v !== undefined && v !== null && v !== '');
   if (!valores.length) return '';
@@ -4510,16 +4530,22 @@ async function acaoBuscarRmLista(req: any) {
   // campos como último recurso, senão a busca ficaria sem filtro nenhum
   // campo combinado (NOME=A+B+...) nunca é uma coluna de verdade — nunca
   // entra no filtro SQL, só fica disponível pra exibição/extras (calculado
-  // depois, já com a linha inteira em mãos)
-  const semCombos = (campos: string[]) => campos.filter((c) => !ehCampoCombo(c));
+  // depois, já com a linha inteira em mãos). Antes de mais nada, tira o
+  // "!" (campo "oculto") de cada campo — o resto do código (filtro, combo)
+  // trabalha só com o campo de verdade; o "!" só volta a importar no fim,
+  // pra tirar o nome de dentro de camposExibicao
+  const gruposNormalizados = linhasMesmoDataServer.map(([, cfg]) => cfg.campos.map((c) => ({ oculto: ehCampoOculto(c), valor: semMarcaOculto(c) })));
+  const semCombos = (itens: { oculto: boolean; valor: string }[]) => itens.filter((it) => !ehCampoCombo(it.valor));
   const combosDoGrupo = [...new Map(
-    linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.map(ehCampoCombo).filter((c): c is { nome: string; partes: string[] } => !!c))
+    gruposNormalizados.flatMap((itens) => itens.map((it) => ehCampoCombo(it.valor)).filter((c): c is { nome: string; partes: string[] } => !!c))
       .map((c) => [c.nome, c] as const),
   ).values()];
-  const camposFiltroPorNome = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.length > 1 ? semCombos(cfg.campos.slice(1)) : []))];
-  const camposExibicaoBruto = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => semCombos(cfg.campos)))];
+  const camposFiltroPorNome = [...new Set(gruposNormalizados.flatMap((itens) => itens.length > 1 ? semCombos(itens.slice(1)).map((it) => it.valor) : []))];
+  const camposExibicaoBrutoItens = gruposNormalizados.flatMap((itens) => semCombos(itens));
+  const camposExibicaoBruto = [...new Set(camposExibicaoBrutoItens.map((it) => it.valor))];
   const camposFiltro = camposFiltroPorNome.length ? camposFiltroPorNome : camposExibicaoBruto;
-  const camposExibicao = [...new Set(camposExibicaoBruto.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }).concat(combosDoGrupo.map((c) => c.nome)))];
+  const camposOcultosNomes = new Set(gruposNormalizados.flatMap((itens) => itens.filter((it) => it.oculto).map((it) => nomeExibicaoCampo(it.valor))));
+  const camposExibicao = [...new Set(camposExibicaoBruto.map(nomeExibicaoCampo).concat(combosDoGrupo.map((c) => c.nome)))].filter((nome) => !camposOcultosNomes.has(nome));
   // condição fixa opcional (ex: "INATIVO = 0") — soma com AND em cima da
   // busca por texto; se mais de uma linha do grupo tiver filtro extra
   // diferente, todas entram (AND entre elas também)
@@ -4656,9 +4682,12 @@ async function acaoBuscarConsultaSqlLista(req: any) {
       for (const chave of Object.keys(l || {})) obj[chave] = String(l[chave]);
       return obj;
     });
-    const combos = configPrincipal.campos.map(ehCampoCombo).filter((c): c is { nome: string; partes: string[] } => !!c);
+    const camposNormalizados = configPrincipal.campos.map((c) => ({ oculto: ehCampoOculto(c), valor: semMarcaOculto(c) }));
+    const combos = camposNormalizados.map((it) => ehCampoCombo(it.valor)).filter((c): c is { nome: string; partes: string[] } => !!c);
     const linhas = aplicarCombosNasLinhas(linhasBase, combos);
-    const camposExibicao = configPrincipal.campos.filter((c) => !ehCampoCombo(c)).concat(combos.map((c) => c.nome));
+    const camposOcultosNomes = new Set(camposNormalizados.filter((it) => it.oculto).map((it) => nomeExibicaoCampo(it.valor)));
+    const camposExibicao = camposNormalizados.filter((it) => !ehCampoCombo(it.valor)).map((it) => it.valor).concat(combos.map((c) => c.nome))
+      .filter((nome) => !camposOcultosNomes.has(nome));
     return { ok: true, linhas, camposExibicao, xmlBruto: texto };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
