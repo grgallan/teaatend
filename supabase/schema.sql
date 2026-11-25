@@ -1529,6 +1529,12 @@ alter table rm_tipos_movimento add column if not exists consultas_sql text defau
 -- (1 token por linha, extras soltos no fim) — ver imprimirRmMovimentacao no
 -- app.js, que é quem lê e aplica esse layout (o backend só guarda o texto)
 alter table rm_tipos_movimento add column if not exists layout_impressao text default '';
+-- mesma ideia da coluna acima, só que pras COLUNAS da tabela "Produtos" (os
+-- campos de ITEM, não cabeçalho) do "Imprimir" — JSON (array plano de ids
+-- "token:NOME"/"extra:CAMPO", em vez de array de arrays: colunas de tabela
+-- já ficam lado a lado sozinhas, não precisa agrupar). Vazio/ausente cai no
+-- padrão (1 coluna por campo de item, na ordem do Json)
+alter table rm_tipos_movimento add column if not exists colunas_produtos text default '';
 -- busca no RM (ReadView via wsDataServer) pra preencher Fornecedor/Produto
 -- na tela de Movimentações em vez de digitar o código à mão — filtro tem
 -- {termo} no lugar do texto digitado na busca (mesma convenção de {token}
