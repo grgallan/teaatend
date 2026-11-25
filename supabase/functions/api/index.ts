@@ -4420,14 +4420,20 @@ async function acaoBuscarRmLista(req: any) {
   // todo token (cabeçalho OU item) que aponte pro mesmo Data Server é
   // preenchido de uma vez só, a partir da mesma linha escolhida
   const linhasMesmoDataServer = Object.entries(buscas).filter(([, cfg]) => cfg.dataServerName === dataServerName);
-  // os campos no cadastro podem vir qualificados ("DataServer.CAMPO") pra
-  // resolver "Ambiguous column name" quando a view junta tabelas com coluna
-  // de mesmo nome (ex: CODFILIAL) — opcional, só quando quem cadastrou
-  // escreveu assim; o filtro usa o campo literal (com ou sem qualificação),
-  // mas o nome puro (sem o "DataServer.") é o que casa com a tag do XML de
-  // retorno, então é isso que vai pro front pra exibir/preencher
-  const camposFiltro = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
-  const camposExibicao = [...new Set(camposFiltro.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }))];
+  // o 1º campo de cada linha é sempre um código/identificador (é ele que
+  // preenche o token) — na prática é também o campo mais provável de dar
+  // "Ambiguous column name"/"multi-part identifier could not be bound" no
+  // filtro, porque é o tipo de coluna repetida entre as tabelas que a view
+  // do RM junta (CODFILIAL, CODCFO já confirmaram isso em teste real).
+  // Tentar qualificar com o nome do Data Server não resolve (RM não
+  // reconhece como alias de tabela), e não dá pra descobrir o alias certo
+  // sem acesso ao RM — então o filtro de busca simplesmente não usa esse
+  // 1º campo, só os campos de nome/descrição que vêm depois dele. Pra
+  // exibir e preencher o token continua usando a linha toda (código
+  // incluído), só o WHERE da consulta é que fica sem ele
+  const camposFiltro = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.length > 1 ? cfg.campos.slice(1) : cfg.campos))];
+  const camposExibicaoBruto = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
+  const camposExibicao = [...new Set(camposExibicaoBruto.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }))];
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
   const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
   if (!cliente || !cliente.rm_url) return { ok: false, erro: 'O cliente desse tipo de movimentação ainda não tem a URL do RM configurada (Cadastros → Clientes).' };
