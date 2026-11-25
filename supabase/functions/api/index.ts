@@ -4447,7 +4447,17 @@ async function acaoBuscarRmLista(req: any) {
       return { ok: false, erro: `O RM não devolveu a tag ReadViewResult esperada. ${debug}\n\nResposta bruta (início): ${texto.slice(0, 800)}` };
     }
     const resultado = resultadoAberto ?? '';
-    const linhas = resultado ? extrairLinhasDeViewXml(resultado) : [];
+    const todasLinhas = resultado ? extrairLinhasDeViewXml(resultado) : [];
+    // o ReadView devolve, junto das linhas de verdade, elementos de
+    // metadado da view (grupos/ícones pro combo nativo do RM — campos tipo
+    // ID/Image/Hint/Index, sem nada de negócio) — qualquer linha de tabela
+    // RM de verdade tem CODCOLIGADA, então usa isso como filtro genérico
+    // pra descartar esse lixo sem depender do nome exato da tag
+    const linhasDeTabela = todasLinhas.filter((l) => 'CODCOLIGADA' in l);
+    // também restringe à coligada do Contexto (ReadView não filtra isso
+    // sozinho — sem essa restrição vem fornecedor de TODAS as coligadas)
+    const coligadaContexto = /CODCOLIGADA\s*=\s*(-?\d+)/i.exec(contexto || '')?.[1];
+    const linhas = coligadaContexto ? linhasDeTabela.filter((l) => String(l.CODCOLIGADA) === coligadaContexto) : linhasDeTabela;
     return { ok: true, linhas, xmlBruto: resultado };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;

@@ -13217,6 +13217,23 @@ const CAMPOS_RM_PRODUTO = {
   codigo:['CODIGOPRD','CODPRD'], id:['IDPRD'], nome:['NOMEFANTASIA','DESCRICAO'],
   reduzido:['CODIGOREDUZIDO'], numFab:['NUMNOFABRIC'], fabricante:['CODFAB'],
 };
+// campos mostrados no resultado da busca — só os relevantes pra
+// identificar o registro certo, em vez de despejar todo campo que o RM
+// devolveu (a view tem campos técnicos tipo CODMUNICIPIO/IDPAIS que só
+// atrapalham)
+const CAMPOS_EXIBICAO_BUSCA = {
+  fornecedor: [
+    { rotulo:'Código', campos:['CODCFO'] },
+    { rotulo:'CNPJ', campos:['CGCCFO','CGC','CNPJCPF','CNPJ'] },
+    { rotulo:'Nome', campos:['NOME','RAZAOSOCIAL'] },
+    { rotulo:'Nome Fantasia', campos:['NOMEFANTASIA'] },
+  ],
+  produto: [
+    { rotulo:'Código', campos:['CODIGOPRD','CODPRD'] },
+    { rotulo:'Nome', campos:['NOMEFANTASIA','DESCRICAO'] },
+    { rotulo:'Cód. Reduzido', campos:['CODIGOREDUZIDO'] },
+  ],
+};
 function acharTokenPorPadrao(tokens, padroes){
   return tokens.find(t=>padroes.includes(t.toLowerCase()));
 }
@@ -13254,8 +13271,11 @@ function renderResultadosBuscaRm(linhas){
   const resEl = document.getElementById('buscaRmResultados');
   buscaRmLinhasAtual = linhas;
   if(!linhas.length){ resEl.innerHTML = '<div class="empty">Nenhum resultado.</div>'; return; }
+  const camposExibicao = CAMPOS_EXIBICAO_BUSCA[buscaRmAlvo] || [];
   resEl.innerHTML = linhas.map((linha,i)=>{
-    const campos = Object.keys(linha).slice(0,6).map(k=>`<b>${escaparHtml(k)}:</b> ${escaparHtml(String(linha[k]))}`).join(' &nbsp; ');
+    const campos = camposExibicao
+      .map(c=>{ const v = valorCampoRm(linha, c.campos); return v ? `<b>${escaparHtml(c.rotulo)}:</b> ${escaparHtml(String(v))}` : ''; })
+      .filter(Boolean).join(' &nbsp; ');
     return `<div class="card" style="margin:6px 0;padding:8px;cursor:pointer;" data-idx-busca-rm="${i}">${campos}</div>`;
   }).join('');
   resEl.querySelectorAll('[data-idx-busca-rm]').forEach(el=>{
