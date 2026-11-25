@@ -13547,10 +13547,11 @@ function renderListRmMovimentacoes(){
 // não dá pra arriscar um fixo, então destaca qualquer campo cujo nome tenha
 // "STATUS" e deixa todos os campos disponíveis pra conferir caso nenhum bata
 function renderStatusConsultadoBloco(consulta){
+  const blocoBruto = consulta.bruto ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver resposta bruta do RM</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(consulta.bruto)}</pre></details>` : '';
   if(consulta.erro){
-    return `<div style="margin-top:4px;color:var(--bad);font-size:11.5px;">Consultar Status: ${escaparHtml(consulta.erro)}</div>`;
+    return `<div style="margin-top:4px;color:var(--bad);font-size:11.5px;">Consultar Status: ${escaparHtml(consulta.erro)}${blocoBruto}</div>`;
   }
-  // ReadRecord devolve 1 "linha" por seção do XML de negócio (TMOV, TITMMOV,
+  // a resposta vem como 1 "linha" por seção do registro (TMOV, TITMMOV,
   // ...) — igual ao corpo que o Enviar RM manda; procura "STATUS" em todas
   const linhas = consulta.linhas||[];
   const camposStatus = [];
@@ -13561,11 +13562,12 @@ function renderStatusConsultadoBloco(consulta){
   return `<div style="margin-top:4px;font-size:11.5px;">
     <b>Status no RM:</b> ${escaparHtml(resumo)}
     <details style="margin-top:4px;"><summary style="cursor:pointer;color:var(--muted);font-size:11.5px;">Ver todos os campos devolvidos</summary><pre style="white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:var(--panel-2);padding:8px;border-radius:8px;margin-top:4px;">${escaparHtml(JSON.stringify(linhas, null, 2))}</pre></details>
+    ${blocoBruto}
   </div>`;
 }
 async function consultarStatusRmMovimentacao(id){
   const r = await api('consultarStatusRmMovimentacao', { contaId: contaAtual().id, id });
-  rmStatusConsultado[id] = r.ok ? { linhas: r.linhas } : { erro: r.erro || 'Falha ao consultar status no RM.' };
+  rmStatusConsultado[id] = r.ok ? { linhas: r.linhas, bruto: r.xmlBruto||'' } : { erro: r.erro || 'Falha ao consultar status no RM.', bruto: r.xmlBruto||'' };
   renderListRmMovimentacoes();
   toast(r.ok ? 'Status consultado no RM' : (r.erro || 'Falha ao consultar status no RM'));
 }

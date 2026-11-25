@@ -4391,6 +4391,27 @@ function extrairLinhasDeViewXml(xml: string): Record<string, string>[] {
       return obj;
     });
 }
+// mesma ideia de extrairLinhasDeViewXml, só que pro JSON que o
+// RMSRestDataServer devolve: qualquer objeto (ou item de array de objetos),
+// no nível que for, vira "1 linha" com seus campos simples (não-objeto)
+function extrairLinhasDeJson(no: any): Record<string, string>[] {
+  const linhas: Record<string, string>[] = [];
+  function visitar(valor: any) {
+    if (Array.isArray(valor)) { valor.forEach(visitar); return; }
+    if (valor && typeof valor === 'object') {
+      const linha: Record<string, string> = {};
+      let temCampoSimples = false;
+      for (const chave of Object.keys(valor)) {
+        const v = valor[chave];
+        if (v !== null && typeof v === 'object') visitar(v);
+        else { linha[chave] = String(v); temCampoSimples = true; }
+      }
+      if (temCampoSimples) linhas.push(linha);
+    }
+  }
+  visitar(no);
+  return linhas;
+}
 // o cadastro de Busca no RM é um texto com 1 linha por token, no formato
 // "{token} = DataServerName (CAMPO1, CAMPO2, ...) [FILTRO EXTRA]" — o 1º
 // campo da lista preenche o {token}, os demais só aparecem no resultado da
@@ -4618,19 +4639,14 @@ async function acaoEnviarRmMovimentacao(req: any) {
     clearTimeout(timeout);
   }
 }
-// consulta no RM o status atual do movimento já gravado. Usa ReadRecord (não
-// ReadView): ReadRecord busca por CHAVE PRIMÁRIA (FilterKey no mesmo formato
-// "coligada;idmov" que o SaveRecordResult devolve). NA PRÁTICA, pra Data
-// Servers do tipo "master-detail" (header + itens juntados numa visão só,
-// que é o que o Enviar RM precisa pra gravar tudo de uma vez via
-// SaveRecord), o RM monta o ReadRecord por trás internamente como um filtro
-// contra essa MESMA visão — então "Ambiguous column name CODCOLIGADA/IDMOV"
-// pode aparecer igualzinho ao do ReadView (confirmado em teste real): essas
-// 2 colunas existem em toda tabela envolvida no join, e isso é uma
-// característica da própria visão, não do nosso filtro — ReadRecord não
-// escapa disso sozinho. Por isso dá pra cadastrar um Data Server DIFERENTE
-// só pra essa consulta (status_data_server_name) — tipicamente um que lê só
-// a tabela master, sem o join de itens, e por isso não tem essa ambiguidade
+// consulta no RM o status atual do movimento já gravado. Não usa SOAP
+// (ReadView/ReadRecord) — ambos davam "Ambiguous column name
+// CODCOLIGADA/IDMOV" porque o Data Server do Enviar RM junta header+itens
+// numa visão só (necessário pro SaveRecord gravar tudo de uma vez), e essas
+// colunas existem em toda tabela do join. Em vez disso usa a API REST do RM
+// (RMSRestDataServer), que lê 1 registro pela chave composta direto na URL:
+// GET .../RMSRestDataServer/rest/{DataServerName}/{CODCOLIGADA}$_${IDMOV} —
+// outro mecanismo dentro do RM, sem esse problema de visão ambígua
 async function acaoConsultarStatusRmMovimentacao(req: any) {
   if (!(await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'))) return { ok: false, erro: 'Você não tem permissão para consultar status no RM.' };
   if (!req.id) return { ok: false, erro: 'Movimentação não informada.' };
@@ -4648,43 +4664,28 @@ async function acaoConsultarStatusRmMovimentacao(req: any) {
   try { senha = await decifrarRmSenha(tipo.senha_cifrada); } catch (_e) {
     return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
   }
-  const filterKey = `${mov.rm_coligada};${mov.rm_idmov}`;
+  // chave composta no formato que o endpoint REST espera: {COLIGADA}$_${IDMOV}
+  const chave = `${mov.rm_coligada}$_$${mov.rm_idmov}`;
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
-  const url = `${base}/wsDataServer/IwsDataServer`;
+  const url = `${base}/RMSRestDataServer/rest/${encodeURIComponent(dataServerName)}/${encodeURIComponent(chave)}`;
   const ctl = new AbortController();
   const timeout = setTimeout(() => ctl.abort(), 60000);
-  // dica mostrada junto de um erro de "Ambiguous column" — não repete o
-  // mesmo erro sem dar um próximo passo pro usuário tentar
-  const dicaAmbiguidade = ' (Isso costuma acontecer porque o Data Server acima junta header+itens numa visão só. Tente cadastrar um Data Server diferente, só de leitura da tabela master, no campo "Data Server pra Consultar Status (opcional)" em Movimentos → Parâmetros.)';
   try {
-    const { contexto, debug } = await resolverContextoSoap(url, tipo.usuario, senha, tipo.contexto_soap || '', ctl);
-    const envelope = `<?xml version="1.0" encoding="utf-8"?>\n<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:tns="http://www.totvs.com/"><soap:Body><tns:ReadRecord><tns:DataServerName>${escaparXml(dataServerName)}</tns:DataServerName><tns:FilterKey>${escaparXml(filterKey)}</tns:FilterKey><tns:Contexto>${escaparXml(contexto)}</tns:Contexto></tns:ReadRecord></soap:Body></soap:Envelope>`;
     const resp = await fetch(url, {
-      method: 'POST',
+      method: 'GET',
       headers: {
-        'Content-Type': 'text/xml; charset=utf-8',
-        SOAPAction: 'http://www.totvs.com/IwsDataServer/ReadRecord',
+        Accept: 'application/json',
         Authorization: 'Basic ' + btoa(`${tipo.usuario}:${senha}`),
       },
-      body: envelope,
       signal: ctl.signal,
     });
     const texto = await resp.text();
-    if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${(extrairTagSoap(texto, 'faultstring') || texto).slice(0, 500)} ${debug}` };
-    const faultstring = extrairTagSoap(texto, 'faultstring');
-    if (faultstring) {
-      const dica = /Ambiguous column name/i.test(faultstring) ? dicaAmbiguidade : '';
-      return { ok: false, erro: `O RM recusou a consulta: ${faultstring}${dica} ${debug}` };
-    }
-    const resultadoAberto = extrairTagSoap(texto, 'ReadRecordResult');
-    const resultadoAutoFechado = /<(?:[A-Za-z0-9_]+:)?ReadRecordResult\b[^>]*\/>/.test(texto);
-    if (resultadoAberto === null && !resultadoAutoFechado) {
-      return { ok: false, erro: `O RM não devolveu a tag ReadRecordResult esperada. ${debug}\n\nResposta bruta (início): ${texto.slice(0, 800)}` };
-    }
-    const resultado = resultadoAberto ?? '';
-    const linhas = resultado ? extrairLinhasDeViewXml(resultado) : [];
-    if (!linhas.length) return { ok: false, erro: `O RM não encontrou nenhum movimento com Coligada ${mov.rm_coligada} / IDMOV ${mov.rm_idmov}.`, xmlBruto: resultado };
-    return { ok: true, linhas, xmlBruto: resultado };
+    if (resp.status === 404) return { ok: false, erro: `O RM não encontrou nenhum movimento com Coligada ${mov.rm_coligada} / IDMOV ${mov.rm_idmov} nesse Data Server.`, xmlBruto: texto };
+    if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${texto.slice(0, 800)}`, xmlBruto: texto };
+    let linhas: Record<string, string>[] = [];
+    try { linhas = extrairLinhasDeJson(JSON.parse(texto)); } catch (_e) { linhas = extrairLinhasDeViewXml(texto); }
+    if (!linhas.length) return { ok: false, erro: `O RM devolveu uma resposta vazia pra Coligada ${mov.rm_coligada} / IDMOV ${mov.rm_idmov}.`, xmlBruto: texto };
+    return { ok: true, linhas, xmlBruto: texto };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
     return { ok: false, erro: msg };
