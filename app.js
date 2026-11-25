@@ -13286,6 +13286,8 @@ function abrirBuscaRm(token, onSelecionar){
   document.getElementById('buscaRmTermo').value = '';
   document.getElementById('buscaRmResultados').innerHTML = '';
   document.getElementById('buscaRmErro').textContent = '';
+  document.getElementById('buscaRmXmlBlock').style.display = 'none';
+  document.getElementById('buscaRmXmlBruto').textContent = '';
   document.getElementById('buscaRmModal').classList.add('show');
   document.getElementById('buscaRmTermo').focus();
 }
@@ -13301,6 +13303,16 @@ async function executarBuscaRm(){
   erroEl.textContent = '';
   resEl.innerHTML = '<div class="empty">Buscando...</div>';
   const r = await api('buscarRmLista', { contaId: contaAtual().id, tipoMovimentoId: movmTipoAtual.tipo.id, token: buscaRmToken, termo });
+  // sempre mostra o XML bruto (não só no erro) — é o jeito de descobrir o
+  // nome certo de um campo que o RM devolve mas ainda não tá mapeado em
+  // nenhum token (ex: "Unidade de Controle" do produto)
+  const xmlBlock = document.getElementById('buscaRmXmlBlock');
+  if(r.xmlBruto){
+    document.getElementById('buscaRmXmlBruto').textContent = r.xmlBruto;
+    xmlBlock.style.display = '';
+  } else {
+    xmlBlock.style.display = 'none';
+  }
   if(!r.ok){ resEl.innerHTML=''; erroEl.textContent = r.erro || 'Erro ao buscar no RM.'; return; }
   buscaRmCamposExibicaoAtual = r.camposExibicao||[];
   renderResultadosBuscaRm(r.linhas||[]);
