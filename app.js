@@ -8418,6 +8418,7 @@ function editarCliente(id){
   document.getElementById('cl_tipo').value = c.tipo || 'CLIENTE';
   document.getElementById('cl_cnpj').value = c.cnpj || '';
   document.getElementById('cl_nome_fantasia').value = c.nomeFantasia || '';
+  document.getElementById('cl_endereco').value = c.endereco || '';
   document.getElementById('cl_meta_mensal').value = c.metaMensal ? c.metaMensal : '';
   if(empresas.length > 0) document.getElementById('cl_empresa').value = c.empresaId || (empresaAtual ? empresaAtual.id : '');
   document.getElementById('cl_rm_url').value = c.rmUrl || '';
@@ -8437,6 +8438,7 @@ function cancelarEdicaoCliente(){
   document.getElementById('cl_tipo').value = 'CLIENTE';
   document.getElementById('cl_cnpj').value = '';
   document.getElementById('cl_nome_fantasia').value = '';
+  document.getElementById('cl_endereco').value = '';
   document.getElementById('cl_meta_mensal').value = '';
   if(empresas.length > 0) document.getElementById('cl_empresa').value = empresaAtual ? empresaAtual.id : '';
   document.getElementById('cl_rm_url').value = '';
@@ -13163,6 +13165,12 @@ async function removerRmTipoMovimento(id){
 let editandoRmMovimentacaoId = null;
 let movmItens = []; // cada item é {token: valor, ...} — uma linha de produto/serviço
 let movmTipoAtual = null; // {tipo, headerTokens, itemTokens} do tipo selecionado agora
+// campos extras do cabeçalho, capturados de graça ao escolher um resultado
+// de busca (Busca no RM/Consulta SQL) que não preenchem nenhum token — só
+// usados no "Imprimir" (ver camposExtrasDaLinha); persistidos dentro de
+// valoresHeader.__extras ao salvar, igual item.__extras já fica dentro do
+// próprio item
+let movmHeaderExtras = {};
 // resultado da última "Consultar Status" por movimentação (id -> {linha, xmlBruto} | {erro, xmlBruto})
 // — só em memória, não persiste no banco, é só uma consulta pontual no RM
 let rmStatusConsultado = {};
@@ -13441,6 +13449,17 @@ function buscaConfiguradaParaToken(tipo, tokensEscopo, token){
   if(mapaConsultas[token]) return { kind:'sql', alvos: tokensMesmaConsultaSql(mapaConsultas, tokensEscopo, token) };
   return null;
 }
+// campos da linha escolhida que NÃO preenchem nenhum token ligado (ex: CNPJ,
+// ENDERECO, DESCRICAO, APRESENTACAO, FABRICANTE, REGISTRO ANVISA) — guardados
+// à parte ("extras") só pra uso no "Imprimir", já que não tem token/Json
+// Template pra eles. Vêm de graça do dataserver, no mesmo resultado que já
+// preenche o(s) token(s) ligados — sem precisar buscar de novo
+function camposExtrasDaLinha(linha, alvos){
+  const usados = new Set(alvos.map(a=>a.campo));
+  const extras = {};
+  Object.keys(linha).forEach(c=>{ if(!usados.has(c)) extras[c] = linha[c]; });
+  return extras;
+}
 function abrirBuscaCampoHeader(token){
   if(!movmTipoAtual) return;
   const busca = buscaConfiguradaParaToken(movmTipoAtual.tipo, movmTipoAtual.headerTokens, token);
@@ -13450,6 +13469,7 @@ function abrirBuscaCampoHeader(token){
       const inp = document.querySelector(`#movm_camposHeader [data-token="${tk}"]`);
       if(inp) inp.value = linha[campo] ?? '';
     });
+    Object.assign(movmHeaderExtras, camposExtrasDaLinha(linha, busca.alvos));
   }, busca.kind);
 }
 function abrirBuscaCampoItem(token, i){
@@ -13461,6 +13481,8 @@ function abrirBuscaCampoItem(token, i){
       const inp = document.querySelector(`#movm_itensLista [data-item-idx="${i}"][data-token="${tk}"]`);
       if(inp) inp.value = linha[campo] ?? '';
     });
+    if(!movmItens[i]) movmItens[i] = {};
+    movmItens[i].__extras = { ...(movmItens[i].__extras||{}), ...camposExtrasDaLinha(linha, busca.alvos) };
   }, busca.kind);
 }
 // convenção de nomes de token pra reconhecer automaticamente campos com
@@ -13690,6 +13712,7 @@ function renderListRmMovimentacoes(){
     </div>
     <div class="acts">
       <button class="ghost" onclick="editarRmMovimentacao('${m.id}')">Editar</button>
+      <button class="ghost" onclick="imprimirRmMovimentacao('${m.id}')">🖨️ Imprimir</button>
       ${m.status!=='enviada' ? `<button class="primary" onclick="pedirConfirmacao('Enviar pro RM?','Isso grava de verdade no RM — confira os dados antes.', ()=>enviarRmMovimentacao('${m.id}'), 'Enviar RM')">Enviar RM</button>` : ''}
       ${m.status==='enviada' && m.rmColigada ? `<button class="ghost" onclick="consultarStatusRmMovimentacao('${m.id}')">Consultar Status</button>` : ''}
       ${m.status!=='enviada' ? `<button class="danger" onclick="pedirConfirmacao('Remover movimentação?','Isso remove só o rascunho — se já foi enviada, não desfaz nada no RM.', ()=>removerRmMovimentacao('${m.id}'))">Remover</button>` : ''}
@@ -13724,10 +13747,129 @@ async function consultarStatusRmMovimentacao(id){
   renderListRmMovimentacoes();
   toast(r.ok ? 'Status consultado no RM' : (r.erro || 'Falha ao consultar status no RM'));
 }
+function formatarDataBr(iso){
+  if(!iso) return '';
+  try{ return new Date(iso).toLocaleDateString('pt-BR'); }catch(e){ return String(iso); }
+}
+function formatarMoeda(v){
+  const n = Number(v);
+  if(Number.isNaN(n)) return escaparHtml(String(v));
+  return n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+// "Imprimir": abre um documento pronto pra impressão/PDF numa aba nova (o
+// botão "Imprimir/Salvar PDF" ali chama window.print() — "salvar como PDF"
+// é a própria impressora do navegador, sem precisar de nenhuma lib). Layout
+// único, genérico pra qualquer tipo de movimentação: "Dados" = todo token de
+// cabeçalho (exceto valor bruto e texto longo, que ganham seção própria),
+// "Produtos" = todo token de item, mais uma linha itálica com os campos
+// extras capturados de graça numa busca (CNPJ, Apresentação, Fabricante,
+// Registro ANVISA etc. — ver abrirBuscaCampoHeader/Item + camposExtrasDaLinha).
+// O emitente (letterhead/rodapé) é o cliente cadastrado no tipo de
+// movimentação (Cadastros → Clientes, campo Endereço). Tudo dentro de um
+// <div contenteditable> só, pra poder ajustar o texto antes de imprimir
+function imprimirRmMovimentacao(id){
+  const m = rmMovimentacoes.find(x=>String(x.id)===String(id));
+  if(!m){ toast('Movimentação não encontrada.'); return; }
+  const tipo = rmTiposMovimento.find(x=>String(x.id)===String(m.tipoMovimentoId));
+  if(!tipo){ toast('Tipo de movimentação não encontrado.'); return; }
+  const r = tokensDoTipoMovimento(tipo);
+  if(!r.ok){ toast(r.erro); return; }
+  const cliente = clientes.find(x=>String(x.id)===String(tipo.clienteId));
+  const valores = m.valoresHeader||{};
+  const extrasHeader = valores.__extras||{};
+  const tokenValorBruto = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_VALOR_BRUTO);
+  const tokensObservacao = r.headerTokens.filter(ehCampoTextoLongo);
+  const tokensComuns = r.headerTokens.filter(tk=>tk!==tokenValorBruto && !tokensObservacao.includes(tk));
+
+  const campoHtml = (label,valor)=> (valor===undefined||valor===null||valor==='') ? '' : `<div class="campo"><label>${escaparHtml(label)}</label><div>${escaparHtml(String(valor))}</div></div>`;
+  const dadosHtml = tokensComuns.map(tk=>campoHtml(labelToken(tk), valores[tk])).join('')
+    + Object.keys(extrasHeader).map(c=>campoHtml(c, extrasHeader[c])).join('');
+
+  const itens = m.itens||[];
+  const produtosHtml = !itens.length ? '' : `
+    <h3 class="secao">Produtos</h3>
+    <table>
+      <thead><tr>${r.itemTokens.map(tk=>`<th>${escaparHtml(labelToken(tk))}</th>`).join('')}</tr></thead>
+      <tbody>${itens.map(item=>{
+        const cols = r.itemTokens.map(tk=>`<td>${escaparHtml(String(item[tk]??''))}</td>`).join('');
+        const ex = item.__extras||{};
+        const extraTxt = Object.keys(ex).filter(k=>ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
+        return `<tr>${cols}</tr>${extraTxt ? `<tr class="extra-linha"><td colspan="${r.itemTokens.length}">${extraTxt}</td></tr>` : ''}`;
+      }).join('')}</tbody>
+    </table>`;
+
+  const resumoHtml = (tokenValorBruto && valores[tokenValorBruto]) ? `
+    <h3 class="secao">Resumo financeiro</h3>
+    <div class="linha total"><span>${escaparHtml(labelToken(tokenValorBruto))}</span><span>R$ ${formatarMoeda(valores[tokenValorBruto])}</span></div>` : '';
+
+  const observacoesTexto = tokensObservacao.map(tk=>valores[tk]).filter(Boolean).join('\n\n');
+  const observacoesHtml = observacoesTexto ? `<h3 class="secao">Observações</h3><div class="observacoes">${escaparHtml(observacoesTexto)}</div>` : '';
+
+  const emitenteNome = cliente ? cliente.nome : '';
+  const emitenteLinha2 = cliente ? [cliente.endereco, cliente.cnpj ? ('CNPJ ' + cliente.cnpj) : ''].filter(Boolean).join(' · ') : '';
+  const numero = m.rmIdmov ? `IDMOV ${m.rmIdmov}${m.rmColigada ? ' / Coligada ' + m.rmColigada : ''}` : `Rascunho ${m.id}`;
+
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escaparHtml(tipo.nome)}</title>
+<style>
+  *{box-sizing:border-box;}
+  body{font-family:Arial,Helvetica,sans-serif;color:#1a1a2e;margin:0;background:#f4f5f7;}
+  .pagina{max-width:860px;margin:0 auto;background:#fff;padding:36px 40px;}
+  .barra{max-width:860px;margin:0 auto;padding:12px 40px;display:flex;gap:8px;justify-content:flex-end;background:#f4f5f7;}
+  .barra button{padding:9px 18px;border-radius:9px;border:1.5px solid #0f766e;font-weight:700;font-size:13px;cursor:pointer;}
+  .barra .principal{background:#0f766e;color:#fff;}
+  .barra .secundario{background:#fff;color:#0f766e;}
+  .topo{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f766e;padding-bottom:14px;margin-bottom:18px;gap:20px;}
+  .marca{font-size:19px;font-weight:800;color:#0f766e;}
+  .emitente-linha{font-size:11px;color:#666;margin-top:3px;max-width:440px;}
+  .titulo{text-align:right;white-space:nowrap;}
+  .titulo b{font-size:14px;letter-spacing:.04em;text-transform:uppercase;}
+  .titulo div{font-size:11px;color:#666;margin-top:3px;}
+  h3.secao{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:#888;border-bottom:1px solid #e2e2e2;padding-bottom:5px;margin:20px 0 10px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;}
+  .campo{margin-bottom:8px;}
+  .campo label{display:block;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.03em;margin-bottom:1px;}
+  .campo div{font-size:13px;}
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:#888;border-bottom:1.5px solid #ccc;padding:6px 8px;}
+  td{padding:7px 8px;font-size:12.5px;border-bottom:1px solid #eee;vertical-align:top;}
+  .extra-linha td{font-size:11px;color:#666;font-style:italic;border-bottom:1px solid #eee;padding:0 8px 8px;}
+  .linha.total{display:flex;justify-content:space-between;font-weight:700;font-size:14px;padding:6px 0;}
+  .observacoes{white-space:pre-wrap;font-size:12.5px;}
+  .rodape{margin-top:30px;border-top:1px solid #ccc;padding-top:10px;text-align:center;font-size:10px;color:#999;}
+  [contenteditable]:hover{outline:1px dashed #0f766e66;outline-offset:2px;}
+  [contenteditable]:focus{outline:1px solid #0f766e;outline-offset:2px;}
+  @media print{ .barra{display:none;} body{background:#fff;} .pagina{box-shadow:none;max-width:none;padding:0;} }
+</style></head>
+<body>
+  <div class="barra">
+    <button class="secundario" type="button" onclick="window.close()">Fechar</button>
+    <button class="principal" type="button" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>
+  </div>
+  <div class="pagina" contenteditable="true" spellcheck="false">
+    <div class="topo">
+      <div><div class="marca">${escaparHtml(emitenteNome)}</div><div class="emitente-linha">${escaparHtml(emitenteLinha2)}</div></div>
+      <div class="titulo"><b>${escaparHtml(tipo.nome)}</b><div>Nº ${escaparHtml(numero)}</div><div>Emitida em ${escaparHtml(formatarDataBr(m.criadoEm))}</div></div>
+    </div>
+    <h3 class="secao">Dados</h3>
+    <div class="grid2">${dadosHtml}</div>
+    ${produtosHtml}
+    ${resumoHtml}
+    ${observacoesHtml}
+    <div class="rodape">${escaparHtml(emitenteNome)}${emitenteLinha2 ? ' — ' + escaparHtml(emitenteLinha2) : ''}</div>
+  </div>
+</body></html>`;
+
+  const janela = window.open('', '_blank');
+  if(!janela){ toast('Seu navegador bloqueou a nova aba — permita pop-ups pra imprimir.'); return; }
+  janela.document.write(html);
+  janela.document.close();
+}
 function editarRmMovimentacao(id){
   const m = rmMovimentacoes.find(x=>String(x.id)===String(id));
   if(!m) return;
   editandoRmMovimentacaoId = id;
+  movmHeaderExtras = (m.valoresHeader && m.valoresHeader.__extras) ? { ...m.valoresHeader.__extras } : {};
   popularSelectMovmTipo(m.tipoMovimentoId);
   montarFormularioMovimentacao(m.tipoMovimentoId, m.valoresHeader);
   movmItens = (m.itens||[]).map(it=>({...it}));
@@ -13743,6 +13885,7 @@ function editarRmMovimentacao(id){
 function cancelarEdicaoRmMovimentacao(){
   editandoRmMovimentacaoId = null;
   movmItens = [];
+  movmHeaderExtras = {};
   movmTipoAtual = null;
   popularSelectMovmTipo('');
   document.getElementById('movm_camposHeader').innerHTML = '';
@@ -20426,6 +20569,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('movm_tipo').addEventListener('change', e=>{
     editandoRmMovimentacaoId = null;
     movmItens = [];
+    movmHeaderExtras = {};
     montarFormularioMovimentacao(e.target.value, null);
   });
   document.getElementById('btnMovmAddItem').addEventListener('click', ()=>{
@@ -20437,6 +20581,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const tipoMovimentoId = document.getElementById('movm_tipo').value;
     if(!tipoMovimentoId){ toast('Escolha o tipo de movimentação'); return; }
     const valoresHeader = coletarValoresHeader();
+    // campos extras capturados de graça numa busca (CNPJ, ENDERECO,
+    // DESCRICAO, etc.) — sem token/Json Template próprio, só pro "Imprimir"
+    if(Object.keys(movmHeaderExtras).length) valoresHeader.__extras = movmHeaderExtras;
     const itens = coletarItens();
     const editando = !!editandoRmMovimentacaoId;
     const contaId = contaAtual().id;
@@ -22023,6 +22170,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const tipo = document.getElementById('cl_tipo').value;
     const cnpj = document.getElementById('cl_cnpj').value.trim();
     const nomeFantasia = document.getElementById('cl_nome_fantasia').value.trim();
+    const endereco = document.getElementById('cl_endereco').value.trim();
     const metaMensal = Number(document.getElementById('cl_meta_mensal').value) || 0;
     const empresaId = empresas.length > 0 ? document.getElementById('cl_empresa').value : (empresaAtual ? empresaAtual.id : '');
     const rmUrl = document.getElementById('cl_rm_url').value.trim();
@@ -22032,8 +22180,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const editando = !!editandoClienteId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha })
-      : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha });
+      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, endereco, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha })
+      : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, endereco, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo({ comAtendimentos: false }); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();

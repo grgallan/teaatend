@@ -277,7 +277,7 @@ function submoduloParaApi(s: any) {
 // criado, sempre volta CLIENTE (comportamento de antes de existir fornecedor)
 function clienteParaApi(c: any) {
   return {
-    id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0, tipo: c.tipo || 'CLIENTE',
+    id: c.id, nome: c.nome, cnpj: c.cnpj || '', nomeFantasia: c.nome_fantasia || '', endereco: c.endereco || '', empresaId: c.empresa_id || '', metaMensal: c.meta_mensal || 0, tipo: c.tipo || 'CLIENTE',
     // a senha em si NUNCA volta pro front (nem cifrada) — só se já tem uma
     // salva, pra tela decidir o texto do placeholder do campo
     rmUrl: c.rm_url || '', rmUsuario: c.rm_usuario || '', temSenhaRm: !!c.rm_senha_cifrada,
@@ -4070,7 +4070,7 @@ async function acaoAddCliente(req: any) {
   if (!(await podeAgir(req.contaId, 'cadastros.clientes', 'inserir'))) return { ok: false, erro: 'Você não tem permissão para cadastrar clientes.' };
   if (!req.empresaId) return { ok: false, erro: 'Escolha uma empresa antes de cadastrar um cliente.' };
   const registro: any = {
-    id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '',
+    id: gerarId(), nome: req.nome, cnpj: req.cnpj || '', nome_fantasia: req.nomeFantasia || '', endereco: req.endereco || '',
     meta_mensal: Number(req.metaMensal) || 0, empresa_id: req.empresaId,
     tipo: TIPOS_CLIENTE_VALIDOS.has(req.tipo) ? req.tipo : 'CLIENTE',
     rm_url: req.rmUrl || '', rm_usuario: req.rmUsuario || '',
@@ -4087,6 +4087,7 @@ async function acaoAtualizarCliente(req: any) {
   if (req.nome !== undefined) atualizado.nome = req.nome;
   if (req.cnpj !== undefined) atualizado.cnpj = req.cnpj;
   if (req.nomeFantasia !== undefined) atualizado.nome_fantasia = req.nomeFantasia;
+  if (req.endereco !== undefined) atualizado.endereco = req.endereco;
   if (req.metaMensal !== undefined) atualizado.meta_mensal = Number(req.metaMensal) || 0;
   if (req.empresaId) atualizado.empresa_id = req.empresaId;
   if (req.tipo !== undefined && TIPOS_CLIENTE_VALIDOS.has(req.tipo)) atualizado.tipo = req.tipo;
