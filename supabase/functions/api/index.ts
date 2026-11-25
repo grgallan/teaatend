@@ -4427,6 +4427,39 @@ function extrairLinhasDeJson(no: any): Record<string, string>[] {
 // soma (AND) com a busca por texto — é o equivalente ao campo "Filtro" livre
 // que existia na versão antiga, antes da simplificação pra Token/Data
 // Server/Campos
+// um "campo" da lista pode ser um campo combinado: "NOME=CAMPO_A+CAMPO_B+...".
+// Não existe como coluna de verdade — é calculado aqui a partir dos campos
+// reais que vieram na linha: se TODOS os valores não-vazios forem numéricos,
+// soma; senão, junta como texto (com espaço). Nunca entra no filtro SQL (não
+// é uma coluna de verdade pra filtrar), só na exibição/extras do "Imprimir"
+function ehCampoCombo(campo: string): { nome: string; partes: string[] } | null {
+  const m = /^([A-Za-z0-9_]+)\s*=\s*(.+)$/.exec(campo.trim());
+  if (!m) return null;
+  const partes = m[2].split('+').map((p) => {
+    const t = p.trim();
+    const i = t.lastIndexOf('.');
+    return i === -1 ? t : t.slice(i + 1);
+  }).filter(Boolean);
+  return partes.length ? { nome: m[1].trim(), partes } : null;
+}
+function combinarValorCampo(linha: Record<string, string>, partes: string[]): string {
+  const valores = partes.map((p) => linha[p]).filter((v) => v !== undefined && v !== null && v !== '');
+  if (!valores.length) return '';
+  const numeros = valores.map(Number);
+  if (numeros.every((n) => !Number.isNaN(n))) return String(numeros.reduce((a, b) => a + b, 0));
+  return valores.join(' ');
+}
+// acrescenta em cada linha o valor calculado de cada campo combinado —
+// usa os campos reais (já extraídos por extrairLinhasDeViewXml/da resposta
+// REST, que trazem TODA a linha, não só os configurados) pra calcular
+function aplicarCombosNasLinhas(linhas: Record<string, string>[], combos: { nome: string; partes: string[] }[]): Record<string, string>[] {
+  if (!combos.length) return linhas;
+  return linhas.map((l) => {
+    const extra: Record<string, string> = {};
+    for (const c of combos) extra[c.nome] = combinarValorCampo(l, c.partes);
+    return { ...l, ...extra };
+  });
+}
 function parsearBuscasRm(texto: string): Record<string, { dataServerName: string; campos: string[]; filtroExtra: string }> {
   const mapa: Record<string, { dataServerName: string; campos: string[]; filtroExtra: string }> = {};
   for (const linhaBruta of String(texto || '').split('\n')) {
@@ -4475,10 +4508,18 @@ async function acaoBuscarRmLista(req: any) {
   // campos a partir do 2º pra busca por texto. Se nenhuma linha do grupo
   // tiver 2+ campos (grupo só com linhas "de preenchimento"), usa todos os
   // campos como último recurso, senão a busca ficaria sem filtro nenhum
-  const camposFiltroPorNome = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.length > 1 ? cfg.campos.slice(1) : []))];
-  const camposExibicaoBruto = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
+  // campo combinado (NOME=A+B+...) nunca é uma coluna de verdade — nunca
+  // entra no filtro SQL, só fica disponível pra exibição/extras (calculado
+  // depois, já com a linha inteira em mãos)
+  const semCombos = (campos: string[]) => campos.filter((c) => !ehCampoCombo(c));
+  const combosDoGrupo = [...new Map(
+    linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.map(ehCampoCombo).filter((c): c is { nome: string; partes: string[] } => !!c))
+      .map((c) => [c.nome, c] as const),
+  ).values()];
+  const camposFiltroPorNome = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.length > 1 ? semCombos(cfg.campos.slice(1)) : []))];
+  const camposExibicaoBruto = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => semCombos(cfg.campos)))];
   const camposFiltro = camposFiltroPorNome.length ? camposFiltroPorNome : camposExibicaoBruto;
-  const camposExibicao = [...new Set(camposExibicaoBruto.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }))];
+  const camposExibicao = [...new Set(camposExibicaoBruto.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }).concat(combosDoGrupo.map((c) => c.nome)))];
   // condição fixa opcional (ex: "INATIVO = 0") — soma com AND em cima da
   // busca por texto; se mais de uma linha do grupo tiver filtro extra
   // diferente, todas entram (AND entre elas também)
@@ -4540,7 +4581,8 @@ async function acaoBuscarRmLista(req: any) {
     // também restringe à coligada do Contexto (ReadView não filtra isso
     // sozinho — sem essa restrição vem fornecedor de TODAS as coligadas)
     const coligadaContexto = /CODCOLIGADA\s*=\s*(-?\d+)/i.exec(contexto || '')?.[1];
-    const linhas = coligadaContexto ? linhasDeTabela.filter((l) => String(l.CODCOLIGADA) === coligadaContexto) : linhasDeTabela;
+    const linhasFiltradas = coligadaContexto ? linhasDeTabela.filter((l) => String(l.CODCOLIGADA) === coligadaContexto) : linhasDeTabela;
+    const linhas = aplicarCombosNasLinhas(linhasFiltradas, combosDoGrupo);
     return { ok: true, linhas, camposExibicao, xmlBruto: resultado };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
@@ -4609,12 +4651,15 @@ async function acaoBuscarConsultaSqlLista(req: any) {
     try { js = JSON.parse(texto); } catch (_e) { return { ok: false, erro: 'A resposta do RM não veio em JSON. Confira o endereço do serviço REST cadastrado pro cliente.', xmlBruto: texto }; }
     const linhasBrutas = Array.isArray(js) ? js : (js.data || js.items || js.value || []);
     if (!Array.isArray(linhasBrutas)) return { ok: false, erro: `A consulta "${relatorio.nome}" não retornou uma lista de linhas.`, xmlBruto: texto };
-    const linhas = linhasBrutas.map((l: any) => {
+    const linhasBase = linhasBrutas.map((l: any) => {
       const obj: Record<string, string> = {};
       for (const chave of Object.keys(l || {})) obj[chave] = String(l[chave]);
       return obj;
     });
-    return { ok: true, linhas, camposExibicao: configPrincipal.campos, xmlBruto: texto };
+    const combos = configPrincipal.campos.map(ehCampoCombo).filter((c): c is { nome: string; partes: string[] } => !!c);
+    const linhas = aplicarCombosNasLinhas(linhasBase, combos);
+    const camposExibicao = configPrincipal.campos.filter((c) => !ehCampoCombo(c)).concat(combos.map((c) => c.nome));
+    return { ok: true, linhas, camposExibicao, xmlBruto: texto };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
     return { ok: false, erro: msg };
