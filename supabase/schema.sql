@@ -33,6 +33,10 @@ create table if not exists clientes (
 -- cadastrado com o tomador de uma nota fiscal importada (por CNPJ)
 alter table clientes add column if not exists cnpj text;
 alter table clientes add column if not exists nome_fantasia text;
+-- endereço de quem emite a movimentação impressa (letterhead/rodapé do PDF
+-- de "Imprimir" em Movimentações) — não é o endereço de entrega, é o do
+-- próprio cliente cadastrado aqui
+alter table clientes add column if not exists endereco text default '';
 
 create table if not exists tipos (
   id text primary key,
