@@ -4427,12 +4427,17 @@ async function acaoBuscarRmLista(req: any) {
   // do RM junta (CODFILIAL, CODCFO já confirmaram isso em teste real).
   // Tentar qualificar com o nome do Data Server não resolve (RM não
   // reconhece como alias de tabela), e não dá pra descobrir o alias certo
-  // sem acesso ao RM — então o filtro de busca simplesmente não usa esse
-  // 1º campo, só os campos de nome/descrição que vêm depois dele. Pra
-  // exibir e preencher o token continua usando a linha toda (código
-  // incluído), só o WHERE da consulta é que fica sem ele
-  const camposFiltro = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.length > 1 ? cfg.campos.slice(1) : cfg.campos))];
+  // sem acesso ao RM — então o filtro de busca nunca usa o 1º campo de
+  // nenhuma linha. Linhas com um único campo (ex: "produtoId = EstPrdDataBR
+  // (IDPRD)", só pra preencher mais um token junto na mesma escolha) não
+  // contribuem NADA pro filtro — senão o próprio IDPRD/CODIGOREDUZIDO/etc
+  // voltaria a dar ambiguidade; só linhas com 2+ campos emprestam os
+  // campos a partir do 2º pra busca por texto. Se nenhuma linha do grupo
+  // tiver 2+ campos (grupo só com linhas "de preenchimento"), usa todos os
+  // campos como último recurso, senão a busca ficaria sem filtro nenhum
+  const camposFiltroPorNome = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos.length > 1 ? cfg.campos.slice(1) : []))];
   const camposExibicaoBruto = [...new Set(linhasMesmoDataServer.flatMap(([, cfg]) => cfg.campos))];
+  const camposFiltro = camposFiltroPorNome.length ? camposFiltroPorNome : camposExibicaoBruto;
   const camposExibicao = [...new Set(camposExibicaoBruto.map((c) => { const i = c.lastIndexOf('.'); return i === -1 ? c : c.slice(i + 1); }))];
   if (!tipo.usuario || !tipo.senha_cifrada) return { ok: false, erro: 'Esse tipo de movimentação ainda não tem usuário/senha de escrita cadastrados (Movimentos → Parâmetros).' };
   const { data: cliente } = await db.from('clientes').select('rm_url').eq('id', tipo.cliente_id).maybeSingle();
