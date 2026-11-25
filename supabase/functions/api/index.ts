@@ -298,6 +298,7 @@ function rmTipoMovimentoParaApi(r: any) {
     itensArrayKeys: r.itens_array_keys || '', dataServerName: r.data_server_name || '',
     xmlRaiz: r.xml_raiz || '', contextoSoap: r.contexto_soap || '',
     buscasRm: r.buscas_rm || '', statusDataServerName: r.status_data_server_name || '',
+    consultasSql: r.consultas_sql || '',
   };
 }
 function rmMovimentacaoParaApi(r: any) {
@@ -416,6 +417,7 @@ async function rotear(req: any): Promise<any> {
     case 'enviarRmMovimentacao': return acaoEnviarRmMovimentacao(req);
     case 'consultarStatusRmMovimentacao': return acaoConsultarStatusRmMovimentacao(req);
     case 'buscarRmLista': return acaoBuscarRmLista(req);
+    case 'buscarConsultaSqlLista': return acaoBuscarConsultaSqlLista(req);
     case 'executarRmRelatorioGerencial': return acaoExecutarRmRelatorioGerencial(req);
     case 'salvarRmPainelLayout': return acaoSalvarRmPainelLayout(req);
     case 'addRmPainel': return acaoAddRmPainel(req);
@@ -4153,6 +4155,7 @@ async function acaoAddRmTipoMovimento(req: any) {
     usuario: req.usuario || '', json_template: req.jsonTemplate || '', itens_array_keys: req.itensArrayKeys || '',
     data_server_name: req.dataServerName || '', xml_raiz: req.xmlRaiz || '', contexto_soap: req.contextoSoap || '',
     buscas_rm: req.buscasRm || '', status_data_server_name: req.statusDataServerName || '',
+    consultas_sql: req.consultasSql || '',
   };
   if (req.senha) registro.senha_cifrada = await cifrarRmSenha(req.senha);
   const { error } = await db.from('rm_tipos_movimento').insert(registro);
@@ -4174,6 +4177,7 @@ async function acaoAtualizarRmTipoMovimento(req: any) {
   if (req.contextoSoap !== undefined) atualizado.contexto_soap = req.contextoSoap;
   if (req.buscasRm !== undefined) atualizado.buscas_rm = req.buscasRm;
   if (req.statusDataServerName !== undefined) atualizado.status_data_server_name = req.statusDataServerName;
+  if (req.consultasSql !== undefined) atualizado.consultas_sql = req.consultasSql;
   // a senha só é regravada quando a tela manda uma nova (campo em branco =
   // "mantém a que já tá salva" — mesma regra da senha RM do cliente)
   if (req.senha) atualizado.senha_cifrada = await cifrarRmSenha(req.senha);
@@ -4537,6 +4541,79 @@ async function acaoBuscarRmLista(req: any) {
     const coligadaContexto = /CODCOLIGADA\s*=\s*(-?\d+)/i.exec(contexto || '')?.[1];
     const linhas = coligadaContexto ? linhasDeTabela.filter((l) => String(l.CODCOLIGADA) === coligadaContexto) : linhasDeTabela;
     return { ok: true, linhas, camposExibicao, xmlBruto: resultado };
+  } catch (e: any) {
+    const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
+    return { ok: false, erro: msg };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+// outra forma de preencher um {token}: em vez de buscar numa tabela via
+// ReadView (wsDataServer), roda uma consulta JÁ CADASTRADA em Relatórios
+// Gerenciais TOTVS RM (mesmo cliente do tipo de movimentação) — reaproveita
+// o mesmo mecanismo que o Dashboard já usa pra executar essas consultas
+// (RealizaConsulta via REST, com usuário/senha do CLIENTE, não do tipo de
+// movimentação). Formato de cada linha: "{token} = Nome Da Consulta
+// (CAMPO1, CAMPO2, ...) [nomeDoParametro]" — "Nome Da Consulta" é o campo
+// "nome" cadastrado em Relatórios Gerenciais (pode ter espaço); o [colchete]
+// opcional é o nome do parâmetro (dentro do "Parâmetros" dessa consulta) que
+// recebe o texto digitado na busca — sem ele, a consulta roda sem filtro
+function parsearConsultasSql(texto: string): Record<string, { consultaNome: string; campos: string[]; paramTermo: string }> {
+  const mapa: Record<string, { consultaNome: string; campos: string[]; paramTermo: string }> = {};
+  for (const linhaBruta of String(texto || '').split('\n')) {
+    const linha = linhaBruta.trim();
+    if (!linha) continue;
+    const m = /^\{?([A-Za-z0-9_]+)\}?\s*=\s*(.+?)\s*\(([^)]*)\)(?:\s*\[([^\]]*)\])?$/.exec(linha);
+    if (!m) continue;
+    const campos = m[3].split(',').map((c) => c.trim()).filter(Boolean);
+    if (campos.length) mapa[m[1]] = { consultaNome: m[2].trim(), campos, paramTermo: (m[4] || '').trim() };
+  }
+  return mapa;
+}
+async function acaoBuscarConsultaSqlLista(req: any) {
+  const podeBuscar = (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'inserir')) || (await podeAgir(req.contaId, 'movimentos.movimentacoes', 'editar'));
+  if (!podeBuscar) return { ok: false, erro: 'Você não tem permissão para buscar dados no RM.' };
+  if (!req.tipoMovimentoId) return { ok: false, erro: 'Tipo de movimentação não informado.' };
+  if (!req.token) return { ok: false, erro: 'Busca inválida.' };
+  const { data: tipo } = await db.from('rm_tipos_movimento').select('*').eq('id', req.tipoMovimentoId).maybeSingle();
+  if (!tipo) return { ok: false, erro: 'Tipo de movimentação não encontrado.' };
+  const consultas = parsearConsultasSql(tipo.consultas_sql || '');
+  const configPrincipal = consultas[req.token];
+  if (!configPrincipal) return { ok: false, erro: `O token {${req.token}} ainda não tem consulta SQL configurada (Movimentos → Parâmetros).` };
+  const { data: relatorio } = await db.from('rm_relatorios_gerenciais').select('*').eq('nome', configPrincipal.consultaNome).eq('cliente_id', tipo.cliente_id).maybeSingle();
+  if (!relatorio) return { ok: false, erro: `Não encontrei a consulta "${configPrincipal.consultaNome}" em Relatórios Gerenciais TOTVS RM pra esse cliente.` };
+  const { data: cliente } = await db.from('clientes').select('nome,rm_url,rm_usuario,rm_senha_cifrada').eq('id', tipo.cliente_id).maybeSingle();
+  if (!cliente || !cliente.rm_url || !cliente.rm_usuario || !cliente.rm_senha_cifrada) {
+    return { ok: false, erro: `O cliente ${cliente?.nome || ''} ainda não tem a conexão com o TOTVS RM configurada (Cadastros → Clientes).` };
+  }
+  let senha: string;
+  try { senha = await decifrarRmSenha(cliente.rm_senha_cifrada); } catch (_e) {
+    return { ok: false, erro: 'Não foi possível decifrar a senha salva do RM. Configure a senha de novo em Cadastros → Clientes.' };
+  }
+  const termo = String(req.termo || '').trim();
+  const valoresParametros = configPrincipal.paramTermo ? { [configPrincipal.paramTermo]: termo } : {};
+  const parametros = rmSubstituirParametros(relatorio.parametros || '', valoresParametros);
+  const url = rmUrlConsulta({ url: cliente.rm_url, sentenca: relatorio.codigo_sentenca, coligada: relatorio.coligada, sistema: relatorio.sistema, parametros });
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 60000);
+  try {
+    const resp = await fetch(url, {
+      headers: { Accept: 'application/json', Authorization: 'Basic ' + btoa(`${cliente.rm_usuario}:${senha}`) },
+      signal: ctl.signal,
+    });
+    const texto = await resp.text();
+    if (resp.status === 401 || resp.status === 403) return { ok: false, erro: `O RM recusou o acesso (HTTP ${resp.status}). Confira usuário, senha e a permissão na sentença, em Cadastros → Clientes.` };
+    if (!resp.ok) return { ok: false, erro: `O RM respondeu HTTP ${resp.status}. ${texto.slice(0, 500)}`, xmlBruto: texto };
+    let js: any;
+    try { js = JSON.parse(texto); } catch (_e) { return { ok: false, erro: 'A resposta do RM não veio em JSON. Confira o endereço do serviço REST cadastrado pro cliente.', xmlBruto: texto }; }
+    const linhasBrutas = Array.isArray(js) ? js : (js.data || js.items || js.value || []);
+    if (!Array.isArray(linhasBrutas)) return { ok: false, erro: `A consulta "${relatorio.nome}" não retornou uma lista de linhas.`, xmlBruto: texto };
+    const linhas = linhasBrutas.map((l: any) => {
+      const obj: Record<string, string> = {};
+      for (const chave of Object.keys(l || {})) obj[chave] = String(l[chave]);
+      return obj;
+    });
+    return { ok: true, linhas, camposExibicao: configPrincipal.campos, xmlBruto: texto };
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'O RM não respondeu em 1 minuto (timeout).' : `Não foi possível falar com o RM. ${e?.message || ''}`;
     return { ok: false, erro: msg };
