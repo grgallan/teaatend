@@ -1,0 +1,56 @@
+name: Sincronizar ControlMov
+
+# Sempre que index.html/app.js/manifest.json/sw.js/icons mudam na main,
+# copia esses arquivos pro repositório ControlMov (app separado, só do
+# módulo de Movimentos — ver controlmov/README.md nesse outro repo) e já
+# publica lá. Reaplica as pequenas diferenças de marca/escopo do ControlMov
+# por cima (scripts/sync-controlmov.js cuida disso) — nunca sobrescreve
+# com o conteúdo "puro" do teaatend.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app.js'
+      - 'index.html'
+      - 'manifest.json'
+      - 'sw.js'
+      - 'icons/**'
+      - 'scripts/sync-controlmov.js'
+      - '.github/workflows/sync-controlmov.yml'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout teaatend
+        uses: actions/checkout@v4
+        with:
+          path: teaatend
+
+      - name: Checkout ControlMov
+        uses: actions/checkout@v4
+        with:
+          repository: grgallan/ControlMov
+          path: controlmov
+          token: ${{ secrets.CONTROLMOV_SYNC_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Sincronizar arquivos
+        run: node teaatend/scripts/sync-controlmov.js teaatend controlmov
+
+      - name: Publicar no ControlMov (se algo mudou)
+        working-directory: controlmov
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nada mudou no ControlMov — nada pra publicar."
+          else
+            git commit -m "Sincroniza com teaatend@${{ github.sha }}"
+            git push
+          fi
