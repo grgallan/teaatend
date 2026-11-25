@@ -13547,6 +13547,20 @@ function montarFormularioMovimentacao(tipoId, valoresHeaderAtuais){
     if(ehCampoTextoLongo(tk)){
       return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><textarea data-token="${escaparHtml(tk)}" rows="3" style="width:100%;resize:vertical;font-family:inherit;">${escaparHtml(valor)}</textarea>${botaoBusca}</div></div>`;
     }
+    // o valor salvo continua sendo o ISO completo (formato que o RM espera:
+    // "YYYY-MM-DDTHH:mm:ss") — só a TELA usa um seletor nativo de data/hora
+    // em vez de texto solto; coletarValoresHeader reconstrói o ISO de volta
+    if(tk===tokenDataEmissao){
+      const dataNativa = valor.slice(0,10);
+      return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="date" data-token="${escaparHtml(tk)}" data-tipo-campo="data" value="${escaparHtml(dataNativa)}" style="${estiloInput}">${botaoBusca}</div></div>`;
+    }
+    if(tk===tokenHorarioEmissao){
+      // a data "âncora" do horário é a do valor já salvo (editando) ou hoje
+      // (novo) — o seletor de hora só troca o HH:mm:ss, nunca o dia
+      const dataBase = (valor.slice(0,10)) || dataHoraLocalIso(false).slice(0,10);
+      const horaNativa = valor.slice(11,19);
+      return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="time" step="1" data-token="${escaparHtml(tk)}" data-tipo-campo="horario" data-data-base="${escaparHtml(dataBase)}" value="${escaparHtml(horaNativa)}" style="${estiloInput}">${botaoBusca}</div></div>`;
+    }
     return `<div class="field"><label>${escaparHtml(labelToken(tk))}</label><div style="display:flex;gap:6px;"><input type="text" data-token="${escaparHtml(tk)}" value="${escaparHtml(valor)}" style="${estiloInput}" ${readonlyAttr}>${botaoBusca}</div></div>`;
   };
   if(r.headerTokens.length===0){
@@ -13611,7 +13625,18 @@ function removerItemMovimentacao(i){
 }
 function coletarValoresHeader(){
   const valores = {};
-  document.querySelectorAll('#movm_camposHeader [data-token]').forEach(inp=>{ valores[inp.dataset.token] = inp.value; });
+  document.querySelectorAll('#movm_camposHeader [data-token]').forEach(inp=>{
+    // campos de data/hora usam seletor nativo (ver campoHeaderHtml) — o
+    // valor salvo precisa continuar como ISO completo "YYYY-MM-DDTHH:mm:ss"
+    if(inp.dataset.tipoCampo==='data'){
+      valores[inp.dataset.token] = inp.value ? `${inp.value}T00:00:00` : '';
+    } else if(inp.dataset.tipoCampo==='horario'){
+      const hora = inp.value || '00:00:00';
+      valores[inp.dataset.token] = `${inp.dataset.dataBase}T${hora.length===5 ? hora+':00' : hora}`;
+    } else {
+      valores[inp.dataset.token] = inp.value;
+    }
+  });
   return valores;
 }
 function coletarItens(){
