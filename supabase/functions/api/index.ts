@@ -4429,7 +4429,11 @@ async function acaoBuscarRmLista(req: any) {
     return { ok: false, erro: 'Não foi possível decifrar a senha salva desse tipo de movimentação. Cadastre a senha de novo em Movimentos → Parâmetros.' };
   }
   const termo = String(req.termo || '').trim().replace(/'/g, "''");
-  const filtro = camposExibicao.map((c) => `${c} LIKE '%${termo}%'`).join(' OR ');
+  // qualifica cada campo com o Data Server (convenção do RM pra desambiguar
+  // nome de coluna repetido entre as tabelas que a view do ReadView junta
+  // por baixo dos panos — sem isso o RM recusa com "Ambiguous column name"
+  // sempre que o campo existe em mais de uma tabela da view, ex: CODFILIAL)
+  const filtro = camposExibicao.map((c) => `${dataServerName}.${c} LIKE '%${termo}%'`).join(' OR ');
   const base = String(cliente.rm_url || '').trim().replace(/\/+$/, '');
   const url = `${base}/wsDataServer/IwsDataServer`;
   const ctl = new AbortController();
