@@ -13351,12 +13351,15 @@ function removerConsultaSqlLinha(i){
 // tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
 // mesmo Data Server do token clicado, cada um com o campo que o preenche
 // o campo cadastrado pode vir qualificado ("DataServer.CAMPO" — opcional,
-// só quando precisa desambiguar coluna repetida na view do RM); a linha
-// de resultado vem com a tag pura (sem o "DataServer."), então é o nome
+// só quando precisa desambiguar coluna repetida na view do RM) e/ou
+// marcado como "oculto" (prefixo "!" — some do card/extras, mas o campo
+// em si continua existindo pra preencher o token normalmente); a linha de
+// resultado vem com a tag pura (sem "!"/"DataServer."), então é o nome
 // puro que bate com a chave do objeto devolvido
 function campoPuro(campo){
-  const i = campo.lastIndexOf('.');
-  return i===-1 ? campo : campo.slice(i+1);
+  const semOculto = campo.replace(/^!\s*/, '');
+  const i = semOculto.lastIndexOf('.');
+  return i===-1 ? semOculto : semOculto.slice(i+1);
 }
 function tokensMesmoDataServer(mapaBuscas, tokensEscopo, tokenClicado){
   const cfg = mapaBuscas[tokenClicado];
