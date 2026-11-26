@@ -14032,9 +14032,20 @@ function imprimirRmMovimentacao(id){
   const extrasSoltos = Object.keys(extrasHeader).filter(c=>!camposUsadosNoLayout.has(c));
   const emParesDe2 = (arr)=>{ const out=[]; for(let i=0;i<arr.length;i+=2) out.push(arr.slice(i,i+2)); return out; };
 
-  const campoHtml = (label,valor)=> (valor===undefined||valor===null||valor==='') ? '' : `<div class="campo"><label>${escaparHtml(label)}</label><div>${escaparHtml(String(valor))}</div></div>`;
+  const campoVazio = (v)=> v===undefined || v===null || v==='';
+  const campoHtml = (label,valor)=> campoVazio(valor) ? '' : `<div class="campo"><label>${escaparHtml(label)}</label><div>${escaparHtml(String(valor))}</div></div>`;
   const linhaCamposHtml = (htmls)=> `<div class="linha-campos" style="grid-template-columns:repeat(${htmls.length},1fr);">${htmls.join('')}</div>`;
-  const dadosHtml = layoutDados.map(linha=>linhaCamposHtml(linha.map(slot=>campoHtml(labelDoCampoLayout(slot), valorDoCampoLayout(slot))))).join('')
+  // campo de uma linha do Layout sem valor capturado nessa movimentação (ex:
+  // busca não foi usada nesse campo) continua ocupando o lugar dele na
+  // grade — só não aparece nada DENTRO dele — pra não empurrar os campos
+  // seguintes da mesma linha pra posição errada; linha 100% vazia, essa sim
+  // some inteira (não sobra uma linha em branco na impressão)
+  const campoHtmlLayout = (label,valor)=> campoVazio(valor) ? `<div class="campo"></div>` : campoHtml(label,valor);
+  const dadosHtml = layoutDados.map(linha=>{
+    const valoresLinha = linha.map(valorDoCampoLayout);
+    if(valoresLinha.every(campoVazio)) return '';
+    return linhaCamposHtml(linha.map((slot,i)=>campoHtmlLayout(labelDoCampoLayout(slot), valoresLinha[i])));
+  }).join('')
     + emParesDe2(extrasSoltos).map(par=>linhaCamposHtml(par.map(c=>campoHtml(c, extrasHeader[c])))).join('');
 
   // colunas da tabela de Produtos: admin escolhe em "Colunas da tabela de
