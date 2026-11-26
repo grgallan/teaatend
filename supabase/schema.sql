@@ -1579,3 +1579,8 @@ alter table rm_movimentacoes add column if not exists rm_coligada text;
 alter table rm_movimentacoes add column if not exists rm_idmov text;
 -- cada um só vê/edita as movimentações que ele mesmo criou (ver acaoDados)
 alter table rm_movimentacoes add column if not exists criado_por text;
+
+-- logo do cliente (upload via acaoUploadImagem), mostrado no cabeçalho do
+-- "Imprimir" em Movimentações, ao lado do nome — mesmo padrão do logo da
+-- empresa (empresas.logo_url)
+alter table clientes add column if not exists logo_url text default '';
