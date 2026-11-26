@@ -14177,10 +14177,11 @@ function imprimirRmMovimentacao(id){
   // nenhum item sumir só por falta de configuração. Sem campo escolhido,
   // cai no padrão (1 tabela só, sem agrupar)
   const grupoProdutos = parsearGrupoProdutos(tipo.gruposProdutos);
-  let produtosHtml;
-  if(!itens.length){
-    produtosHtml = '';
-  } else if(grupoProdutos){
+  // gruposDeItens: null quando não tem "Agrupar Produtos por" configurado
+  // (1 tabela só, igual sempre); array [{titulo,itens}] quando tem — usado
+  // tanto pras tabelas de Produtos quanto pro Resumo financeiro por grupo
+  let gruposDeItens = null;
+  if(itens.length && grupoProdutos){
     const normalizar = (v)=>String(v??'').trim().toLowerCase();
     const baldesConfigurados = grupoProdutos.grupos.map(g=>({ chave: normalizar(g.valor), titulo: g.titulo, itens: [] }));
     const baldesExtras = [];
@@ -14193,14 +14194,27 @@ function imprimirRmMovimentacao(id){
       if(!extra){ extra = { titulo, itens: [] }; baldesExtras.push(extra); }
       extra.itens.push(item);
     });
-    produtosHtml = baldesConfigurados.concat(baldesExtras).map(b=>tabelaProdutosHtml(b.itens, b.titulo)).join('');
-  } else {
-    produtosHtml = tabelaProdutosHtml(itens, 'Produtos');
+    gruposDeItens = baldesConfigurados.concat(baldesExtras);
   }
+  const produtosHtml = !itens.length ? '' : (gruposDeItens ? gruposDeItens.map(b=>tabelaProdutosHtml(b.itens, b.titulo)).join('') : tabelaProdutosHtml(itens, 'Produtos'));
 
-  const resumoHtml = (tokenValorBruto && valores[tokenValorBruto]) ? `
-    <h3 class="secao">Resumo financeiro</h3>
-    <div class="linha total"><span>${escaparHtml(labelToken(tokenValorBruto))}</span><span>R$ ${formatarMoeda(valores[tokenValorBruto])}</span></div>` : '';
+  // Resumo financeiro: com Produtos agrupado (e um campo de valor por item
+  // reconhecido, ex: Valor Item), mostra 1 linha de total por grupo + o
+  // total geral — sem agrupar (ou sem campo de valor de item), continua 1
+  // linha só com o total do cabeçalho, como sempre
+  const tokenValorItem = acharTokenPorPadrao(r.itemTokens, PADROES_ITEM_VALOR_BRUTO);
+  const somarValorItens = (lista)=> lista.reduce((acc,item)=> acc + (Number(item[tokenValorItem]) || 0), 0);
+  const gruposComItens = (gruposDeItens||[]).filter(g=>g.itens.length);
+  let resumoHtml;
+  if(gruposDeItens && tokenValorItem && gruposComItens.length > 1){
+    const linhasGrupo = gruposComItens.map(g=>`<div class="linha total"><span>Valor total de ${escaparHtml(g.titulo)}</span><span>R$ ${formatarMoeda(somarValorItens(g.itens))}</span></div>`).join('');
+    const totalGeral = campoVazio(valores[tokenValorBruto]) ? somarValorItens(itens) : Number(valores[tokenValorBruto]) || 0;
+    resumoHtml = `<h3 class="secao">Resumo financeiro</h3>${linhasGrupo}<div class="linha total" style="font-weight:800;border-top:1px solid #ccc;padding-top:6px;margin-top:4px;"><span>Valor total geral</span><span>R$ ${formatarMoeda(totalGeral)}</span></div>`;
+  } else {
+    resumoHtml = (tokenValorBruto && valores[tokenValorBruto]) ? `
+      <h3 class="secao">Resumo financeiro</h3>
+      <div class="linha total"><span>${escaparHtml(labelToken(tokenValorBruto))}</span><span>R$ ${formatarMoeda(valores[tokenValorBruto])}</span></div>` : '';
+  }
 
   const observacoesTexto = tokensObservacao.map(tk=>valores[tk]).filter(Boolean).join('\n\n');
   const observacoesHtml = observacoesTexto ? `<h3 class="secao">Observações</h3><div class="observacoes">${escaparHtml(observacoesTexto)}</div>` : '';
