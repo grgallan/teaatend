@@ -14029,7 +14029,12 @@ function imprimirRmMovimentacao(id){
   const valorDoCampoLayout = (slot)=> slot.id.startsWith('extra:') ? extrasHeader[slot.id.slice(6)] : valorHeaderFormatado(slot.id.slice(6));
   const labelDoCampoLayout = (slot)=> slot.label || (slot.id.startsWith('extra:') ? slot.id.slice(6) : labelToken(slot.id.slice(6)));
   const camposUsadosNoLayout = new Set(layoutDados.flat().filter(slot=>slot.id.startsWith('extra:')).map(slot=>slot.id.slice(6)));
-  const extrasSoltos = Object.keys(extrasHeader).filter(c=>!camposUsadosNoLayout.has(c));
+  // extra capturado (busca) mas não colocado em nenhuma linha do Layout só
+  // aparece "solto" no fim quando NINGUÉM configurou o Layout ainda (rede
+  // de segurança pro padrão de sempre, sem perder dado à toa); uma vez que
+  // o Layout foi configurado, o admin tem controle total — campo de fora
+  // é pra sumir mesmo, não ficar aparecendo sem ter sido escolhido
+  const extrasSoltos = layoutSalvo.length ? [] : Object.keys(extrasHeader).filter(c=>!camposUsadosNoLayout.has(c));
   const emParesDe2 = (arr)=>{ const out=[]; for(let i=0;i<arr.length;i+=2) out.push(arr.slice(i,i+2)); return out; };
 
   const campoVazio = (v)=> v===undefined || v===null || v==='';
@@ -14050,9 +14055,11 @@ function imprimirRmMovimentacao(id){
 
   // colunas da tabela de Produtos: admin escolhe em "Colunas da tabela de
   // Produtos" (Movimentos → Parâmetros) — sem nenhuma configurada, cai no
-  // padrão (1 coluna por campo de item, na ordem do Json). Um extra do item
-  // que exista mas não virou coluna continua na linha itálica abaixo do
-  // produto, mesma ideia do "extras soltos" da seção Dados
+  // padrão (1 coluna por campo de item, na ordem do Json, com TODOS os
+  // extras na linha itálica, mesma rede de segurança da seção Dados). Uma
+  // vez configurada, só mostra o que foi escolhido como coluna — extra não
+  // escolhido some, não vira linha itálica (controle total, igual à seção
+  // Dados)
   const colunasSalvas = parsearColunasProdutos(tipo.colunasProdutos);
   const colunasProdutos = colunasSalvas.length ? colunasSalvas : r.itemTokens.map(tk=>({id:`token:${tk}`, label:''}));
   const valorDoCampoItem = (item,slot)=> slot.id.startsWith('extra:') ? (item.__extras||{})[slot.id.slice(6)] : item[slot.id.slice(6)];
@@ -14067,7 +14074,7 @@ function imprimirRmMovimentacao(id){
       <tbody>${itens.map(item=>{
         const cols = colunasProdutos.map(slot=>`<td>${escaparHtml(String(valorDoCampoItem(item,slot)??''))}</td>`).join('');
         const ex = item.__extras||{};
-        const extraTxt = Object.keys(ex).filter(k=>!extrasUsadosComoColuna.has(k) && ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
+        const extraTxt = colunasSalvas.length ? '' : Object.keys(ex).filter(k=>!extrasUsadosComoColuna.has(k) && ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
         return `<tr>${cols}</tr>${extraTxt ? `<tr class="extra-linha"><td colspan="${colunasProdutos.length}">${extraTxt}</td></tr>` : ''}`;
       }).join('')}</tbody>
     </table>`;
