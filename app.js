@@ -14137,11 +14137,19 @@ function imprimirRmMovimentacao(id){
   // vez configurada, só mostra o que foi escolhido como coluna — extra não
   // escolhido some, não vira linha itálica (controle total, igual à seção
   // Dados)
+  // campo de item de texto longo (ex: "Descrição Item", mesmo padrão já
+  // usado no cabeçalho pra "Histórico"/"Observação" — ver ehCampoTextoLongo)
+  // nunca vira coluna de tabela (ficaria cramado/cortado) — some do padrão
+  // de colunas e cai na linha itálica abaixo do produto, junto dos extras.
+  // Só NÃO entra ali se o admin escolheu ele mesmo como coluna de verdade
+  // em "Colunas da tabela de Produtos" (escolha explícita sempre vence)
+  const tokensNotaItem = r.itemTokens.filter(ehCampoTextoLongo);
   const colunasSalvas = parsearColunasProdutos(tipo.colunasProdutos);
-  const colunasProdutos = colunasSalvas.length ? colunasSalvas : r.itemTokens.map(tk=>({id:`token:${tk}`, label:''}));
+  const colunasProdutos = colunasSalvas.length ? colunasSalvas : r.itemTokens.filter(tk=>!tokensNotaItem.includes(tk)).map(tk=>({id:`token:${tk}`, label:''}));
   const valorDoCampoItem = (item,slot)=> slot.id.startsWith('extra:') ? (item.__extras||{})[slot.id.slice(6)] : item[slot.id.slice(6)];
   const labelDoCampoItem = (slot)=> slot.label || (slot.id.startsWith('extra:') ? slot.id.slice(6) : labelToken(slot.id.slice(6)));
   const extrasUsadosComoColuna = new Set(colunasProdutos.filter(slot=>slot.id.startsWith('extra:')).map(slot=>slot.id.slice(6)));
+  const tokensNotaUsadosComoColuna = new Set(colunasProdutos.filter(slot=>!slot.id.startsWith('extra:')).map(slot=>slot.id.slice(6)));
 
   const itens = m.itens||[];
   // tabela de uma lista de itens (1 ou várias, quando agrupado) — mesmas
@@ -14153,7 +14161,12 @@ function imprimirRmMovimentacao(id){
       <tbody>${itensDaTabela.map(item=>{
         const cols = colunasProdutos.map(slot=>`<td>${escaparHtml(String(valorDoCampoItem(item,slot)??''))}</td>`).join('');
         const ex = item.__extras||{};
-        const extraTxt = colunasSalvas.length ? '' : Object.keys(ex).filter(k=>!extrasUsadosComoColuna.has(k) && ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
+        const partesNota = [];
+        if(!colunasSalvas.length){
+          Object.keys(ex).filter(k=>!extrasUsadosComoColuna.has(k) && ex[k]!==undefined && ex[k]!==null && ex[k]!=='').forEach(k=>partesNota.push(`${k}: ${ex[k]}`));
+        }
+        tokensNotaItem.filter(tk=>!tokensNotaUsadosComoColuna.has(tk)).forEach(tk=>{ if(item[tk]) partesNota.push(`${labelToken(tk)}: ${item[tk]}`); });
+        const extraTxt = partesNota.join(' &nbsp;·&nbsp; ');
         return `<tr>${cols}</tr>${extraTxt ? `<tr class="extra-linha"><td colspan="${colunasProdutos.length}">${extraTxt}</td></tr>` : ''}`;
       }).join('')}</tbody>
     </table>`;
