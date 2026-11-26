@@ -3431,6 +3431,14 @@
           <button type="button" class="ghost" id="btnRgtmAddColunaProduto" style="width:100%;">+ Adicionar coluna</button>
           <button type="button" class="ghost" id="btnRgtmAtualizarCamposColunas" style="width:100%;">🔄 Atualizar lista de campos</button>
         </div>
+        <h3 style="margin:14px 0 6px;font-size:13px;">Layout da Impressão — Agrupar Produtos por (opcional)</h3>
+        <p style="color:var(--muted);font-size:11.5px;margin:-4px 0 12px;">Em vez de 1 tabela só de "Produtos", separa em VÁRIAS tabelas — 1 por grupo — a partir de um campo de item (ex: um campo "TIPO" que venha "P"/"E" numa busca/consulta, pra separar Produto de Equipamento). Escolha o <b>campo de agrupamento</b> e cadastre os grupos: o <b>Valor</b> é o que vem desse campo (ex: <code>P</code>), o <b>Título</b> é o nome da tabela na impressão (ex: <code>Produtos</code>). Item cujo valor não bater com nenhum grupo cadastrado continua aparecendo (numa tabela própria, usando o valor bruto como título), pra nenhum item sumir só por falta de configuração. Sem campo de agrupamento escolhido, a seção Produtos continua sendo 1 tabela só, como sempre.</p>
+        <div class="field"><label>Campo de agrupamento</label><select id="rgtm_grupo_produtos_campo"></select></div>
+        <div id="rgtm_grupos_produtos_lista"></div>
+        <div class="row" style="margin:0 0 14px;">
+          <button type="button" class="ghost" id="btnRgtmAddGrupoProduto" style="width:100%;">+ Adicionar grupo</button>
+          <button type="button" class="ghost" id="btnRgtmAtualizarCamposGrupo" style="width:100%;">🔄 Atualizar lista de campos</button>
+        </div>
         <button class="primary" id="btnAddRmTipoMovimento">Adicionar tipo de movimentação</button>
         <button class="ghost" id="btnCancelarEdicaoRmTipoMovimento" style="display:none;margin-top:8px;width:100%;">Cancelar edição</button>
       </div>

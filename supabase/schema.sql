@@ -1535,6 +1535,11 @@ alter table rm_tipos_movimento add column if not exists layout_impressao text de
 -- já ficam lado a lado sozinhas, não precisa agrupar). Vazio/ausente cai no
 -- padrão (1 coluna por campo de item, na ordem do Json)
 alter table rm_tipos_movimento add column if not exists colunas_produtos text default '';
+-- separa a seção "Produtos" do "Imprimir" em várias tabelas, uma por grupo
+-- (ex: Produto x Equipamento, a partir de um campo tipo "P"/"E" capturado
+-- numa busca/consulta do item) — JSON {campo:"extra:TIPO", grupos:[{valor,
+-- titulo}, ...]}. Vazio/ausente cai no padrão (1 tabela só, sem agrupar)
+alter table rm_tipos_movimento add column if not exists grupos_produtos text default '';
 -- busca no RM (ReadView via wsDataServer) pra preencher Fornecedor/Produto
 -- na tela de Movimentações em vez de digitar o código à mão — filtro tem
 -- {termo} no lugar do texto digitado na busca (mesma convenção de {token}

@@ -13137,6 +13137,11 @@ function editarRmTipoMovimento(id){
   renderLayoutImpressaoLinhas();
   rgtmColunasProdutosLinhas = parsearColunasProdutos(m.colunasProdutos);
   renderColunasProdutosLinhas();
+  const grupoSalvo = parsearGrupoProdutos(m.gruposProdutos);
+  rgtmGrupoProdutosCampo = grupoSalvo ? grupoSalvo.campo : '';
+  rgtmGruposProdutosLinhas = grupoSalvo ? grupoSalvo.grupos : [];
+  renderGrupoProdutosCampo();
+  renderGruposProdutosLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Editar tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = '';
@@ -13164,6 +13169,10 @@ function cancelarEdicaoRmTipoMovimento(){
   renderLayoutImpressaoLinhas();
   rgtmColunasProdutosLinhas = [];
   renderColunasProdutosLinhas();
+  rgtmGrupoProdutosCampo = '';
+  rgtmGruposProdutosLinhas = [];
+  renderGrupoProdutosCampo();
+  renderGruposProdutosLinhas();
   document.getElementById('rgtm_tituloForm').textContent = 'Novo tipo de movimentação';
   document.getElementById('btnAddRmTipoMovimento').textContent = 'Adicionar tipo de movimentação';
   document.getElementById('btnCancelarEdicaoRmTipoMovimento').style.display = 'none';
@@ -13553,6 +13562,74 @@ function removerColunaProduto(i){
   coletarColunasProdutosLinhas();
   rgtmColunasProdutosLinhas.splice(i,1);
   renderColunasProdutosLinhas();
+}
+// "Agrupar Produtos por": separa a seção Produtos em várias tabelas (1 por
+// grupo), a partir de um campo de item (ex: "TIPO" = "P"/"E"). Guardado
+// como JSON {campo:"extra:TIPO", grupos:[{valor,titulo}, ...]} na coluna
+// grupos_produtos; "campo" usa o mesmo formato de id ("token:NOME"/
+// "extra:CAMPO") do resto do Layout. Sem campo escolhido ou sem nenhum
+// grupo cadastrado, cai no padrão (1 tabela só, sem agrupar)
+function serializarGrupoProdutos(campo, grupos){
+  const validos = (grupos||[]).filter(g=>g && String(g.valor||'').trim());
+  if(!campo || !validos.length) return '';
+  return JSON.stringify({ campo, grupos: validos.map(g=>({ valor: String(g.valor).trim(), titulo: String(g.titulo||'').trim() || String(g.valor).trim() })) });
+}
+function parsearGrupoProdutos(json){
+  try{
+    const o = JSON.parse(json||'null');
+    if(!o || typeof o!=='object' || !o.campo || !Array.isArray(o.grupos)) return null;
+    const grupos = o.grupos.filter(g=>g && g.valor).map(g=>({ valor: String(g.valor), titulo: String(g.titulo||g.valor) }));
+    return grupos.length ? { campo: String(o.campo), grupos } : null;
+  }catch(_e){ return null; }
+}
+let rgtmGrupoProdutosCampo = '';
+let rgtmGruposProdutosLinhas = [];
+function renderGrupoProdutosCampo(){
+  const el = document.getElementById('rgtm_grupo_produtos_campo');
+  if(!el) return;
+  const opcoes = camposDisponiveisParaColunasProdutos();
+  el.innerHTML = opcoes.map(o=>`<option value="${escaparHtml(o.id)}" ${o.id===rgtmGrupoProdutosCampo?'selected':''}>${escaparHtml(o.label)}</option>`).join('');
+}
+function renderGruposProdutosLinhas(){
+  const el = document.getElementById('rgtm_grupos_produtos_lista');
+  if(!el) return;
+  if(rgtmGruposProdutosLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhum grupo configurado — a seção Produtos usa o padrão (1 tabela só, sem agrupar).</div>`; return; }
+  el.innerHTML = rgtmGruposProdutosLinhas.map((g,i)=>`
+    <div class="cad-item" style="display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:8px;">
+      <input type="text" data-grupo-idx="${i}" data-grupo-campo="valor" value="${escaparHtml((g&&g.valor)||'')}" placeholder="Valor (ex: P)" style="flex:1;">
+      <input type="text" data-grupo-idx="${i}" data-grupo-campo="titulo" value="${escaparHtml((g&&g.titulo)||'')}" placeholder="Título na impressão (ex: Produtos)" style="flex:2;">
+      <button type="button" class="ghost" onclick="moverGrupoProduto(${i},-1)" style="width:auto;padding:4px 8px;" ${i===0?'disabled':''}>↑</button>
+      <button type="button" class="ghost" onclick="moverGrupoProduto(${i},1)" style="width:auto;padding:4px 8px;" ${i===rgtmGruposProdutosLinhas.length-1?'disabled':''}>↓</button>
+      <button type="button" class="ghost" onclick="removerGrupoProduto(${i})" style="width:auto;padding:4px 8px;">Remover</button>
+    </div>
+  `).join('');
+}
+function coletarGrupoProdutosCampo(){
+  const el = document.getElementById('rgtm_grupo_produtos_campo');
+  rgtmGrupoProdutosCampo = el ? el.value : '';
+  return rgtmGrupoProdutosCampo;
+}
+function coletarGruposProdutosLinhas(){
+  const porIdx = {};
+  document.querySelectorAll('#rgtm_grupos_produtos_lista [data-grupo-idx]').forEach(campo=>{
+    const i = Number(campo.dataset.grupoIdx);
+    if(!porIdx[i]) porIdx[i] = { valor:'', titulo:'' };
+    porIdx[i][campo.dataset.grupoCampo] = campo.value;
+  });
+  rgtmGruposProdutosLinhas = Object.keys(porIdx).sort((a,b)=>a-b).map(i=>porIdx[i]).filter(g=>g && String(g.valor||'').trim());
+  return rgtmGruposProdutosLinhas;
+}
+function moverGrupoProduto(i, delta){
+  coletarGruposProdutosLinhas();
+  const j = i+delta;
+  if(j<0 || j>=rgtmGruposProdutosLinhas.length) return;
+  [rgtmGruposProdutosLinhas[i], rgtmGruposProdutosLinhas[j]] = [rgtmGruposProdutosLinhas[j], rgtmGruposProdutosLinhas[i]];
+  renderGruposProdutosLinhas();
+}
+function removerGrupoProduto(i){
+  coletarGruposProdutosLinhas();
+  rgtmGruposProdutosLinhas.splice(i,1);
+  renderGruposProdutosLinhas();
 }
 // tokens (dentro de um mesmo escopo — cabeçalho OU itens) que citam o
 // mesmo Data Server do token clicado, cada um com o campo que o preenche
@@ -14067,17 +14144,46 @@ function imprimirRmMovimentacao(id){
   const extrasUsadosComoColuna = new Set(colunasProdutos.filter(slot=>slot.id.startsWith('extra:')).map(slot=>slot.id.slice(6)));
 
   const itens = m.itens||[];
-  const produtosHtml = !itens.length ? '' : `
-    <h3 class="secao">Produtos</h3>
+  // tabela de uma lista de itens (1 ou várias, quando agrupado) — mesmas
+  // colunas sempre, só a lista de itens e o título da seção mudam
+  const tabelaProdutosHtml = (itensDaTabela,titulo)=> !itensDaTabela.length ? '' : `
+    <h3 class="secao">${escaparHtml(titulo)}</h3>
     <table>
       <thead><tr>${colunasProdutos.map(slot=>`<th>${escaparHtml(labelDoCampoItem(slot))}</th>`).join('')}</tr></thead>
-      <tbody>${itens.map(item=>{
+      <tbody>${itensDaTabela.map(item=>{
         const cols = colunasProdutos.map(slot=>`<td>${escaparHtml(String(valorDoCampoItem(item,slot)??''))}</td>`).join('');
         const ex = item.__extras||{};
         const extraTxt = colunasSalvas.length ? '' : Object.keys(ex).filter(k=>!extrasUsadosComoColuna.has(k) && ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
         return `<tr>${cols}</tr>${extraTxt ? `<tr class="extra-linha"><td colspan="${colunasProdutos.length}">${extraTxt}</td></tr>` : ''}`;
       }).join('')}</tbody>
     </table>`;
+  // "Agrupar Produtos por" (Movimentos → Parâmetros): separa a seção
+  // Produtos em várias tabelas (1 por grupo), a partir de um campo de item
+  // (ex: TIPO="P"/"E"). Item cujo valor não bate com nenhum grupo cadastrado
+  // ainda aparece, numa tabela própria com o valor bruto como título, pra
+  // nenhum item sumir só por falta de configuração. Sem campo escolhido,
+  // cai no padrão (1 tabela só, sem agrupar)
+  const grupoProdutos = parsearGrupoProdutos(tipo.gruposProdutos);
+  let produtosHtml;
+  if(!itens.length){
+    produtosHtml = '';
+  } else if(grupoProdutos){
+    const normalizar = (v)=>String(v??'').trim().toLowerCase();
+    const baldesConfigurados = grupoProdutos.grupos.map(g=>({ chave: normalizar(g.valor), titulo: g.titulo, itens: [] }));
+    const baldesExtras = [];
+    itens.forEach(item=>{
+      const vBruto = valorDoCampoItem(item, { id: grupoProdutos.campo });
+      const balde = baldesConfigurados.find(b=>b.chave===normalizar(vBruto));
+      if(balde){ balde.itens.push(item); return; }
+      const titulo = (vBruto===undefined || vBruto===null || vBruto==='') ? 'Produtos' : String(vBruto);
+      let extra = baldesExtras.find(b=>b.titulo===titulo);
+      if(!extra){ extra = { titulo, itens: [] }; baldesExtras.push(extra); }
+      extra.itens.push(item);
+    });
+    produtosHtml = baldesConfigurados.concat(baldesExtras).map(b=>tabelaProdutosHtml(b.itens, b.titulo)).join('');
+  } else {
+    produtosHtml = tabelaProdutosHtml(itens, 'Produtos');
+  }
 
   const resumoHtml = (tokenValorBruto && valores[tokenValorBruto]) ? `
     <h3 class="secao">Resumo financeiro</h3>
@@ -20827,14 +20933,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const consultasSql = serializarLinhasParaConsultasSql(coletarConsultasSqlLinhas());
     const layoutImpressao = serializarLayoutImpressao(coletarLayoutImpressaoLinhas());
     const colunasProdutos = serializarColunasProdutos(coletarColunasProdutosLinhas());
+    const gruposProdutos = serializarGrupoProdutos(coletarGrupoProdutosCampo(), coletarGruposProdutosLinhas());
     if(!clienteId){ toast('Escolha o cliente'); return; }
     if(!nome){ toast('Informe o nome'); return; }
     if(!codtmvDestino){ toast('Informe o CODTMV de destino'); return; }
     const editando = !!editandoRmTipoMovimentoId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao, colunasProdutos })
-      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao, colunasProdutos });
+      ? await api('atualizarRmTipoMovimento', { contaId, id: editandoRmTipoMovimentoId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao, colunasProdutos, gruposProdutos })
+      : await api('addRmTipoMovimento', { contaId, clienteId, nome, codtmvDestino, usuario, senha, jsonTemplate, itensArrayKeys, dataServerName, xmlRaiz, contextoSoap, statusDataServerName, buscasRm, consultasSql, layoutImpressao, colunasProdutos, gruposProdutos });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoRmTipoMovimento();
     await carregarTudo({ comAtendimentos: false });
@@ -20867,6 +20974,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     renderLayoutImpressaoLinhas();
     coletarColunasProdutosLinhas();
     renderColunasProdutosLinhas();
+    coletarGrupoProdutosCampo();
+    renderGrupoProdutosCampo();
   };
   document.getElementById('btnRgtmAtualizarCamposLayout').addEventListener('click', atualizarListasDeCampos);
   renderLayoutImpressaoLinhas();
@@ -20877,6 +20986,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.getElementById('btnRgtmAtualizarCamposColunas').addEventListener('click', atualizarListasDeCampos);
   renderColunasProdutosLinhas();
+  renderGrupoProdutosCampo();
+  document.getElementById('btnRgtmAddGrupoProduto').addEventListener('click', ()=>{
+    coletarGruposProdutosLinhas();
+    rgtmGruposProdutosLinhas.push({ valor:'', titulo:'' });
+    renderGruposProdutosLinhas();
+  });
+  document.getElementById('btnRgtmAtualizarCamposGrupo').addEventListener('click', atualizarListasDeCampos);
+  renderGruposProdutosLinhas();
   document.getElementById('movm_tipo').addEventListener('change', e=>{
     editandoRmMovimentacaoId = null;
     movmItens = [];
