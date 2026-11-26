@@ -47,6 +47,7 @@ let empresaAtual = null; // empresa escolhida pra essa sessão — {id, nome, lo
 let empresasParaEscolher = []; // lista temporária mostrada na tela de escolha de empresa, entre o login e a entrada no app
 let editandoEmpresaId = null;
 let empresaLogoArquivoSelecionado = null; // File escolhido no input, enviado só quando salvar
+let clienteLogoArquivoSelecionado = null; // File escolhido no input, enviado só quando salvar
 let editandoId = null;
 let anexoAtendimentoId = null; // atendimento cujos anexos múltiplos estão sendo geridos ao editar
 let editandoAtendenteId = null;
@@ -8425,6 +8426,11 @@ function editarCliente(id){
   document.getElementById('cl_rm_usuario').value = c.rmUsuario || '';
   document.getElementById('cl_rm_senha').value = '';
   document.getElementById('cl_rm_senha_aviso').textContent = c.temSenhaRm ? 'Já tem uma senha salva — deixe em branco pra manter a atual.' : '';
+  document.getElementById('cl_logo_arquivo').value = '';
+  clienteLogoArquivoSelecionado = null;
+  const clPreview = document.getElementById('cl_logo_preview');
+  clPreview.innerHTML = c.logoUrl ? `<img src="${c.logoUrl}" style="width:100%;height:100%;object-fit:contain;">` : `<span style="font-size:11px;color:var(--muted);">sem logo</span>`;
+  clPreview.dataset.url = c.logoUrl || '';
   document.getElementById('btnAddCliente').textContent = 'Salvar alterações';
   document.getElementById('btnCancelarEdicaoCliente').style.display = '';
   document.getElementById('campoClienteSetores').style.display = '';
@@ -8445,6 +8451,10 @@ function cancelarEdicaoCliente(){
   document.getElementById('cl_rm_usuario').value = '';
   document.getElementById('cl_rm_senha').value = '';
   document.getElementById('cl_rm_senha_aviso').textContent = '';
+  document.getElementById('cl_logo_arquivo').value = '';
+  clienteLogoArquivoSelecionado = null;
+  document.getElementById('cl_logo_preview').innerHTML = `<span style="font-size:11px;color:var(--muted);">sem logo</span>`;
+  document.getElementById('cl_logo_preview').dataset.url = '';
   document.getElementById('btnAddCliente').textContent = 'Adicionar cliente';
   document.getElementById('btnCancelarEdicaoCliente').style.display = 'none';
   document.getElementById('campoClienteSetores').style.display = 'none';
@@ -13362,14 +13372,24 @@ function removerConsultaSqlLinha(i){
 // ("extra:CAMPO"). Guardado como JSON (array de arrays de ids) na coluna
 // layout_impressao; vazio cai no comportamento padrão (1 token por linha,
 // extras soltos no fim — ver imprimirRmMovimentacao)
+// cada campo do layout é {id, label} — "label" vazio/ausente = título
+// automático (nome do token/extra); só grava {id,label} quando tem título
+// próprio, senão grava o id puro (string), formato de antes de existir
+// título customizado — pra não gerar JSON diferente em quem nunca usou isso
 function serializarLayoutImpressao(linhas){
-  const validas = (linhas||[]).map(l=>(l||[]).filter(Boolean)).filter(l=>l.length);
+  const validas = (linhas||[]).map(l=>(l||[]).filter(s=>s && s.id).map(s=>s.label ? {id:s.id, label:s.label} : s.id)).filter(l=>l.length);
   return validas.length ? JSON.stringify(validas) : '';
+}
+function normalizarCampoLayout(e){
+  if(typeof e==='string') return e ? {id:e, label:''} : null;
+  if(e && typeof e==='object' && e.id) return {id:String(e.id), label:String(e.label||'')};
+  return null;
 }
 function parsearLayoutImpressao(json){
   try{
     const l = JSON.parse(json||'[]');
-    return Array.isArray(l) ? l.filter(x=>Array.isArray(x) && x.length) : [];
+    if(!Array.isArray(l)) return [];
+    return l.filter(x=>Array.isArray(x) && x.length).map(linha=>linha.map(normalizarCampoLayout).filter(Boolean));
   }catch(_e){ return []; }
 }
 // nome que um campo de busca (ex: "NOME", "!CGCCFO", "END=RUA+NUMERO") usa
@@ -13433,11 +13453,18 @@ function renderLayoutImpressaoLinhas(){
   if(!el) return;
   const opcoes = camposDisponiveisParaLayout();
   if(rgtmLayoutImpressaoLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhuma linha configurada — a impressão usa o layout padrão (1 campo do cabeçalho por linha, extras soltos no fim).</div>`; return; }
-  const selectHtml = (i,col,valorAtual)=>`<select data-layout-idx="${i}" data-layout-col="${col}">${opcoes.map(o=>`<option value="${escaparHtml(o.id)}" ${o.id===(valorAtual||'')?'selected':''}>${escaparHtml(o.label)}</option>`).join('')}</select>`;
+  const campoHtml = (i,col,slot)=>{
+    const idAtual = (slot && slot.id) || '';
+    const labelAtual = (slot && slot.label) || '';
+    return `<div style="display:flex;flex-direction:column;gap:3px;">
+      <select data-layout-idx="${i}" data-layout-col="${col}" data-layout-campo="id">${opcoes.map(o=>`<option value="${escaparHtml(o.id)}" ${o.id===idAtual?'selected':''}>${escaparHtml(o.label)}</option>`).join('')}</select>
+      <input type="text" data-layout-idx="${i}" data-layout-col="${col}" data-layout-campo="label" value="${escaparHtml(labelAtual)}" placeholder="Título na impressão (opcional)" style="font-size:11.5px;">
+    </div>`;
+  };
   el.innerHTML = rgtmLayoutImpressaoLinhas.map((linha,i)=>`
     <div class="cad-item" style="display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:8px;">
       <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
-        ${[0,1,2].map(col=>selectHtml(i,col,linha[col])).join('')}
+        ${[0,1,2].map(col=>campoHtml(i,col,linha[col])).join('')}
       </div>
       <button type="button" class="ghost" onclick="moverLinhaLayoutImpressao(${i},-1)" style="width:auto;padding:4px 8px;" ${i===0?'disabled':''}>↑</button>
       <button type="button" class="ghost" onclick="moverLinhaLayoutImpressao(${i},1)" style="width:auto;padding:4px 8px;" ${i===rgtmLayoutImpressaoLinhas.length-1?'disabled':''}>↓</button>
@@ -13447,12 +13474,15 @@ function renderLayoutImpressaoLinhas(){
 }
 function coletarLayoutImpressaoLinhas(){
   const porLinha = {};
-  document.querySelectorAll('#rgtm_layout_impressao_lista [data-layout-idx]').forEach(sel=>{
-    const i = Number(sel.dataset.layoutIdx);
+  document.querySelectorAll('#rgtm_layout_impressao_lista [data-layout-idx]').forEach(campo=>{
+    const i = Number(campo.dataset.layoutIdx);
+    const col = Number(campo.dataset.layoutCol);
     if(!porLinha[i]) porLinha[i] = [];
-    porLinha[i][Number(sel.dataset.layoutCol)] = sel.value;
+    if(!porLinha[i][col]) porLinha[i][col] = {id:'', label:''};
+    if(campo.dataset.layoutCampo==='label') porLinha[i][col].label = campo.value.trim();
+    else porLinha[i][col].id = campo.value;
   });
-  rgtmLayoutImpressaoLinhas = Object.keys(porLinha).sort((a,b)=>a-b).map(i=>(porLinha[i]||[]).filter(Boolean));
+  rgtmLayoutImpressaoLinhas = Object.keys(porLinha).sort((a,b)=>a-b).map(i=>(porLinha[i]||[]).filter(s=>s && s.id));
   return rgtmLayoutImpressaoLinhas;
 }
 function moverLinhaLayoutImpressao(i, delta){
@@ -13473,14 +13503,17 @@ function removerLinhaLayoutImpressao(i){
 // a lado naturalmente. Campo oculto ("!") nunca aparece, nem o combinado
 // vira duas opções (só a calculada, pelo nome); guardado como array plano
 // de ids ("token:NOME"/"extra:CAMPO") na coluna colunas_produtos
+// mesma ideia do layout da impressão: {id,label}, "label" vazio = título
+// automático; só grava objeto quando tem título próprio, senão grava o id
+// puro (compatível com quem cadastrou antes de existir título customizado)
 function serializarColunasProdutos(colunas){
-  const validas = (colunas||[]).filter(Boolean);
+  const validas = (colunas||[]).filter(s=>s && s.id).map(s=>s.label ? {id:s.id, label:s.label} : s.id);
   return validas.length ? JSON.stringify(validas) : '';
 }
 function parsearColunasProdutos(json){
   try{
     const l = JSON.parse(json||'[]');
-    return Array.isArray(l) ? l.filter(x=>typeof x==='string' && x) : [];
+    return Array.isArray(l) ? l.map(normalizarCampoLayout).filter(Boolean) : [];
   }catch(_e){ return []; }
 }
 function renderColunasProdutosLinhas(){
@@ -13488,9 +13521,10 @@ function renderColunasProdutosLinhas(){
   if(!el) return;
   const opcoes = camposDisponiveisParaColunasProdutos();
   if(rgtmColunasProdutosLinhas.length===0){ el.innerHTML = `<div class="empty">Nenhuma coluna configurada — a tabela de Produtos usa o padrão (1 coluna por campo de item, na ordem do Json, extras soltos numa linha itálica abaixo de cada produto).</div>`; return; }
-  el.innerHTML = rgtmColunasProdutosLinhas.map((valorAtual,i)=>`
+  el.innerHTML = rgtmColunasProdutosLinhas.map((slot,i)=>`
     <div class="cad-item" style="display:flex;align-items:center;gap:6px;margin:0 0 8px;padding:8px;">
-      <select data-coluna-idx="${i}" style="flex:1;">${opcoes.map(o=>`<option value="${escaparHtml(o.id)}" ${o.id===(valorAtual||'')?'selected':''}>${escaparHtml(o.label)}</option>`).join('')}</select>
+      <select data-coluna-idx="${i}" data-coluna-campo="id" style="flex:1;">${opcoes.map(o=>`<option value="${escaparHtml(o.id)}" ${o.id===((slot&&slot.id)||'')?'selected':''}>${escaparHtml(o.label)}</option>`).join('')}</select>
+      <input type="text" data-coluna-idx="${i}" data-coluna-campo="label" value="${escaparHtml((slot&&slot.label)||'')}" placeholder="Título na impressão (opcional)" style="flex:1;font-size:11.5px;">
       <button type="button" class="ghost" onclick="moverColunaProduto(${i},-1)" style="width:auto;padding:4px 8px;" ${i===0?'disabled':''}>↑</button>
       <button type="button" class="ghost" onclick="moverColunaProduto(${i},1)" style="width:auto;padding:4px 8px;" ${i===rgtmColunasProdutosLinhas.length-1?'disabled':''}>↓</button>
       <button type="button" class="ghost" onclick="removerColunaProduto(${i})" style="width:auto;padding:4px 8px;">Remover</button>
@@ -13499,10 +13533,13 @@ function renderColunasProdutosLinhas(){
 }
 function coletarColunasProdutosLinhas(){
   const porIdx = {};
-  document.querySelectorAll('#rgtm_colunas_produtos_lista [data-coluna-idx]').forEach(sel=>{
-    porIdx[Number(sel.dataset.colunaIdx)] = sel.value;
+  document.querySelectorAll('#rgtm_colunas_produtos_lista [data-coluna-idx]').forEach(campo=>{
+    const i = Number(campo.dataset.colunaIdx);
+    if(!porIdx[i]) porIdx[i] = {id:'', label:''};
+    if(campo.dataset.colunaCampo==='label') porIdx[i].label = campo.value.trim();
+    else porIdx[i].id = campo.value;
   });
-  rgtmColunasProdutosLinhas = Object.keys(porIdx).sort((a,b)=>a-b).map(i=>porIdx[i]).filter(Boolean);
+  rgtmColunasProdutosLinhas = Object.keys(porIdx).sort((a,b)=>a-b).map(i=>porIdx[i]).filter(s=>s && s.id);
   return rgtmColunasProdutosLinhas;
 }
 function moverColunaProduto(i, delta){
@@ -13932,6 +13969,11 @@ function formatarDataBr(iso){
   if(!iso) return '';
   try{ return new Date(iso).toLocaleDateString('pt-BR'); }catch(e){ return String(iso); }
 }
+function formatarHoraBr(iso){
+  if(!iso) return '';
+  const m = /T?(\d{2}:\d{2}(:\d{2})?)/.exec(String(iso));
+  return m ? m[1] : String(iso);
+}
 function formatarMoeda(v){
   const n = Number(v);
   if(Number.isNaN(n)) return escaparHtml(String(v));
@@ -13968,17 +14010,31 @@ function imprimirRmMovimentacao(id){
   // linha, extras soltos no fim). Extra que existe mas não foi colocado em
   // nenhuma linha do layout também aparece solto no fim, pra nenhum dado
   // capturado sumir só por falta de configuração
+  // data/hora de emissão do cabeçalho mostram formatado (dd/mm/aaaa e
+  // hh:mm:ss) na impressão — na tela continuam seletor nativo/ISO, só a
+  // impressão formata
+  const tokenDataEmissaoImpressao = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_DATA_EMISSAO);
+  const tokenHorarioEmissaoImpressao = acharTokenPorPadrao(r.headerTokens, PADROES_HEADER_HORARIO_EMISSAO);
+  const valorHeaderFormatado = (tk)=>{
+    const v = valores[tk];
+    if(tk===tokenDataEmissaoImpressao) return formatarDataBr(v);
+    if(tk===tokenHorarioEmissaoImpressao) return formatarHoraBr(v);
+    return v;
+  };
+
   const layoutSalvo = parsearLayoutImpressao(tipo.layoutImpressao);
-  const layoutDados = layoutSalvo.length ? layoutSalvo : tokensComuns.map(tk=>[`token:${tk}`]);
-  const valorDoCampoLayout = (id)=> id.startsWith('extra:') ? extrasHeader[id.slice(6)] : valores[id.slice(6)];
-  const labelDoCampoLayout = (id)=> id.startsWith('extra:') ? id.slice(6) : labelToken(id.slice(6));
-  const camposUsadosNoLayout = new Set(layoutDados.flat().filter(id=>id.startsWith('extra:')).map(id=>id.slice(6)));
+  const layoutDados = layoutSalvo.length ? layoutSalvo : tokensComuns.map(tk=>[{id:`token:${tk}`, label:''}]);
+  // slot.label (título customizado em "Layout da Impressão") sempre vence;
+  // sem título próprio, cai no automático (nome do extra / label do token)
+  const valorDoCampoLayout = (slot)=> slot.id.startsWith('extra:') ? extrasHeader[slot.id.slice(6)] : valorHeaderFormatado(slot.id.slice(6));
+  const labelDoCampoLayout = (slot)=> slot.label || (slot.id.startsWith('extra:') ? slot.id.slice(6) : labelToken(slot.id.slice(6)));
+  const camposUsadosNoLayout = new Set(layoutDados.flat().filter(slot=>slot.id.startsWith('extra:')).map(slot=>slot.id.slice(6)));
   const extrasSoltos = Object.keys(extrasHeader).filter(c=>!camposUsadosNoLayout.has(c));
   const emParesDe2 = (arr)=>{ const out=[]; for(let i=0;i<arr.length;i+=2) out.push(arr.slice(i,i+2)); return out; };
 
   const campoHtml = (label,valor)=> (valor===undefined||valor===null||valor==='') ? '' : `<div class="campo"><label>${escaparHtml(label)}</label><div>${escaparHtml(String(valor))}</div></div>`;
   const linhaCamposHtml = (htmls)=> `<div class="linha-campos" style="grid-template-columns:repeat(${htmls.length},1fr);">${htmls.join('')}</div>`;
-  const dadosHtml = layoutDados.map(linha=>linhaCamposHtml(linha.map(id=>campoHtml(labelDoCampoLayout(id), valorDoCampoLayout(id))))).join('')
+  const dadosHtml = layoutDados.map(linha=>linhaCamposHtml(linha.map(slot=>campoHtml(labelDoCampoLayout(slot), valorDoCampoLayout(slot))))).join('')
     + emParesDe2(extrasSoltos).map(par=>linhaCamposHtml(par.map(c=>campoHtml(c, extrasHeader[c])))).join('');
 
   // colunas da tabela de Produtos: admin escolhe em "Colunas da tabela de
@@ -13987,18 +14043,18 @@ function imprimirRmMovimentacao(id){
   // que exista mas não virou coluna continua na linha itálica abaixo do
   // produto, mesma ideia do "extras soltos" da seção Dados
   const colunasSalvas = parsearColunasProdutos(tipo.colunasProdutos);
-  const colunasProdutos = colunasSalvas.length ? colunasSalvas : r.itemTokens.map(tk=>`token:${tk}`);
-  const valorDoCampoItem = (item,id)=> id.startsWith('extra:') ? (item.__extras||{})[id.slice(6)] : item[id.slice(6)];
-  const labelDoCampoItem = (id)=> id.startsWith('extra:') ? id.slice(6) : labelToken(id.slice(6));
-  const extrasUsadosComoColuna = new Set(colunasProdutos.filter(id=>id.startsWith('extra:')).map(id=>id.slice(6)));
+  const colunasProdutos = colunasSalvas.length ? colunasSalvas : r.itemTokens.map(tk=>({id:`token:${tk}`, label:''}));
+  const valorDoCampoItem = (item,slot)=> slot.id.startsWith('extra:') ? (item.__extras||{})[slot.id.slice(6)] : item[slot.id.slice(6)];
+  const labelDoCampoItem = (slot)=> slot.label || (slot.id.startsWith('extra:') ? slot.id.slice(6) : labelToken(slot.id.slice(6)));
+  const extrasUsadosComoColuna = new Set(colunasProdutos.filter(slot=>slot.id.startsWith('extra:')).map(slot=>slot.id.slice(6)));
 
   const itens = m.itens||[];
   const produtosHtml = !itens.length ? '' : `
     <h3 class="secao">Produtos</h3>
     <table>
-      <thead><tr>${colunasProdutos.map(id=>`<th>${escaparHtml(labelDoCampoItem(id))}</th>`).join('')}</tr></thead>
+      <thead><tr>${colunasProdutos.map(slot=>`<th>${escaparHtml(labelDoCampoItem(slot))}</th>`).join('')}</tr></thead>
       <tbody>${itens.map(item=>{
-        const cols = colunasProdutos.map(id=>`<td>${escaparHtml(String(valorDoCampoItem(item,id)??''))}</td>`).join('');
+        const cols = colunasProdutos.map(slot=>`<td>${escaparHtml(String(valorDoCampoItem(item,slot)??''))}</td>`).join('');
         const ex = item.__extras||{};
         const extraTxt = Object.keys(ex).filter(k=>!extrasUsadosComoColuna.has(k) && ex[k]!==undefined && ex[k]!==null && ex[k]!=='').map(k=>`${k}: ${ex[k]}`).join(' &nbsp;·&nbsp; ');
         return `<tr>${cols}</tr>${extraTxt ? `<tr class="extra-linha"><td colspan="${colunasProdutos.length}">${extraTxt}</td></tr>` : ''}`;
@@ -14027,6 +14083,8 @@ function imprimirRmMovimentacao(id){
   .barra .principal{background:#0f766e;color:#fff;}
   .barra .secundario{background:#fff;color:#0f766e;}
   .topo{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0f766e;padding-bottom:14px;margin-bottom:18px;gap:20px;}
+  .topo-emitente{display:flex;align-items:flex-start;gap:12px;}
+  .topo-logo{width:48px;height:48px;object-fit:contain;flex:none;}
   .marca{font-size:19px;font-weight:800;color:#0f766e;}
   .emitente-linha{font-size:11px;color:#666;margin-top:3px;max-width:440px;}
   .titulo{text-align:right;white-space:nowrap;}
@@ -14055,7 +14113,10 @@ function imprimirRmMovimentacao(id){
   </div>
   <div class="pagina" contenteditable="true" spellcheck="false">
     <div class="topo">
-      <div><div class="marca">${escaparHtml(emitenteNome)}</div><div class="emitente-linha">${escaparHtml(emitenteLinha2)}</div></div>
+      <div class="topo-emitente">
+        ${cliente && cliente.logoUrl ? `<img class="topo-logo" src="${cliente.logoUrl}">` : ''}
+        <div><div class="marca">${escaparHtml(emitenteNome)}</div><div class="emitente-linha">${escaparHtml(emitenteLinha2)}</div></div>
+      </div>
       <div class="titulo"><b>${escaparHtml(tipo.nome)}</b><div>Nº ${escaparHtml(numero)}</div><div>Emitida em ${escaparHtml(formatarDataBr(m.criadoEm))}</div></div>
     </div>
     <h3 class="secao">Dados</h3>
@@ -20793,7 +20854,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   renderLayoutImpressaoLinhas();
   document.getElementById('btnRgtmAddColunaProduto').addEventListener('click', ()=>{
     coletarColunasProdutosLinhas();
-    rgtmColunasProdutosLinhas.push('');
+    rgtmColunasProdutosLinhas.push({id:'', label:''});
     renderColunasProdutosLinhas();
   });
   document.getElementById('btnRgtmAtualizarCamposColunas').addEventListener('click', atualizarListasDeCampos);
@@ -22397,6 +22458,15 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   });
   document.addEventListener('click', e=>{ if(!e.target.closest('.lista-th-filtro-wrap') && !e.target.closest('#projFiltroColunaPortal')) projFecharFiltroColuna(); });
 
+  document.getElementById('cl_logo_arquivo').addEventListener('change', e=>{
+    const arquivo = e.target.files[0];
+    if(!arquivo) return;
+    clienteLogoArquivoSelecionado = arquivo;
+    const preview = document.getElementById('cl_logo_preview');
+    const leitor = new FileReader();
+    leitor.onload = ()=>{ preview.innerHTML = `<img src="${leitor.result}" style="width:100%;height:100%;object-fit:contain;">`; };
+    leitor.readAsDataURL(arquivo);
+  });
   document.getElementById('btnAddCliente').addEventListener('click', async ()=>{
     const nome = document.getElementById('cl_nome').value.trim();
     const tipo = document.getElementById('cl_tipo').value;
@@ -22409,11 +22479,18 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const rmUsuario = document.getElementById('cl_rm_usuario').value.trim();
     const rmSenha = document.getElementById('cl_rm_senha').value;
     if(!nome){ toast('Informe o nome do cliente'); return; }
+    let logoUrl = document.getElementById('cl_logo_preview').dataset.url || '';
+    if(clienteLogoArquivoSelecionado){
+      const base64 = await lerArquivoBase64(clienteLogoArquivoSelecionado);
+      const rUpload = await api('uploadImagem', { base64, tipo: clienteLogoArquivoSelecionado.type, nome: clienteLogoArquivoSelecionado.name });
+      if(!rUpload.ok){ toast('Não foi possível enviar o logo.'); return; }
+      logoUrl = rUpload.url;
+    }
     const editando = !!editandoClienteId;
     const contaId = contaAtual().id;
     const r = editando
-      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, endereco, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha })
-      : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, endereco, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha });
+      ? await api('atualizarCliente', { contaId, id: editandoClienteId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, endereco, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha, logoUrl })
+      : await api('addCliente', { contaId, nome: nome.toUpperCase(), tipo, cnpj, nomeFantasia, endereco, metaMensal, empresaId, rmUrl, rmUsuario, rmSenha, logoUrl });
     if(!r.ok){ toast(r.erro || 'Não foi possível salvar.'); return; }
     cancelarEdicaoCliente();
     await carregarTudo({ comAtendimentos: false }); renderListClientes(); popularSelects(); renderValoresForm(); renderFiltros();
